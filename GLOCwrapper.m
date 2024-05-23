@@ -92,7 +92,7 @@ T = T_full(matches(T_full.trial_id,chooseID),:);
 experimentOverview(T_full);
 
 %% Trial Overview Plots
-% Choose which variable to analyze over the course of each 
+% Choose which variable to analyze over the course of each trial overview
 %chooseVar = "HR_bpm__Equivital";
 chooseVar = "AF4_delta_EEG";
 % chooseVar = "P1_delta_EEG";
@@ -104,9 +104,13 @@ chooseVar = "AF4_delta_EEG";
 trialOverview(T, chooseID, chooseVar, saveFlag, outPath)
 
 %% Time Visualizations
+% Visualize all sensor time variables per trial
 
+% Function call
+visualizeTime(T,vars, chooseID, saveFlag, outPath)
 
 %% Acceleration Analysis
+
 
 %% Equivital Analysis
 

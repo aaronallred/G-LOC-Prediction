@@ -107,7 +107,7 @@ if saveFlag == 1
             figName,".fig");
     end
     saveas(gcf,saveNamePNG)
-    saveas(gcf,saveNameFIG)
+    %saveas(gcf,saveNameFIG)
 end
 % end chooseID loop
 end

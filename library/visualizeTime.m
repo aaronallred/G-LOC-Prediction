@@ -6,31 +6,49 @@
 % INPUTS:   T_full: full, uncleaned dataset
 % OUTPUTS:  none - displays of final counts to command window
 
-function [] = visualizeTime(T,vars, chooseID)
-
-for 
-% Create pattern to search for - we want all time related variables
-pattern = "Time_s";
-% Find names of time variables (caps sensitive)
-timeNames = stringVars(contains(vars(:,:),pattern));
-% Find where time variables exist (caps sensitive)
-[~,timeCols] = find(contains(vars(:,:),pattern));
-% Plot all together
-warning('off','all')
-figure
-hold on 
-title("Native Sensor Time Comparison")
-xlabel("Aligned Time [s]")
-ylabel("Individual Sensor Time [s]")
-plot(T, "Time_s_", timeNames)
-legend("Location","Northwest")
-hold off
-% It appears that none of the sensors dictate when trial begins - in other
-% words, no individual sensor drives elapsed time. Elapsed time likely
-% comes from a set amount of time prior to GOR spin up
-% What is the first value of the centrifuge time variable?
-centTimesReal = T{~isnan(T.Time_s__Centrifuge),1};
-disp("First non-NaN centrifuge time [s]:")
-disp(centTimesReal(1))
-
+function [] = visualizeTime(T,vars,chooseID,saveFlag,outPath)
+for i = 1:length(chooseID)
+    fprintf("Analyzing trial ID %s...\n",chooseID(i))
+    % Split 
+    Ti = T(T.trial_id == chooseID(i),:);
+    % Create pattern to search for - we want all time related variables
+    pattern = "Time_s";
+    % Find names of time variables (caps sensitive)
+    timeNames = vars(contains(vars(:,:),pattern));
+    % Find where time variables exist (caps sensitive)
+    [~,timeCols] = find(contains(vars(:,:),pattern));
+    % Plot all together
+    warning('off','all')
+    figure
+    hold on 
+    title(strcat("Native Sensor Time Comparison: Trial ",chooseID(i)))
+    xlabel("Aligned Time [s]")
+    ylabel("Individual Sensor Time [s]")
+    plot(Ti, "Time_s_", timeNames)
+    legend("Location","Northwest")
+    
+    % Save figure if flag is set to 1
+    if saveFlag == 1
+        % Set the path and name of the figure
+        figName = chooseID(i);
+        OS = ispc;
+        if OS == 0 % if Mac
+            mkdir(strcat(outPath,"/timeViz/"))
+            saveNamePNG = strcat(outPath,"/timeViz/",...
+                figName,".png");
+            saveNameFIG = strcat(outPath,"/timeViz/",...
+                figName,".fig");
+        elseif OS == 1 % if Microsoft or Linux
+            mkdir(strcat(outPath,"\timeViz\",chooseVar))
+            saveNamePNG = strcat(outPath,"\timeViz\",...
+                figName,".png");
+            saveNameFIG = strcat(outPath,"\timeViz\",...
+                figName,".fig");
+        end
+        saveas(gcf,saveNamePNG)
+        %saveas(gcf,saveNameFIG)
+    end
+% end chooseID loop
+end
+% end function
 end
