@@ -65,4 +65,8 @@ T_full = readtable(inPath); % takes about 100 sec
 % Analyze number of occurrences of trials per subject, GLOCs per subject,
 % unique events and validated events and count their occurrences
 
+% Function call
+experimentOverview(T_full);
+
+
 
