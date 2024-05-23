@@ -2,9 +2,14 @@
 % DATE CREATED: 5/23/2024
 % DATE LAST MODIFIED: 5/23/2024
 % PROJECT: G-LOC Prediction Modeling
-% DESCRIPTION: 
-% INPUTS:   T_full: full, uncleaned dataset
-% OUTPUTS:  none - displays of final counts to command window
+% DESCRIPTION: visualizes all time-related variables in one plot
+% INPUTS:   T: partitioned dataset
+%           chooseID: inputted IDs to analyze
+%           saveFlag: binary 1/0 for if plots should be saved
+%           outPath: path for figure saving
+% OUTPUTS:  none. Saves .png files for each trial overview. Can save .fig
+% files as well by uncommenting those lines of code at the bottom of the
+% fcn
 
 function [] = visualizeTime(T,vars,chooseID,saveFlag,outPath)
 for i = 1:length(chooseID)
