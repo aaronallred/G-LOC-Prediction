@@ -10,37 +10,31 @@
 % INPUTS:   T_full: full, uncleaned dataset
 % OUTPUTS:  none - displays of final counts to command window
 
-function [] = trialOverview(T, chooseID, chooseVar)
+function [] = trialOverview(T, chooseID, chooseVar, saveFlag, outPath)
+for i = length(chooseID)
 % X axis variable
 xVar = "Time_s_";
 % Acceleration y variable
 accVar = "DoubleI_O_actualGr_Centrifuge";
 
-% Split data into just this trial, trial i
-Ti = T(T.trial_id == chooseID,:);
 % Find key times throughout the trial - ie anytime event is not 'NO VALUE'
 % What are the possible values of "event_validated"?
-TiEventValid(:,1) = unique(Ti.event_validated);
-TiEventValid(:,2) = num2cell(groupcounts(Ti.event_validated));
-fprintf("Validated Events for %s:      # Occurrences:\n",...
-    chooseID)
-disp(TiEventValid)
+TEventValid(:,1) = unique(T.event_validated);
+TEventValid(:,2) = num2cell(groupcounts(T.event_validated));
+fprintf("Validated Events for %s:      # Occurrences:\n",chooseID(i))
+disp(TEventValid)
 % Checking how many string compare true values:
-% num2cell(groupcounts(strcmp(Ti.event_validated, 'NO VALUE')))
-keyTimesInd = find(~strcmp(Ti.event_validated, 'NO VALUE'));
-% Index into Ti with key time indices
-keyTimes.time = Ti.Time_s_(keyTimesInd);
-keyTimes.event_validated = Ti.event_validated(keyTimesInd);
-keyTimes.Spin_Centrifuge = Ti.Spin_Centrifuge(keyTimesInd);
+keyTimesInd = find(~strcmp(T.event_validated, 'NO VALUE'));
+% Index into T with key time indices
+keyTimes.time = T.Time_s_(keyTimesInd);
+keyTimes.event_validated = T.event_validated(keyTimesInd);
+keyTimes.Spin_Centrifuge = T.Spin_Centrifuge(keyTimesInd);
 keyTimes = struct2table(keyTimes);
-% Truncate after GLOC occurrence to disregard return to consciousness times
-% N = find(strcmp(keyTimes.event_validated, 'GLOC'));
-% keyTimes = keyTimes(1:N,:);
 
 % Create visualization
 figure
 hold on
-title(strcat("Trial Visualization for ID ",chooseID))
+title(strcat(chooseVar," Visualization for ID ",chooseID(i)))
 
 % Plot key trial times - GOR start, GOR end, ROR start, GLOC
 if any(contains(keyTimes.event_validated,'begin GOR'))
@@ -84,12 +78,27 @@ xlabel("Aligned Time [s]")
 % Left axis: chosen variable above, 'chooseVar'
 yyaxis left
 ylabel(chooseVar)
-plot(Ti,xVar,chooseVar,'LineWidth',2)
+plot(T,xVar,chooseVar,'LineWidth',2)
 % Right axis: acceleration ground truth, 'accVar'
 yyaxis right
 ylabel("Centrifuge Acceleration [G]")
-plot(Ti,xVar,accVar,'LineWidth',2)
+plot(T,xVar,accVar,'LineWidth',2)
 legend(keyTimes.event_validated)
 hold off
 
+% Save figure if flag is set to 1
+if saveFlag == 1
+    % Set the path and name of the figure
+    figName = chooseID(i);
+    OS = ispc;
+    if OS == 0 % if Mac
+        saveName = strcat(outPath,chooseVar,"/",figName,".png");
+    elseif OS == 1 % if Microsoft or Linux
+        saveName = strcat(outPath,"\",figName,".png");
+    end
+    saveas(gcf,saveName)
+end
+% end chooseID loop
+end
+% end function
 end

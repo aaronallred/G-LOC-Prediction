@@ -34,7 +34,7 @@ fileName = "all_trials_25_hz_stacked_null_str_filled.csv";
 % Trial ID to analyze 
 % Options are "all" or individual trial. Note that individual trial must 
 % be in "[two digit subject number]-[two digit trial number]" format
-chooseID = "01-01";
+chooseID = ["01-01" "01-02"];
 % Saving plots flag
 % Set to 1 to save, set to 0 to not save
 saveFlag = 1;
@@ -92,7 +92,7 @@ chooseVar = "AF4_delta_EEG";
 % chooseVar = "P8_delta_EEG";
 
 % Function call
-trialOverview(T, chooseID, chooseVar)
+trialOverview(T, chooseID, chooseVar, saveFlag, outPath)
 
 %% Time Visualizations
 
