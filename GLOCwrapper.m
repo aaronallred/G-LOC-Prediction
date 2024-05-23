@@ -48,22 +48,17 @@ end
 % Read entire data stream into table form
 T_full = readtable(inPath); % takes about 100 sec 
 
-%% Data Prep and Split
-% Prepare data table for analyses via partitioning full table into only 
-% desired trials/subjects, as dictated by the chooseID parameter
-
-% Collect table variable names for future use and put into indexable format
-% Variable names in indexable, string format name: vars
-originalVars = T_full.Properties.VariableNames;
-% Create string in non cell form
-vars = strings(1,length(originalVars));
-for i=1:length(originalVars)
-    vars(1,i) = originalVars{1,i};
-end
-
-% Split the data so that we're now only analyzing desired trials 
+%% Data Prep and Split 
+% Call function to 1) create easily indexable subject and trial columns, 
+% 2) collect and clean table variable names, and 3) split this prepared 
+% data by desired trials/subjects for easier indexing, as dictated by
+% chooseID
 % Full dataset name: T_full
 % Partioned dataset name: T
-T = T_full(T_full.trial_id == chooseID,:);
+% Trials to analyze: chooseID
+% Data variables: vars
+% Function call
+[vars,T] = cleanSplitData(T_full,chooseID);
 
-%% 
+%% Full Dataset Assessments
+
