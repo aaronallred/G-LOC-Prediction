@@ -92,7 +92,8 @@ T = T_full(matches(T_full.trial_id,chooseID),:);
 experimentOverview(T_full);
 
 %% Trial Overview Plots
-% Choose which variable to analyze over the course of each trial overview
+% Choose which variable to analyze over the course of each trial overview.
+% Choose exact name from "vars" and place in string formatting
 %chooseVar = "HR_bpm__Equivital";
 chooseVar = "AF4_delta_EEG";
 % chooseVar = "P1_delta_EEG";
@@ -111,7 +112,6 @@ visualizeTime(T,vars, chooseID, saveFlag, outPath)
 
 %% Acceleration Analysis
 
-
 %% Equivital Analysis
 
 %% fNIRS Analysis
@@ -121,4 +121,6 @@ visualizeTime(T,vars, chooseID, saveFlag, outPath)
 %% Eye-Tracking Analysis
 
 %% Clock Drift Calculations
+% Figuring out if clock drift exists per sensor
+
 
