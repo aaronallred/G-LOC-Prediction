@@ -63,17 +63,21 @@ end
 T_full = readtable(inPath); % takes about 100 sec 
 
 %% Data Prep and Split 
-% Call function to 1) create easily indexable subject and trial columns, 
-% 2) collect and clean table variable names, and 3) split this prepared 
-% data by desired trials/subjects for easier indexing, as dictated by
-% chooseID. Note that this function takes ~25 seconds to run
+% Call function to 1) create easily indexable subject and trial columns and
+% 2) collect and clean table variable names. 
+% Note that this function takes ~25 seconds to run
 % Full dataset name: T_full
 % Partioned dataset name: T
 % Trials to analyze: chooseID
 % Data variables: vars
 
 % Function call
-[vars,T,T_full] = cleanSplitData(T_full,chooseID);
+[vars,T_full] = cleanData(T_full);
+
+%% Split Data
+% Split data by desired trials/subjects for easier indexing, as dictated by
+% chooseID.
+T = T_full(T_full.trial_id == chooseID,:);
 
 %% Full Dataset Assessments
 % Analyze number of occurrences of trials per subject, GLOCs per subject,
