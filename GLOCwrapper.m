@@ -25,20 +25,45 @@
 % (Created on Mac M1 ARM chip)
 
 %% Housekeeping
+% Clean up entire workspace
 clear;clc;close all
-OS = ispc;
 
 %% User Inputs
+% Name of file to be analyzed
+fileName = "all_trials_25_hz_stacked_null_str_filled.csv";
+% Trial ID to analyze 
+% Must be in "[two digit subject number]-[two digit trial number]" format
 chooseID = "01-01";
 
 %% Data Read
+% Read in full datafile and define input and output paths based on OS
+OS = ispc;
 if OS == 0 % if Mac
-    load("./data/flow_data.mat")
-    load("./data/mask.mat")
-    outPath = "./movieOutputs/";
+    inPath = strcat("./data/",fileName);
+    outPath = "./outputs/";
 elseif OS == 1 % if Microsoft or Linux
-    load(".\data\flow_data.mat")
-    load(".\data\mask.mat")
-    outPath = ".\movieOutputs\";
+    inPath = strcat(".\data\",fileName);
+    outPath = ".\outputs\";
+end
+% Read entire data stream into table form
+T_full = readtable(inPath); % takes about 100 sec 
+
+%% Data Prep and Split
+% Prepare data table for analyses via partitioning full table into only 
+% desired trials/subjects, as dictated by the chooseID parameter
+
+% Collect table variable names for future use and put into indexable format
+% Variable names in indexable, string format name: vars
+originalVars = T_full.Properties.VariableNames;
+% Create string in non cell form
+vars = strings(1,length(originalVars));
+for i=1:length(originalVars)
+    vars(1,i) = originalVars{1,i};
 end
 
+% Split the data so that we're now only analyzing desired trials 
+% Full dataset name: T_full
+% Partioned dataset name: T
+T = T_full(T_full.trial_id == chooseID,:);
+
+%% 
