@@ -32,18 +32,32 @@ clear;clc;close all
 % Name of file to be analyzed
 fileName = "all_trials_25_hz_stacked_null_str_filled.csv";
 % Trial ID to analyze 
-% Must be in "[two digit subject number]-[two digit trial number]" format
+% Options are "all" or individual trial. Note that individual trial must 
+% be in "[two digit subject number]-[two digit trial number]" format
 chooseID = "01-01";
+% Saving plots flag
+% Set to 1 to save, set to 0 to not save
+saveFlag = 1;
 
 %% Data Read
-% Read in full datafile and define input and output paths based on OS
+% Read in full datafile and define input and output paths based on OS and
+% current date
 OS = ispc;
+date = string(datetime("today"));
 if OS == 0 % if Mac
     inPath = strcat("./data/",fileName);
-    outPath = "./outputs/";
+    outPath = strcat("./outputs/",date,"/");
 elseif OS == 1 % if Microsoft or Linux
     inPath = strcat(".\data\",fileName);
-    outPath = ".\outputs\";
+    outPath = strcat(".\outputs\",date,"\");
+end
+if saveFlag == 1
+    [status, msg] = mkdir(outPath);
+    if ~isempty(msg)
+       fprintf("Output directory already exists. Name: %s\n",outPath)
+    else
+       fprintf("Output directory successfully created. Name: %s\n",outPath)
+    end
 end
 % Read entire data stream into table form
 T_full = readtable(inPath); % takes about 100 sec 
@@ -68,5 +82,30 @@ T_full = readtable(inPath); % takes about 100 sec
 % Function call
 experimentOverview(T_full);
 
+%% Trial Overview Plots
+% Choose which variable to analyze over the course of each 
+%chooseVar = "HR_bpm__Equivital";
+chooseVar = "AF4_delta_EEG";
+% chooseVar = "P1_delta_EEG";
+% chooseVar = "Cz_delta_EEG";
+% chooseVar = "TP10_delta_EEG";
+% chooseVar = "P8_delta_EEG";
 
+% Function call
+trialOverview(T, chooseID, chooseVar)
+
+%% Time Visualizations
+
+
+%% Acceleration Analysis
+
+%% Equivital Analysis
+
+%% fNIRS Analysis
+
+%% EEG Analysis
+
+%% Eye-Tracking Analysis
+
+%% Clock Drift Calculations
 
