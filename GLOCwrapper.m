@@ -34,7 +34,8 @@ fileName = "all_trials_25_hz_stacked_null_str_filled.csv";
 % Trial ID to analyze 
 % Options are "all" or individual trial. Note that individual trial must 
 % be in "[two digit subject number]-[two digit trial number]" format
-chooseID = ["01-01" "01-02"];
+chooseID = ["01-01" "01-02" "01-03"];
+
 % Saving plots flag
 % Set to 1 to save, set to 0 to not save
 saveFlag = 1;
@@ -61,8 +62,12 @@ if saveFlag == 1
 end
 % Read entire data stream into table form
 T_full = readtable(inPath); % takes about 100 sec 
+% Prep chooseID if set to all
+if chooseID == "all"
+    chooseID = unique(T_full.trial_id);
+end
 
-%% Data Prep and Split 
+%% Data Preparation
 % Call function to 1) create easily indexable subject and trial columns and
 % 2) collect and clean table variable names. 
 % Note that this function takes ~25 seconds to run
@@ -74,10 +79,10 @@ T_full = readtable(inPath); % takes about 100 sec
 % Function call
 [vars,T_full] = cleanData(T_full);
 
-%% Split Data
+%% Data Splitting
 % Split data by desired trials/subjects for easier indexing, as dictated by
 % chooseID.
-T = T_full(T_full.trial_id == chooseID,:);
+T = T_full(matches(T_full.trial_id,chooseID),:);
 
 %% Full Dataset Assessments
 % Analyze number of occurrences of trials per subject, GLOCs per subject,
