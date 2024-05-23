@@ -20,7 +20,7 @@
 % n or the inputted series, ex. trials 1 through 10. Saving of partitioned
 % data. Saving outputted images into [wrapperOutput<Date>] divided into
 % subfolders by analysis. Each folder will have both matlab and jpg figure
-% saved per subject. 
+% saved per subject. Split the cleaning and splitting functions?
 % 
 % (Created on Mac M1 ARM chip)
 
@@ -52,13 +52,17 @@ T_full = readtable(inPath); % takes about 100 sec
 % Call function to 1) create easily indexable subject and trial columns, 
 % 2) collect and clean table variable names, and 3) split this prepared 
 % data by desired trials/subjects for easier indexing, as dictated by
-% chooseID
+% chooseID. Note that this function takes ~25 seconds to run
 % Full dataset name: T_full
 % Partioned dataset name: T
 % Trials to analyze: chooseID
 % Data variables: vars
+
 % Function call
-[vars,T] = cleanSplitData(T_full,chooseID);
+[vars,T,T_full] = cleanSplitData(T_full,chooseID);
 
 %% Full Dataset Assessments
+% Analyze number of occurrences of trials per subject, GLOCs per subject,
+% unique events and validated events and count their occurrences
+
 
