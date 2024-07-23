@@ -4,7 +4,7 @@
 % PROJECT: G-LOC Prediction Modeling
 % DESCRIPTION: Wrapper function to perform relevant analyses on base G-LOC
 % data. Analyses include data visualizations, identification and 
-% quantification of missing values, . 
+% quantification of missing values. 
 % The primary purpose of the wrapper is to input which trials to query. The
 % given G-LOC data is large, and it is advantageous to be able to only 
 % analyze one trial if necessary while being able to visualize and analyze 
@@ -15,12 +15,6 @@
 % string or numerical form. 
 % OUTPUTS: All outputs are optional. Output 1 is saved figures, both matlab
 % type and jpg. Output 2 is partitioned data based on given ID inputs. 
-% 
-% FUTURE WORK: input by subject. if input is numerical, then analyze trial
-% n or the inputted series, ex. trials 1 through 10. Saving of partitioned
-% data. Saving outputted images into [wrapperOutput<Date>] divided into
-% subfolders by analysis. Each folder will have both matlab and jpg figure
-% saved per subject. Split the cleaning and splitting functions?
 % 
 % (Created on Mac M1 ARM chip)
 
@@ -35,6 +29,7 @@ fileName = "all_trials_25_hz_stacked_null_str_filled.csv";
 % Options are "all" or individual trial. Note that individual trial must 
 % be in "[two digit subject number]-[two digit trial number]" format
 chooseID = ["01-01" "01-02" "01-03"];
+%chooseID = "all";
 
 % Saving plots flag
 % Set to 1 to save, set to 0 to not save
@@ -62,9 +57,9 @@ if saveFlag == 1
 end
 % Read entire data stream into table form
 T_full = readtable(inPath); % takes about 100 sec 
-% Prep chooseID if set to all
+%% Prep chooseID if set to all
 if chooseID == "all"
-    chooseID = unique(T_full.trial_id);
+    chooseID = string(unique(T_full.trial_id));
 end
 
 %% Data Preparation
@@ -109,18 +104,4 @@ trialOverview(T, chooseID, chooseVar, saveFlag, outPath)
 
 % Function call
 visualizeTime(T,vars, chooseID, saveFlag, outPath)
-
-%% Acceleration Analysis
-
-%% Equivital Analysis
-
-%% fNIRS Analysis
-
-%% EEG Analysis
-
-%% Eye-Tracking Analysis
-
-%% Clock Drift Calculations
-% Figuring out if clock drift exists per sensor
-
 
