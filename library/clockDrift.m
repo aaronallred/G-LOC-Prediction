@@ -5,23 +5,15 @@
 % DESCRIPTION: visualizes all time-related variables in one plot
 % INPUTS:   T: partitioned dataset
 %           chooseID: inputted IDs to analyze
-% OUTPUTS: 
-
-% THOUGHTS FOR TOMORROW: Plot mean as a line. Plot std as well. Threshold
-% for when acceleration goes up by XYZ value (for now, 0.1G, spin up rate?)
-% Plot for each trial
-% Plot for each sensor
-% In plotting, zoom in to see just GOR and just ROR. Effectively plot twice
-% and save each of these. 
-% Check out Kieran's matlab snippet
 
 %function [] = clockDrift(T,vars,chooseID)
-%for i = 1:length(chooseID)
 chooseID = "01-01";
+for i = 1:length(chooseID)
+
 
     clear keyTimes
     % Split data
-    Ti = T(T.trial_id == chooseID,:);
+    Ti = T(T.trial_id == chooseID(i),:);
     % Checking how many string compare true values:
     keyTimesInd = find(~strcmp(Ti.event_validated, 'NO VALUE'));
     % Index into T with key time indices
@@ -52,18 +44,18 @@ chooseID = "01-01";
     truthAcc = Ti.magnitude_Centrifuge;
     t = Ti.Time_s_;
     % First plot experimental acceleration
-    expAcc = Ti.magnitude_Tobii;
+    sensorAcc = Ti.magnitude_Tobii;
 
     % Normalize variables
     ZtruthAcc = (truthAcc - min(truthAcc))/(max(truthAcc)-min(truthAcc));
-    expAcc = (expAcc - min(expAcc))/(max(expAcc)-min(expAcc));
+    sensorAcc = (sensorAcc - min(sensorAcc))/(max(sensorAcc)-min(sensorAcc));
 
     % Smooth variables with Savitz-Golay to remove noise
     framelen = 51;
     truthFilt = sgolayfilt(ZtruthAcc, 3, framelen);
     % remove baseline Tobii noise?
-    expAcc = expAcc-mean(expAcc(1:100));
-    expAccFilt = sgolayfilt(expAcc, 3, framelen);
+    sensorAcc = sensorAcc-mean(sensorAcc(1:100));
+    sensorAccFilt = sgolayfilt(sensorAcc, 3, framelen);
 
     % Calculate Moving Average Mean 
     % 1 second averaging and std calculation
@@ -78,41 +70,132 @@ chooseID = "01-01";
     % will cut off the end of the data since end of data doesn't matter due
     % to its occurrence after the last validated acceleration correlation
     % point
-    shortExpAcc = expAccFilt(1:end-rem(length(expAccFilt),N));
-    shortTruthAcc = truthFilt(1:end-rem(length(expAccFilt),N));
-    shortt = t(1:end-rem(length(expAccFilt),N));
+    shortSensorAcc = sensorAccFilt(1:end-rem(length(sensorAccFilt),N));
+    shortTruthAcc = truthFilt(1:end-rem(length(sensorAccFilt),N));
+    shortt = t(1:end-rem(length(sensorAccFilt),N));
 
     % Now reshape into a matrix of N rows by (length of short vector)/N
-    matrixExpAcc = reshape(shortExpAcc,N,[]);
+    matrixSensorAcc = reshape(shortSensorAcc,N,[]);
     matrixTruthAcc = reshape(shortTruthAcc,N,[]);
  
     % Calculate mean and std for each reshaped matrix
-    avgExpAcc = mean(matrixExpAcc);
-    stdExpAcc = std(matrixExpAcc);
+    avgSensorAcc = mean(matrixSensorAcc);
+    stdSensorAcc = std(matrixSensorAcc);
     avgTruthAcc = mean(matrixTruthAcc);
     stdTruthAcc = std(matrixTruthAcc);
 
      % Keep every N values of t
-    plott = linspace(min(shortt),max(shortt),length(avgExpAcc));
+    plott = linspace(min(shortt),max(shortt),length(avgSensorAcc));
 
     % Identify when acceleration goes above threshold value
     % TBD
 
-%% Plotting results
-    figure
+    % Calculate slope of averaged data
+    sensorSlope = gradient(avgSensorAcc);
+    truthSlope = gradient(avgTruthAcc);
+
+% %% Full Plot 
+%     figure
+%     hold on 
+%     title("Tobii vs Centrifuge Acceleration Comparison")
+%     xlabel("Aligned Time [s]")
+%     ylabel("Measured Acceleration [G]")
+%     plot(t,sensorAccFilt)
+%     plot(t,truthFilt)
+%     errorbar(plott, avgSensorAcc,stdSensorAcc)
+%     errorbar(plott, avgTruthAcc,stdTruthAcc)
+%     plot(plott, sensorSlope)
+%     plot(plott, truthSlope)
+%     xline(GORstart, '-r','LineWidth',2)
+%     xline(RORstart, '-b','LineWidth',2)
+%     legend("Tobii Acceleration","Centrifuge Ground Truth",...
+%         "Averaged Tobii Acceleration","Averaged Truth Acceleration",...
+%         "Sensor Slope","Truth Slope","GOR Start","ROR Start",...
+%         "Location","northwest")
+%     hold off
+%% GOR Plots
+% find X axes of 5 seconds surrounding GOR
+GORxAxisStart = GORstart-2.5;
+GORxAxisEnd = GORstart+2.5;
+figure
     hold on 
-    title("Tobii vs Centrifuge Acceleration Comparison")
+    title(strcat...
+        ("Tobii vs Centrifuge Acceleration Comparison: GOR, Trial ",...
+        chooseID(i),", Averaged Per ",string(tWindow)," Second(s)"))
     xlabel("Aligned Time [s]")
     ylabel("Measured Acceleration [G]")
-    plot(t,expAccFilt)
+    plot(t,sensorAccFilt)
     plot(t,truthFilt)
-    errorbar(plott, avgExpAcc,stdExpAcc)
+    errorbar(plott, avgSensorAcc,stdSensorAcc)
     errorbar(plott, avgTruthAcc,stdTruthAcc)
+    plot(plott, sensorSlope)
+    plot(plott, truthSlope)
     xline(GORstart, '-r','LineWidth',2)
-    xline(RORstart, '-b','LineWidth',2)
-    legend("Tobii Acceleration","Centrifuge Ground Truth","Averaged Tobii Acceleration",...
-        "Averaged Truth Acceleration","GOR Start","ROR Start","Location","northwest")
+    legend("Tobii Acceleration","Centrifuge Ground Truth",...
+        "Averaged Tobii Acceleration","Averaged Truth Acceleration",...
+        "Sensor Slope","Truth Slope","GOR Start",...
+        "Location","northwest")
+    xlim([GORxAxisStart GORxAxisEnd])
+    ylim([-0.01 0.05])
     hold off
+    figGOR = gcf;
 
-%end
+%% ROR Plots
+% find X axes of 5 seconds surrounding ROR
+RORxAxisStart = floor(RORstart)-3;
+
+RORxAxisEnd = floor(RORstart)+2;
+figure
+    hold on 
+    title(strcat...
+        ("Tobii vs Centrifuge Acceleration Comparison: ROR, Trial ",...
+        chooseID(i),", Averaged Per ",string(tWindow)," Second(s)"))
+    xlabel("Aligned Time [s]")
+    ylabel("Measured Acceleration [G]")
+    plot(t,sensorAccFilt)
+    plot(t,truthFilt)
+    errorbar(plott, avgSensorAcc,stdSensorAcc)
+    errorbar(plott, avgTruthAcc,stdTruthAcc)
+    plot(plott, sensorSlope)
+    plot(plott, truthSlope)
+    xline(RORstart, '-b','LineWidth',2)
+    legend("Tobii Acceleration","Centrifuge Ground Truth",...
+        "Averaged Tobii Acceleration","Averaged Truth Acceleration",...
+        "Sensor Slope","Truth Slope","ROR Start",...
+        "Location","northwest")
+    xlim([RORxAxisStart RORxAxisEnd])
+    ylim([-0.02 0.05])
+    hold off
+    figROR = gcf;
+
+ %% Figure Saving
+ % Save figure if flag is set to 1
+if saveFlag == 1
+    % Set the path and name of the figure
+    figNameGOR = strcat(chooseID(i),"_GOR");
+    figNameROR = strcat(chooseID(i),"_ROR");
+    OS = ispc;
+    if OS == 0 % if Mac
+        mkdir(strcat(outPath,"/clockDrift/Tobii"))
+        saveNameGORPNG = strcat(outPath,"/clockDrift/Tobii/",...
+            figNameGOR,".png");
+        saveNameRORPNG = strcat(outPath,"/clockDrift/Tobii/",...
+            figNameROR,".png");
+%         saveNameFIG = strcat(outPath,"/clockDrift/Tobii/",...
+%             figName,".fig");
+    elseif OS == 1 % if Microsoft or Linux
+        mkdir(strcat(outPath,"\clockDrift\",sensor))
+        saveNameGORPNG = strcat(outPath,"\clockDrift\Tobii\",...
+            figNameGOR,".png");
+        saveNameRORPNG = strcat(outPath,"\clockDrift\Tobii\",...
+            figNameROR,".png");
+%         saveNameFIG = strcat(outPath,"\clockDrift\Tobii\",...
+%             figName,".fig");
+    end
+    saveas(figGOR,saveNameGORPNG)
+    saveas(figROR,saveNameRORPNG)
+    %saveas(gcf,saveNameFIG)
+end
+
+end
 %end
