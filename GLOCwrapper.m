@@ -21,6 +21,7 @@
 %% Housekeeping
 % Clean up entire workspace
 clear;clc;close all
+addpath("./library/")
 
 %% User Inputs
 % Name of file to be analyzed
@@ -29,7 +30,7 @@ fileName = "all_trials_25_hz_stacked_null_str_filled.csv";
 % Options are "all" or individual trial. Note that individual trial must 
 % be in "[two digit subject number]-[two digit trial number]" format
 chooseID = ["01-01" "01-02" "01-03"];
-%chooseID = "all";
+chooseID = "all";
 
 % Saving plots flag
 % Set to 1 to save, set to 0 to not save
@@ -55,8 +56,11 @@ if saveFlag == 1
        fprintf("Output directory successfully created. Name: %s\n",outPath)
     end
 end
+
 % Read entire data stream into table form
-T_full = readtable(inPath); % takes about 100 sec 
+
+T_full = readtable(inPath); % takes about 100 sec
+
 %% Prep chooseID if set to all
 if chooseID == "all"
     chooseID = string(unique(T_full.trial_id));
@@ -89,8 +93,8 @@ experimentOverview(T_full);
 %% Trial Overview Plots
 % Choose which variable to analyze over the course of each trial overview.
 % Choose exact name from "vars" and place in string formatting
-%chooseVar = "HR_bpm__Equivital";
-chooseVar = "AF4_delta_EEG";
+chooseVar = "HR_bpm__Equivital";
+% chooseVar = "AF4_delta_EEG";
 % chooseVar = "P1_delta_EEG";
 % chooseVar = "Cz_delta_EEG";
 % chooseVar = "TP10_delta_EEG";
