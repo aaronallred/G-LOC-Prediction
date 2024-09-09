@@ -68,13 +68,13 @@ for i = 1:length(chooseID)
     % Now let's compute binned predictors and labels
     sampleFreq = 25;
     Frequency = binFreq*sampleFreq;
-    binSize = round(length(Ti.Time_s_)/Frequency)-1;
+    binSize = round(length(Ti.Time_s_)/Frequency);
     
     predictor = zeros(binSize,1);
     label = predictor;
     for b = 1:binSize
-        pstartspot = (b)*Frequency-round(width*sampleFreq/2);
-        pendspot   = (b)*Frequency+round(width*sampleFreq/2);
+        pstartspot = (b-1)*Frequency-round(width*sampleFreq/2);
+        pendspot   = (b-1)*Frequency+round(width*sampleFreq/2);
         lstartspot = pstartspot + gap*sampleFreq;
         lendspot   = pendspot + gap*sampleFreq;
         

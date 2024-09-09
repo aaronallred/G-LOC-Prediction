@@ -69,7 +69,7 @@ chooseVar = "HR_bpm__Equivital";
 binFreq = 5; % How many seconds apart are bins?
 
 % Bin Width Size and gap between predictor and label bins
-width = 15; gap = width+0; 
+width = 15; gap = width+1; 
 
 
 % Created new FeatureGen to take varialbe stream in Table T and create
