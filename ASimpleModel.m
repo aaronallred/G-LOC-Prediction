@@ -9,7 +9,7 @@ fileName = "all_trials_25_hz_stacked_null_str_filled.csv";
 % Trial ID to analyze 
 % Options are "all" or individual trial. Note that individual trial must 
 % be in "[two digit subject number]-[two digit trial number]" format
-chooseID = ["01-01" "01-02" "03-01"];
+chooseID = ["01-01" "01-02" "01-03"];
 % chooseID = "all";
 
 % Saving plots flag
@@ -66,17 +66,29 @@ T = T_full(matches(T_full.trial_id,chooseID),:);
 %% A Simple Linear Model
 chooseVar = "HR_bpm__Equivital";
 
-binFreq = 5; % How many seconds apart are bins?
+binFreq = 1; % How many seconds apart are bins?
 
 % Bin Width Size and gap between predictor and label bins
-width = 15; gap = width+1; 
+width = 5; gap = width+1; gap = 0;
 
 
 % Created new FeatureGen to take varialbe stream in Table T and create
 % Engineered Features for use in our regression model
 [PredictorTable] = FeatureGen(T, chooseID, chooseVar, binFreq, width, gap);
 
- mdl = fitglm(PredictorTable.predictor,PredictorTable.label,...
+% Identify Nan Rows
+nanrows = PredictorTable( any(ismissing(PredictorTable),2), :);
+
+% Remove Nan Rows from missing data
+PredictorTable( any(ismissing(PredictorTable),2), :) = [];
+
+% Use SMOTE (similar to Bridget Rinkel) to oversample the 1 class
+PTarray = table2array(PredictorTable(:,1:2));
+labels = categorical(PredictorTable.label);
+% currently set to oversample by 500 percent class 1
+[PTarray_adj,new_labels_full,new_pairs,new_labels]=smote(PTarray, [0 5], 'Class', labels);
+
+ mdl = fitglm(PTarray_adj(:,1),PTarray_adj(:,2),...
               'linear','distr','binomial','link','logit');
  
  plotSlice(mdl)
