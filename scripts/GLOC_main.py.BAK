@@ -4,7 +4,7 @@ from GLOC_classifier import *
 
 if __name__ == "__main__":
     # File Name Def
-    filename = 'file.pkl'
+    filename = '../data/all_trials_25_hz_stacked_null_str_filled.csv'
 
     # Feature Info
     feature_to_analyze = 'HR (bpm) - Equivital' # currently only one feature, coming soon: ability to iterate through all features
@@ -40,8 +40,6 @@ if __name__ == "__main__":
 
     gloc_window, sliding_window_mean = sliding_window_mean_calc(time_trimmed, time_start, time_end, offset, stride, window_size, subject,
                             subject_to_analyze, trial, trial_to_analyze, feature_baseline, gloc)
-
-    EF_visualization(sliding_window_mean, gloc_window)
 
     # Training/Test Split
     # coming soon

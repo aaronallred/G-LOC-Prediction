@@ -1,10 +1,13 @@
 import numpy as np
+import pickle
 import pandas as pd
 
 def load_and_process_csv(filename, feature_to_analyze, time_variable):
     # Load CSV (can read just a chunk of the file)
     # chunksize = 10**3
-    gloc_data = pd.read_csv(filename)#, chunksize = chunksize)
+    with open(filename, 'rb') as file:
+        # Call load method to deserialze
+        gloc_data = pickle.load(file)
 
     # Separate Subject/Trial Column
     trial_id = gloc_data['trial_id'].to_numpy().astype('str')
