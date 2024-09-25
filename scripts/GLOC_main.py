@@ -6,8 +6,12 @@ if __name__ == "__main__":
     # File Name Def
     filename = '../all_trials_25_hz_stacked_null_str_filled.csv'
 
+    # Plot Flag
+    plot_data = 1
+
     # Feature Info
-    feature_to_analyze = 'HR (bpm) - Equivital' # currently only one feature, coming soon: ability to iterate through all features
+    # feature_to_analyze = 'HR (bpm) - Equivital' # currently only one feature, coming soon: ability to iterate through all features
+    feature_to_analyze = 'BR (rpm) - Equivital'
     time_variable ='Time (s)'
 
     # Data Parameters
@@ -33,13 +37,17 @@ if __name__ == "__main__":
     feature_baseline, time_trimmed = baseline_features(baseline_window, subject_to_analyze, trial_to_analyze, time, feature, subject, trial)
 
     # Visualization
-    initial_visualization(subject_to_analyze, trial_to_analyze, time, gloc, feature_baseline, subject, trial, feature_to_analyze, time_variable)
+    if plot_data == 1:
+        initial_visualization(subject_to_analyze, trial_to_analyze, time, gloc, feature_baseline, subject, trial, feature_to_analyze, time_variable)
 
     # Sliding Window Mean
     time_end = np.max(time_trimmed)
 
-    gloc_window, sliding_window_mean = sliding_window_mean_calc(time_trimmed, time_start, time_end, offset, stride, window_size, subject,
+    gloc_window, sliding_window_mean, number_windows = sliding_window_mean_calc(time_trimmed, time_start, time_end, offset, stride, window_size, subject,
                             subject_to_analyze, trial, trial_to_analyze, feature_baseline, gloc)
+
+    # Visualize sliding window mean
+    sliding_window_visualization(gloc_window, sliding_window_mean, number_windows)
 
     # Training/Test Split
     # coming soon

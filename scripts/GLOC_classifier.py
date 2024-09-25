@@ -13,3 +13,7 @@ def categorize_gloc(gloc_data):
         gloc_classifier[gloc_indices[i, 0]:rtc_indices[i, 0]] = 1
 
     return gloc_classifier
+
+#def kNN_classifier(gloc_data)
+
+

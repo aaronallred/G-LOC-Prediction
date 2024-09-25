@@ -48,4 +48,4 @@ def sliding_window_mean_calc(time_trimmed, time_start, time_end, offset, stride,
 
         time_start = stride + time_start
 
-    return gloc_window, sliding_window_mean
+    return gloc_window, sliding_window_mean, number_windows
