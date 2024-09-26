@@ -8,7 +8,6 @@ if __name__ == "__main__":
 
     # Feature Info
     feature_to_analyze = 'HR (bpm) - Equivital' # currently only one feature, coming soon: ability to iterate through all features
-    feature_to_analyze = 'AF4_delta - EEG'
     feature_to_analyze = 'AF4 - EEG'
     time_variable ='Time (s)'
 
@@ -29,9 +28,9 @@ if __name__ == "__main__":
     gloc_data, subject, trial, time, feature = load_and_process_csv(filename, feature_to_analyze, time_variable)
 
     # Plot all data
-    #plot_all(gloc_data)
-    power = "delta"
-    plot_EEG(gloc_data,power)
+    # plot_all(gloc_data)
+    # power = "delta"
+    # plot_EEG(gloc_data,power)
 
     # Identify Missing Data
     #find_missing_values(gloc_data,feature_to_analyze)
@@ -53,7 +52,8 @@ if __name__ == "__main__":
 
     EF_visualization(sliding_window_mean, gloc_window)
 
-    gam_classifier(sliding_window_mean, gloc_window)
+    gam = gam_classifier(sliding_window_mean, gloc_window)
+    print(gam.summary())
 
     # Training/Test Split
     # coming soon

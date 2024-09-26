@@ -36,8 +36,13 @@ def gam_classifier(X,y):
     ax.plot(XX[:, i], gam.partial_dependence(term=i, X=XX))
     ax.plot(XX[:, i], gam.partial_dependence(term=i, X=XX, width=.95)[1], c='r', ls='--')
     plt.scatter(X, y, facecolor='gray', edgecolors='none')
+
+    # continuing last example with the mcycle dataset
+    for response in gam.sample(X, y, quantity='y', n_draws=50, sample_at_X=XX):
+        plt.scatter(XX, response, alpha=.03, color='k')
+
     ax.set_title(titles[i]);
 
     plt.show()
 
-    gam.summary()
+    return gam
