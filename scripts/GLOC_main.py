@@ -8,7 +8,8 @@ if __name__ == "__main__":
 
     # Feature Info
     feature_to_analyze = 'HR (bpm) - Equivital' # currently only one feature, coming soon: ability to iterate through all features
-    feature_to_analyze = 'magnitude - fNIRS'
+    feature_to_analyze = 'AF4_delta - EEG'
+    feature_to_analyze = 'AF4 - EEG'
     time_variable ='Time (s)'
 
     # Data Parameters
@@ -29,6 +30,7 @@ if __name__ == "__main__":
 
     # Plot all data
     #plot_all(gloc_data)
+    #plot_EEG(gloc_data)
 
     # Identify Missing Data
     #find_missing_values(gloc_data,feature_to_analyze)

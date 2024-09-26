@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 X, y = wage(return_X_y=True)
 
 ## model
-gam = GAM(s(0, n_splines=5) + s(1) + f(2) + s(3), distribution= 'binomial', link= 'logit')
+gam = GAM(s(0, n_splines=20) + s(1) + f(2) + s(3), distribution= 'binomial', link= 'logit')
 gam.fit(X, y)
 
 ## plotting
