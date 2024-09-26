@@ -1,5 +1,6 @@
 from matplotlib import pyplot as plt
 import numpy as np
+import os
 
 def initial_visualization(subject_to_plot, trial_to_plot, time, gloc, feature_baseline, subject, trial, feature_to_analyze, time_variable):
     plot_index = (subject == subject_to_plot) & (trial == trial_to_plot)
@@ -21,6 +22,45 @@ def EF_visualization(feature,label):
     plt.ylabel('Feature / Label')
     plt.legend()
     plt.title('Engineered Feature-Label Pairs')
-    plt.show()
+    plt.show(block=False)
 
+def plot_all(gloc_data):
+    # Define the columns to be excluded from plotting
+    grouping_column = 'trial_id'
+    x_axis_column = 'Time (s)'
+    exclude1 = list(gloc_data.columns[0:23])
+    exclude2 = list(gloc_data.columns[26:40])
+    exclude3 = list(gloc_data.columns[42:52])
+    exclude4 = list(gloc_data.columns[54:55])
+    exclude5 = list(gloc_data.columns[56:55])
+    exclude6 = list(gloc_data.columns[57:])
+    exclude = exclude1+exclude2+exclude3+exclude4+exclude5+exclude6
 
+    # Get all columns except the grouping and x-axis column
+    columns_to_plot = [col for col in gloc_data.columns if col not in [grouping_column, x_axis_column]+exclude]
+
+    # Group by 'trial id'
+    grouped = gloc_data.groupby(grouping_column)
+
+    # Loop through each group and plot every column
+
+    for trial_id, group in grouped:
+        plt.figure(figsize=(10, 6))
+
+        # Plot each column in 'columns_to_plot' against 'Time (s)'
+        for col in columns_to_plot:
+            plt.plot(group[x_axis_column], group[col], label=col)
+
+        plt.title(f'Trial ID: {trial_id}')
+        plt.xlabel(x_axis_column)
+        plt.ylabel('Measurements')
+        plt.legend()
+        plt.grid(True)
+        #plt.show()
+
+        directory = "./output/"  # Replace with your desired directory
+        filename = str(trial_id)+".png"
+        file_path = os.path.join(directory, filename)
+
+        # Save the plot
+        plt.savefig(file_path)

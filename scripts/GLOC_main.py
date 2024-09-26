@@ -8,6 +8,7 @@ if __name__ == "__main__":
 
     # Feature Info
     feature_to_analyze = 'HR (bpm) - Equivital' # currently only one feature, coming soon: ability to iterate through all features
+    feature_to_analyze = 'magnitude - fNIRS'
     time_variable ='Time (s)'
 
     # Data Parameters
@@ -26,6 +27,12 @@ if __name__ == "__main__":
     # Process CSV
     gloc_data, subject, trial, time, feature = load_and_process_csv(filename, feature_to_analyze, time_variable)
 
+    # Plot all data
+    #plot_all(gloc_data)
+
+    # Identify Missing Data
+    #find_missing_values(gloc_data,feature_to_analyze)
+
     # Create GLOC Categorical Vector
     gloc = categorize_gloc(gloc_data)
 
@@ -42,6 +49,8 @@ if __name__ == "__main__":
                             subject_to_analyze, trial, trial_to_analyze, feature_baseline, gloc)
 
     EF_visualization(sliding_window_mean, gloc_window)
+
+    gam_classifier(sliding_window_mean, gloc_window)
 
     # Training/Test Split
     # coming soon

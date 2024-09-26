@@ -19,6 +19,11 @@ def load_and_process_csv(filename, feature_to_analyze, time_variable):
 
     return gloc_data, subject, trial, time, feature
 
+def find_missing_values(gloc_data,feature_to_analyze):
+    nan_indices = gloc_data.isna().stack()
+    missing_heart_rate = gloc_data[gloc_data[feature_to_analyze].isna()]
+    subject_ids_missing = missing_heart_rate['trial_id']
+
 def baseline_features(baseline_window, subject_to_plot, trial_to_plot, time, feature, subject, trial):
     # Baseline Feature
     baseline_feature = np.mean(feature[(time<baseline_window) & \
