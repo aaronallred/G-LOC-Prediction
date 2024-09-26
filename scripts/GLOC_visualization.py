@@ -65,14 +65,27 @@ def plot_all(gloc_data):
         # Save the plot
         plt.savefig(file_path)
 
-def plot_EEG(gloc_data):
+def plot_EEG(gloc_data,datatype):
     # Define the columns to be excluded from plotting
     grouping_column = 'trial_id'
     x_axis_column = 'Time (s)'
-    exclude1 = list(gloc_data.columns[0:56])
-    exclude2 = list(gloc_data.columns[88:221])
-    exclude3 = list(gloc_data.columns[225:])
-    exclude = exclude1+exclude2+exclude3
+
+    if datatype == "raw":
+        exclude1 = list(gloc_data.columns[0:56])
+        exclude2 = list(gloc_data.columns[88:221])
+        exclude3 = list(gloc_data.columns[225:])
+        exclude = exclude1 + exclude2 + exclude3
+    elif datatype == "delta":
+        exclude1 = list(gloc_data.columns[0:93])
+        exclude2 = list(gloc_data.columns[125:])
+        exclude = exclude1 + exclude2
+    elif datatype == "theta":
+        exclude1 = list(gloc_data.columns[0:125])
+        exclude2 = list(gloc_data.columns[157:])
+        exclude = exclude1 + exclude2
+    else:
+        print("Unknown datatype.")
+
 
     # Get all columns except the grouping and x-axis column
     columns_to_plot = [col for col in gloc_data.columns if col not in [grouping_column, x_axis_column]+exclude]
@@ -96,7 +109,7 @@ def plot_EEG(gloc_data):
         plt.grid(True)
         #plt.show()
 
-        directory = "./output/EEG"  # Replace with your desired directory
+        directory = "./output/EEG/"+ datatype +"/"  # Replace with your desired directory
         filename = str(trial_id)+".png"
         file_path = os.path.join(directory, filename)
 

@@ -30,7 +30,8 @@ if __name__ == "__main__":
 
     # Plot all data
     #plot_all(gloc_data)
-    #plot_EEG(gloc_data)
+    power = "delta"
+    plot_EEG(gloc_data,power)
 
     # Identify Missing Data
     #find_missing_values(gloc_data,feature_to_analyze)
