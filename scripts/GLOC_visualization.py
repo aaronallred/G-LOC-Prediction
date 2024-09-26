@@ -1,4 +1,5 @@
 from matplotlib import pyplot as plt
+import matplotlib.font_manager as font_manager
 import numpy as np
 import os
 
@@ -96,6 +97,7 @@ def plot_EEG(gloc_data,datatype):
     # Loop through each group and plot every column
 
     for trial_id, group in grouped:
+        plt.ioff()
         plt.figure(figsize=(10, 6))
 
         # Plot each column in 'columns_to_plot' against 'Time (s)'
@@ -105,8 +107,8 @@ def plot_EEG(gloc_data,datatype):
         plt.title(f'Trial ID: {trial_id}')
         plt.xlabel(x_axis_column)
         plt.ylabel('Measurements')
-        plt.legend()
-        plt.grid(True)
+        font = font_manager.FontProperties(size=5)
+        plt.legend(prop=font)
         #plt.show()
 
         directory = "./output/EEG/"+ datatype +"/"  # Replace with your desired directory
