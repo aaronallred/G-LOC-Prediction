@@ -4,14 +4,14 @@ from GLOC_classifier import *
 
 if __name__ == "__main__":
     # File Name Def
-    filename = '../all_trials_25_hz_stacked_null_str_filled.csv'
+    filename = '../../all_trials_25_hz_stacked_null_str_filled.csv'
 
     # Plot Flag
     plot_data = 1
 
     # Feature Info
-    # feature_to_analyze = 'HR (bpm) - Equivital' # currently only one feature, coming soon: ability to iterate through all features
-    feature_to_analyze = 'BR (rpm) - Equivital'
+    feature_to_analyze = 'HR (bpm) - Equivital' # currently only one feature, coming soon: ability to iterate through all features
+    # feature_to_analyze = 'BR (rpm) - Equivital'
     time_variable ='Time (s)'
 
     # Data Parameters
@@ -19,13 +19,13 @@ if __name__ == "__main__":
     trial_to_analyze = '01' # currently only one trial, coming soon: ability to iterate through all trials
 
     baseline_window = 10 # seconds
-    window_size = 10 # seconds
-    stride = 1 # seconds
-    offset = 10 # seconds
-    time_start = 0
+    window_size = 10     # seconds
+    stride = 1           # seconds
+    offset = 10          # seconds
+    time_start = 0       # seconds
 
     # ML Splits
-    # coming soon (add line here to specify subject splits for trianing/test data)
+    training_ratio = 0.8
 
     # Process CSV
     gloc_data, subject, trial, time, feature = load_and_process_csv(filename, feature_to_analyze, time_variable)
@@ -49,11 +49,14 @@ if __name__ == "__main__":
     # Visualize sliding window mean
     sliding_window_visualization(gloc_window, sliding_window_mean, number_windows)
 
-    # Training/Test Split
-    # coming soon
-
     # Call functions for ML classification
-    # coming soon
+
+    # Logistic Regression
+    classify_logistic_regression(gloc_window, sliding_window_mean, training_ratio)
+
+    # RF
+
+    # KNN
 
     # Breakpoint for troubleshooting
     x = 1
