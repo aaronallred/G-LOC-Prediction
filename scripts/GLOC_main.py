@@ -27,8 +27,9 @@ if __name__ == "__main__":
     # Process CSV
     gloc_data, subject, trial, time, feature = load_and_process_csv(filename, feature_to_analyze, time_variable)
 
-    # Plot all data
-    # plot_all(gloc_data)
+    # Plot core data
+    core_predictors = ['HR (bpm) - Equivital', 'BR (rpm) - Equivital', 'Hbd - fNIRS', 'Pupil diameter left [mm] - Tobii', 'Pupil diameter right [mm] - Tobii']
+    plot_core_predictors(gloc_data, core_predictors)
     # power = "delta"
     # plot_EEG(gloc_data,power)
 

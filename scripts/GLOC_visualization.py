@@ -25,20 +25,14 @@ def EF_visualization(feature,label):
     plt.title('Engineered Feature-Label Pairs')
     plt.show()
 
-def plot_all(gloc_data):
+def plot_core_predictors(gloc_data, core_predictors):
+    plt.ioff()
     # Define the columns to be excluded from plotting
     grouping_column = 'trial_id'
     x_axis_column = 'Time (s)'
-    exclude1 = list(gloc_data.columns[0:23])
-    exclude2 = list(gloc_data.columns[26:40])
-    exclude3 = list(gloc_data.columns[42:52])
-    exclude4 = list(gloc_data.columns[54:55])
-    exclude5 = list(gloc_data.columns[56:55])
-    exclude6 = list(gloc_data.columns[57:])
-    exclude = exclude1+exclude2+exclude3+exclude4+exclude5+exclude6
 
     # Get all columns except the grouping and x-axis column
-    columns_to_plot = [col for col in gloc_data.columns if col not in [grouping_column, x_axis_column]+exclude]
+    columns_to_plot = [col for col in core_predictors]
 
     # Group by 'trial id'
     grouped = gloc_data.groupby(grouping_column)
@@ -59,7 +53,7 @@ def plot_all(gloc_data):
         plt.grid(True)
         #plt.show()
 
-        directory = "./output/"  # Replace with your desired directory
+        directory = "./output/core/"  # Replace with your desired directory
         filename = str(trial_id)+".png"
         file_path = os.path.join(directory, filename)
 
