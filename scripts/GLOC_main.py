@@ -70,8 +70,11 @@ if __name__ == "__main__":
     classify_random_forest(gloc_window, sliding_window_mean, training_ratio, all_features)
 
     # LDA
+    classify_lda(gloc_window, sliding_window_mean, training_ratio, all_features)
 
     # KNN
+
+    # SVM
 
     # Ensemble with Gradient Boosting
 

@@ -37,6 +37,7 @@ def check_for_aloc(gloc_data):
     return other_vals_event, other_vals_event_validated
 
 # Logistic Regression Classifier
+# USING RANDOM STATE = 42
 def classify_logistic_regression(gloc_window, sliding_window_mean, training_ratio, all_features):
 
     # Train/Test Split
@@ -92,6 +93,8 @@ def classify_logistic_regression(gloc_window, sliding_window_mean, training_rati
     #     plt.ylabel('Predicted')
     #     plt.show()
 
+# Random Forest Classifier
+# USING RANDOM STATE = 42
 def classify_random_forest(gloc_window, sliding_window_mean, training_ratio, all_features):
     x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window,
                                                                     test_size=(1 - training_ratio), random_state=42)
@@ -119,8 +122,32 @@ def classify_random_forest(gloc_window, sliding_window_mean, training_ratio, all
                    filled=True)
     plt.show()
 
-# def classify_lda(gloc_window, sliding_window_mean, training_ratio, all_features):
+# Linear Discriminant Analysis
+# USING RANDOM STATE = 42
+def classify_lda(gloc_window, sliding_window_mean, training_ratio, all_features):
+    x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window,
+                                                                    test_size=(1 - training_ratio), random_state=42)
 
+    # Use Default Parameters & Fit Model
+    lda = LinearDiscriminantAnalysis().fit(x_training, np.ravel(y_training))
+
+    # Predict
+    label_predictions = lda.predict(x_testing)
+
+    # Assess Performance
+    print("\nLinear Discriminant Analysis Performance Metrics:")
+    print("Accuracy: ", metrics.accuracy_score(y_testing, label_predictions))
+    print("Precision: ", metrics.precision_score(y_testing, label_predictions))
+    print("Recall: ", metrics.recall_score(y_testing, label_predictions))
+    print("F1 Score: ", metrics.f1_score(y_testing, label_predictions))
+
+# k Nearest Neighbors
+# USING RANDOM STATE = 42
 # def classify_kNN(gloc_window, sliding_window_mean, training_ratio, all_features):
 
+# Support Vector Machine
+# USING RANDOM STATE = 42
+
+# Ensemble Learner with Gradient Boost
+# USING RANDOM STATE = 42
 # def classify_ensemble_with_gradboost(gloc_window, sliding_window_mean, training_ratio, all_features):
