@@ -125,6 +125,7 @@ def classify_random_forest(gloc_window, sliding_window_mean, training_ratio, all
 # Linear Discriminant Analysis
 # USING RANDOM STATE = 42
 def classify_lda(gloc_window, sliding_window_mean, training_ratio, all_features):
+
     x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window,
                                                                     test_size=(1 - training_ratio), random_state=42)
 
@@ -140,6 +141,18 @@ def classify_lda(gloc_window, sliding_window_mean, training_ratio, all_features)
     print("Precision: ", metrics.precision_score(y_testing, label_predictions))
     print("Recall: ", metrics.recall_score(y_testing, label_predictions))
     print("F1 Score: ", metrics.f1_score(y_testing, label_predictions))
+
+    # Visualize LDA
+    # if dimensionality is reduced
+    # tmp_Df = pd.DataFrame(x_training, columns=['LDA Component 1', 'LDA Component 2'])
+    # tmp_Df['Class'] = y_train
+    #
+    # sns.FacetGrid(tmp_Df, hue="Class",
+    #               height=6).map(plt.scatter,
+    #                             'LDA Component 1',
+    #                             'LDA Component 2')
+    #
+    # plt.legend(loc='upper right')
 
 # k Nearest Neighbors
 # USING RANDOM STATE = 42

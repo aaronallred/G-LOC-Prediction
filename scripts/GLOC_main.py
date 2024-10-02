@@ -8,6 +8,7 @@ if __name__ == "__main__":
 
     # Plot Flag
     plot_data = 0
+    plot_pairwise = 1
 
     # Feature Info
     # Options:
@@ -47,7 +48,7 @@ if __name__ == "__main__":
     # Baseline Feature for Subject/Trial
     feature_baseline, time_trimmed = baseline_features(baseline_window, subject_to_analyze, trial_to_analyze, time, feature, subject, trial)
 
-    # Visualization
+    # Visualization of feature throughout trial
     if plot_data == 1:
         initial_visualization(subject_to_analyze, trial_to_analyze, time, gloc, feature_baseline, subject, trial, feature_to_analyze, time_variable, all_features)
 
@@ -61,7 +62,11 @@ if __name__ == "__main__":
     if plot_data == 1:
         sliding_window_visualization(gloc_window, sliding_window_mean, number_windows, all_features)
 
-    # Call functions for ML classification
+    # Visualization of pairwise features
+    if plot_pairwise == 1:
+        pairwise_visualization(gloc_window, sliding_window_mean, all_features)
+
+    ## Call functions for ML classification ##
 
     # Logistic Regression
     classify_logistic_regression(gloc_window, sliding_window_mean, training_ratio, all_features)
