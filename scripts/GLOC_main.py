@@ -7,7 +7,7 @@ if __name__ == "__main__":
     filename = '../../all_trials_25_hz_stacked_null_str_filled.csv'
 
     # Plot Flag
-    plot_data = 1
+    plot_data = 0
 
     # Feature Info
     # Options:
@@ -58,7 +58,8 @@ if __name__ == "__main__":
                             subject_to_analyze, trial, trial_to_analyze, feature_baseline, gloc)
 
     # Visualize sliding window mean
-    sliding_window_visualization(gloc_window, sliding_window_mean, number_windows, all_features)
+    if plot_data == 1:
+        sliding_window_visualization(gloc_window, sliding_window_mean, number_windows, all_features)
 
     # Call functions for ML classification
 
@@ -66,8 +67,14 @@ if __name__ == "__main__":
     classify_logistic_regression(gloc_window, sliding_window_mean, training_ratio, all_features)
 
     # RF
+    classify_random_forest(gloc_window, sliding_window_mean, training_ratio, all_features)
+
+    # LDA
 
     # KNN
+
+    # Ensemble with Gradient Boosting
+
 
     # Breakpoint for troubleshooting
     x = 1

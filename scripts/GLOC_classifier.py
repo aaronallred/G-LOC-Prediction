@@ -7,6 +7,9 @@ from matplotlib import pyplot as plt
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.datasets import make_classification
+from sklearn.tree import plot_tree
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+
 
 def categorize_gloc(gloc_data):
     # Create GLOC Classifier Vector
@@ -33,8 +36,6 @@ def check_for_aloc(gloc_data):
     other_vals_event_validated = aloc_search_event_validated[aloc_indices_event_validated]
     return other_vals_event, other_vals_event_validated
 
-#def kNN_classifier(gloc_data)
-
 # Logistic Regression Classifier
 def classify_logistic_regression(gloc_window, sliding_window_mean, training_ratio, all_features):
 
@@ -48,6 +49,7 @@ def classify_logistic_regression(gloc_window, sliding_window_mean, training_rati
     label_predictions = logreg.predict(x_testing)
 
     # Assess Performance
+    print("\nLogistic Regression Performance Metrics:")
     print("Accuracy: ", metrics.accuracy_score(y_testing, label_predictions))
     print("Precision: ", metrics.precision_score(y_testing, label_predictions))
     print("Recall: ", metrics.recall_score(y_testing, label_predictions))
@@ -90,27 +92,35 @@ def classify_logistic_regression(gloc_window, sliding_window_mean, training_rati
     #     plt.ylabel('Predicted')
     #     plt.show()
 
-# def classify_random_forest(gloc_window, sliding_window_mean, training_ratio):
-#     x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window,
-#                                                                     test_size=(1 - training_ratio), random_state=42)
-#
-#     # Use Default Parameters & Fit Model
-#     logreg = (class_weight="balanced", random_state=42).fit(x_training, y_training)
-#
-#     # Predict
-#     label_predictions = logreg.predict(x_testing)
-#
-#     # Assess Performance
-#     print("Accuracy: ", metrics.accuracy_score(y_testing, label_predictions))
-#     print("Precision: ", metrics.precision_score(y_testing, label_predictions))
-#     print("Recall: ", metrics.recall_score(y_testing, label_predictions))
-#     print("F1 Score: ", metrics.f1_score(y_testing, label_predictions))
-#     X, y = make_classification(n_samples=1000, n_features=1,
-#                                n_informative=2, n_redundant=0,
-#                                random_state=0, shuffle=False)
-#     clf = RandomForestClassifier(max_depth=2, random_state=0)
-#
-#     clf.fit(X, y)
-#     RandomForestClassifier(...)
-#
-#     print(clf.predict([[0, 0, 0, 0]]))
+def classify_random_forest(gloc_window, sliding_window_mean, training_ratio, all_features):
+    x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window,
+                                                                    test_size=(1 - training_ratio), random_state=42)
+
+    # Use Default Parameters & Fit Model
+    rf = RandomForestClassifier(class_weight="balanced", random_state=42).fit(x_training, np.ravel(y_training))
+
+    # Predict
+    label_predictions = rf.predict(x_testing)
+
+    # Assess Performance
+    print("\nRandom Forest Performance Metrics:")
+    print("Accuracy: ", metrics.accuracy_score(y_testing, label_predictions))
+    print("Precision: ", metrics.precision_score(y_testing, label_predictions))
+    print("Recall: ", metrics.recall_score(y_testing, label_predictions))
+    print("F1 Score: ", metrics.f1_score(y_testing, label_predictions))
+
+    # Visualize Decision Tree
+    fn = all_features
+    cn = ['No GLOC', 'GLOC']
+    fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(4, 4), dpi=800)
+    plot_tree(rf.estimators_[0],
+                   feature_names=fn,
+                   class_names=cn,
+                   filled=True)
+    plt.show()
+
+# def classify_lda(gloc_window, sliding_window_mean, training_ratio, all_features):
+
+# def classify_kNN(gloc_window, sliding_window_mean, training_ratio, all_features):
+
+# def classify_ensemble_with_gradboost(gloc_window, sliding_window_mean, training_ratio, all_features):
