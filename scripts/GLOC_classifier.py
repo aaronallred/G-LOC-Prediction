@@ -22,10 +22,20 @@ def categorize_gloc(gloc_data):
 
     return gloc_classifier
 
+def check_for_aloc(gloc_data):
+    aloc_search_event = gloc_data['event'].to_numpy()
+    aloc_search_event_validated = gloc_data['event_validated'].to_numpy()
+    aloc_indices_event = np.argwhere((aloc_search_event != 'GLOC') & (aloc_search_event != 'NO VALUE'))
+    aloc_indices_event_validated = np.argwhere((aloc_search_event_validated != 'GLOC') & (aloc_search_event_validated != 'NO VALUE'))
+
+    other_vals_event = aloc_search_event[aloc_indices_event]
+    other_vals_event_validated = aloc_search_event_validated[aloc_indices_event_validated]
+    return other_vals_event, other_vals_event_validated
+
 #def kNN_classifier(gloc_data)
 
 # Logistic Regression Classifier
-def classify_logistic_regression(gloc_window, sliding_window_mean, training_ratio):
+def classify_logistic_regression(gloc_window, sliding_window_mean, training_ratio, all_features):
 
     # Train/Test Split
     x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window, test_size=(1-training_ratio), random_state=42)
@@ -59,23 +69,24 @@ def classify_logistic_regression(gloc_window, sliding_window_mean, training_rati
     plt.show()
 
     # Plot 0/1 Classification
-    x_test_squeeze = x_testing.squeeze()
-    y_test_squeeze = y_testing.squeeze()
-    sns.scatterplot(x=x_test_squeeze, y=label_predictions, hue=y_test_squeeze)
-    plt.title('GLOC Classification- Logistic Regression')
-    plt.xlabel('HR (bpm)')
-    plt.ylabel('Predicted')
-    plt.legend()
-    plt.show()
+    for i in range(np.size(sliding_window_mean,1)):
+        x_test_squeeze = x_testing[:,i].squeeze()
+        y_test_squeeze = y_testing.squeeze()
+        sns.scatterplot(x=x_test_squeeze, y=label_predictions, hue=y_test_squeeze)
+        plt.title('GLOC Classification- Logistic Regression')
+        plt.xlabel(all_features[i])
+        plt.ylabel('Predicted')
+        plt.legend()
+        plt.show()
 
-    # Plot Logistic Regression
-    fig, ax = plt.subplots()
-    y_prob = logreg.predict_proba(x_testing)
-    sns.scatterplot(x=x_test_squeeze, y=y_prob[:, 1], hue=y_test_squeeze)
-    plt.title('GLOC Classification- Logistic Regression')
-    plt.xlabel('HR (bpm)')
-    plt.ylabel('Predicted')
-    plt.show()
+        # Plot Logistic Regression
+        fig, ax = plt.subplots()
+        y_prob = logreg.predict_proba(x_testing)
+        sns.scatterplot(x=x_test_squeeze, y=y_prob[:, 1], hue=y_test_squeeze)
+        plt.title('GLOC Classification- Logistic Regression')
+        plt.xlabel(all_features[i])
+        plt.ylabel('Predicted')
+        plt.show()
 
 # def classify_random_forest(gloc_window, sliding_window_mean, training_ratio):
 #     x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window,
