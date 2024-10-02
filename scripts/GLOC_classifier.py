@@ -11,11 +11,12 @@ from sklearn.datasets import make_classification
 def categorize_gloc(gloc_data):
     # Create GLOC Classifier Vector
     event = gloc_data['event'].to_numpy()
-    event_validated = gloc_data['event_validated'].to_numpy()
+    # event_validated = gloc_data['event_validated'].to_numpy()
     gloc_classifier = np.zeros(event.shape)
 
+    # Currently only looking at event column. Should add logic to verify with event_validated
     gloc_indices = np.argwhere(event == 'GLOC')
-    rtc_indices = np.argwhere(event_validated == 'return to consciousness')
+    rtc_indices = np.argwhere(event == 'return to consciousness')
 
     for i in range(gloc_indices.shape[0]):
         gloc_classifier[gloc_indices[i, 0]:rtc_indices[i, 0]] = 1
@@ -41,7 +42,7 @@ def classify_logistic_regression(gloc_window, sliding_window_mean, training_rati
     x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window, test_size=(1-training_ratio), random_state=42)
 
     # Use Default Parameters & Fit Model
-    logreg = LogisticRegression(class_weight = "balanced", random_state=42).fit(x_training, y_training)
+    logreg = LogisticRegression(class_weight = "balanced", random_state=42).fit(x_training, np.ravel(y_training))
 
     # Predict
     label_predictions = logreg.predict(x_testing)
@@ -68,25 +69,26 @@ def classify_logistic_regression(gloc_window, sliding_window_mean, training_rati
     plt.xlabel('Predicted label')
     plt.show()
 
-    # Plot 0/1 Classification
-    for i in range(np.size(sliding_window_mean,1)):
-        x_test_squeeze = x_testing[:,i].squeeze()
-        y_test_squeeze = y_testing.squeeze()
-        sns.scatterplot(x=x_test_squeeze, y=label_predictions, hue=y_test_squeeze)
-        plt.title('GLOC Classification- Logistic Regression')
-        plt.xlabel(all_features[i])
-        plt.ylabel('Predicted')
-        plt.legend()
-        plt.show()
 
-        # Plot Logistic Regression
-        fig, ax = plt.subplots()
-        y_prob = logreg.predict_proba(x_testing)
-        sns.scatterplot(x=x_test_squeeze, y=y_prob[:, 1], hue=y_test_squeeze)
-        plt.title('GLOC Classification- Logistic Regression')
-        plt.xlabel(all_features[i])
-        plt.ylabel('Predicted')
-        plt.show()
+    # Plot 0/1 Classification
+    # for i in range(np.size(sliding_window_mean,1)):
+    #     x_test_squeeze = x_testing[:,i].squeeze()
+    #     y_test_squeeze = y_testing.squeeze()
+    #     sns.scatterplot(x=x_test_squeeze, y=label_predictions, hue=y_test_squeeze)
+    #     plt.title('GLOC Classification- Logistic Regression')
+    #     plt.xlabel(all_features[i])
+    #     plt.ylabel('Predicted')
+    #     plt.legend()
+    #     plt.show()
+    #
+    #     # Plot Logistic Regression
+    #     fig, ax = plt.subplots()
+    #     y_prob = logreg.predict_proba(x_testing)
+    #     sns.scatterplot(x=x_test_squeeze, y=y_prob[:, 1], hue=y_test_squeeze)
+    #     plt.title('GLOC Classification- Logistic Regression')
+    #     plt.xlabel(all_features[i])
+    #     plt.ylabel('Predicted')
+    #     plt.show()
 
 # def classify_random_forest(gloc_window, sliding_window_mean, training_ratio):
 #     x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window,
