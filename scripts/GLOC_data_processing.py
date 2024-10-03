@@ -66,8 +66,9 @@ def load_and_process_csv(filename, feature_to_analyze, time_variable):
     all_features = ecg_features + br_features + temp_features + fnirs_features + eyetracking_features + eeg_features
 
     feature = gloc_data[all_features].to_numpy()
+    g = gloc_data['magnitude - Centrifuge']
 
-    return gloc_data, subject, trial, time, feature, all_features
+    return gloc_data, subject, trial, time, feature, all_features, g
 
 def baseline_features(baseline_window, subject_to_plot, trial_to_plot, time, feature, subject, trial):
     # Baseline Feature

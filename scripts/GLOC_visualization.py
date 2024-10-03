@@ -2,13 +2,15 @@ from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from sklearn import metrics
 
-def initial_visualization(subject_to_plot, trial_to_plot, time, gloc, feature_baseline, subject, trial, feature_to_analyze, time_variable, all_features):
+def initial_visualization(subject_to_plot, trial_to_plot, time, gloc, feature_baseline, subject, trial, feature_to_analyze, time_variable, all_features, g):
     for i in range(np.size(feature_baseline, 1)):
         plot_index = (subject == subject_to_plot) & (trial == trial_to_plot)
         fig, ax = plt.subplots()
         ax.plot(time[plot_index], gloc[plot_index], label='g-loc')
         ax.plot(time[plot_index], feature_baseline[:,i], label='feature baseline')
+        ax.plot(time[plot_index], g[plot_index], label='centrifuge g')
         plt.xlabel(time_variable)
         plt.ylabel(all_features[i])
         plt.legend()
@@ -38,4 +40,21 @@ def pairwise_visualization(gloc_window, sliding_window_mean, all_features):
         ax, "lower center",
         bbox_to_anchor=(.5, 1), ncol=3, title=None, frameon=False)
     plt.tight_layout()
+    plt.show()
+
+def create_confusion_matrix(y_testing, label_predictions, model_type):
+    # Create Confusion Matrix
+    confusion_matrix = metrics.confusion_matrix(y_testing, label_predictions)
+
+    # Plot Confusion Matrix
+    prediction_names = ['No GLOC', 'GLOC']
+    fig, ax = plt.subplots()
+    tick_marks = np.arange(len(prediction_names))
+    plt.xticks(tick_marks, prediction_names)
+    plt.yticks(tick_marks, prediction_names)
+    sns.heatmap(pd.DataFrame(confusion_matrix), annot=True, cmap="YlGnBu", fmt='g')
+    ax.xaxis.set_label_position("top")
+    plt.title(f'Confusion matrix: {model_type}', y=1.1)
+    plt.ylabel('Actual label')
+    plt.xlabel('Predicted label')
     plt.show()

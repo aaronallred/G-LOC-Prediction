@@ -7,7 +7,7 @@ if __name__ == "__main__":
     filename = '../../all_trials_25_hz_stacked_null_str_filled.csv'
 
     # Plot Flag
-    plot_data = 0
+    plot_data = 1
     plot_pairwise = 1
 
     # Feature Info
@@ -37,7 +37,7 @@ if __name__ == "__main__":
     training_ratio = 0.8
 
     # Process CSV
-    gloc_data, subject, trial, time, feature, all_features = load_and_process_csv(filename, feature_to_analyze, time_variable)
+    gloc_data, subject, trial, time, feature, all_features, g = load_and_process_csv(filename, feature_to_analyze, time_variable)
 
     # Create GLOC Categorical Vector
     gloc = categorize_gloc(gloc_data)
@@ -50,7 +50,7 @@ if __name__ == "__main__":
 
     # Visualization of feature throughout trial
     if plot_data == 1:
-        initial_visualization(subject_to_analyze, trial_to_analyze, time, gloc, feature_baseline, subject, trial, feature_to_analyze, time_variable, all_features)
+        initial_visualization(subject_to_analyze, trial_to_analyze, time, gloc, feature_baseline, subject, trial, feature_to_analyze, time_variable, all_features, g)
 
     # Sliding Window Mean
     time_end = np.max(time_trimmed)
