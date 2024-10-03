@@ -7,8 +7,8 @@ if __name__ == "__main__":
     filename = '../../all_trials_25_hz_stacked_null_str_filled.csv'
 
     # Plot Flag
-    plot_data = 1
-    plot_pairwise = 1
+    plot_data = 0
+    plot_pairwise = 0
 
     # Feature Info
     # Options:
@@ -24,7 +24,7 @@ if __name__ == "__main__":
     time_variable ='Time (s)'
 
     # Data Parameters
-    subject_to_analyze = '01' # currently only one subject, coming soon: ability to iterate through all subjects
+    subject_to_analyze = '02' # currently only one subject, coming soon: ability to iterate through all subjects
     trial_to_analyze = '01' # currently only one trial, coming soon: ability to iterate through all trials
 
     baseline_window = 10 # seconds
