@@ -78,11 +78,13 @@ if __name__ == "__main__":
     classify_lda(gloc_window, sliding_window_mean, training_ratio, all_features)
 
     # KNN
+    classify_knn(gloc_window, sliding_window_mean, training_ratio)
 
     # SVM
+    classify_svm(gloc_window, sliding_window_mean, training_ratio)
 
     # Ensemble with Gradient Boosting
-
+    classify_ensemble_with_gradboost(gloc_window, sliding_window_mean, training_ratio)
 
     # Breakpoint for troubleshooting
     x = 1

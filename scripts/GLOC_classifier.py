@@ -9,7 +9,10 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.datasets import make_classification
 from sklearn.tree import plot_tree
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.inspection import DecisionBoundaryDisplay
+from sklearn import svm
+from sklearn.ensemble import GradientBoostingClassifier
 
 def categorize_gloc(gloc_data):
     # Create GLOC Classifier Vector
@@ -130,6 +133,7 @@ def classify_lda(gloc_window, sliding_window_mean, training_ratio, all_features)
                                                                     test_size=(1 - training_ratio), random_state=42)
 
     # Use Default Parameters & Fit Model
+
     lda = LinearDiscriminantAnalysis().fit(x_training, np.ravel(y_training))
 
     # Predict
@@ -142,25 +146,64 @@ def classify_lda(gloc_window, sliding_window_mean, training_ratio, all_features)
     print("Recall: ", metrics.recall_score(y_testing, label_predictions))
     print("F1 Score: ", metrics.f1_score(y_testing, label_predictions))
 
-    # Visualize LDA
-    # if dimensionality is reduced
-    # tmp_Df = pd.DataFrame(x_training, columns=['LDA Component 1', 'LDA Component 2'])
-    # tmp_Df['Class'] = y_train
-    #
-    # sns.FacetGrid(tmp_Df, hue="Class",
-    #               height=6).map(plt.scatter,
-    #                             'LDA Component 1',
-    #                             'LDA Component 2')
-    #
-    # plt.legend(loc='upper right')
-
 # k Nearest Neighbors
 # USING RANDOM STATE = 42
-# def classify_kNN(gloc_window, sliding_window_mean, training_ratio, all_features):
+def classify_knn(gloc_window, sliding_window_mean, training_ratio):
+    x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window,
+                                                                    test_size=(1 - training_ratio), random_state=42)
+
+    # Use Default Parameters & Fit Model
+    neigh = KNeighborsClassifier().fit(x_training, np.ravel(y_training))
+
+    # Predict
+    label_predictions = neigh.predict(x_testing)
+
+    # Assess Performance
+    print("\nKNN Performance Metrics:")
+    print("Accuracy: ", metrics.accuracy_score(y_testing, label_predictions))
+    print("Precision: ", metrics.precision_score(y_testing, label_predictions))
+    print("Recall: ", metrics.recall_score(y_testing, label_predictions))
+    print("F1 Score: ", metrics.f1_score(y_testing, label_predictions))
+
+    # Visualize KNN
+
 
 # Support Vector Machine
 # USING RANDOM STATE = 42
+def classify_svm(gloc_window, sliding_window_mean, training_ratio):
+    x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window,
+                                                                    test_size=(1 - training_ratio), random_state=42)
+
+    # Use Default Parameters & Fit Model
+    svm_class = svm.SVC().fit(x_training, np.ravel(y_training))
+
+    # Predict
+    label_predictions = svm_class.predict(x_testing)
+
+    # Assess Performance
+    print("\nSVM Performance Metrics:")
+    print("Accuracy: ", metrics.accuracy_score(y_testing, label_predictions))
+    print("Precision: ", metrics.precision_score(y_testing, label_predictions))
+    print("Recall: ", metrics.recall_score(y_testing, label_predictions))
+    print("F1 Score: ", metrics.f1_score(y_testing, label_predictions))
+
+    # Visualize SVM
 
 # Ensemble Learner with Gradient Boost
 # USING RANDOM STATE = 42
-# def classify_ensemble_with_gradboost(gloc_window, sliding_window_mean, training_ratio, all_features):
+def classify_ensemble_with_gradboost(gloc_window, sliding_window_mean, training_ratio):
+    x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window,
+                                                                    test_size=(1 - training_ratio), random_state=42)
+
+    # Use Default Parameters & Fit Model
+    gb = GradientBoostingClassifier(random_state=42).fit(x_training, np.ravel(y_training))
+
+    # Predict
+    label_predictions = gb.predict(x_testing)
+
+    # Assess Performance
+    print("\nEnsemble Learner with Gradient Boosting Performance Metrics:")
+    print("Accuracy: ", metrics.accuracy_score(y_testing, label_predictions))
+    print("Precision: ", metrics.precision_score(y_testing, label_predictions))
+    print("Recall: ", metrics.recall_score(y_testing, label_predictions))
+    print("F1 Score: ", metrics.f1_score(y_testing, label_predictions))
