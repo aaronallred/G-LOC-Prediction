@@ -26,7 +26,7 @@ if __name__ == "__main__":
     g_variable = 'magnitude - Centrifuge'
 
     # Data Parameters
-    analysis_type = 1   # flag to set which data should be analyzed
+    analysis_type = 2   # flag to set which data should be analyzed
                         # analysis_type = 0: analyze one trial from a subject
                             # if analysis_type = 0, then set subject_to_analyze and trial_to_analyze parameters below
                         # analysis_type = 1: analyze subject data (all trials for a subject)
@@ -75,16 +75,22 @@ if __name__ == "__main__":
 
     # Visualize sliding window mean
     if plot_data == 1:
-        sliding_window_visualization(gloc_window, sliding_window_mean, number_windows, all_features)
+        sliding_window_visualization(gloc_window, sliding_window_mean, number_windows, all_features, gloc_data_reduced)
 
     # Visualization of pairwise features
     if plot_pairwise == 1:
-        pairwise_visualization(gloc_window, sliding_window_mean, all_features)
+        pairwise_visualization(gloc_window, sliding_window_mean, all_features, gloc_data_reduced)
+
+    # Unpack Dictionary into Array
+    y_gloc_labels, x_feature_matrix = unpack_dict(gloc_window, sliding_window_mean, number_windows)
+
+    # Remove Predictors with NaN
+
 
     ## Call functions for ML classification ##
 
     # Logistic Regression
-    classify_logistic_regression(gloc_window, sliding_window_mean, training_ratio, all_features)
+    classify_logistic_regression(y_gloc_labels, x_feature_matrix, training_ratio, all_features)
 
     # RF
     classify_random_forest(gloc_window, sliding_window_mean, training_ratio, all_features)

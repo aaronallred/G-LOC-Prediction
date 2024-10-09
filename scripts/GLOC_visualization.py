@@ -21,30 +21,38 @@ def initial_visualization(gloc_data_reduced, gloc, feature_baseline, all_feature
             plt.title(f'Base-lined Feature over Time for Sub: {trial_id_in_data[i][0:2]} & Trial: {trial_id_in_data[i][3:]}')
             plt.show()
 
-def sliding_window_visualization(gloc_window, sliding_window_mean, number_windows, all_features):
-    for i in range(np.size(sliding_window_mean, 1)):
-        fig, ax = plt.subplots()
-        windows_x = np.linspace(0,number_windows, num = number_windows)
-        ax.plot(windows_x, gloc_window, label='engineered label')
-        ax.plot(windows_x, sliding_window_mean[:,i], label='engineered feature')
-        plt.xlabel('Windows')
-        plt.ylabel('Engineered Feature:' + all_features[i] + ' & Engineered Label')
-        plt.legend()
-        plt.title('Engineered Feature Plot')
-        plt.show()
+def sliding_window_visualization(gloc_window, sliding_window_mean, number_windows, all_features, gloc_data_reduced):
+    trial_id_in_data = gloc_data_reduced.trial_id.unique()
 
-def pairwise_visualization(gloc_window, sliding_window_mean, all_features):
+    for i in range(np.size(trial_id_in_data)):
+        current_sliding_window_mean = sliding_window_mean[trial_id_in_data[i]]
+        for j in range(np.shape(current_sliding_window_mean)[1]):
+            fig, ax = plt.subplots()
+            windows_x = np.linspace(0,number_windows[trial_id_in_data[i]], num = number_windows[trial_id_in_data[i]])
+            ax.plot(windows_x, gloc_window[trial_id_in_data[i]], label='engineered label')
+            ax.plot(windows_x, sliding_window_mean[trial_id_in_data[i]][:,j], label='engineered feature')
+            plt.xlabel('Windows')
+            plt.ylabel('Engineered Feature:' + all_features[j] + ' & Engineered Label')
+            plt.legend()
+            plt.title('Engineered Feature Plot')
+            plt.show()
+
+def pairwise_visualization(gloc_window, sliding_window_mean, all_features, gloc_data_reduced):
     # Create a pair plot to visualize how separable the data is
-    dt = np.hstack((sliding_window_mean, gloc_window))
-    all_features.append('gloc_class')
-    dataset = pd.DataFrame(dt, columns=all_features)
-    ax = sns.pairplot(dataset, hue='gloc_class', markers=["o", "s"])
-    plt.suptitle("Features Pair Plot")
-    sns.move_legend(
-        ax, "lower center",
-        bbox_to_anchor=(.5, 1), ncol=3, title=None, frameon=False)
-    plt.tight_layout()
-    plt.show()
+
+    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+
+    for i in range(np.size(trial_id_in_data)):
+        dt = np.hstack((sliding_window_mean[trial_id_in_data[i]], gloc_window[trial_id_in_data[i]]))
+        all_features.append('gloc_class')
+        dataset = pd.DataFrame(dt, columns=all_features)
+        ax = sns.pairplot(dataset, hue='gloc_class', markers=["o", "s"])
+        plt.suptitle("Features Pair Plot")
+        sns.move_legend(
+            ax, "lower center",
+            bbox_to_anchor=(.5, 1), ncol=3, title=None, frameon=False)
+        plt.tight_layout()
+        plt.show()
 
 def create_confusion_matrix(y_testing, label_predictions, model_type):
     # Create Confusion Matrix

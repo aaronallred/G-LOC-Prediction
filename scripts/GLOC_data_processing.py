@@ -130,6 +130,7 @@ def sliding_window_mean_calc(time_start, offset, stride, window_size, feature_ba
     # Build Dictionary for each trial_id
     sliding_window_mean = dict()
     gloc_window = dict()
+    number_windows = dict()
 
     for i in range(np.size(trial_id_in_data)):
         current_index = (gloc_data_reduced['trial_id'] == trial_id_in_data[i])
@@ -137,18 +138,18 @@ def sliding_window_mean_calc(time_start, offset, stride, window_size, feature_ba
         time_trimmed = current_time[current_index]
 
         time_end = np.max(time_trimmed)
-        number_windows = np.int32(((time_end - offset) // stride) - (window_size // stride - 1))
+        number_windows_current = np.int32(((time_end - offset) // stride) - (window_size // stride - 1))
 
         # Pre-allocate
-        sliding_window_mean_current = np.zeros((number_windows, np.shape(feature_baseline[trial_id_in_data[i]])[1]))
-        gloc_window_current = np.zeros((number_windows, 1))
+        sliding_window_mean_current = np.zeros((number_windows_current, np.shape(feature_baseline[trial_id_in_data[i]])[1]))
+        gloc_window_current = np.zeros((number_windows_current, 1))
 
         # Create trimmed gloc data for the specific
         gloc_trimmed = gloc[(gloc_data_reduced.trial_id == trial_id_in_data[i])]
 
         time_iteration = time_start
 
-        for j in range(number_windows):
+        for j in range(number_windows_current):
 
             time_period_feature = (time_iteration <= time_trimmed) & (time_trimmed < (time_iteration + window_size))
 
@@ -166,5 +167,27 @@ def sliding_window_mean_calc(time_start, offset, stride, window_size, feature_ba
 
         sliding_window_mean[trial_id_in_data[i]] = sliding_window_mean_current
         gloc_window[trial_id_in_data[i]] = gloc_window_current
+        number_windows[trial_id_in_data[i]] = number_windows_current
 
     return gloc_window, sliding_window_mean, number_windows
+
+def unpack_dict(gloc_window, sliding_window_mean, number_windows):
+    # Find Unique Trial ID
+    trial_id_in_data = list(sliding_window_mean.keys())
+
+    # Determine total length of new unpacked dictionary items
+    total_rows = 0;
+    for i in range(np.size(trial_id_in_data)):
+        total_rows += number_windows[trial_id_in_data[i]]
+
+    # Pre-allocate
+    x_feature_matrix = np.zeros((total_rows, np.shape(sliding_window_mean[trial_id_in_data[0]])[1]))
+    y_gloc_labels = np.zeros((total_rows, 1))
+
+    current_index = 0
+    for i in range(np.size(trial_id_in_data)):
+        num_rows = np.shape(sliding_window_mean[trial_id_in_data[i]])[0]
+        x_feature_matrix[current_index:num_rows+current_index, :] = sliding_window_mean[trial_id_in_data[i]]
+        y_gloc_labels[current_index:num_rows+current_index, :] = gloc_window[trial_id_in_data[i]]
+        current_index += num_rows
+    return y_gloc_labels, x_feature_matrix
