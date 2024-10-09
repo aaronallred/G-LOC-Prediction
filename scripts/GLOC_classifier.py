@@ -15,9 +15,9 @@ from sklearn import svm
 from sklearn.ensemble import GradientBoostingClassifier
 from GLOC_visualization import create_confusion_matrix
 
-def categorize_gloc(gloc_data):
+def categorize_gloc(gloc_data_reduced):
     # Create GLOC Classifier Vector
-    event_validated = gloc_data['event_validated'].to_numpy()
+    event_validated = gloc_data_reduced['event_validated'].to_numpy()
     gloc_classifier = np.zeros(event_validated.shape)
 
     gloc_indices = np.argwhere(event_validated == 'GLOC')

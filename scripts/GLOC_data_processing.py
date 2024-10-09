@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 import os
 
-def load_and_process_csv(filename, feature_to_analyze, time_variable):
+def load_and_process_csv(filename, analysis_type, feature_to_analyze, time_variable, **kwargs):
+
     # pickle file name
     global ecg_features, br_features, temp_features, fnirs_features, eeg_features, eyetracking_features
     pickle_filename = filename[0:-1-3] + '.pkl'
@@ -21,9 +22,40 @@ def load_and_process_csv(filename, feature_to_analyze, time_variable):
     # Separate Subject/Trial Column
     trial_id = gloc_data['trial_id'].to_numpy().astype('str')
     trial_id = np.array(np.char.split(trial_id, '-').tolist())
-    subject = trial_id[:,0]
-    trial = trial_id[:,1]
-    time = gloc_data[time_variable].to_numpy()
+    subject = trial_id[:, 0]
+    trial = trial_id[:, 1]
+
+    # Add new subject & trial columns to gloc_data data frame
+    gloc_data['subject'] = pd.Series(subject, index=gloc_data.index)
+    gloc_data['trial'] = pd.Series(trial, index=gloc_data.index)
+
+    # Analyze only section of gloc_data specified using analysis_type
+    if analysis_type == 0: # One Trial / One Subject
+        subject_to_analyze = kwargs['subject_to_analyze']
+        trial_to_analyze = kwargs['trial_to_analyze']
+
+        # Find data from subject & trial of interest
+        gloc_data_reduced = gloc_data[(gloc_data['subject'] == subject_to_analyze) & (gloc_data['trial'] == trial_to_analyze)]
+
+        # Find data from subject of interest
+        #subject_indices = gloc_data.index[gloc_data['subject'] == subject_to_analyze].tolist()
+
+        # Find data from trials of interest
+        #trial_indices = gloc_data.index[gloc_data['trial'] == trial_to_analyze].tolist()
+
+        # Reduce gloc_data data frame to represent rows of interest
+        #gloc_data = gloc_data[subject_indices & trial_indices]
+
+    elif analysis_type == 1: # All Trials for One Subject
+        subject_to_analyze = kwargs['subject_to_analyze']
+
+        # Find data from subject of interest
+        gloc_data_reduced = gloc_data[(gloc_data['subject'] == subject_to_analyze)]
+
+    elif analysis_type == 2: # All Trials for All Subjects
+        gloc_data_reduced = gloc_data
+
+    # time = gloc_data_reduced[time_variable].to_numpy()
 
     # ECG ('HR (bpm) - Equivital','ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital', 'HR_instant - Equivital', 'HR_average - Equivital', 'HR_w_average - Equivital')
     # BR ('BR (rpm) - Equivital')
@@ -65,41 +97,74 @@ def load_and_process_csv(filename, feature_to_analyze, time_variable):
         eeg_features = []
     all_features = ecg_features + br_features + temp_features + fnirs_features + eyetracking_features + eeg_features
 
-    feature = gloc_data[all_features].to_numpy()
-    g = gloc_data['magnitude - Centrifuge']
+    features = gloc_data_reduced[all_features].to_numpy()
+    # g = gloc_data_reduced['magnitude - Centrifuge']
 
-    return gloc_data, subject, trial, time, feature, all_features, g
+    return gloc_data_reduced, features, all_features
 
-def baseline_features(baseline_window, subject_to_plot, trial_to_plot, time, feature, subject, trial):
+def baseline_features(baseline_window, gloc_data_reduced, features, time_variable):
     # Baseline Feature
-    baseline_feature = np.mean(feature[(time<baseline_window) & \
-                                       (subject == subject_to_plot) & \
-                                       (trial == trial_to_plot)], axis = 0)
-    feature_baseline = feature[(subject == subject_to_plot) & \
-                                       (trial == trial_to_plot)]/baseline_feature
 
-    time_trimmed = time[(subject == subject_to_plot) & (trial == trial_to_plot)]
+    # Find Unique Trial ID
+    trial_id_in_data = gloc_data_reduced.trial_id.unique()
 
-    return feature_baseline, time_trimmed
+    # Build Dictionary for each trial_id
+    feature_baseline = dict()
+    for i in range(np.size(trial_id_in_data)):
 
-def sliding_window_mean_calc(time_trimmed, time_start, time_end, offset, stride, window_size, subject, subject_to_analyze, trial, trial_to_analyze, feature_baseline, gloc):
-    number_windows = np.int32(((time_end - offset) // stride) - (window_size // stride - 1))
+            # Find baseline average based on specified baseline window
+            baseline_feature = np.mean(features[(gloc_data_reduced[time_variable]<baseline_window) &
+                                                (gloc_data_reduced.trial_id == trial_id_in_data[i])], axis = 0)
 
-    # Pre-allocate
-    sliding_window_mean = np.zeros((number_windows, np.size(feature_baseline,1)))
-    gloc_window = np.zeros((number_windows, 1))
+            # Divide features for that trial by baselined data
+            feature_baseline[trial_id_in_data[i]] = np.array(features[(gloc_data_reduced.trial_id == trial_id_in_data[i])]/baseline_feature)
 
-    # Create trimmed gloc data for the specific
-    gloc_trimmed = gloc[(subject == subject_to_analyze) & (trial == trial_to_analyze)]
+    return feature_baseline
 
-    for i in range(number_windows):
-        time_period_feature = (time_start <= time_trimmed) & (time_trimmed < (time_start + window_size))
-        sliding_window_mean[i,:] = np.mean(feature_baseline[time_period_feature], axis = 0, keepdims=True)
+def sliding_window_mean_calc(time_start, offset, stride, window_size, feature_baseline, gloc, gloc_data_reduced, time_variable):
+    # Find sliding window mean for every feature
 
-        time_period_gloc = ((time_start + offset) <= time_trimmed) & (
-                    time_trimmed < (time_start + offset + window_size))
-        gloc_window[i] = np.any(gloc_trimmed[time_period_gloc])
+    # Find Unique Trial ID
+    trial_id_in_data = gloc_data_reduced.trial_id.unique()
 
-        time_start = stride + time_start
+    # Build Dictionary for each trial_id
+    sliding_window_mean = dict()
+    gloc_window = dict()
+
+    for i in range(np.size(trial_id_in_data)):
+        current_index = (gloc_data_reduced['trial_id'] == trial_id_in_data[i])
+        current_time = np.array(gloc_data_reduced[time_variable])
+        time_trimmed = current_time[current_index]
+
+        time_end = np.max(time_trimmed)
+        number_windows = np.int32(((time_end - offset) // stride) - (window_size // stride - 1))
+
+        # Pre-allocate
+        sliding_window_mean_current = np.zeros((number_windows, np.shape(feature_baseline[trial_id_in_data[i]])[1]))
+        gloc_window_current = np.zeros((number_windows, 1))
+
+        # Create trimmed gloc data for the specific
+        gloc_trimmed = gloc[(gloc_data_reduced.trial_id == trial_id_in_data[i])]
+
+        time_iteration = time_start
+
+        for j in range(number_windows):
+
+            time_period_feature = (time_iteration <= time_trimmed) & (time_trimmed < (time_iteration + window_size))
+
+            # temp fix: replace with zeros before mean, then re-fill with nans
+            temp = feature_baseline[trial_id_in_data[i]][time_period_feature]
+
+            sliding_window_mean_current[j,:] = np.nanmean(temp, axis = 0, keepdims=True)
+
+            time_period_gloc = (((time_iteration + offset) <= time_trimmed) &
+                                (time_trimmed < (time_iteration + offset + window_size)))
+
+            gloc_window_current[j] = np.any(gloc_trimmed[time_period_gloc])
+
+            time_iteration = stride + time_iteration
+
+        sliding_window_mean[trial_id_in_data[i]] = sliding_window_mean_current
+        gloc_window[trial_id_in_data[i]] = gloc_window_current
 
     return gloc_window, sliding_window_mean, number_windows

@@ -4,18 +4,22 @@ import pandas as pd
 import seaborn as sns
 from sklearn import metrics
 
-def initial_visualization(subject_to_plot, trial_to_plot, time, gloc, feature_baseline, subject, trial, feature_to_analyze, time_variable, all_features, g):
-    for i in range(np.size(feature_baseline, 1)):
-        plot_index = (subject == subject_to_plot) & (trial == trial_to_plot)
-        fig, ax = plt.subplots()
-        ax.plot(time[plot_index], gloc[plot_index], label='g-loc')
-        ax.plot(time[plot_index], feature_baseline[:,i], label='feature baseline')
-        ax.plot(time[plot_index], g[plot_index], label='centrifuge g')
-        plt.xlabel(time_variable)
-        plt.ylabel(all_features[i])
-        plt.legend()
-        plt.title('Base-lined Feature over Time')
-        plt.show()
+def initial_visualization(gloc_data_reduced, gloc, feature_baseline, all_features, time_variable, g_variable):
+
+    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+
+    for i in range(np.size(trial_id_in_data)):
+        for j in range(np.size(feature_baseline[trial_id_in_data[i]], 1)):
+            fig, ax = plt.subplots()
+            current_index = (gloc_data_reduced['trial_id'] == trial_id_in_data[i])
+            ax.plot(gloc_data_reduced[time_variable][current_index], gloc[current_index], label='g-loc')
+            ax.plot(gloc_data_reduced[time_variable][current_index], feature_baseline[trial_id_in_data[i]][:,j], label='feature baseline')
+            ax.plot(gloc_data_reduced[time_variable][current_index], gloc_data_reduced[g_variable][current_index], label='centrifuge g')
+            plt.xlabel(time_variable)
+            plt.ylabel(all_features[j])
+            plt.legend()
+            plt.title(f'Base-lined Feature over Time for Sub: {trial_id_in_data[i][0:2]} & Trial: {trial_id_in_data[i][3:]}')
+            plt.show()
 
 def sliding_window_visualization(gloc_window, sliding_window_mean, number_windows, all_features):
     for i in range(np.size(sliding_window_mean, 1)):

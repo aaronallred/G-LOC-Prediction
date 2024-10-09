@@ -1,31 +1,41 @@
 from GLOC_data_processing import *
 from GLOC_visualization import *
 from GLOC_classifier import *
+import numpy as np
 
 if __name__ == "__main__":
     # File Name Def
     filename = '../../all_trials_25_hz_stacked_null_str_filled.csv'
 
-    # Plot Flag
+    # Plot Flags
     plot_data = 0
     plot_pairwise = 0
 
     # Feature Info
-    # Options:
-    # ECG ('HR (bpm) - Equivital','ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital', 'HR_instant - Equivital', 'HR_average - Equivital', 'HR_w_average - Equivital')
-    # BR ('BR (rpm) - Equivital')
-    # temp ('Skin Temperature - IR Thermometer (°C) - Equivital')
-    # fnirs ('HbO2 - fNIRS', 'Hbd - fNIRS')
-    # eyetracking ('Pupil position left X [HUCS mm] - Tobii', 'Pupil position left Y [HUCS mm] - Tobii', 'Pupil position left Z [HUCS mm] - Tobii', 'Pupil position right X [HUCS mm] - Tobii'
+    # feature_to_analyze options:
+        # ECG ('HR (bpm) - Equivital','ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital', 'HR_instant - Equivital', 'HR_average - Equivital', 'HR_w_average - Equivital')
+        # BR ('BR (rpm) - Equivital')
+        # temp ('Skin Temperature - IR Thermometer (°C) - Equivital')
+        # fnirs ('HbO2 - fNIRS', 'Hbd - fNIRS')
+        # eyetracking ('Pupil position left X [HUCS mm] - Tobii', 'Pupil position left Y [HUCS mm] - Tobii', 'Pupil position left Z [HUCS mm] - Tobii', 'Pupil position right X [HUCS mm] - Tobii'
             # 'Pupil position right Y [HUCS mm] - Tobii', 'Pupil position right Z [HUCS mm] - Tobii', 'Pupil diameter left [mm] - Tobii', 'Pupil diameter right [mm] - Tobii')
-    # EEG (coming soon!!!)
+        # EEG (coming soon!!!)
     feature_to_analyze = ['ECG','BR', 'temp', 'fnirs', 'eyetracking']
 
-    time_variable ='Time (s)'
+    time_variable = 'Time (s)'
+    g_variable = 'magnitude - Centrifuge'
 
     # Data Parameters
-    subject_to_analyze = '02' # currently only one subject, coming soon: ability to iterate through all subjects
-    trial_to_analyze = '01' # currently only one trial, coming soon: ability to iterate through all trials
+    analysis_type = 1   # flag to set which data should be analyzed
+                        # analysis_type = 0: analyze one trial from a subject
+                            # if analysis_type = 0, then set subject_to_analyze and trial_to_analyze parameters below
+                        # analysis_type = 1: analyze subject data (all trials for a subject)
+                            # if analysis_type = 1, then set subject_to_analyze parameter below
+                        # analysis_type = 2: analyze cohort data (all subjects, all trials)
+                            # if analysis_type = 2, then no extra parameters need to be set
+
+    subject_to_analyze = '02'
+    trial_to_analyze = '01'
 
     baseline_window = 10 # seconds
     window_size = 10     # seconds
@@ -37,26 +47,31 @@ if __name__ == "__main__":
     training_ratio = 0.8
 
     # Process CSV
-    gloc_data, subject, trial, time, feature, all_features, g = load_and_process_csv(filename, feature_to_analyze, time_variable)
+    if analysis_type == 0:  # One Trial / One Subject
+        gloc_data_reduced, features, all_features = load_and_process_csv(filename, analysis_type, feature_to_analyze, time_variable,
+                                                                                         trial_to_analyze=trial_to_analyze,
+                                                                                         subject_to_analyze = subject_to_analyze)
+    elif analysis_type == 1:  # All Trials for One Subject
+        gloc_data_reduced, features, all_features = load_and_process_csv(filename, analysis_type, feature_to_analyze, time_variable,
+                                                                                         subject_to_analyze = subject_to_analyze)
+    elif analysis_type == 2: # All Trials for All Subjects
+        gloc_data_reduced, features, all_features = load_and_process_csv(filename, analysis_type, feature_to_analyze, time_variable)
 
     # Create GLOC Categorical Vector
-    gloc = categorize_gloc(gloc_data)
+    gloc = categorize_gloc(gloc_data_reduced)
 
     # Check for A-LOC
-    other_vals_event, other_vals_event_validated = check_for_aloc(gloc_data)
+    other_vals_event, other_vals_event_validated = check_for_aloc(gloc_data_reduced)
 
     # Baseline Feature for Subject/Trial
-    feature_baseline, time_trimmed = baseline_features(baseline_window, subject_to_analyze, trial_to_analyze, time, feature, subject, trial)
+    feature_baseline = baseline_features(baseline_window, gloc_data_reduced, features, time_variable)
 
     # Visualization of feature throughout trial
     if plot_data == 1:
-        initial_visualization(subject_to_analyze, trial_to_analyze, time, gloc, feature_baseline, subject, trial, feature_to_analyze, time_variable, all_features, g)
+        initial_visualization(gloc_data_reduced, gloc, feature_baseline, all_features, time_variable, g_variable)
 
     # Sliding Window Mean
-    time_end = np.max(time_trimmed)
-
-    gloc_window, sliding_window_mean, number_windows = sliding_window_mean_calc(time_trimmed, time_start, time_end, offset, stride, window_size, subject,
-                            subject_to_analyze, trial, trial_to_analyze, feature_baseline, gloc)
+    gloc_window, sliding_window_mean, number_windows = sliding_window_mean_calc(time_start, offset, stride, window_size, feature_baseline, gloc, gloc_data_reduced, time_variable)
 
     # Visualize sliding window mean
     if plot_data == 1:
