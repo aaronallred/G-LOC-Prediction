@@ -46,7 +46,7 @@ def classify_logistic_regression(gloc_window, sliding_window_mean, training_rati
     x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window, test_size=(1-training_ratio), random_state=42)
 
     # Use Default Parameters & Fit Model
-    logreg = LogisticRegression(class_weight = "balanced", random_state=42).fit(x_training, np.ravel(y_training))
+    logreg = LogisticRegression(class_weight = "balanced", random_state=42, max_iter=1000).fit(x_training, np.ravel(y_training))
 
     # Predict
     label_predictions = logreg.predict(x_testing)
@@ -168,7 +168,7 @@ def classify_svm(gloc_window, sliding_window_mean, training_ratio):
                                                                     test_size=(1 - training_ratio), random_state=42)
 
     # Use Default Parameters & Fit Model
-    svm_class = svm.SVC().fit(x_training, np.ravel(y_training))
+    svm_class = svm.SVC(kernel="linear", class_weight="balanced").fit(x_training, np.ravel(y_training))
 
     # Predict
     label_predictions = svm_class.predict(x_testing)
