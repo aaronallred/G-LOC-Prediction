@@ -4,28 +4,46 @@ import pandas as pd
 import seaborn as sns
 from sklearn import metrics
 
-def initial_visualization(gloc_data_reduced, gloc, feature_baseline, all_features, time_variable, g_variable):
+def initial_visualization(gloc_data_reduced, gloc, feature_baseline, all_features, time_variable):
+    """
+    This function makes individual plots for all trials and all features of the trials being
+    analyzed. Plots include gloc label, baselined feature, and centrifuge g level.
+    """
 
+    # Find unique trial ids in the data being analyzed
     trial_id_in_data = gloc_data_reduced.trial_id.unique()
 
+    # Iterate through all unique trial_id
     for i in range(np.size(trial_id_in_data)):
+        # Iterate through all features
         for j in range(np.size(feature_baseline[trial_id_in_data[i]], 1)):
             fig, ax = plt.subplots()
             current_index = (gloc_data_reduced['trial_id'] == trial_id_in_data[i])
-            ax.plot(gloc_data_reduced[time_variable][current_index], gloc[current_index], label='g-loc')
-            ax.plot(gloc_data_reduced[time_variable][current_index], feature_baseline[trial_id_in_data[i]][:,j], label='feature baseline')
-            ax.plot(gloc_data_reduced[time_variable][current_index], gloc_data_reduced[g_variable][current_index], label='centrifuge g')
+            current_time = np.array(gloc_data_reduced[time_variable])
+            time = current_time[current_index]
+            ax.plot(time, gloc[current_index], label='g-loc')
+            ax.plot(time, feature_baseline[trial_id_in_data[i]][:,j], label='feature baseline')
+            ax.plot(time, gloc_data_reduced['magnitude - Centrifuge'][current_index], label='centrifuge g')
             plt.xlabel(time_variable)
             plt.ylabel(all_features[j])
             plt.legend()
-            plt.title(f'Base-lined Feature over Time for Sub: {trial_id_in_data[i][0:2]} & Trial: {trial_id_in_data[i][3:]}')
+            plt.title(f'Baselined Feature over Time for Subject: {trial_id_in_data[i][0:2]} & Trial: {trial_id_in_data[i][3:]}')
             plt.show()
 
 def sliding_window_visualization(gloc_window, sliding_window_mean, number_windows, all_features, gloc_data_reduced):
+    """
+    This function makes individual plots for all sliding window mean engineered features. Plots
+    include engineered feature over time and associated engineered g-label.
+    """
+
+    # Find unique trial ids in the data being analyzed
     trial_id_in_data = gloc_data_reduced.trial_id.unique()
 
+    # Iterate through all unique trial_id
     for i in range(np.size(trial_id_in_data)):
         current_sliding_window_mean = sliding_window_mean[trial_id_in_data[i]]
+
+        # Iterate through all features
         for j in range(np.shape(current_sliding_window_mean)[1]):
             fig, ax = plt.subplots()
             windows_x = np.linspace(0,number_windows[trial_id_in_data[i]], num = number_windows[trial_id_in_data[i]])
@@ -34,14 +52,19 @@ def sliding_window_visualization(gloc_window, sliding_window_mean, number_window
             plt.xlabel('Windows')
             plt.ylabel('Engineered Feature:' + all_features[j] + ' & Engineered Label')
             plt.legend()
-            plt.title('Engineered Feature Plot')
+            plt.title(f'Engineered Feature over Time for Subject: {trial_id_in_data[i][0:2]} & Trial: {trial_id_in_data[i][3:]}')
             plt.show()
 
 def pairwise_visualization(gloc_window, sliding_window_mean, all_features, gloc_data_reduced):
-    # Create a pair plot to visualize how separable the data is
+    """
+     This function makes a pairwise plot for each of the features with color coordinated labels
+     for non-gloc and gloc data. Current functionality works for 1 subject and 1 trial.
+     """
 
+    # Find unique trial ids in the data being analyzed
     trial_id_in_data = gloc_data_reduced.trial_id.unique()
 
+    # Iterate through all unique trial_id
     for i in range(np.size(trial_id_in_data)):
         dt = np.hstack((sliding_window_mean[trial_id_in_data[i]], gloc_window[trial_id_in_data[i]]))
         all_features.append('gloc_class')
@@ -55,6 +78,11 @@ def pairwise_visualization(gloc_window, sliding_window_mean, all_features, gloc_
         plt.show()
 
 def create_confusion_matrix(y_testing, label_predictions, model_type):
+    """
+     This function is used to create plots of the confusion matrix for each of the Machine
+     Learning classifiers.
+     """
+
     # Create Confusion Matrix
     confusion_matrix = metrics.confusion_matrix(y_testing, label_predictions)
 

@@ -4,12 +4,12 @@ from GLOC_classifier import *
 import numpy as np
 
 if __name__ == "__main__":
-    # File Name Def
+    # File Name & Path
     filename = '../../all_trials_25_hz_stacked_null_str_filled.csv'
 
     # Plot Flags
-    plot_data = 0
-    plot_pairwise = 0
+    plot_data = 0       # flag to set whether plots should be generated (0 = no, 1 = yes)
+    plot_pairwise = 0   # flag to set whether pairwise plots should be generated (0 = no, 1 = yes)
 
     # Feature Info
     # feature_to_analyze options:
@@ -23,7 +23,6 @@ if __name__ == "__main__":
     feature_to_analyze = ['ECG','BR', 'temp', 'fnirs', 'eyetracking']
 
     time_variable = 'Time (s)'
-    g_variable = 'magnitude - Centrifuge'
 
     # Data Parameters
     analysis_type = 2   # flag to set which data should be analyzed
@@ -58,17 +57,14 @@ if __name__ == "__main__":
         gloc_data_reduced, features, all_features = load_and_process_csv(filename, analysis_type, feature_to_analyze, time_variable)
 
     # Create GLOC Categorical Vector
-    gloc = categorize_gloc(gloc_data_reduced)
-
-    # Check for A-LOC
-    other_vals_event, other_vals_event_validated = check_for_aloc(gloc_data_reduced)
+    gloc = label_gloc_events(gloc_data_reduced)
 
     # Baseline Feature for Subject/Trial
     feature_baseline = baseline_features(baseline_window, gloc_data_reduced, features, time_variable)
 
     # Visualization of feature throughout trial
     if plot_data == 1:
-        initial_visualization(gloc_data_reduced, gloc, feature_baseline, all_features, time_variable, g_variable)
+        initial_visualization(gloc_data_reduced, gloc, feature_baseline, all_features, time_variable)
 
     # Sliding Window Mean
     gloc_window, sliding_window_mean, number_windows = sliding_window_mean_calc(time_start, offset, stride, window_size, feature_baseline, gloc, gloc_data_reduced, time_variable)
