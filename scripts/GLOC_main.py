@@ -84,28 +84,28 @@ if __name__ == "__main__":
     # Unpack Dictionary into Array
     y_gloc_labels, x_feature_matrix = unpack_dict(gloc_window, sliding_window_mean, number_windows)
 
-    # Remove Predictors with NaN
-
+    # Remove rows with NaN (temporary solution-should replace with other method eventually)
+    y_gloc_labels_noNaN, x_feature_matrix_noNaN = process_NaN(y_gloc_labels, x_feature_matrix)
 
     ## Call functions for ML classification ##
 
     # Logistic Regression
-    classify_logistic_regression(y_gloc_labels, x_feature_matrix, training_ratio, all_features)
+    classify_logistic_regression(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio, all_features)
 
     # RF
-    classify_random_forest(gloc_window, sliding_window_mean, training_ratio, all_features)
+    classify_random_forest(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio, all_features)
 
     # LDA
-    classify_lda(gloc_window, sliding_window_mean, training_ratio, all_features)
+    classify_lda(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio, all_features)
 
     # KNN
-    classify_knn(gloc_window, sliding_window_mean, training_ratio)
+    classify_knn(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio)
 
     # SVM
-    classify_svm(gloc_window, sliding_window_mean, training_ratio)
+    classify_svm(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio)
 
     # Ensemble with Gradient Boosting
-    classify_ensemble_with_gradboost(gloc_window, sliding_window_mean, training_ratio)
+    classify_ensemble_with_gradboost(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio)
 
     # Breakpoint for troubleshooting
     x = 1

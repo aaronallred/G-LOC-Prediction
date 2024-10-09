@@ -191,3 +191,8 @@ def unpack_dict(gloc_window, sliding_window_mean, number_windows):
         y_gloc_labels[current_index:num_rows+current_index, :] = gloc_window[trial_id_in_data[i]]
         current_index += num_rows
     return y_gloc_labels, x_feature_matrix
+
+def process_NaN(y_gloc_labels, x_feature_matrix):
+    y_gloc_labels_noNaN = y_gloc_labels[~np.isnan(x_feature_matrix).any(axis=1)]
+    x_feature_matrix_noNaN = x_feature_matrix[~np.isnan(x_feature_matrix).any(axis=1)]
+    return y_gloc_labels_noNaN, x_feature_matrix_noNaN
