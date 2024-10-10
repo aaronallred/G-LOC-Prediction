@@ -12,7 +12,6 @@ def load_and_process_csv(filename, analysis_type, feature_to_analyze, time_varia
 
     ############################################# File Import #############################################
     # pickle file name
-    global ecg_features, br_features, temp_features, fnirs_features, eeg_features, eyetracking_features
     pickle_filename = filename[0:-1-3] + '.pkl'
 
     # Check if pickle exists, if not create it
