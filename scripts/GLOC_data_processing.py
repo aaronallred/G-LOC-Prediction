@@ -122,6 +122,29 @@ def baseline_features(baseline_window, gloc_data_reduced, features, time_variabl
 
     return feature_baseline
 
+def tabulateNaN(feature_baseline, all_features):
+    """
+    This function tabulates NaN values for each feature for each trial.
+    """
+
+    # Find Unique Trial ID
+    trial_id_in_data = list(feature_baseline.keys())
+
+    # Initialize table
+    NaN_count = np.zeros((len(trial_id_in_data), len(all_features)))
+    NaN_prop = np.zeros((len(trial_id_in_data), len(all_features)))
+
+    # Loop through dictionary values and count NaNs per trial/feature
+    for i in range(len(trial_id_in_data)):
+        NaN_count[i,:] = np.count_nonzero(np.isnan(feature_baseline[trial_id_in_data[i]]), axis=0, keepdims=True)
+        NaN_prop[i,:] = NaN_count[i,:] / np.shape(feature_baseline[trial_id_in_data[i]])[0]
+
+    # Output in Data Frame
+    NaN_table = pd.DataFrame(NaN_count, columns = all_features, index = trial_id_in_data)
+    NaN_proportion = pd.DataFrame(NaN_prop, columns = all_features, index = trial_id_in_data)
+
+    return NaN_table, NaN_proportion
+
 def sliding_window_mean_calc(time_start, offset, stride, window_size, feature_baseline, gloc, gloc_data_reduced, time_variable):
     """
     This function creates the engineered features and gloc labels for the data. This includes a

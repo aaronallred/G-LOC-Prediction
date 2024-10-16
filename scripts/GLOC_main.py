@@ -8,7 +8,7 @@ if __name__ == "__main__":
     filename = '../../all_trials_25_hz_stacked_null_str_filled.csv'
 
     # Plot Flags
-    plot_data = 0       # flag to set whether plots should be generated (0 = no, 1 = yes)
+    plot_data = 0        # flag to set whether plots should be generated (0 = no, 1 = yes)
     plot_pairwise = 0   # flag to set whether pairwise plots should be generated (0 = no, 1 = yes)
 
     # Feature Info
@@ -39,7 +39,7 @@ if __name__ == "__main__":
     baseline_window = 10 # seconds
     window_size = 10     # seconds
     stride = 1           # seconds
-    offset = 10          # seconds
+    offset = 15          # seconds
     time_start = 0       # seconds
 
     # ML Splits
@@ -61,6 +61,9 @@ if __name__ == "__main__":
 
     # Baseline Feature for Subject/Trial
     feature_baseline = baseline_features(baseline_window, gloc_data_reduced, features, time_variable)
+
+    # Tabulate NaN
+    NaN_table, NaN_proportion = tabulateNaN(feature_baseline, all_features)
 
     # Visualization of feature throughout trial
     if plot_data == 1:

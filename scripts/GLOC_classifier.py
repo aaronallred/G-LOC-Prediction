@@ -118,6 +118,9 @@ def classify_random_forest(gloc_window, sliding_window_mean, training_ratio, all
     print("Recall: ", metrics.recall_score(y_testing, label_predictions))
     print("F1 Score: ", metrics.f1_score(y_testing, label_predictions))
 
+    # Find Tree Depth
+    tree_depth = [estimator.get_depth() for estimator in rf.estimators_]
+
     # Visualize Decision Tree
     fn = all_features
     cn = ['No GLOC', 'GLOC']
