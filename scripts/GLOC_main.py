@@ -33,17 +33,18 @@ if __name__ == "__main__":
                         # analysis_type = 2: analyze cohort data (all subjects, all trials)
                             # if analysis_type = 2, then no extra parameters need to be set
 
-    subject_to_analyze = '02'
-    trial_to_analyze = '01'
-
     baseline_window = 10 # seconds
     window_size = 10     # seconds
     stride = 1           # seconds
-    offset = 15          # seconds
+    offset = 10          # seconds
     time_start = 0       # seconds
 
     # ML Splits
     training_ratio = 0.8
+
+    # Subject & Trial Information
+    subject_to_analyze = '02'
+    trial_to_analyze = '01'
 
     # Process CSV
     if analysis_type == 0:  # One Trial / One Subject
@@ -92,22 +93,22 @@ if __name__ == "__main__":
     ## Call functions for ML classification ##
 
     # Logistic Regression
-    classify_logistic_regression(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio, all_features)
+    accuracy_logreg, precision_logreg, recall_logreg, f1_logreg = classify_logistic_regression(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio, all_features)
 
     # RF
-    classify_random_forest(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio, all_features)
+    accuracy_rf, precision_rf, recall_rf, f1_rf = classify_random_forest(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio, all_features)
 
     # LDA
-    classify_lda(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio, all_features)
+    accuracy_lda, precision_lda, recall_lda, f1_lda = classify_lda(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio, all_features)
 
     # KNN
-    classify_knn(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio)
+    accuracy_knn, precision_knn, recall_knn, f1_knn = classify_knn(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio)
 
     # SVM
-    classify_svm(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio)
+    accuracy_svm, precision_svm, recall_svm, f1_svm = classify_svm(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio)
 
     # Ensemble with Gradient Boosting
-    classify_ensemble_with_gradboost(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio)
+    accuracy_gb, precision_gb, recall_gb, f1_gb = classify_ensemble_with_gradboost(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio)
 
     # Breakpoint for troubleshooting
     x = 1
