@@ -111,14 +111,28 @@ def baseline_features(baseline_window, gloc_data_reduced, features, time_variabl
 
     # Build Dictionary for each trial_id
     feature_baseline = dict()
+    feature_baseline_derivative = dict()
+
     for i in range(np.size(trial_id_in_data)):
 
+            # Find time window
+            index_window = ((gloc_data_reduced[time_variable]<baseline_window) & (gloc_data_reduced.trial_id == trial_id_in_data[i]))
+            time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
+            time_array = gloc_data_reduced[time_variable]
+
             # Find baseline average based on specified baseline window
-            baseline_feature = np.mean(features[(gloc_data_reduced[time_variable]<baseline_window) &
-                                                (gloc_data_reduced.trial_id == trial_id_in_data[i])], axis = 0)
+            baseline_feature = np.mean(features[index_window], axis = 0)
 
             # Divide features for that trial by baselined data
             feature_baseline[trial_id_in_data[i]] = np.array(features[(gloc_data_reduced.trial_id == trial_id_in_data[i])]/baseline_feature)
+
+            # Compute derivative
+            diff_feature_baseline = np.diff(feature_baseline[trial_id_in_data[i]])
+            diff_time = np.diff(time_array[time_index])
+            diff_time = np.append(np.nan, diff_time)
+            diff_time = np.reshape(diff_time, (len(diff_time), 1))
+
+            feature_baseline_derivative[trial_id_in_data[i]] = diff_feature_baseline / diff_time
 
     return feature_baseline
 
@@ -217,6 +231,70 @@ def sliding_window_mean_calc(time_start, offset, stride, window_size, feature_ba
         number_windows[trial_id_in_data[i]] = number_windows_current
 
     return gloc_window, sliding_window_mean, number_windows
+
+def sliding_window_calc(time_start, stride, window_size, feature_baseline, gloc_data_reduced, time_variable, number_windows):
+    """
+    This function creates the engineered features and gloc labels for the data. This includes a
+    sliding window standard deviation for each of the features for each trial_id. A dictionary
+    sorted by trial_id for the engineered feature is returned.
+    """
+
+    # Find Unique Trial ID
+    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+
+    # Build Dictionary for each trial_id
+    sliding_window_stddev = dict()
+    sliding_window_max = dict()
+    sliding_window_range = dict()
+
+    # Iterate through all unique trial_id
+    for i in range(np.size(trial_id_in_data)):
+
+        # Determine index from current trial_id
+        current_index = (gloc_data_reduced['trial_id'] == trial_id_in_data[i])
+
+        # Create time array based on current_index
+        current_time = np.array(gloc_data_reduced[time_variable])
+        time_trimmed = current_time[current_index]
+
+        # Determine number of windows
+        number_windows_current = number_windows[trial_id_in_data[i]]
+
+        # Pre-allocate arrays
+        sliding_window_stddev_current = np.zeros((number_windows_current, np.shape(feature_baseline[trial_id_in_data[i]])[1]))
+        sliding_window_max_current = np.zeros((number_windows_current, np.shape(feature_baseline[trial_id_in_data[i]])[1]))
+        sliding_window_range_current = np.zeros((number_windows_current, np.shape(feature_baseline[trial_id_in_data[i]])[1]))
+
+        # Define iteration time
+        time_iteration = time_start
+
+        # Iterate through all windows to compute relevant parameters
+        for j in range(number_windows_current):
+
+            # Find index for current window
+            time_period_feature = (time_iteration <= time_trimmed) & (time_trimmed < (time_iteration + window_size))
+
+            # Find feature for current window
+            feature_window = feature_baseline[trial_id_in_data[i]][time_period_feature]
+
+            # Take nan stddev for the window (one value per column (feature))
+            sliding_window_stddev_current[j,:] = np.nanstd(feature_window, axis = 0, keepdims=True)
+
+            # Take nan max for the window (one value per column (feature))
+            sliding_window_max_current[j, :] = np.nanmax(feature_window, axis=0, keepdims=True)
+
+            # Take nan range for the window (one value per column (feature))
+            sliding_window_range_current[j, :] = np.nanmax(feature_window, axis=0, keepdims=True) - np.nanmin(feature_window, axis=0, keepdims=True)
+
+            # Adjust iteration_time
+            time_iteration = stride + time_iteration
+
+        # Define dictionary item for trial_id
+        sliding_window_stddev[trial_id_in_data[i]] = sliding_window_stddev_current
+        sliding_window_max[trial_id_in_data[i]] = sliding_window_max_current
+        sliding_window_range[trial_id_in_data[i]] = sliding_window_range_current
+
+    return sliding_window_stddev, sliding_window_max, sliding_window_range
 
 def unpack_dict(gloc_window, sliding_window_mean, number_windows):
     """

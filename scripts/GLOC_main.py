@@ -72,6 +72,9 @@ if __name__ == "__main__":
     # Sliding Window Mean
     gloc_window, sliding_window_mean, number_windows = sliding_window_mean_calc(time_start, offset, stride, window_size, feature_baseline, gloc, gloc_data_reduced, time_variable)
 
+    # Sliding Window Standard Deviation
+    sliding_window_stddev, sliding_window_max, sliding_window_range = sliding_window_calc(time_start, stride, window_size, feature_baseline, gloc_data_reduced, time_variable, number_windows)
+
     # Visualize sliding window mean
     if plot_data == 1:
         sliding_window_visualization(gloc_window, sliding_window_mean, number_windows, all_features, gloc_data_reduced)
