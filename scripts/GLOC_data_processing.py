@@ -296,7 +296,7 @@ def sliding_window_calc(time_start, stride, window_size, feature_baseline, gloc_
 
     return sliding_window_stddev, sliding_window_max, sliding_window_range
 
-def unpack_dict(gloc_window, sliding_window_mean, number_windows):
+def unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window_stddev, sliding_window_max, sliding_window_range):
     """
     This function unpacks the dictionary structure to create a large features matrix (X matrix) and
     labels matrix (y matrix) for all trials being analyzed. This function will become unnecessary if
@@ -311,8 +311,12 @@ def unpack_dict(gloc_window, sliding_window_mean, number_windows):
     for i in range(np.size(trial_id_in_data)):
         total_rows += number_windows[trial_id_in_data[i]]
 
+    # Find number of columns
+    num_cols = (np.shape(sliding_window_mean[trial_id_in_data[0]])[1] + np.shape(sliding_window_stddev[trial_id_in_data[0]])[1]
+                + np.shape(sliding_window_max[trial_id_in_data[0]])[1] + np.shape(sliding_window_range[trial_id_in_data[0]])[1])
+
     # Pre-allocate
-    x_feature_matrix = np.zeros((total_rows, np.shape(sliding_window_mean[trial_id_in_data[0]])[1]))
+    x_feature_matrix = np.zeros((total_rows, num_cols))
     y_gloc_labels = np.zeros((total_rows, 1))
 
     current_index = 0
@@ -322,7 +326,10 @@ def unpack_dict(gloc_window, sliding_window_mean, number_windows):
         num_rows = np.shape(sliding_window_mean[trial_id_in_data[i]])[0]
 
         # Set specific rows equal to the dictionary item corresponding to trial_id
-        x_feature_matrix[current_index:num_rows+current_index, :] = sliding_window_mean[trial_id_in_data[i]]
+        x_feature_matrix[current_index:num_rows+current_index, :] = np.column_stack((sliding_window_mean[trial_id_in_data[i]],
+                                                                              sliding_window_stddev[trial_id_in_data[i]],
+                                                                              sliding_window_max[trial_id_in_data[i]],
+                                                                              sliding_window_range[trial_id_in_data[i]]))
         y_gloc_labels[current_index:num_rows+current_index, :] = gloc_window[trial_id_in_data[i]]
         current_index += num_rows
 
