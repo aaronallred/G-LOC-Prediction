@@ -157,6 +157,12 @@ def tabulateNaN(feature_baseline, all_features):
     NaN_table = pd.DataFrame(NaN_count, columns = all_features, index = trial_id_in_data)
     NaN_proportion = pd.DataFrame(NaN_prop, columns = all_features, index = trial_id_in_data)
 
+    NaN_rows = (NaN_proportion == 1).any(axis = 1)
+    number_NaN_rows = NaN_rows.values.sum()
+    total_rows = NaN_proportion.shape[0]
+
+    print("There are ", number_NaN_rows, " trials with all NaNs for at least one feature out of ", total_rows, "trials. ", total_rows - number_NaN_rows, " trials remaining.")
+
     return NaN_table, NaN_proportion
 
 def sliding_window_mean_calc(time_start, offset, stride, window_size, feature_baseline, gloc, gloc_data_reduced, time_variable):
@@ -225,8 +231,12 @@ def sliding_window_mean_calc(time_start, offset, stride, window_size, feature_ba
             # Adjust iteration_time
             time_iteration = stride + time_iteration
 
+        # Compute z-score to standardize
+        sliding_window_mean_current_z_score = ((sliding_window_mean_current - np.nanmean(sliding_window_mean_current, axis = 0, keepdims=True))
+                                               / np.nanstd(sliding_window_mean_current, axis = 0, keepdims=True))
+
         # Define dictionary item for trial_id
-        sliding_window_mean[trial_id_in_data[i]] = sliding_window_mean_current
+        sliding_window_mean[trial_id_in_data[i]] = sliding_window_mean_current_z_score
         gloc_window[trial_id_in_data[i]] = gloc_window_current
         number_windows[trial_id_in_data[i]] = number_windows_current
 
@@ -289,10 +299,20 @@ def sliding_window_calc(time_start, stride, window_size, feature_baseline, gloc_
             # Adjust iteration_time
             time_iteration = stride + time_iteration
 
+        # Compute z-score to standardize
+        sliding_window_stddev_current_z_score = ((sliding_window_stddev_current - np.nanmean(sliding_window_stddev_current, axis = 0, keepdims=True))
+                                               / np.nanstd(sliding_window_stddev_current, axis = 0, keepdims=True))
+
+        sliding_window_max_current_z_score = ((sliding_window_max_current - np.nanmean(sliding_window_max_current, axis = 0, keepdims=True))
+                                               / np.nanstd(sliding_window_max_current, axis = 0, keepdims=True))
+
+        sliding_window_range_current_z_score = ((sliding_window_range_current - np.nanmean(sliding_window_range_current, axis = 0, keepdims=True))
+                                               / np.nanstd(sliding_window_range_current, axis = 0, keepdims=True))
+
         # Define dictionary item for trial_id
-        sliding_window_stddev[trial_id_in_data[i]] = sliding_window_stddev_current
-        sliding_window_max[trial_id_in_data[i]] = sliding_window_max_current
-        sliding_window_range[trial_id_in_data[i]] = sliding_window_range_current
+        sliding_window_stddev[trial_id_in_data[i]] = sliding_window_stddev_current_z_score
+        sliding_window_max[trial_id_in_data[i]] = sliding_window_max_current_z_score
+        sliding_window_range[trial_id_in_data[i]] = sliding_window_range_current_z_score
 
     return sliding_window_stddev, sliding_window_max, sliding_window_range
 
@@ -348,3 +368,20 @@ def process_NaN(y_gloc_labels, x_feature_matrix):
     x_feature_matrix_noNaN = x_feature_matrix[~np.isnan(x_feature_matrix).any(axis=1)]
 
     return y_gloc_labels_noNaN, x_feature_matrix_noNaN
+
+def summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda, accuracy_knn, accuracy_svm, accuracy_gb,
+                                  precision_logreg, precision_rf, precision_lda, precision_knn, precision_svm, precision_gb,
+                                  recall_logreg, recall_rf, recall_lda, recall_knn, recall_svm, recall_gb,
+                                  f1_logreg, f1_rf, f1_lda, f1_knn, f1_svm, f1_gb):
+    classifiers = ['Log Reg', 'RF', 'LDA', 'KNN', 'SVM' , 'Ensemble w/ GB']
+    performance_metrics = ['accuracy', 'precision', 'recall', 'f1-score']
+
+    accuracy = np.array([accuracy_logreg, accuracy_rf, accuracy_lda, accuracy_knn, accuracy_svm, accuracy_gb])
+    precision = np.array([precision_logreg, precision_rf, precision_lda, precision_knn, precision_svm, precision_gb])
+    recall = np.array([recall_logreg, recall_rf, recall_lda, recall_knn, recall_svm, recall_gb])
+    f1 = np.array([f1_logreg, f1_rf, f1_lda, f1_knn, f1_svm, f1_gb])
+    combined_metrics = np.column_stack((accuracy, precision, recall, f1))
+
+    performance_metric_summary = pd.DataFrame(combined_metrics, index = classifiers, columns = performance_metrics)
+
+    return performance_metric_summary

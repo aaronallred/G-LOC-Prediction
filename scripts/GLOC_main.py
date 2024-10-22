@@ -36,14 +36,14 @@ if __name__ == "__main__":
     baseline_window = 10 # seconds
     window_size = 10     # seconds
     stride = 1           # seconds
-    offset = 10          # seconds
+    offset = 1          # seconds
     time_start = 0       # seconds
 
     # ML Splits
     training_ratio = 0.8
 
     # Subject & Trial Information
-    subject_to_analyze = '02'
+    subject_to_analyze = '04'
     trial_to_analyze = '01'
 
     # Process CSV
@@ -73,7 +73,7 @@ if __name__ == "__main__":
     # Sliding Window Mean
     gloc_window, sliding_window_mean, number_windows = sliding_window_mean_calc(time_start, offset, stride, window_size, feature_baseline, gloc, gloc_data_reduced, time_variable)
 
-    # Sliding Window Standard Deviation
+    # Sliding Window Standard Deviation, Max, Range
     sliding_window_stddev, sliding_window_max, sliding_window_range = sliding_window_calc(time_start, stride, window_size, feature_baseline, gloc_data_reduced, time_variable, number_windows)
 
     # Visualize sliding window mean
@@ -116,6 +116,12 @@ if __name__ == "__main__":
 
     # Ensemble with Gradient Boosting
     accuracy_gb, precision_gb, recall_gb, f1_gb = classify_ensemble_with_gradboost(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio)
+
+    # Build Performance Metric Summary Tables
+    performance_metric_summary = summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda, accuracy_knn, accuracy_svm, accuracy_gb,
+                                                     precision_logreg, precision_rf, precision_lda, precision_knn, precision_svm, precision_gb,
+                                                     recall_logreg, recall_rf, recall_lda, recall_knn, recall_svm, recall_gb,
+                                                     f1_logreg, f1_rf, f1_lda, f1_knn, f1_svm, f1_gb)
 
     # Breakpoint for troubleshooting
     x = 1
