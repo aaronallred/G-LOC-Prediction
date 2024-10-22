@@ -1,6 +1,7 @@
 from GLOC_data_processing import *
 from GLOC_visualization import *
 from GLOC_classifier import *
+from features import *
 import numpy as np
 
 if __name__ == "__main__":
@@ -25,7 +26,7 @@ if __name__ == "__main__":
     time_variable = 'Time (s)'
 
     # Data Parameters
-    analysis_type = 2   # flag to set which data should be analyzed
+    analysis_type = 1   # flag to set which data should be analyzed
                         # analysis_type = 0: analyze one trial from a subject
                             # if analysis_type = 0, then set subject_to_analyze and trial_to_analyze parameters below
                         # analysis_type = 1: analyze subject data (all trials for a subject)
