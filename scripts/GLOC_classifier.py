@@ -1,5 +1,5 @@
-
 from pygam import GAM, s, f
+
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
@@ -65,11 +65,16 @@ def classify_logistic_regression(gloc_window, sliding_window_mean, training_rati
     label_predictions = logreg.predict(x_testing)
 
     # Assess Performance
+    accuracy = metrics.accuracy_score(y_testing, label_predictions)
+    precision = metrics.precision_score(y_testing, label_predictions)
+    recall = metrics.recall_score(y_testing, label_predictions)
+    f1 = metrics.f1_score(y_testing, label_predictions)
+
     print("\nLogistic Regression Performance Metrics:")
-    print("Accuracy: ", metrics.accuracy_score(y_testing, label_predictions))
-    print("Precision: ", metrics.precision_score(y_testing, label_predictions))
-    print("Recall: ", metrics.recall_score(y_testing, label_predictions))
-    print("F1 Score: ", metrics.f1_score(y_testing, label_predictions))
+    print("Accuracy: ", accuracy)
+    print("Precision: ", precision)
+    print("Recall: ", recall)
+    print("F1 Score: ", f1)
 
     # Create Confusion Matrix
     create_confusion_matrix(y_testing, label_predictions, 'Log. Reg.')
@@ -94,6 +99,8 @@ def classify_logistic_regression(gloc_window, sliding_window_mean, training_rati
     #     plt.ylabel('Predicted')
     #     plt.show()
 
+    return accuracy, precision, recall, f1
+
 # Random Forest Classifier
 # USING RANDOM STATE = 42
 def classify_random_forest(gloc_window, sliding_window_mean, training_ratio, all_features):
@@ -114,11 +121,19 @@ def classify_random_forest(gloc_window, sliding_window_mean, training_ratio, all
     label_predictions = rf.predict(x_testing)
 
     # Assess Performance
+    accuracy = metrics.accuracy_score(y_testing, label_predictions)
+    precision = metrics.precision_score(y_testing, label_predictions)
+    recall = metrics.recall_score(y_testing, label_predictions)
+    f1 = metrics.f1_score(y_testing, label_predictions)
+
     print("\nRandom Forest Performance Metrics:")
-    print("Accuracy: ", metrics.accuracy_score(y_testing, label_predictions))
-    print("Precision: ", metrics.precision_score(y_testing, label_predictions))
-    print("Recall: ", metrics.recall_score(y_testing, label_predictions))
-    print("F1 Score: ", metrics.f1_score(y_testing, label_predictions))
+    print("Accuracy: ", accuracy)
+    print("Precision: ", precision)
+    print("Recall: ", recall)
+    print("F1 Score: ", f1)
+
+    # Find Tree Depth
+    tree_depth = [estimator.get_depth() for estimator in rf.estimators_]
 
     # Visualize Decision Tree
     fn = all_features
@@ -132,6 +147,8 @@ def classify_random_forest(gloc_window, sliding_window_mean, training_ratio, all
 
     # Create Confusion Matrix
     create_confusion_matrix(y_testing, label_predictions, 'Random Forest')
+
+    return accuracy, precision, recall, f1
 
 # Linear Discriminant Analysis
 # USING RANDOM STATE = 42
@@ -152,14 +169,21 @@ def classify_lda(gloc_window, sliding_window_mean, training_ratio, all_features)
     label_predictions = lda.predict(x_testing)
 
     # Assess Performance
+    accuracy = metrics.accuracy_score(y_testing, label_predictions)
+    precision = metrics.precision_score(y_testing, label_predictions)
+    recall = metrics.recall_score(y_testing, label_predictions)
+    f1 = metrics.f1_score(y_testing, label_predictions)
+
     print("\nLinear Discriminant Analysis Performance Metrics:")
-    print("Accuracy: ", metrics.accuracy_score(y_testing, label_predictions))
-    print("Precision: ", metrics.precision_score(y_testing, label_predictions))
-    print("Recall: ", metrics.recall_score(y_testing, label_predictions))
-    print("F1 Score: ", metrics.f1_score(y_testing, label_predictions))
+    print("Accuracy: ", accuracy)
+    print("Precision: ", precision)
+    print("Recall: ", recall)
+    print("F1 Score: ", f1)
 
     # Create Confusion Matrix
     create_confusion_matrix(y_testing, label_predictions, 'Linear Discriminant Analysis')
+
+    return accuracy, precision, recall, f1
 
 # k Nearest Neighbors
 # USING RANDOM STATE = 42
@@ -180,14 +204,21 @@ def classify_knn(gloc_window, sliding_window_mean, training_ratio):
     label_predictions = neigh.predict(x_testing)
 
     # Assess Performance
+    accuracy = metrics.accuracy_score(y_testing, label_predictions)
+    precision = metrics.precision_score(y_testing, label_predictions)
+    recall = metrics.recall_score(y_testing, label_predictions)
+    f1 = metrics.f1_score(y_testing, label_predictions)
+
     print("\nKNN Performance Metrics:")
-    print("Accuracy: ", metrics.accuracy_score(y_testing, label_predictions))
-    print("Precision: ", metrics.precision_score(y_testing, label_predictions))
-    print("Recall: ", metrics.recall_score(y_testing, label_predictions))
-    print("F1 Score: ", metrics.f1_score(y_testing, label_predictions))
+    print("Accuracy: ", accuracy)
+    print("Precision: ", precision)
+    print("Recall: ", recall)
+    print("F1 Score: ", f1)
 
     # Create Confusion Matrix
     create_confusion_matrix(y_testing, label_predictions, 'kNN')
+
+    return accuracy, precision, recall, f1
 
 # Support Vector Machine
 # USING RANDOM STATE = 42
@@ -208,14 +239,21 @@ def classify_svm(gloc_window, sliding_window_mean, training_ratio):
     label_predictions = svm_class.predict(x_testing)
 
     # Assess Performance
+    accuracy = metrics.accuracy_score(y_testing, label_predictions)
+    precision = metrics.precision_score(y_testing, label_predictions)
+    recall = metrics.recall_score(y_testing, label_predictions)
+    f1 = metrics.f1_score(y_testing, label_predictions)
+
     print("\nSVM Performance Metrics:")
-    print("Accuracy: ", metrics.accuracy_score(y_testing, label_predictions))
-    print("Precision: ", metrics.precision_score(y_testing, label_predictions))
-    print("Recall: ", metrics.recall_score(y_testing, label_predictions))
-    print("F1 Score: ", metrics.f1_score(y_testing, label_predictions))
+    print("Accuracy: ", accuracy)
+    print("Precision: ", precision)
+    print("Recall: ", recall)
+    print("F1 Score: ", f1)
 
     # Create Confusion Matrix
     create_confusion_matrix(y_testing, label_predictions, 'Support Vector Machine')
+
+    return accuracy, precision, recall, f1
 
 # Ensemble Learner with Gradient Boost
 # USING RANDOM STATE = 42
@@ -236,15 +274,21 @@ def classify_ensemble_with_gradboost(gloc_window, sliding_window_mean, training_
     label_predictions = gb.predict(x_testing)
 
     # Assess Performance
+    accuracy = metrics.accuracy_score(y_testing, label_predictions)
+    precision = metrics.precision_score(y_testing, label_predictions)
+    recall = metrics.recall_score(y_testing, label_predictions)
+    f1 = metrics.f1_score(y_testing, label_predictions)
+
     print("\nEnsemble Learner with Gradient Boosting Performance Metrics:")
-    print("Accuracy: ", metrics.accuracy_score(y_testing, label_predictions))
-    print("Precision: ", metrics.precision_score(y_testing, label_predictions))
-    print("Recall: ", metrics.recall_score(y_testing, label_predictions))
-    print("F1 Score: ", metrics.f1_score(y_testing, label_predictions))
+    print("Accuracy: ", accuracy)
+    print("Precision: ", precision)
+    print("Recall: ", recall)
+    print("F1 Score: ", f1)
 
     # Create Confusion Matrix
     create_confusion_matrix(y_testing, label_predictions, 'Gradient Boosting')
 
+    return accuracy, precision, recall, f1
 
 def gam_classifier(X,y):
 

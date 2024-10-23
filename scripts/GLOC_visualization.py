@@ -1,7 +1,10 @@
-from matplotlib import pyplot as plt
 import matplotlib.font_manager as font_manager
-import numpy as np
 import os
+from matplotlib import pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from sklearn import metrics
 
 def initial_visualization(gloc_data_reduced, gloc, feature_baseline, all_features, time_variable):
     """
@@ -97,6 +100,21 @@ def create_confusion_matrix(y_testing, label_predictions, model_type):
     plt.ylabel('Actual label')
     plt.xlabel('Predicted label')
     plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 def EF_visualization(feature,label):
     fig, ax = plt.subplots()

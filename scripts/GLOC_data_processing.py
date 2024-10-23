@@ -41,20 +41,21 @@ def load_and_process_csv(filename, analysis_type, feature_to_analyze, time_varia
     gloc_data['trial'] = pd.Series(trial, index=gloc_data.index)
 
     # Analyze only section of gloc_data specified using analysis_type
-    if analysis_type == 0: # One Trial / One Subject
+    if analysis_type == 0:  # One Trial / One Subject
         subject_to_analyze = kwargs['subject_to_analyze']
         trial_to_analyze = kwargs['trial_to_analyze']
 
         # Find data from subject & trial of interest
-        gloc_data_reduced = gloc_data[(gloc_data['subject'] == subject_to_analyze) & (gloc_data['trial'] == trial_to_analyze)]
+        gloc_data_reduced = gloc_data[
+            (gloc_data['subject'] == subject_to_analyze) & (gloc_data['trial'] == trial_to_analyze)]
 
-    elif analysis_type == 1: # All Trials for One Subject
+    elif analysis_type == 1:  # All Trials for One Subject
         subject_to_analyze = kwargs['subject_to_analyze']
 
         # Find data from subject of interest
         gloc_data_reduced = gloc_data[(gloc_data['subject'] == subject_to_analyze)]
 
-    elif analysis_type == 2: # All Trials for All Subjects
+    elif analysis_type == 2:  # All Trials for All Subjects
         gloc_data_reduced = gloc_data
 
     #############################################   Features   #############################################
@@ -64,16 +65,17 @@ def load_and_process_csv(filename, analysis_type, feature_to_analyze, time_varia
     # temp ('Skin Temperature - IR Thermometer (°C) - Equivital')
     # fnirs ('HbO2 - fNIRS', 'Hbd - fNIRS')
     # eyetracking ('Pupil position left X [HUCS mm] - Tobii', 'Pupil position left Y [HUCS mm] - Tobii', 'Pupil position left Z [HUCS mm] - Tobii', 'Pupil position right X [HUCS mm] - Tobii'
-            # 'Pupil position right Y [HUCS mm] - Tobii', 'Pupil position right Z [HUCS mm] - Tobii', 'Pupil diameter left [mm] - Tobii', 'Pupil diameter right [mm] - Tobii')
+    # 'Pupil position right Y [HUCS mm] - Tobii', 'Pupil position right Z [HUCS mm] - Tobii', 'Pupil diameter left [mm] - Tobii', 'Pupil diameter right [mm] - Tobii')
 
     # Get feature columns
     if 'ECG' in feature_to_analyze:
-        ecg_features = ['HR (bpm) - Equivital', 'ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital', 'HR_instant - Equivital','HR_average - Equivital', 'HR_w_average - Equivital']
+        ecg_features = ['HR (bpm) - Equivital', 'ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital',
+                        'HR_instant - Equivital', 'HR_average - Equivital', 'HR_w_average - Equivital']
     else:
         ecg_features = []
 
     if 'BR' in feature_to_analyze:
-       br_features = ['BR (rpm) - Equivital']
+        br_features = ['BR (rpm) - Equivital']
     else:
         br_features = []
 
@@ -88,8 +90,13 @@ def load_and_process_csv(filename, analysis_type, feature_to_analyze, time_varia
         fnirs_features = []
 
     if 'eyetracking' in feature_to_analyze:
-        eyetracking_features = ['Pupil position left X [HUCS mm] - Tobii', 'Pupil position left Y [HUCS mm] - Tobii', 'Pupil position left Z [HUCS mm] - Tobii', 'Pupil position right X [HUCS mm] - Tobii',
-            'Pupil position right Y [HUCS mm] - Tobii', 'Pupil position right Z [HUCS mm] - Tobii', 'Pupil diameter left [mm] - Tobii', 'Pupil diameter right [mm] - Tobii']
+        eyetracking_features = ['Pupil position left X [HUCS mm] - Tobii',
+                                'Pupil position left Y [HUCS mm] - Tobii',
+                                'Pupil position left Z [HUCS mm] - Tobii',
+                                'Pupil position right X [HUCS mm] - Tobii',
+                                'Pupil position right Y [HUCS mm] - Tobii',
+                                'Pupil position right Z [HUCS mm] - Tobii', 'Pupil diameter left [mm] - Tobii',
+                                'Pupil diameter right [mm] - Tobii']
     else:
         eyetracking_features = []
 
@@ -115,91 +122,64 @@ def baseline_features(baseline_window, gloc_data_reduced, features, time_variabl
 
     # Build Dictionary for each trial_id
     feature_baseline = dict()
+    feature_baseline_derivative = dict()
+
     for i in range(np.size(trial_id_in_data)):
+        # Find time window
+        index_window = ((gloc_data_reduced[time_variable] < baseline_window) & (
+                    gloc_data_reduced.trial_id == trial_id_in_data[i]))
+        time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
+        time_array = gloc_data_reduced[time_variable]
 
-            # Find baseline average based on specified baseline window
-            baseline_feature = np.mean(features[(gloc_data_reduced[time_variable]<baseline_window) &
-                                                (gloc_data_reduced.trial_id == trial_id_in_data[i])], axis = 0)
+        # Find baseline average based on specified baseline window
+        baseline_feature = np.mean(features[index_window], axis=0)
 
-            # Divide features for that trial by baselined data
-            feature_baseline[trial_id_in_data[i]] = np.array(features[(gloc_data_reduced.trial_id == trial_id_in_data[i])]/baseline_feature)
+        # Divide features for that trial by baselined data
+        feature_baseline[trial_id_in_data[i]] = np.array(
+            features[(gloc_data_reduced.trial_id == trial_id_in_data[i])] / baseline_feature)
+
+        # Compute derivative
+        diff_feature_baseline = np.diff(feature_baseline[trial_id_in_data[i]])
+        diff_time = np.diff(time_array[time_index])
+        diff_time = np.append(np.nan, diff_time)
+        diff_time = np.reshape(diff_time, (len(diff_time), 1))
+
+        feature_baseline_derivative[trial_id_in_data[i]] = diff_feature_baseline / diff_time
 
     return feature_baseline
 
-def sliding_window_mean_calc(time_start, offset, stride, window_size, feature_baseline, gloc, gloc_data_reduced, time_variable):
+def tabulateNaN(feature_baseline, all_features):
     """
-    This function creates the engineered features and gloc labels for the data. This includes a
-    sliding window mean for each of the features for each trial_id. The number of windows is
-    determined from the specified stride, window size, and offset. The gloc label is determined
-    by finding if there are any 1 GLOC labels within the window (at some offset from the engineered
-    feature window). A dictionary for the engineered feature, engineered label, and number of windows
-    is returned. These dictionaries are sorted by trial_id.
+    This function tabulates NaN values for each feature for each trial.
     """
 
     # Find Unique Trial ID
-    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+    trial_id_in_data = list(feature_baseline.keys())
 
-    # Build Dictionary for each trial_id
-    sliding_window_mean = dict()
-    gloc_window = dict()
-    number_windows = dict()
+    # Initialize table
+    NaN_count = np.zeros((len(trial_id_in_data), len(all_features)))
+    NaN_prop = np.zeros((len(trial_id_in_data), len(all_features)))
 
-    # Iterate through all unique trial_id
-    for i in range(np.size(trial_id_in_data)):
+    # Loop through dictionary values and count NaNs per trial/feature
+    for i in range(len(trial_id_in_data)):
+        NaN_count[i, :] = np.count_nonzero(np.isnan(feature_baseline[trial_id_in_data[i]]), axis=0, keepdims=True)
+        NaN_prop[i, :] = NaN_count[i, :] / np.shape(feature_baseline[trial_id_in_data[i]])[0]
 
-        # Determine index from current trial_id
-        current_index = (gloc_data_reduced['trial_id'] == trial_id_in_data[i])
+    # Output in Data Frame
+    NaN_table = pd.DataFrame(NaN_count, columns=all_features, index=trial_id_in_data)
+    NaN_proportion = pd.DataFrame(NaN_prop, columns=all_features, index=trial_id_in_data)
 
-        # Create time array based on current_index
-        current_time = np.array(gloc_data_reduced[time_variable])
-        time_trimmed = current_time[current_index]
+    NaN_rows = (NaN_proportion == 1).any(axis=1)
+    number_NaN_rows = NaN_rows.values.sum()
+    total_rows = NaN_proportion.shape[0]
 
-        # Find end time for specific trial
-        time_end = np.max(time_trimmed)
+    print("There are ", number_NaN_rows, " trials with all NaNs for at least one feature out of ", total_rows,
+          "trials. ", total_rows - number_NaN_rows, " trials remaining.")
 
-        # Determine number of windows
-        number_windows_current = np.int32(((time_end - offset) // stride) - (window_size // stride - 1))
+    return NaN_table, NaN_proportion
 
-        # Pre-allocate arrays
-        sliding_window_mean_current = np.zeros((number_windows_current, np.shape(feature_baseline[trial_id_in_data[i]])[1]))
-        gloc_window_current = np.zeros((number_windows_current, 1))
-
-        # Create trimmed gloc data for the specific
-        gloc_trimmed = gloc[(gloc_data_reduced.trial_id == trial_id_in_data[i])]
-
-        # Define iteration time
-        time_iteration = time_start
-
-        # Iterate through all windows to compute relevant parameters
-        for j in range(number_windows_current):
-
-            # Find index for current window
-            time_period_feature = (time_iteration <= time_trimmed) & (time_trimmed < (time_iteration + window_size))
-
-            # Find feature for current window
-            feature_window = feature_baseline[trial_id_in_data[i]][time_period_feature]
-
-            # Take nanmean for the window (one value per column (feature))
-            sliding_window_mean_current[j,:] = np.nanmean(feature_window, axis = 0, keepdims=True)
-
-            # Find the offset time for G-LOC label
-            time_period_gloc = (((time_iteration + offset) <= time_trimmed) &
-                                (time_trimmed < (time_iteration + offset + window_size)))
-
-            # Create engineered label set to 1 if any values in window are 1
-            gloc_window_current[j] = np.any(gloc_trimmed[time_period_gloc])
-
-            # Adjust iteration_time
-            time_iteration = stride + time_iteration
-
-        # Define dictionary item for trial_id
-        sliding_window_mean[trial_id_in_data[i]] = sliding_window_mean_current
-        gloc_window[trial_id_in_data[i]] = gloc_window_current
-        number_windows[trial_id_in_data[i]] = number_windows_current
-
-    return gloc_window, sliding_window_mean, number_windows
-
-def unpack_dict(gloc_window, sliding_window_mean, number_windows):
+def unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window_stddev, sliding_window_max,
+                sliding_window_range):
     """
     This function unpacks the dictionary structure to create a large features matrix (X matrix) and
     labels matrix (y matrix) for all trials being analyzed. This function will become unnecessary if
@@ -214,8 +194,14 @@ def unpack_dict(gloc_window, sliding_window_mean, number_windows):
     for i in range(np.size(trial_id_in_data)):
         total_rows += number_windows[trial_id_in_data[i]]
 
+    # Find number of columns
+    num_cols = (np.shape(sliding_window_mean[trial_id_in_data[0]])[1] +
+                np.shape(sliding_window_stddev[trial_id_in_data[0]])[1]
+                + np.shape(sliding_window_max[trial_id_in_data[0]])[1] +
+                np.shape(sliding_window_range[trial_id_in_data[0]])[1])
+
     # Pre-allocate
-    x_feature_matrix = np.zeros((total_rows, np.shape(sliding_window_mean[trial_id_in_data[0]])[1]))
+    x_feature_matrix = np.zeros((total_rows, num_cols))
     y_gloc_labels = np.zeros((total_rows, 1))
 
     current_index = 0
@@ -225,8 +211,12 @@ def unpack_dict(gloc_window, sliding_window_mean, number_windows):
         num_rows = np.shape(sliding_window_mean[trial_id_in_data[i]])[0]
 
         # Set specific rows equal to the dictionary item corresponding to trial_id
-        x_feature_matrix[current_index:num_rows+current_index, :] = sliding_window_mean[trial_id_in_data[i]]
-        y_gloc_labels[current_index:num_rows+current_index, :] = gloc_window[trial_id_in_data[i]]
+        x_feature_matrix[current_index:num_rows + current_index, :] = np.column_stack(
+            (sliding_window_mean[trial_id_in_data[i]],
+             sliding_window_stddev[trial_id_in_data[i]],
+             sliding_window_max[trial_id_in_data[i]],
+             sliding_window_range[trial_id_in_data[i]]))
+        y_gloc_labels[current_index:num_rows + current_index, :] = gloc_window[trial_id_in_data[i]]
         current_index += num_rows
 
     return y_gloc_labels, x_feature_matrix
@@ -243,24 +233,24 @@ def process_NaN(y_gloc_labels, x_feature_matrix):
     # Find & Remove rows in label array if the features have any NaN values in that row
     x_feature_matrix_noNaN = x_feature_matrix[~np.isnan(x_feature_matrix).any(axis=1)]
 
-def load_and_process_pkl(filename, feature_to_analyze, time_variable):
-    # Load CSV (can read just a chunk of the file)
-    # chunksize = 10**3
-    with open(filename, 'rb') as file:
-        # Call load method to deserialze
-        gloc_data = pickle.load(file)
+    return y_gloc_labels_noNaN, x_feature_matrix_noNaN
 
-    # Separate Subject/Trial Column
-    trial_id = gloc_data['trial_id'].to_numpy().astype('str')
-    trial_id = np.array(np.char.split(trial_id, '-').tolist())
-    subject = trial_id[:,0]
-    trial = trial_id[:,1]
-    time = gloc_data[time_variable].to_numpy()
-    feature = gloc_data[feature_to_analyze].to_numpy()
+def summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda, accuracy_knn, accuracy_svm,
+                                  accuracy_gb,
+                                  precision_logreg, precision_rf, precision_lda, precision_knn, precision_svm,
+                                  precision_gb,
+                                  recall_logreg, recall_rf, recall_lda, recall_knn, recall_svm, recall_gb,
+                                  f1_logreg, f1_rf, f1_lda, f1_knn, f1_svm, f1_gb):
+    classifiers = ['Log Reg', 'RF', 'LDA', 'KNN', 'SVM', 'Ensemble w/ GB']
+    performance_metrics = ['accuracy', 'precision', 'recall', 'f1-score']
 
-    return gloc_data, subject, trial, time, feature
+    accuracy = np.array([accuracy_logreg, accuracy_rf, accuracy_lda, accuracy_knn, accuracy_svm, accuracy_gb])
+    precision = np.array(
+        [precision_logreg, precision_rf, precision_lda, precision_knn, precision_svm, precision_gb])
+    recall = np.array([recall_logreg, recall_rf, recall_lda, recall_knn, recall_svm, recall_gb])
+    f1 = np.array([f1_logreg, f1_rf, f1_lda, f1_knn, f1_svm, f1_gb])
+    combined_metrics = np.column_stack((accuracy, precision, recall, f1))
 
-def find_missing_values(gloc_data,feature_to_analyze):
-    nan_indices = gloc_data.isna().stack()
-    missing_heart_rate = gloc_data[gloc_data[feature_to_analyze].isna()]
-    subject_ids_missing = missing_heart_rate['trial_id']
+    performance_metric_summary = pd.DataFrame(combined_metrics, index=classifiers, columns=performance_metrics)
+
+    return performance_metric_summary
