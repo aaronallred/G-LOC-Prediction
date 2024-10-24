@@ -254,3 +254,47 @@ def summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda, ac
     performance_metric_summary = pd.DataFrame(combined_metrics, index=classifiers, columns=performance_metrics)
 
     return performance_metric_summary
+
+def unpack_dict_id(gloc_window, sliding_window_mean, number_windows, sliding_window_stddev, sliding_window_max,
+                sliding_window_range):
+    """
+    This function unpacks the dictionary structure to create a large features matrix (X matrix) and
+    labels matrix (y matrix) for all trials being analyzed. This function will become unnecessary if
+    the data remains in dataframe or arrays (rather than a dictionary).
+    """
+
+    # Find Unique Trial ID
+    trial_id_in_data = list(sliding_window_mean.keys())
+
+    # Determine total length of new unpacked dictionary items
+    total_rows = 0
+    for i in range(np.size(trial_id_in_data)):
+        total_rows += number_windows[trial_id_in_data[i]]
+
+    # Find number of columns
+    num_cols = (np.shape(sliding_window_mean[trial_id_in_data[0]])[1] +
+                np.shape(sliding_window_stddev[trial_id_in_data[0]])[1]
+                + np.shape(sliding_window_max[trial_id_in_data[0]])[1] +
+                np.shape(sliding_window_range[trial_id_in_data[0]])[1])
+
+    # Pre-allocate
+    x_feature_matrix = np.zeros((total_rows, num_cols+1))
+    y_gloc_labels = np.zeros((total_rows, 1))
+
+    current_index = 0
+
+    # Iterate through unique trial_id
+    for i in range(np.size(trial_id_in_data)):
+        num_rows = np.shape(sliding_window_mean[trial_id_in_data[i]])[0]
+
+        # Set specific rows equal to the dictionary item corresponding to trial_id
+        x_feature_matrix[current_index:num_rows + current_index, 0:-1] = np.column_stack(
+            (sliding_window_mean[trial_id_in_data[i]],
+             sliding_window_stddev[trial_id_in_data[i]],
+             sliding_window_max[trial_id_in_data[i]],
+             sliding_window_range[trial_id_in_data[i]]))
+        x_feature_matrix[current_index:num_rows + current_index, -1] = np.ones((num_rows,))*i
+        y_gloc_labels[current_index:num_rows + current_index, :] = gloc_window[trial_id_in_data[i]]
+        current_index += num_rows
+
+    return y_gloc_labels, x_feature_matrix

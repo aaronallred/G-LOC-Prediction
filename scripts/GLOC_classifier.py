@@ -1,6 +1,7 @@
 from pygam import GAM, s, f
 
 import numpy as np
+from scipy.constants import precision
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 import seaborn as sns
@@ -292,29 +293,65 @@ def classify_ensemble_with_gradboost(gloc_window, sliding_window_mean, training_
 
 def gam_classifier(X,y):
 
+    training_ratio = 0.8
+
+    # Split into train and test where last two
+    last_column = X[:, -1]
+    unique_values = np.unique(last_column)
+    # Calculate training split of the unique values
+    num_unique = len(unique_values)
+    num_to_select = int(num_unique * training_ratio)
+
+    # get train indices
+    random_indices = np.random.choice(unique_values, size=num_to_select, replace=False)
+    selected_indices = np.where(np.isin(last_column, random_indices))[0]
+    X_train = X[selected_indices]
+    y_train = y[selected_indices]
+
+    # get test indices
+    all_indices = np.arange(X.shape[0])
+    complement_indices = np.setdiff1d(all_indices, selected_indices)
+    X_test = X[complement_indices]
+    y_test = y[complement_indices]
+
+    # X_train = X[X[:,-1]  != last]
+    # X_test  = X[X[:, -1] == last]
+    # y_train = y[X[:, -1] != last]
+    # y_test  = y[X[:, -1] == last]
+
+    rows,cols = np.shape(X)
     ## model
-    gam = GAM(s(0, n_splines=5), distribution='binomial', link='logit')
-    gam.fit(X, y)
+    gam = GAM(s(0)+s(1)+s(2)+s(3)+s(4)+s(5)+s(6)+f(cols-1), distribution='binomial', link='logit')
+    gam = GAM(s(0) + s(1) + s(2) + s(3) + s(4) + s(5) + s(6) + s(7) + s(8) + s(9) +
+                s(10) + s(11) + s(12) + s(13) + s(14) + s(15) + s(16) + s(17) + s(18) +
+                s(19) + s(20) + s(21) + s(22) + s(23) + s(24) + s(25) + s(26) + s(27) +
+                s(28) + s(29) + s(30) + s(31) + s(32) + s(33) + s(34) + s(35) + s(36) +
+                s(37) + s(38) + s(39) + s(40) + s(41) + s(42) + s(43) + s(44) + s(45) +
+                s(46) + s(47) + s(48) + s(49) + s(50) + s(51) + s(52) + s(53) + s(54) +
+                s(55) + s(56) + s(57) + s(58) + s(59) + s(60) + s(61) + s(62) + s(63) +
+                s(64) + s(65) + s(66) + s(67) + s(68) + s(69) + s(70) + s(71) + f(cols-1), distribution='binomial', link='logit')
 
-    ## plotting
-    plt.figure();
-    fig, axs = plt.subplots(1, 1);
+    gam.fit(X_train, y_train)
 
-    titles = ['HR 95% Conf Bound']
+    predictions = []
+    X_test_len,X_test_width = np.shape(X_test)
 
-    ax = axs
-    i=0
-    XX = gam.generate_X_grid(term=i)
-    ax.plot(XX[:, i], gam.partial_dependence(term=i, X=XX))
-    ax.plot(XX[:, i], gam.partial_dependence(term=i, X=XX, width=.95)[1], c='r', ls='--')
-    plt.scatter(X, y, facecolor='gray', edgecolors='none')
+    for i in np.unique(X_train[:,-1]):
+        series_indicator_test = i*np.ones((X_test_len,1)) # Use the indicator for each series
+        X_test_temp = np.column_stack([X_test[:,0:-1], series_indicator_test])
+        y_pred = gam.predict(X_test_temp)
+        predictions.append(y_pred)
 
-    # continuing last example with the mcycle dataset
-    for response in gam.sample(X, y, quantity='y', n_draws=50, sample_at_X=XX):
-        plt.scatter(XX, response, alpha=.03, color='k')
+    y_pred_averaged = np.mean(predictions, axis=0)
 
-    ax.set_title(titles[i]);
+    y_testing = y_test
+    label_predictions = np.round(y_pred_averaged)
+    accuracy = metrics.accuracy_score(y_testing, label_predictions)
+    precision = metrics.precision_score(y_testing, label_predictions)
+    recall = metrics.recall_score(y_testing, label_predictions)
+    f1 = metrics.f1_score(y_testing, label_predictions)
 
-    plt.show()
+    # Create Confusion Matrix
+    create_confusion_matrix(y_testing, label_predictions, 'GAM')
 
-    return gam
+    return accuracy, precision, recall, f1, gam

@@ -37,7 +37,7 @@ if __name__ == "__main__":
     baseline_window = 10 # seconds
     window_size = 10     # seconds
     stride = 1           # seconds
-    offset = 1          # seconds
+    offset = 0          # seconds
     time_start = 0       # seconds
 
     # ML Splits
@@ -87,9 +87,12 @@ if __name__ == "__main__":
 
     # Unpack Dictionary into Array & combine features into one feature array
     y_gloc_labels, x_feature_matrix = unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window_stddev, sliding_window_max, sliding_window_range)
+    y_gloc_labels_id, x_feature_matrix_id = unpack_dict_id(gloc_window, sliding_window_mean, number_windows,
+                                                  sliding_window_stddev, sliding_window_max, sliding_window_range)
 
     # Remove rows with NaN (temporary solution-should replace with other method eventually)
     y_gloc_labels_noNaN, x_feature_matrix_noNaN = process_NaN(y_gloc_labels, x_feature_matrix)
+    y_gloc_noNaN, x_feature_noNaN = process_NaN(y_gloc_labels_id, x_feature_matrix_id)
 
     # Update all features array
     all_features_mean = [s + '_mean' for s in all_features]
@@ -99,7 +102,7 @@ if __name__ == "__main__":
     all_features = all_features_mean + all_features_stddev + all_features_max + all_features_range
 
     ## Call functions for ML classification ##
-    NikkiClassifiers = 1
+    NikkiClassifiers = 0
     if NikkiClassifiers == 1:
         # Logistic Regression
         accuracy_logreg, precision_logreg, recall_logreg, f1_logreg = classify_logistic_regression(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio, all_features)
@@ -124,7 +127,7 @@ if __name__ == "__main__":
                                                                    f1_logreg, f1_rf, f1_lda, f1_knn, f1_svm, f1_gb)
     else:
         # Generative Additive Model
-        gam = gam_classifier(sliding_window_mean, gloc_window)
+        accuracy, precision, recall, f1, gam = gam_classifier(x_feature_noNaN, y_gloc_noNaN)
         print(gam.summary())
 
     ################################ Other Visualization Code Needs Cleaning! ##########################################
