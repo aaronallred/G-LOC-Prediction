@@ -26,7 +26,7 @@ if __name__ == "__main__":
     time_variable = 'Time (s)'
 
     # Data Parameters
-    analysis_type = 1   # flag to set which data should be analyzed
+    analysis_type = 2   # flag to set which data should be analyzed
                         # analysis_type = 0: analyze one trial from a subject
                             # if analysis_type = 0, then set subject_to_analyze and trial_to_analyze parameters below
                         # analysis_type = 1: analyze subject data (all trials for a subject)
@@ -37,7 +37,7 @@ if __name__ == "__main__":
     baseline_window = 10 # seconds
     window_size = 10     # seconds
     stride = 1           # seconds
-    offset = 1          # seconds
+    offset = 30          # seconds
     time_start = 0       # seconds
 
     # ML Splits
@@ -77,6 +77,10 @@ if __name__ == "__main__":
     # Sliding Window Standard Deviation, Max, Range
     sliding_window_stddev, sliding_window_max, sliding_window_range = sliding_window_calc(time_start, stride, window_size, feature_baseline, gloc_data_reduced, time_variable, number_windows)
 
+    # Additional Features
+    sliding_window_pupil_difference, sliding_window_ox_deox_ratio = sliding_window_other_features(time_start, stride, window_size, feature_baseline, gloc_data_reduced, time_variable,
+                                  number_windows, all_features)
+
     # Visualize sliding window mean
     if plot_data == 1:
         sliding_window_visualization(gloc_window, sliding_window_mean, number_windows, all_features, gloc_data_reduced)
@@ -86,7 +90,7 @@ if __name__ == "__main__":
         pairwise_visualization(gloc_window, sliding_window_mean, all_features, gloc_data_reduced)
 
     # Unpack Dictionary into Array & combine features into one feature array
-    y_gloc_labels, x_feature_matrix = unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window_stddev, sliding_window_max, sliding_window_range)
+    y_gloc_labels, x_feature_matrix = unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window_stddev, sliding_window_max, sliding_window_range, sliding_window_pupil_difference, sliding_window_ox_deox_ratio)
 
     # Remove rows with NaN (temporary solution-should replace with other method eventually)
     y_gloc_labels_noNaN, x_feature_matrix_noNaN = process_NaN(y_gloc_labels, x_feature_matrix)
@@ -96,7 +100,9 @@ if __name__ == "__main__":
     all_features_stddev = [s + '_stddev' for s in all_features]
     all_features_max = [s + '_max' for s in all_features]
     all_features_range = [s + '_range' for s in all_features]
-    all_features = all_features_mean + all_features_stddev + all_features_max + all_features_range
+    pupil_features = ['Pupil Difference']
+    fnirs_features = ['Hbo/Hbd']
+    all_features = all_features_mean + all_features_stddev + all_features_max + all_features_range + pupil_features + fnirs_features
 
     ## Call functions for ML classification ##
 
@@ -104,7 +110,7 @@ if __name__ == "__main__":
     accuracy_logreg, precision_logreg, recall_logreg, f1_logreg = classify_logistic_regression(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio, all_features)
 
     # RF
-    accuracy_rf, precision_rf, recall_rf, f1_rf = classify_random_forest(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio, all_features)
+    accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth = classify_random_forest(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio, all_features)
 
     # LDA
     accuracy_lda, precision_lda, recall_lda, f1_lda = classify_lda(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio, all_features)

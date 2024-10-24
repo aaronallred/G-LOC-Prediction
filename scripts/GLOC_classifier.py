@@ -14,6 +14,8 @@ from sklearn.inspection import DecisionBoundaryDisplay
 from sklearn import svm
 from sklearn.ensemble import GradientBoostingClassifier
 from GLOC_visualization import create_confusion_matrix
+from sklearn.linear_model import Lasso
+from sklearn.model_selection import GridSearchCV, KFold
 
 def label_gloc_events(gloc_data_reduced):
     """
@@ -55,6 +57,8 @@ def classify_logistic_regression(gloc_window, sliding_window_mean, training_rati
 
     # Train/Test Split
     x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window, test_size=(1-training_ratio), random_state=42)
+
+    # feature_subset = feature_selection_lasso(x_training, y_training, all_features)
 
     # Use Default Parameters & Fit Model
     logreg = LogisticRegression(class_weight = "balanced", random_state=42, max_iter=1000).fit(x_training, np.ravel(y_training))
@@ -141,12 +145,12 @@ def classify_random_forest(gloc_window, sliding_window_mean, training_ratio, all
                    feature_names=fn,
                    class_names=cn,
                    filled=True)
-    plt.show()
+    # plt.show()
 
     # Create Confusion Matrix
     create_confusion_matrix(y_testing, label_predictions, 'Random Forest')
 
-    return accuracy, precision, recall, f1
+    return accuracy, precision, recall, f1, tree_depth
 
 # Linear Discriminant Analysis
 # USING RANDOM STATE = 42
@@ -287,3 +291,54 @@ def classify_ensemble_with_gradboost(gloc_window, sliding_window_mean, training_
     create_confusion_matrix(y_testing, label_predictions, 'Gradient Boosting')
 
     return accuracy, precision, recall, f1
+
+# Feature Selection
+def feature_selection_lasso(X_train, y_train, all_features):
+    """
+    This function finds optimal lasso alpha parameter and fits a lasso model to determine
+    most important features. This should only see the 'training' data.
+    """
+    # parameters to be tested on GridSearchCV
+    params = {"alpha": np.arange(0.00001, 10, 500)}
+
+    # Number of Folds and adding the random state for replication
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+
+    # Initializing the Model
+    lasso = Lasso()
+
+    # GridSearchCV with model, params and folds.
+    lasso_cv = GridSearchCV(lasso, param_grid=params, cv=kf)
+    lasso_cv.fit(X_train, y_train)
+
+    alpha_optimal = lasso_cv.best_params_['alpha']
+
+    # calling the model with the best parameter
+    lasso1 = Lasso(alpha=alpha_optimal)
+    lasso1.fit(X_train, y_train)
+
+    # Using np.abs() to make coefficients positive.
+    lasso1_coef = np.abs(lasso1.coef_)
+
+    all_features_short = ['HR-mn', 'ECG1-mn', 'ECG2-mn', 'HR_ins_mn', 'HR_av_mn', 'HR_w_av_mn', 'BR-mn', 'Skin_temp_mn', 'HbO2_mn', 'Hbd_mn', 'pp_l_x_mn', 'pp_l_y_mn', 'pp_l_z_mn','pp_r_x_mn', 'pp_r_y_mn', 'pp_r_z_mn', 'pd_l_mn', 'pd_r_mn',
+                          'HR-sd', 'ECG1-sd', 'ECG2-sd', 'HR_ins_sd', 'HR_av_sd', 'HR_w_av_sd', 'BR-sd', 'Skin_temp_sd','HbO2_sd', 'Hbd_sd', 'pp_l_x_sd', 'pp_l_y_sd', 'pp_l_z_sd', 'pp_r_x_sd', 'pp_r_y_sd','pp_r_z_sd', 'pd_l_sd', 'pd_r_sd',
+                          'HR-mx', 'ECG1-mx', 'ECG2-mx', 'HR_ins_mx', 'HR_av_mx', 'HR_w_av_mx', 'BR-mx', 'Skin_temp_mx','HbO2_mx', 'Hbd_mx', 'pp_l_x_mx', 'pp_l_y_mx', 'pp_l_z_mx', 'pp_r_x_mx', 'pp_r_y_mx','pp_r_z_mx', 'pd_l_mx', 'pd_r_mx',
+                          'HR-rg', 'ECG1-rg', 'ECG2-rg', 'HR_ins_rg', 'HR_av_rg', 'HR_w_av_rg', 'BR-rg', 'Skin_temp_rg','HbO2_rg', 'Hbd_rg', 'pp_l_x_rg', 'pp_l_y_rg', 'pp_l_z_rg', 'pp_r_x_rg', 'pp_r_y_rg','pp_r_z_rg', 'pd_l_rg', 'pd_r_rg',
+                          'pup diff', 'HbO/HbD']
+
+    # plotting the Column Names and Importance of Columns.
+    fig,ax = plt.subplots(figsize=(10,10))
+    plt.bar(all_features_short, lasso1_coef)
+    plt.xticks(rotation=90, fontsize=10)
+    plt.grid()
+    plt.title("Feature Selection Based on Lasso")
+    plt.xlabel("Features")
+    plt.ylabel("Importance")
+    plt.ylim(0, 0.15)
+    plt.show()
+
+    # Subsetting the features which has more than 0.001 importance.
+    feature_subset = np.array(all_features_short)[lasso1_coef > 0.001]
+
+    return feature_subset
+

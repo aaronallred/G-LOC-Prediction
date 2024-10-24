@@ -153,3 +153,81 @@ def sliding_window_calc(time_start, stride, window_size, feature_baseline, gloc_
 
     return sliding_window_stddev, sliding_window_max, sliding_window_range
 
+def sliding_window_other_features(time_start, stride, window_size, feature_baseline, gloc_data_reduced, time_variable, number_windows, all_features):
+    """
+    This function creates the engineered features and gloc labels for the data. This includes a
+    sliding window mean of the difference between left and right pupil and HbO/Hbd ratio.
+    """
+
+    # Find indices of left and right pupil
+    index_left_pupil = all_features.index('Pupil diameter left [mm] - Tobii')
+    index_right_pupil = all_features.index('Pupil diameter right [mm] - Tobii')
+
+    # Find indices of HbO & Hbd
+    index_Hbo = all_features.index('HbO2 - fNIRS')
+    index_Hbd = all_features.index('Hbd - fNIRS')
+
+    # Find Unique Trial ID
+    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+
+    # Build Dictionary for each trial_id
+    sliding_window_pupil_difference = dict()
+    sliding_window_ox_deox_ratio = dict()
+
+    # Iterate through all unique trial_id
+    for i in range(np.size(trial_id_in_data)):
+
+        # Determine index from current trial_id
+        current_index = (gloc_data_reduced['trial_id'] == trial_id_in_data[i])
+
+        # Create time array based on current_index
+        current_time = np.array(gloc_data_reduced[time_variable])
+        time_trimmed = current_time[current_index]
+
+        # Determine number of windows
+        number_windows_current = number_windows[trial_id_in_data[i]]
+
+        # Pre-allocate arrays
+        sliding_window_pupil_difference_current = np.zeros((number_windows_current, 1))
+        sliding_window_ox_deox_ratio_current = np.zeros((number_windows_current, 1))
+
+        # Define iteration time
+        time_iteration = time_start
+
+        # Iterate through all windows to compute relevant parameters
+        for j in range(number_windows_current):
+
+            # Find index for current window
+            time_period_feature = (time_iteration <= time_trimmed) & (time_trimmed < (time_iteration + window_size))
+
+            # Find feature for current window
+            feature_window = feature_baseline[trial_id_in_data[i]][time_period_feature]
+
+            # Find pupil difference
+            pupil_difference = feature_window[:,index_left_pupil] - feature_window[:,index_right_pupil]
+
+            # Find Hbo/Hbd Ratio
+            ox_deox_ratio = feature_window[:,index_Hbo] / feature_window[:,index_Hbd]
+
+            # Take nan mean for the window-pupil difference (one value per column (feature))
+            sliding_window_pupil_difference_current[j,:] = np.nanmean(pupil_difference, axis = 0, keepdims=True)
+
+            # Take nan mean for the window-oxy/deoxy ratio
+            sliding_window_ox_deox_ratio_current[j,:] = np.nanmean(ox_deox_ratio, axis = 0, keepdims=True)
+
+            # Adjust iteration_time
+            time_iteration = stride + time_iteration
+
+        # Compute z-score to standardize-pupil difference
+        sliding_window_pupil_difference_current_z_score = ((sliding_window_ox_deox_ratio_current - np.nanmean(sliding_window_ox_deox_ratio_current, axis = 0, keepdims=True))
+                                               / np.nanstd(sliding_window_ox_deox_ratio_current, axis = 0, keepdims=True))
+
+        # Compute z-score to standardize-ox/deox ratio
+        sliding_window_ox_deox_ratio_current_z_score = ((sliding_window_pupil_difference_current - np.nanmean(sliding_window_pupil_difference_current, axis = 0, keepdims=True))
+                                               / np.nanstd(sliding_window_pupil_difference_current, axis = 0, keepdims=True))
+
+        # Define dictionary item for trial_id
+        sliding_window_pupil_difference[trial_id_in_data[i]] = sliding_window_pupil_difference_current_z_score
+        sliding_window_ox_deox_ratio[trial_id_in_data[i]] = sliding_window_ox_deox_ratio_current_z_score
+
+    return sliding_window_pupil_difference, sliding_window_ox_deox_ratio
