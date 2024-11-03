@@ -18,6 +18,11 @@ from sklearn import svm
 from sklearn.ensemble import GradientBoostingClassifier
 from GLOC_visualization import create_confusion_matrix
 
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+
 def label_gloc_events(gloc_data_reduced):
     """
     This function creates a g-loc label for the data based on the event_validated column. The event
@@ -291,9 +296,16 @@ def classify_ensemble_with_gradboost(gloc_window, sliding_window_mean, training_
 
     return accuracy, precision, recall, f1
 
-def gam_classifier(X,y):
+def gam_classifier_sub(X,y,training_ratio,all_features):
 
-    training_ratio = 0.8
+    # just grab means for now
+    # X = X[:,list(range(18)) + [-1]]
+
+    # also test stddevs
+    # X = X[:,list(range(18, 36)) + [-1]]
+
+    # also test just range
+    X = X[:, list(range(54, 72)) + [-1]]
 
     # Split into train and test where last two
     last_column = X[:, -1]
@@ -314,22 +326,20 @@ def gam_classifier(X,y):
     X_test = X[complement_indices]
     y_test = y[complement_indices]
 
-    # X_train = X[X[:,-1]  != last]
-    # X_test  = X[X[:, -1] == last]
-    # y_train = y[X[:, -1] != last]
-    # y_test  = y[X[:, -1] == last]
 
     rows,cols = np.shape(X)
     ## model
-    gam = GAM(s(0)+s(1)+s(2)+s(3)+s(4)+s(5)+s(6)+f(cols-1), distribution='binomial', link='logit')
+    # gam = GAM(s(0)+s(1)+s(2)+s(3)+s(4)+s(5)+s(6)+f(cols-1), distribution='binomial', link='logit')
     gam = GAM(s(0) + s(1) + s(2) + s(3) + s(4) + s(5) + s(6) + s(7) + s(8) + s(9) +
-                s(10) + s(11) + s(12) + s(13) + s(14) + s(15) + s(16) + s(17) + s(18) +
-                s(19) + s(20) + s(21) + s(22) + s(23) + s(24) + s(25) + s(26) + s(27) +
-                s(28) + s(29) + s(30) + s(31) + s(32) + s(33) + s(34) + s(35) + s(36) +
-                s(37) + s(38) + s(39) + s(40) + s(41) + s(42) + s(43) + s(44) + s(45) +
-                s(46) + s(47) + s(48) + s(49) + s(50) + s(51) + s(52) + s(53) + s(54) +
-                s(55) + s(56) + s(57) + s(58) + s(59) + s(60) + s(61) + s(62) + s(63) +
-                s(64) + s(65) + s(66) + s(67) + s(68) + s(69) + s(70) + s(71) + f(cols-1), distribution='binomial', link='logit')
+              s(10) + s(11) + s(12) + s(13) + s(14) + s(15) + s(16) + s(17) + f(cols-1), distribution='binomial', link='logit')
+    # gam = GAM(s(0) + s(1) + s(2) + s(3) + s(4) + s(5) + s(6) + s(7) + s(8) + s(9) +
+    #             s(10) + s(11) + s(12) + s(13) + s(14) + s(15) + s(16) + s(17) + s(18) +
+    #             s(19) + s(20) + s(21) + s(22) + s(23) + s(24) + s(25) + s(26) + s(27) +
+    #             s(28) + s(29) + s(30) + s(31) + s(32) + s(33) + s(34) + s(35) + s(36) +
+    #             s(37) + s(38) + s(39) + s(40) + s(41) + s(42) + s(43) + s(44) + s(45) +
+    #             s(46) + s(47) + s(48) + s(49) + s(50) + s(51) + s(52) + s(53) + s(54) +
+    #             s(55) + s(56) + s(57) + s(58) + s(59) + s(60) + s(61) + s(62) + s(63) +
+    #             s(64) + s(65) + s(66) + s(67) + s(68) + s(69) + s(70) + s(71) + f(cols-1), distribution='binomial', link='logit')
 
     gam.fit(X_train, y_train)
 
@@ -354,4 +364,239 @@ def gam_classifier(X,y):
     # Create Confusion Matrix
     create_confusion_matrix(y_testing, label_predictions, 'GAM')
 
+    plots = 2
+    if plots==1:
+        XX = gam.generate_X_grid(term=1, n=500)
+        XX[:,-1] = 1
+
+        plt.plot(XX, gam.predict(XX), 'r--')
+        # plt.plot(XX, gam.prediction_intervals(XX, width=.95), color='b', ls='--')
+
+        plt.scatter(X_train[:,0], y_train, facecolor='gray', edgecolors='none')
+        plt.title('95% prediction interval')
+        plt.show()
+
+    elif plots == 2:
+        fig, axs = plt.subplots(1, 8)
+
+        single = np.unique(X_train[:,-1])
+        titles = all_features
+        for i, ax in enumerate(axs):
+            XX = gam.generate_X_grid(term=i)
+            XX[:, -1] = single[0]
+            pdep, confi = gam.partial_dependence(term=i, width=.95, X=XX)
+
+            ax.plot(XX[:, i], pdep)
+            ax.plot(XX[:, i], confi, c='r', ls='--')
+            # ax.set_title(titles[i]);
+        plt.show()
+
     return accuracy, precision, recall, f1, gam
+
+def gam_classifier_cat(X,y,training_ratio,all_features):
+    # concatenated version of GAM
+
+    # just grab means for now
+    X = X[:,list(range(18)) + [-1]]
+
+    # also test stddevs
+    # X = X[:,list(range(18, 36)) + [-1]]
+
+    # also test just range
+    #X = X[:, list(range(54, 72)) + [-1]]
+
+    # Split into train and test where last two
+    last_column = X[:, -1]
+    unique_values = np.unique(last_column)
+    # Calculate training split of the unique values
+    num_unique = len(unique_values)
+    num_to_select = int(num_unique * training_ratio)
+
+    # get train indices
+    random_indices = np.random.choice(unique_values, size=num_to_select, replace=False)
+    selected_indices = np.where(np.isin(last_column, random_indices))[0]
+    X_train = X[selected_indices]
+    y_train = y[selected_indices]
+
+    # get test indices
+    all_indices = np.arange(X.shape[0])
+    complement_indices = np.setdiff1d(all_indices, selected_indices)
+    X_test = X[complement_indices]
+    y_test = y[complement_indices]
+
+
+    rows,cols = np.shape(X)
+    ## model
+    # gam = GAM(s(0)+s(1)+s(2)+s(3)+s(4)+s(5)+s(6)+f(cols-1), distribution='binomial', link='logit')
+    gam = GAM(s(0) + s(1) + s(2) + s(3) + s(4) + s(5) + s(6) + s(7) + s(8) + s(9) +
+              s(10) + s(11) + s(12) + s(13) + s(14) + s(15) + s(16) + s(17), distribution='binomial', link='logit')
+    # gam = GAM(s(0) + s(1) + s(2) + s(3) + s(4) + s(5) + s(6) + s(7) + s(8) + s(9) +
+    #             s(10) + s(11) + s(12) + s(13) + s(14) + s(15) + s(16) + s(17) + s(18) +
+    #             s(19) + s(20) + s(21) + s(22) + s(23) + s(24) + s(25) + s(26) + s(27) +
+    #             s(28) + s(29) + s(30) + s(31) + s(32) + s(33) + s(34) + s(35) + s(36) +
+    #             s(37) + s(38) + s(39) + s(40) + s(41) + s(42) + s(43) + s(44) + s(45) +
+    #             s(46) + s(47) + s(48) + s(49) + s(50) + s(51) + s(52) + s(53) + s(54) +
+    #             s(55) + s(56) + s(57) + s(58) + s(59) + s(60) + s(61) + s(62) + s(63) +
+    #             s(64) + s(65) + s(66) + s(67) + s(68) + s(69) + s(70) + s(71) + f(cols-1), distribution='binomial', link='logit')
+
+    # train
+    gam.fit(X_train, y_train)
+
+    # test
+    y_pred = gam.predict(X_test)
+    y_testing = y_test
+    label_predictions = np.round(y_pred)
+    accuracy = metrics.accuracy_score(y_testing, label_predictions)
+    precision = metrics.precision_score(y_testing, label_predictions)
+    recall = metrics.recall_score(y_testing, label_predictions)
+    f1 = metrics.f1_score(y_testing, label_predictions)
+
+    # Create Confusion Matrix
+    create_confusion_matrix(y_testing, label_predictions, 'GAM')
+
+    plots = 2
+    if plots==1:
+        XX = gam.generate_X_grid(term=1, n=500)
+        XX[:,-1] = 1
+
+        plt.plot(XX, gam.predict(XX), 'r--')
+        # plt.plot(XX, gam.prediction_intervals(XX, width=.95), color='b', ls='--')
+
+        plt.scatter(X_train[:,0], y_train, facecolor='gray', edgecolors='none')
+        plt.title('95% prediction interval')
+        plt.show()
+
+    elif plots == 2:
+        fig, axs = plt.subplots(1, 8)
+
+        single = np.unique(X_train[:,-1])
+        titles = all_features
+        for i, ax in enumerate(axs):
+            XX = gam.generate_X_grid(term=i)
+            XX[:, -1] = single[0]
+            pdep, confi = gam.partial_dependence(term=i, width=.95, X=XX)
+
+            ax.plot(XX[:, i], pdep)
+            ax.plot(XX[:, i], confi, c='r', ls='--')
+            # ax.set_title(titles[i]);
+        plt.show()
+
+    return accuracy, precision, recall, f1, gam
+
+
+
+
+def lstm_binary_class(X,y,training_ratio,all_features):
+
+    class LSTMClassifier(nn.Module):
+        def __init__(self, input_dim, hidden_dim, output_dim=1, num_layers=2, dropout=0.3):
+            super(LSTMClassifier, self).__init__()
+
+            # LSTM layer
+            self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True, dropout=dropout)
+
+            # Fully connected layer
+            self.fc = nn.Linear(hidden_dim, output_dim)
+
+            # Sigmoid activation for binary classification
+            self.sigmoid = nn.Sigmoid()
+
+        def forward(self, x):
+            # LSTM layer
+            lstm_out, _ = self.lstm(x)
+
+            # Get the last output of the sequence
+            lstm_out = lstm_out[:, -1, :]
+
+            # Fully connected layer
+            out = self.fc(lstm_out)
+
+            # Apply sigmoid for binary classification
+            out = self.sigmoid(out)
+
+            return out
+
+    # Train Test Split
+    Y = y
+    # Split data based on trials first so no overlap of time series
+    unique_trials = np.unique(X[:, -1])  # Get unique trial identifiers
+    train_trials, test_trials = train_test_split(unique_trials, test_size=1-training_ratio, random_state=42)
+
+    # Collect sequences for training and testing based on trial groups
+    train_sequences = [X[X[:, -1] == trial, :-1] for trial in train_trials]
+    test_sequences = [X[X[:, -1] == trial, :-1] for trial in test_trials]
+
+    train_labels = [Y[X[:, -1] == trial] for trial in train_trials]
+    test_labels = [Y[X[:, -1] == trial] for trial in test_trials]
+
+    # Convert sequences and labels to tensors and create DataLoaders
+    train_sequences_tensor = [torch.tensor(seq, dtype=torch.float32) for seq in train_sequences]
+    train_labels_tensor = [torch.tensor(lbl, dtype=torch.float32) for lbl in train_labels]
+    test_sequences_tensor = [torch.tensor(seq, dtype=torch.float32) for seq in test_sequences]
+    test_labels_tensor = [torch.tensor(lbl, dtype=torch.float32) for lbl in test_labels]
+
+    # Pack into TensorDataset and DataLoader for batch processing
+    train_dataset = TensorDataset(torch.nn.utils.rnn.pad_sequence(train_sequences_tensor, batch_first=True),
+                                  torch.nn.utils.rnn.pad_sequence(train_labels_tensor, batch_first=True))
+    test_dataset = TensorDataset(torch.nn.utils.rnn.pad_sequence(test_sequences_tensor, batch_first=True),
+                                 torch.nn.utils.rnn.pad_sequence(test_labels_tensor, batch_first=True))
+
+    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
+
+    # Define model parameters
+    input_dim = train_sequences_tensor[0].shape[1]
+    hidden_dim = 64
+    output_dim = 1  # Binary classification output
+    num_layers = 2
+    dropout = 0.3
+
+    # Initialize model, loss function, and optimizer
+    model = LSTMClassifier(input_dim, hidden_dim, output_dim, num_layers, dropout)
+    criterion = nn.BCELoss()  # Binary Cross Entropy loss for binary classification
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    # Training loop
+    num_epochs = 10
+
+    for epoch in range(num_epochs):
+        model.train()
+        for x_batch, y_batch in train_loader:
+            # Forward pass
+            outputs = model(x_batch)
+            y_batch = y_batch[:, -1].view(-1, 1)  # Take the label for the last time step
+            loss = criterion(outputs, y_batch)
+
+            # Backward pass and optimize
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+        print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
+
+    # Evaluation
+    model.eval()
+    all_preds, all_labels = [], []
+    with torch.no_grad():
+        for x_batch, y_batch in test_loader:
+            # Get model predictions
+            outputs = model(x_batch)
+            preds = (outputs >= 0.5).float()  # Convert probabilities to binary predictions
+
+            # Append predictions and true labels for metrics calculation
+            all_preds.extend(preds.numpy())
+            all_labels.extend(y_batch[:, -1].view(-1, 1).numpy())  # Use last label in each sequence for evaluation
+
+    # Calculate metrics
+    accuracy = metrics.accuracy_score(all_labels, all_preds)
+    f1 = metrics.f1_score(all_labels, all_preds)
+    precision = metrics.precision_score(all_labels, all_preds)
+    recall = metrics.recall_score(all_labels, all_preds)
+
+    print(f"Test Accuracy: {accuracy:.4f}")
+    print(f"Test F1 Score: {f1:.4f}")
+    print(f"Test Precision: {precision:.4f}")
+    print(f"Test Recall: {recall:.4f}")
+
+
+    return accuracy, precision, recall, f1

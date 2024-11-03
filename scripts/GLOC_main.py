@@ -26,7 +26,7 @@ if __name__ == "__main__":
     time_variable = 'Time (s)'
 
     # Data Parameters
-    analysis_type = 1   # flag to set which data should be analyzed
+    analysis_type = 2   # flag to set which data should be analyzed
                         # analysis_type = 0: analyze one trial from a subject
                             # if analysis_type = 0, then set subject_to_analyze and trial_to_analyze parameters below
                         # analysis_type = 1: analyze subject data (all trials for a subject)
@@ -102,8 +102,8 @@ if __name__ == "__main__":
     all_features = all_features_mean + all_features_stddev + all_features_max + all_features_range
 
     ## Call functions for ML classification ##
-    NikkiClassifiers = 0
-    if NikkiClassifiers == 1:
+    ClassifierType = 2
+    if ClassifierType == 0:
         # Logistic Regression
         accuracy_logreg, precision_logreg, recall_logreg, f1_logreg = classify_logistic_regression(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio, all_features)
         # RF
@@ -125,10 +125,17 @@ if __name__ == "__main__":
                                                                    recall_logreg, recall_rf, recall_lda, recall_knn,
                                                                    recall_svm, recall_gb,
                                                                    f1_logreg, f1_rf, f1_lda, f1_knn, f1_svm, f1_gb)
-    else:
+    elif ClassifierType==1:
         # Generative Additive Model
-        accuracy, precision, recall, f1, gam = gam_classifier(x_feature_noNaN, y_gloc_noNaN)
+        accuracy, precision, recall, f1, gam = gam_classifier_cat(
+            x_feature_noNaN, y_gloc_noNaN, training_ratio, all_features)
         print(gam.summary())
+
+    elif ClassifierType == 2:
+        accuracy, precision, recall, f1 = lstm_binary_class(
+            x_feature_noNaN, y_gloc_noNaN, training_ratio,all_features)
+
+
 
     ################################ Other Visualization Code Needs Cleaning! ##########################################
     # Plot core data
