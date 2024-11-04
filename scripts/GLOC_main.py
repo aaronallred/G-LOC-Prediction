@@ -132,9 +132,9 @@ if __name__ == "__main__":
         print(gam.summary())
 
     elif ClassifierType == 2:
+        training_ratio = 0.8
         accuracy, precision, recall, f1 = lstm_binary_class(
             x_feature_noNaN, y_gloc_noNaN, training_ratio,all_features)
-
 
 
     ################################ Other Visualization Code Needs Cleaning! ##########################################

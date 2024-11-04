@@ -518,34 +518,58 @@ def lstm_binary_class(X,y,training_ratio,all_features):
 
     # Train Test Split
     Y = y
-    # Split data based on trials first so no overlap of time series
+
+    def create_windows(sequence, labels, window_size, step_size):
+        """Creates windows of a given size with a certain step from a sequence."""
+        windows = []
+        window_labels = []
+        for start in range(0, len(sequence) - window_size + 1, step_size):
+            end = start + window_size
+            windows.append(sequence[start:end])
+            window_labels.append(labels[end - 1])  # Take the label of the last time step in the window
+        return windows, window_labels
+
+    # Split data by trials
     unique_trials = np.unique(X[:, -1])  # Get unique trial identifiers
-    train_trials, test_trials = train_test_split(unique_trials, test_size=1-training_ratio, random_state=42)
+    train_trials, test_trials = train_test_split(unique_trials, test_size=0.2, random_state=42)
 
-    # Collect sequences for training and testing based on trial groups
-    train_sequences = [X[X[:, -1] == trial, :-1] for trial in train_trials]
-    test_sequences = [X[X[:, -1] == trial, :-1] for trial in test_trials]
+    # Define window size and step size
+    window_size = 40  # Length of each subsequence window
+    step_size = 10  # Step size for moving the window
 
-    train_labels = [Y[X[:, -1] == trial] for trial in train_trials]
-    test_labels = [Y[X[:, -1] == trial] for trial in test_trials]
+    # Prepare train and test windows
+    train_windows, train_labels = [], []
+    test_windows, test_labels = [], []
 
-    # Convert sequences and labels to tensors and create DataLoaders
-    train_sequences_tensor = [torch.tensor(seq, dtype=torch.float32) for seq in train_sequences]
-    train_labels_tensor = [torch.tensor(lbl, dtype=torch.float32) for lbl in train_labels]
-    test_sequences_tensor = [torch.tensor(seq, dtype=torch.float32) for seq in test_sequences]
-    test_labels_tensor = [torch.tensor(lbl, dtype=torch.float32) for lbl in test_labels]
+    for trial in train_trials:
+        trial_sequence = X[X[:, -1] == trial, :-1]  # Exclude trial identifier
+        trial_labels = Y[X[:, -1] == trial]
+        windows, labels = create_windows(trial_sequence, trial_labels, window_size, step_size)
+        train_windows.extend(windows)
+        train_labels.extend(labels)
 
-    # Pack into TensorDataset and DataLoader for batch processing
-    train_dataset = TensorDataset(torch.nn.utils.rnn.pad_sequence(train_sequences_tensor, batch_first=True),
-                                  torch.nn.utils.rnn.pad_sequence(train_labels_tensor, batch_first=True))
-    test_dataset = TensorDataset(torch.nn.utils.rnn.pad_sequence(test_sequences_tensor, batch_first=True),
-                                 torch.nn.utils.rnn.pad_sequence(test_labels_tensor, batch_first=True))
+    for trial in test_trials:
+        trial_sequence = X[X[:, -1] == trial, :-1]
+        trial_labels = Y[X[:, -1] == trial]
+        windows, labels = create_windows(trial_sequence, trial_labels, window_size, step_size)
+        test_windows.extend(windows)
+        test_labels.extend(labels)
 
-    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
+    # Convert data to torch tensors and create DataLoaders
+    train_windows_tensor = torch.tensor(train_windows, dtype=torch.float32)
+    train_labels_tensor = torch.tensor(train_labels, dtype=torch.float32).view(-1, 1)
+    test_windows_tensor = torch.tensor(test_windows, dtype=torch.float32)
+    test_labels_tensor = torch.tensor(test_labels, dtype=torch.float32).view(-1, 1)
+
+    train_dataset = TensorDataset(train_windows_tensor, train_labels_tensor)
+    test_dataset = TensorDataset(test_windows_tensor, test_labels_tensor)
+
+    # Create DataLoaders with smaller batches
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
     # Define model parameters
-    input_dim = train_sequences_tensor[0].shape[1]
+    input_dim = train_windows_tensor.shape[2]
     hidden_dim = 64
     output_dim = 1  # Binary classification output
     num_layers = 2
@@ -564,7 +588,6 @@ def lstm_binary_class(X,y,training_ratio,all_features):
         for x_batch, y_batch in train_loader:
             # Forward pass
             outputs = model(x_batch)
-            y_batch = y_batch[:, -1].view(-1, 1)  # Take the label for the last time step
             loss = criterion(outputs, y_batch)
 
             # Backward pass and optimize
@@ -585,7 +608,7 @@ def lstm_binary_class(X,y,training_ratio,all_features):
 
             # Append predictions and true labels for metrics calculation
             all_preds.extend(preds.numpy())
-            all_labels.extend(y_batch[:, -1].view(-1, 1).numpy())  # Use last label in each sequence for evaluation
+            all_labels.extend(y_batch.numpy())
 
     # Calculate metrics
     accuracy = metrics.accuracy_score(all_labels, all_preds)
@@ -597,6 +620,5 @@ def lstm_binary_class(X,y,training_ratio,all_features):
     print(f"Test F1 Score: {f1:.4f}")
     print(f"Test Precision: {precision:.4f}")
     print(f"Test Recall: {recall:.4f}")
-
 
     return accuracy, precision, recall, f1
