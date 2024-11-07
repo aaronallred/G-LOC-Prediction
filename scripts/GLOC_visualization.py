@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from sklearn import metrics
+from sklearn.metrics import roc_curve, auc
 
 def initial_visualization(gloc_data_reduced, gloc, feature_baseline, all_features, time_variable):
     """
@@ -213,3 +214,30 @@ def plot_EEG(gloc_data,datatype):
 
         # Save the plot
         plt.savefig(file_path)
+
+def roc_curve_plot(all_labels, all_preds):
+    # Plot the ROC curve
+    fpr, tpr, _ = roc_curve(all_labels, all_preds)
+    roc_auc = auc(fpr, tpr)
+
+    plt.figure()
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {roc_auc:.2f})')
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic (ROC) Curve')
+    plt.legend(loc='lower right')
+    plt.show()
+
+def prediction_time_plot(ground_truth, predicted):
+    # Plot the true values and predicted values over time
+    plt.figure(figsize=(14, 6))
+    plt.plot(ground_truth, label='Ground Truth Values', color='blue', linewidth=2)
+    plt.plot(predicted, label='Predicted Values', color='red', linestyle='--', linewidth=2)
+    plt.xlabel('Time Step')
+    plt.ylabel('Value')
+    plt.title('Time Series Predictions vs True Values')
+    plt.legend()
+    plt.show()

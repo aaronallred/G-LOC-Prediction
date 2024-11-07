@@ -16,12 +16,15 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.inspection import DecisionBoundaryDisplay
 from sklearn import svm
 from sklearn.ensemble import GradientBoostingClassifier
-from GLOC_visualization import create_confusion_matrix
+from GLOC_visualization import create_confusion_matrix, roc_curve_plot, prediction_time_plot
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
+
+
+from LSTM_supporting import train_test_split_trials, LSTMClassifier
 
 def label_gloc_events(gloc_data_reduced):
     """
@@ -488,81 +491,15 @@ def gam_classifier_cat(X,y,training_ratio,all_features):
 
 def lstm_binary_class(X,y,training_ratio,all_features):
 
-    class LSTMClassifier(nn.Module):
-        def __init__(self, input_dim, hidden_dim, output_dim=1, num_layers=2, dropout=0.3):
-            super(LSTMClassifier, self).__init__()
-
-            # LSTM layer
-            self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True, dropout=dropout)
-
-            # Fully connected layer
-            self.fc = nn.Linear(hidden_dim, output_dim)
-
-            # Sigmoid activation for binary classification
-            self.sigmoid = nn.Sigmoid()
-
-        def forward(self, x):
-            # LSTM layer
-            lstm_out, _ = self.lstm(x)
-
-            # Get the last output of the sequence
-            lstm_out = lstm_out[:, -1, :]
-
-            # Fully connected layer
-            out = self.fc(lstm_out)
-
-            # Apply sigmoid for binary classification
-            out = self.sigmoid(out)
-
-            return out
-
     # Train Test Split
     Y = y
-
-    def create_windows(sequence, labels, window_size, step_size):
-        """Creates windows of a given size with a certain step from a sequence."""
-        windows = []
-        window_labels = []
-        for start in range(0, len(sequence) - window_size + 1, step_size):
-            end = start + window_size
-            windows.append(sequence[start:end])
-            window_labels.append(max(labels[start:end]))  # Take the maximum label within the window
-        return windows, window_labels
-
-    # Split data by trials
-    unique_trials = np.unique(X[:, -1])  # Get unique trial identifiers
-    train_trials, test_trials = train_test_split(unique_trials, test_size=1-training_ratio, random_state=1)
-
     # Define window size and step size
     window_size = 10*5  # Length of each subsequence window
-    step_size = 5*5  # Step size for moving the window
+    step_size = 10*2  # Step size for moving the window
 
-    # Prepare train and test windows
-    train_windows, train_labels = [], []
-    test_windows, test_labels = [], []
+    train_dataset, test_dataset, train_windows_tensor, train_labels_tensor, test_windows_tensor, test_labels_tensor = (
+        train_test_split_trials(X, Y, window_size, step_size, training_ratio))
 
-    for trial in train_trials:
-        trial_sequence = X[X[:, -1] == trial, :-1]  # Exclude trial identifier
-        trial_labels = Y[X[:, -1] == trial]
-        windows, labels = create_windows(trial_sequence, trial_labels, window_size, step_size)
-        train_windows.extend(windows)
-        train_labels.extend(labels)
-
-    for trial in test_trials:
-        trial_sequence = X[X[:, -1] == trial, :-1]
-        trial_labels = Y[X[:, -1] == trial]
-        windows, labels = create_windows(trial_sequence, trial_labels, window_size, step_size)
-        test_windows.extend(windows)
-        test_labels.extend(labels)
-
-    # Convert data to torch tensors and create DataLoaders
-    train_windows_tensor = torch.tensor(train_windows, dtype=torch.float32)
-    train_labels_tensor = torch.tensor(train_labels, dtype=torch.float32).view(-1, 1)
-    test_windows_tensor = torch.tensor(test_windows, dtype=torch.float32)
-    test_labels_tensor = torch.tensor(test_labels, dtype=torch.float32).view(-1, 1)
-
-    train_dataset = TensorDataset(train_windows_tensor, train_labels_tensor)
-    test_dataset = TensorDataset(test_windows_tensor, test_labels_tensor)
 
     # Create DataLoaders with smaller batches
     batch_size = 32
@@ -582,7 +519,7 @@ def lstm_binary_class(X,y,training_ratio,all_features):
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     # Training loop
-    num_epochs = 9
+    num_epochs = 15
 
     for epoch in range(num_epochs):
         model.train()
@@ -611,17 +548,25 @@ def lstm_binary_class(X,y,training_ratio,all_features):
             all_preds.extend(preds.numpy())
             all_labels.extend(y_batch.numpy())
 
+    # Convert lists to numpy arrays
+    all_preds = np.array(all_preds)
+    all_labels = np.array(all_labels)
+
     # Calculate metrics
     accuracy = metrics.accuracy_score(all_labels, all_preds)
     f1 = metrics.f1_score(all_labels, all_preds)
     precision = metrics.precision_score(all_labels, all_preds)
     recall = metrics.recall_score(all_labels, all_preds)
 
-    create_confusion_matrix(all_labels, all_preds, 'LSTM')
-
+    # Display in command line results
     print(f"Test Accuracy: {accuracy:.4f}")
     print(f"Test F1 Score: {f1:.4f}")
     print(f"Test Precision: {precision:.4f}")
     print(f"Test Recall: {recall:.4f}")
+
+    # Plot Results
+    create_confusion_matrix(all_labels, all_preds, 'LSTM')
+    roc_curve_plot(all_labels, all_preds)
+    prediction_time_plot(all_labels, all_preds)
 
     return accuracy, precision, recall, f1
