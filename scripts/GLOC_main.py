@@ -35,7 +35,7 @@ if __name__ == "__main__":
                             # if analysis_type = 2, then no extra parameters need to be set
 
     baseline_window = 10 # seconds
-    window_size = 10     # seconds
+    window_size = 0.1     # seconds
     stride = 1           # seconds
     offset = 0          # seconds
     time_start = 0       # seconds
@@ -77,6 +77,15 @@ if __name__ == "__main__":
     # Sliding Window Standard Deviation, Max, Range
     sliding_window_stddev, sliding_window_max, sliding_window_range = sliding_window_calc(time_start, stride, window_size, feature_baseline, gloc_data_reduced, time_variable, number_windows)
 
+    # Additional Features
+    sliding_window_pupil_difference, sliding_window_ox_deox_ratio = sliding_window_other_features(time_start, stride,
+                                                                                                  window_size,
+                                                                                                  feature_baseline,
+                                                                                                  gloc_data_reduced,
+                                                                                                  time_variable,
+                                                                                                  number_windows,
+                                                                                                  all_features)
+
     # Visualize sliding window mean
     if plot_data == 1:
         sliding_window_visualization(gloc_window, sliding_window_mean, number_windows, all_features, gloc_data_reduced)
@@ -86,13 +95,12 @@ if __name__ == "__main__":
         pairwise_visualization(gloc_window, sliding_window_mean, all_features, gloc_data_reduced)
 
     # Unpack Dictionary into Array & combine features into one feature array
-    y_gloc_labels, x_feature_matrix = unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window_stddev, sliding_window_max, sliding_window_range)
-    y_gloc_labels_id, x_feature_matrix_id = unpack_dict_id(gloc_window, sliding_window_mean, number_windows,
-                                                  sliding_window_stddev, sliding_window_max, sliding_window_range)
+    y_gloc_labels, x_feature_matrix = unpack_dict(gloc_window, sliding_window_mean, number_windows,
+                                                  sliding_window_stddev, sliding_window_max, sliding_window_range,
+                                                  sliding_window_pupil_difference, sliding_window_ox_deox_ratio)
 
     # Remove rows with NaN (temporary solution-should replace with other method eventually)
     y_gloc_labels_noNaN, x_feature_matrix_noNaN = process_NaN(y_gloc_labels, x_feature_matrix)
-    y_gloc_noNaN, x_feature_noNaN = process_NaN(y_gloc_labels_id, x_feature_matrix_id)
 
     # Update all features array
     all_features_mean = [s + '_mean' for s in all_features]
@@ -127,12 +135,26 @@ if __name__ == "__main__":
                                                                    f1_logreg, f1_rf, f1_lda, f1_knn, f1_svm, f1_gb)
     elif ClassifierType==1:
         # Generative Additive Model
+        y_gloc_labels_id, x_feature_matrix_id = unpack_dict_id(gloc_window, sliding_window_mean, number_windows,
+                                                               sliding_window_stddev, sliding_window_max,
+                                                               sliding_window_range)
+        y_gloc_noNaN, x_feature_noNaN = process_NaN(y_gloc_labels_id, x_feature_matrix_id)
+
         accuracy, precision, recall, f1, gam = gam_classifier_cat(
             x_feature_noNaN, y_gloc_noNaN, training_ratio, all_features)
         print(gam.summary())
 
     elif ClassifierType == 2:
-        training_ratio = 0.8
+        # LSTM Model
+        # Assemble with id column
+        y_gloc_labels_id, x_feature_matrix_id = unpack_dict_id(gloc_window, sliding_window_mean, number_windows,
+                                                      sliding_window_stddev, sliding_window_max, sliding_window_range,
+                                                      sliding_window_pupil_difference, sliding_window_ox_deox_ratio)
+        # Remove NaNs
+        y_gloc_noNaN, x_feature_noNaN = process_NaN(y_gloc_labels_id, x_feature_matrix_id)
+
+        # Train and Evaluate
+        training_ratio = 0.7
         accuracy, precision, recall, f1 = lstm_binary_class(
             x_feature_noNaN, y_gloc_noNaN, training_ratio,all_features)
 
