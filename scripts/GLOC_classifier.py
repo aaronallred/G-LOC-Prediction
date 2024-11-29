@@ -16,6 +16,7 @@ from sklearn.ensemble import GradientBoostingClassifier
 from GLOC_visualization import create_confusion_matrix
 from sklearn.linear_model import Lasso
 from sklearn.model_selection import GridSearchCV, KFold
+from mrmr import mrmr_classif
 
 def label_gloc_events(gloc_data_reduced):
     """
@@ -46,40 +47,51 @@ def check_event_columns(gloc_data):
 
     return vals_event, vals_event_validated
 
-# Logistic Regression Classifier
+# Training Test Split
 # USING RANDOM STATE = 42
-def classify_logistic_regression(gloc_window, sliding_window_mean, training_ratio, all_features):
+def pre_classification_training_test_split(gloc_window, sliding_window_mean, training_ratio):
+    """
+    This function splits the X and y matrix into training and test matrix.
+    """
+
+    # Train/Test Split
+    x_train, x_test, y_train, y_test = train_test_split(sliding_window_mean, gloc_window,
+                                                                    test_size=(1 - training_ratio), random_state=42)
+
+    return x_train, x_test, y_train, y_test
+
+
+# Logistic Regression Classifier
+def classify_logistic_regression(x_train, x_test, y_train, y_test, all_features):
     """
     This function fits and assesses performance of a logistic regression ML classifier for the data
     specified. Within this function, a separate confusion matrix function is called. Additional
     plotting capabilities include logistic regression visualization.
     """
-
-    # Train/Test Split
-    x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window, test_size=(1-training_ratio), random_state=42)
-
-    # feature_subset = feature_selection_lasso(x_training, y_training, all_features)
+    # feature_subset = feature_selection_lasso(x_train, y_train, all_features)
 
     # Use Default Parameters & Fit Model
-    logreg = LogisticRegression(class_weight = "balanced", random_state=42, max_iter=1000).fit(x_training, np.ravel(y_training))
+    logreg = LogisticRegression(class_weight = "balanced", random_state=42, max_iter=1000).fit(x_train, np.ravel(y_train))
 
     # Predict
-    label_predictions = logreg.predict(x_testing)
+    label_predictions = logreg.predict(x_test)
 
     # Assess Performance
-    accuracy = metrics.accuracy_score(y_testing, label_predictions)
-    precision = metrics.precision_score(y_testing, label_predictions)
-    recall = metrics.recall_score(y_testing, label_predictions)
-    f1 = metrics.f1_score(y_testing, label_predictions)
+    accuracy = metrics.accuracy_score(y_test, label_predictions)
+    precision = metrics.precision_score(y_test, label_predictions)
+    recall = metrics.recall_score(y_test, label_predictions)
+    f1 = metrics.f1_score(y_test, label_predictions)
+    specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
 
     print("\nLogistic Regression Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
     print("Recall: ", recall)
     print("F1 Score: ", f1)
+    print("Specificity: ", specificity)
 
     # Create Confusion Matrix
-    create_confusion_matrix(y_testing, label_predictions, 'Log. Reg.')
+    create_confusion_matrix(y_test, label_predictions, 'Log. Reg.')
 
     # Plot 0/1 Classification
     # for i in range(np.size(sliding_window_mean,1)):
@@ -101,244 +113,178 @@ def classify_logistic_regression(gloc_window, sliding_window_mean, training_rati
     #     plt.ylabel('Predicted')
     #     plt.show()
 
-    return accuracy, precision, recall, f1
+    return accuracy, precision, recall, f1, specificity
 
 # Random Forest Classifier
-# USING RANDOM STATE = 42
-def classify_random_forest(gloc_window, sliding_window_mean, training_ratio, all_features):
+def classify_random_forest(x_train, x_test, y_train, y_test, all_features):
     """
     This function fits and assesses performance of a random forest ML classifier for the data
     specified. Within this function, a separate confusion matrix function is called. Additional
     visualization capabilities include random forest visualization.
     """
 
-    # Train/Test Split
-    x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window,
-                                                                    test_size=(1 - training_ratio), random_state=42)
-
     # Use Default Parameters & Fit Model
-    rf = RandomForestClassifier(class_weight="balanced", random_state=42).fit(x_training, np.ravel(y_training))
+    rf = RandomForestClassifier(class_weight="balanced", random_state=42).fit(x_train, np.ravel(y_train))
 
     # Predict
-    label_predictions = rf.predict(x_testing)
+    label_predictions = rf.predict(x_test)
 
     # Assess Performance
-    accuracy = metrics.accuracy_score(y_testing, label_predictions)
-    precision = metrics.precision_score(y_testing, label_predictions)
-    recall = metrics.recall_score(y_testing, label_predictions)
-    f1 = metrics.f1_score(y_testing, label_predictions)
+    accuracy = metrics.accuracy_score(y_test, label_predictions)
+    precision = metrics.precision_score(y_test, label_predictions)
+    recall = metrics.recall_score(y_test, label_predictions)
+    f1 = metrics.f1_score(y_test, label_predictions)
+    specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
 
     print("\nRandom Forest Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
     print("Recall: ", recall)
     print("F1 Score: ", f1)
+    print("Specificity: ", specificity)
 
     # Find Tree Depth
     tree_depth = [estimator.get_depth() for estimator in rf.estimators_]
 
     # Visualize Decision Tree
-    fn = all_features
-    cn = ['No GLOC', 'GLOC']
-    fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(4, 4), dpi=800)
-    plot_tree(rf.estimators_[0],
-                   feature_names=fn,
-                   class_names=cn,
-                   filled=True)
+    # fn = all_features
+    # cn = ['No GLOC', 'GLOC']
+    # fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(4, 4), dpi=800)
+    # plot_tree(rf.estimators_[0],
+    #               feature_names=fn,
+    #               class_names=cn,
+    #               filled=True)
     # plt.show()
 
     # Create Confusion Matrix
-    create_confusion_matrix(y_testing, label_predictions, 'Random Forest')
+    # create_confusion_matrix(y_testing, label_predictions, 'Random Forest')
 
-    return accuracy, precision, recall, f1, tree_depth
+    return accuracy, precision, recall, f1, tree_depth, specificity
 
 # Linear Discriminant Analysis
-# USING RANDOM STATE = 42
-def classify_lda(gloc_window, sliding_window_mean, training_ratio, all_features):
+def classify_lda(x_train, x_test, y_train, y_test, all_features):
     """
     This function fits and assesses performance of a linear discriminant analysis ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
     """
 
-    # Train/Test Split
-    x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window,
-                                                                    test_size=(1 - training_ratio), random_state=42)
-
     # Use Default Parameters & Fit Model
-    lda = LinearDiscriminantAnalysis().fit(x_training, np.ravel(y_training))
+    lda = LinearDiscriminantAnalysis().fit(x_train, np.ravel(y_train))
 
     # Predict
-    label_predictions = lda.predict(x_testing)
+    label_predictions = lda.predict(x_test)
 
     # Assess Performance
-    accuracy = metrics.accuracy_score(y_testing, label_predictions)
-    precision = metrics.precision_score(y_testing, label_predictions)
-    recall = metrics.recall_score(y_testing, label_predictions)
-    f1 = metrics.f1_score(y_testing, label_predictions)
+    accuracy = metrics.accuracy_score(y_test, label_predictions)
+    precision = metrics.precision_score(y_test, label_predictions)
+    recall = metrics.recall_score(y_test, label_predictions)
+    f1 = metrics.f1_score(y_test, label_predictions)
+    specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
 
     print("\nLinear Discriminant Analysis Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
     print("Recall: ", recall)
     print("F1 Score: ", f1)
+    print("Specificity: ", specificity)
 
     # Create Confusion Matrix
-    create_confusion_matrix(y_testing, label_predictions, 'Linear Discriminant Analysis')
+    create_confusion_matrix(y_test, label_predictions, 'Linear Discriminant Analysis')
 
-    return accuracy, precision, recall, f1
+    return accuracy, precision, recall, f1, specificity
 
 # k Nearest Neighbors
-# USING RANDOM STATE = 42
-def classify_knn(gloc_window, sliding_window_mean, training_ratio):
+def classify_knn(x_train, x_test, y_train, y_test):
     """
     This function fits and assesses performance of a K Nearest Neighbors ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
     """
 
-    # Train/Test Split
-    x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window,
-                                                                    test_size=(1 - training_ratio), random_state=42)
-
     # Use Default Parameters & Fit Model
-    neigh = KNeighborsClassifier().fit(x_training, np.ravel(y_training))
+    neigh = KNeighborsClassifier().fit(x_train, np.ravel(y_train))
 
     # Predict
-    label_predictions = neigh.predict(x_testing)
+    label_predictions = neigh.predict(x_test)
 
     # Assess Performance
-    accuracy = metrics.accuracy_score(y_testing, label_predictions)
-    precision = metrics.precision_score(y_testing, label_predictions)
-    recall = metrics.recall_score(y_testing, label_predictions)
-    f1 = metrics.f1_score(y_testing, label_predictions)
+    accuracy = metrics.accuracy_score(y_test, label_predictions)
+    precision = metrics.precision_score(y_test, label_predictions)
+    recall = metrics.recall_score(y_test, label_predictions)
+    f1 = metrics.f1_score(y_test, label_predictions)
+    specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
 
     print("\nKNN Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
     print("Recall: ", recall)
     print("F1 Score: ", f1)
+    print("Specificity: ", specificity)
 
     # Create Confusion Matrix
-    create_confusion_matrix(y_testing, label_predictions, 'kNN')
+    create_confusion_matrix(y_test, label_predictions, 'kNN')
 
-    return accuracy, precision, recall, f1
+    return accuracy, precision, recall, f1, specificity
 
 # Support Vector Machine
-# USING RANDOM STATE = 42
-def classify_svm(gloc_window, sliding_window_mean, training_ratio):
+def classify_svm(x_train, x_test, y_train, y_test):
     """
     This function fits and assesses performance of a Support Vector Machine ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
     """
 
-    # Train/Test Split
-    x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window,
-                                                                    test_size=(1 - training_ratio), random_state=42)
-
     # Use Default Parameters & Fit Model
-    svm_class = svm.SVC(kernel="linear", class_weight="balanced").fit(x_training, np.ravel(y_training))
+    svm_class = svm.SVC(kernel="linear", class_weight="balanced").fit(x_train, np.ravel(y_train))
 
     # Predict
-    label_predictions = svm_class.predict(x_testing)
+    label_predictions = svm_class.predict(x_test)
 
     # Assess Performance
-    accuracy = metrics.accuracy_score(y_testing, label_predictions)
-    precision = metrics.precision_score(y_testing, label_predictions)
-    recall = metrics.recall_score(y_testing, label_predictions)
-    f1 = metrics.f1_score(y_testing, label_predictions)
+    accuracy = metrics.accuracy_score(y_test, label_predictions)
+    precision = metrics.precision_score(y_test, label_predictions)
+    recall = metrics.recall_score(y_test, label_predictions)
+    f1 = metrics.f1_score(y_test, label_predictions)
+    specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
 
     print("\nSVM Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
     print("Recall: ", recall)
     print("F1 Score: ", f1)
+    print("Specificity: ", specificity)
 
     # Create Confusion Matrix
-    create_confusion_matrix(y_testing, label_predictions, 'Support Vector Machine')
+    create_confusion_matrix(y_test, label_predictions, 'Support Vector Machine')
 
-    return accuracy, precision, recall, f1
+    return accuracy, precision, recall, f1, specificity
 
 # Ensemble Learner with Gradient Boost
-# USING RANDOM STATE = 42
-def classify_ensemble_with_gradboost(gloc_window, sliding_window_mean, training_ratio):
+def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test):
     """
     This function fits and assesses performance of an Ensemble Learner w/ Grad Boost ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
     """
 
-    # Train/Test Split
-    x_training, x_testing, y_training, y_testing = train_test_split(sliding_window_mean, gloc_window,
-                                                                    test_size=(1 - training_ratio), random_state=42)
-
     # Use Default Parameters & Fit Model
-    gb = GradientBoostingClassifier(random_state=42).fit(x_training, np.ravel(y_training))
+    gb = GradientBoostingClassifier(random_state=42).fit(x_train, np.ravel(y_train))
 
     # Predict
-    label_predictions = gb.predict(x_testing)
+    label_predictions = gb.predict(x_test)
 
     # Assess Performance
-    accuracy = metrics.accuracy_score(y_testing, label_predictions)
-    precision = metrics.precision_score(y_testing, label_predictions)
-    recall = metrics.recall_score(y_testing, label_predictions)
-    f1 = metrics.f1_score(y_testing, label_predictions)
+    accuracy = metrics.accuracy_score(y_test, label_predictions)
+    precision = metrics.precision_score(y_test, label_predictions)
+    recall = metrics.recall_score(y_test, label_predictions)
+    f1 = metrics.f1_score(y_test, label_predictions)
+    specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
 
     print("\nEnsemble Learner with Gradient Boosting Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
     print("Recall: ", recall)
     print("F1 Score: ", f1)
+    print("Specificity: ", specificity)
 
     # Create Confusion Matrix
-    create_confusion_matrix(y_testing, label_predictions, 'Gradient Boosting')
+    create_confusion_matrix(y_test, label_predictions, 'Gradient Boosting')
 
-    return accuracy, precision, recall, f1
-
-# Feature Selection
-def feature_selection_lasso(X_train, y_train, all_features):
-    """
-    This function finds optimal lasso alpha parameter and fits a lasso model to determine
-    most important features. This should only see the 'training' data.
-    """
-    # parameters to be tested on GridSearchCV
-    params = {"alpha": np.arange(0.00001, 10, 500)}
-
-    # Number of Folds and adding the random state for replication
-    kf = KFold(n_splits=5, shuffle=True, random_state=42)
-
-    # Initializing the Model
-    lasso = Lasso()
-
-    # GridSearchCV with model, params and folds.
-    lasso_cv = GridSearchCV(lasso, param_grid=params, cv=kf)
-    lasso_cv.fit(X_train, y_train)
-
-    alpha_optimal = lasso_cv.best_params_['alpha']
-
-    # calling the model with the best parameter
-    lasso1 = Lasso(alpha=alpha_optimal)
-    lasso1.fit(X_train, y_train)
-
-    # Using np.abs() to make coefficients positive.
-    lasso1_coef = np.abs(lasso1.coef_)
-
-    all_features_short = ['HR-mn', 'ECG1-mn', 'ECG2-mn', 'HR_ins_mn', 'HR_av_mn', 'HR_w_av_mn', 'BR-mn', 'Skin_temp_mn', 'HbO2_mn', 'Hbd_mn', 'pp_l_x_mn', 'pp_l_y_mn', 'pp_l_z_mn','pp_r_x_mn', 'pp_r_y_mn', 'pp_r_z_mn', 'pd_l_mn', 'pd_r_mn',
-                          'HR-sd', 'ECG1-sd', 'ECG2-sd', 'HR_ins_sd', 'HR_av_sd', 'HR_w_av_sd', 'BR-sd', 'Skin_temp_sd','HbO2_sd', 'Hbd_sd', 'pp_l_x_sd', 'pp_l_y_sd', 'pp_l_z_sd', 'pp_r_x_sd', 'pp_r_y_sd','pp_r_z_sd', 'pd_l_sd', 'pd_r_sd',
-                          'HR-mx', 'ECG1-mx', 'ECG2-mx', 'HR_ins_mx', 'HR_av_mx', 'HR_w_av_mx', 'BR-mx', 'Skin_temp_mx','HbO2_mx', 'Hbd_mx', 'pp_l_x_mx', 'pp_l_y_mx', 'pp_l_z_mx', 'pp_r_x_mx', 'pp_r_y_mx','pp_r_z_mx', 'pd_l_mx', 'pd_r_mx',
-                          'HR-rg', 'ECG1-rg', 'ECG2-rg', 'HR_ins_rg', 'HR_av_rg', 'HR_w_av_rg', 'BR-rg', 'Skin_temp_rg','HbO2_rg', 'Hbd_rg', 'pp_l_x_rg', 'pp_l_y_rg', 'pp_l_z_rg', 'pp_r_x_rg', 'pp_r_y_rg','pp_r_z_rg', 'pd_l_rg', 'pd_r_rg',
-                          'pup diff', 'HbO/HbD']
-
-    # plotting the Column Names and Importance of Columns.
-    fig,ax = plt.subplots(figsize=(10,10))
-    plt.bar(all_features_short, lasso1_coef)
-    plt.xticks(rotation=90, fontsize=10)
-    plt.grid()
-    plt.title("Feature Selection Based on Lasso")
-    plt.xlabel("Features")
-    plt.ylabel("Importance")
-    plt.ylim(0, 0.15)
-    plt.show()
-
-    # Subsetting the features which has more than 0.001 importance.
-    feature_subset = np.array(all_features_short)[lasso1_coef > 0.001]
-
-    return feature_subset
-
+    return accuracy, precision, recall, f1, specificity

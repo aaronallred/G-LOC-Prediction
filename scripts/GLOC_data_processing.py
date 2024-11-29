@@ -1,6 +1,10 @@
 import numpy as np
 import pandas as pd
 import os
+from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 
 def load_and_process_csv(filename, analysis_type, feature_to_analyze, time_variable, **kwargs):
     """
@@ -93,7 +97,18 @@ def load_and_process_csv(filename, analysis_type, feature_to_analyze, time_varia
         eeg_features = []
     else:
         eeg_features = []
-    all_features = ecg_features + br_features + temp_features + fnirs_features + eyetracking_features + eeg_features
+
+    if 'AFE' in feature_to_analyze:
+        afe_features = ['condition']
+    else:
+        afe_features = []
+
+    if 'G' in feature_to_analyze:
+        g_features = ['magnitude - Centrifuge']
+    else:
+        g_features = []
+
+    all_features = ecg_features + br_features + temp_features + fnirs_features + eyetracking_features + eeg_features + afe_features + g_features
 
     # Create matrix of all features for data being analyzed
     features = gloc_data_reduced[all_features].to_numpy()
@@ -112,31 +127,60 @@ def baseline_features(baseline_window, gloc_data_reduced, features, time_variabl
     # Build Dictionary for each trial_id
     feature_baseline = dict()
     feature_baseline_derivative = dict()
+    feature_baseline_second_derivative = dict()
 
     for i in range(np.size(trial_id_in_data)):
 
-            # Find time window
-            index_window = ((gloc_data_reduced[time_variable]<baseline_window) & (gloc_data_reduced.trial_id == trial_id_in_data[i]))
-            time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
-            time_array = gloc_data_reduced[time_variable]
+        # Find time window
+        index_window = ((gloc_data_reduced[time_variable]<baseline_window) & (gloc_data_reduced.trial_id == trial_id_in_data[i]))
+        time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
+        time_array = np.array(gloc_data_reduced[time_variable])
 
-            # Find baseline average based on specified baseline window
-            baseline_feature = np.mean(features[index_window], axis = 0)
+        # Find baseline average based on specified baseline window
+        baseline_feature = np.mean(features[index_window], axis = 0)
 
-            # Divide features for that trial by baselined data
-            feature_baseline[trial_id_in_data[i]] = np.array(features[(gloc_data_reduced.trial_id == trial_id_in_data[i])]/baseline_feature)
+        # Divide features for that trial by baselined data
+        feature_baseline[trial_id_in_data[i]] = np.array(features[(gloc_data_reduced.trial_id == trial_id_in_data[i])] /baseline_feature)
 
-            # Compute derivative
-            diff_feature_baseline = np.diff(feature_baseline[trial_id_in_data[i]])
-            diff_time = np.diff(time_array[time_index])
-            diff_time = np.append(np.nan, diff_time)
-            diff_time = np.reshape(diff_time, (len(diff_time), 1))
+        # Compute derivative
+        time = time_array[time_index]
+        feature_baseline_derivative[trial_id_in_data[i]] = np.gradient(feature_baseline[trial_id_in_data[i]], time, axis = 0)
 
-            feature_baseline_derivative[trial_id_in_data[i]] = diff_feature_baseline / diff_time
+        # Compute 2nd derivative
+        feature_baseline_second_derivative[trial_id_in_data[i]] = np.gradient(feature_baseline_derivative[trial_id_in_data[i]], time, axis = 0)
 
-    return feature_baseline
+    return feature_baseline, feature_baseline_derivative, feature_baseline_second_derivative
 
-def tabulateNaN(feature_baseline, all_features):
+def non_baseline_features(baseline_window, gloc_data_reduced, features, time_variable):
+    """
+    This function puts features into an interpretable array without baselining these features
+    by trial.
+    """
+    # Find Unique Trial ID
+    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+
+    # Build Dictionary for each trial_id
+    feature_no_baseline = dict()
+    feature_no_baseline_derivative = dict()
+
+    for i in range(np.size(trial_id_in_data)):
+        # Find time window
+        time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
+        time_array = np.array(gloc_data_reduced[time_variable])
+
+        # Divide features for that trial by baselined data
+        feature_no_baseline[trial_id_in_data[i]] = np.array(features[(gloc_data_reduced.trial_id == trial_id_in_data[i])])
+
+        # Compute derivative
+        time = time_array[time_index]
+
+        feature_no_baseline_derivative[trial_id_in_data[i]] = np.gradient(feature_no_baseline[trial_id_in_data[i]], time,
+                                                                       axis=0)
+
+    return feature_no_baseline, feature_no_baseline_derivative
+
+
+def tabulateNaN(feature_baseline, all_features, gloc, gloc_data_reduced):
     """
     This function tabulates NaN values for each feature for each trial.
     """
@@ -147,25 +191,48 @@ def tabulateNaN(feature_baseline, all_features):
     # Initialize table
     NaN_count = np.zeros((len(trial_id_in_data), len(all_features)))
     NaN_prop = np.zeros((len(trial_id_in_data), len(all_features)))
+    NaN_gloc = np.zeros((len(trial_id_in_data), 1))
 
     # Loop through dictionary values and count NaNs per trial/feature
+    sum_gloc_trials = 0
     for i in range(len(trial_id_in_data)):
-        NaN_count[i,:] = np.count_nonzero(np.isnan(feature_baseline[trial_id_in_data[i]]), axis=0, keepdims=True)
+
+        NaN_index = np.zeros((len(feature_baseline[trial_id_in_data[i]]), 1))
+
+        NaN_count[i,:] = np.count_nonzero(pd.isna(feature_baseline[trial_id_in_data[i]]), axis=0, keepdims=True)
         NaN_prop[i,:] = NaN_count[i,:] / np.shape(feature_baseline[trial_id_in_data[i]])[0]
+
+        # Create trimmed gloc data to count number of GLOC trials corresponding to NaN
+        gloc_trimmed = gloc[(gloc_data_reduced.trial_id == trial_id_in_data[i])]
+        NaN_index = np.any(pd.isna(feature_baseline[trial_id_in_data[i]]), axis = 1)
+        if (np.count_nonzero(gloc_trimmed == 1) == 0):
+            NaN_gloc[i, :] = np.nan
+        else:
+            NaN_gloc[i,:] = np.count_nonzero(((gloc_trimmed == 1) & (NaN_index == True))) / np.count_nonzero(gloc_trimmed == 1)
+            sum_gloc_trials = sum_gloc_trials + 1
 
     # Output in Data Frame
     NaN_table = pd.DataFrame(NaN_count, columns = all_features, index = trial_id_in_data)
     NaN_proportion = pd.DataFrame(NaN_prop, columns = all_features, index = trial_id_in_data)
+    NaN_gloc_proportion = pd.DataFrame(NaN_gloc, index = trial_id_in_data)
 
     NaN_rows = (NaN_proportion == 1).any(axis = 1)
     number_NaN_rows = NaN_rows.values.sum()
+
+    NaN_gloc_rows = NaN_gloc_proportion == 1
+    number_NaN_gloc_rows = NaN_gloc_rows.values.sum()
+
     total_rows = NaN_proportion.shape[0]
 
     print("There are ", number_NaN_rows, " trials with all NaNs for at least one feature out of ", total_rows, "trials. ", total_rows - number_NaN_rows, " trials remaining.")
+    print("There are ", number_NaN_gloc_rows, " trials with all NaNs during GLOC out of ", sum_gloc_trials, "trials with GLOC. ")
+    return NaN_table, NaN_proportion, NaN_gloc_proportion
 
-    return NaN_table, NaN_proportion
-
-def unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window_stddev, sliding_window_max, sliding_window_range, sliding_window_pupil_difference, sliding_window_ox_deox_ratio):
+def unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window_stddev, sliding_window_max, sliding_window_range,
+                sliding_window_pupil_difference, sliding_window_ox_deox_ratio,
+                sliding_window_integral_left_pupil,sliding_window_integral_right_pupil,
+                sliding_window_consecutive_elements_mean_left_pupil, sliding_window_consecutive_elements_mean_right_pupil,
+                sliding_window_consecutive_elements_max_left_pupil, sliding_window_consecutive_elements_max_right_pupil, sliding_window_hrv_sdnn, sliding_window_hrv_rmssd):
     """
     This function unpacks the dictionary structure to create a large features matrix (X matrix) and
     labels matrix (y matrix) for all trials being analyzed. This function will become unnecessary if
@@ -183,7 +250,12 @@ def unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window
     # Find number of columns
     num_cols = ((np.shape(sliding_window_mean[trial_id_in_data[0]])[1] + np.shape(sliding_window_stddev[trial_id_in_data[0]])[1]
                 + np.shape(sliding_window_max[trial_id_in_data[0]])[1] + np.shape(sliding_window_range[trial_id_in_data[0]])[1]
-                + np.shape(sliding_window_pupil_difference[trial_id_in_data[0]])[1] + np.shape(sliding_window_ox_deox_ratio[trial_id_in_data[0]])[1]))
+                + np.shape(sliding_window_pupil_difference[trial_id_in_data[0]])[1]
+                + np.shape(sliding_window_ox_deox_ratio[trial_id_in_data[0]])[1] + np.shape(sliding_window_integral_left_pupil[trial_id_in_data[0]])[1]
+                + np.shape(sliding_window_integral_right_pupil[trial_id_in_data[0]])[1] + np.shape(sliding_window_consecutive_elements_mean_left_pupil[trial_id_in_data[0]])[1]
+                + np.shape(sliding_window_consecutive_elements_mean_right_pupil[trial_id_in_data[0]])[1] + np.shape(sliding_window_consecutive_elements_max_left_pupil[trial_id_in_data[0]])[1]
+                + np.shape(sliding_window_consecutive_elements_max_right_pupil[trial_id_in_data[0]])[1] + np.shape(sliding_window_hrv_sdnn[trial_id_in_data[0]])[1]
+                + np.shape(sliding_window_hrv_rmssd[trial_id_in_data[0]])[1]))
 
     # Pre-allocate
     x_feature_matrix = np.zeros((total_rows, num_cols))
@@ -197,11 +269,20 @@ def unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window
 
         # Set specific rows equal to the dictionary item corresponding to trial_id
         x_feature_matrix[current_index:num_rows+current_index, :] = np.column_stack((sliding_window_mean[trial_id_in_data[i]],
-                                                                              sliding_window_stddev[trial_id_in_data[i]],
-                                                                              sliding_window_max[trial_id_in_data[i]],
-                                                                              sliding_window_range[trial_id_in_data[i]],
-                                                                              sliding_window_pupil_difference[trial_id_in_data[i]],
-                                                                              sliding_window_ox_deox_ratio[trial_id_in_data[i]]))
+                                                                                     sliding_window_stddev[trial_id_in_data[i]],
+                                                                                     sliding_window_max[trial_id_in_data[i]],
+                                                                                     sliding_window_range[trial_id_in_data[i]],
+                                                                                     sliding_window_pupil_difference[trial_id_in_data[i]],
+                                                                                     sliding_window_ox_deox_ratio[trial_id_in_data[i]],
+                                                                                     sliding_window_integral_left_pupil[trial_id_in_data[i]],
+                                                                                     sliding_window_integral_right_pupil[trial_id_in_data[i]],
+                                                                                     sliding_window_consecutive_elements_mean_left_pupil[trial_id_in_data[i]],
+                                                                                     sliding_window_consecutive_elements_mean_right_pupil[trial_id_in_data[i]],
+                                                                                     sliding_window_consecutive_elements_max_left_pupil[trial_id_in_data[i]],
+                                                                                     sliding_window_consecutive_elements_max_right_pupil[trial_id_in_data[i]],
+                                                                                     sliding_window_hrv_sdnn[trial_id_in_data[i]],
+                                                                                     sliding_window_hrv_rmssd[trial_id_in_data[i]]))
+
         y_gloc_labels[current_index:num_rows+current_index, :] = gloc_window[trial_id_in_data[i]]
         current_index += num_rows
 
@@ -224,16 +305,83 @@ def process_NaN(y_gloc_labels, x_feature_matrix):
 def summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda, accuracy_knn, accuracy_svm, accuracy_gb,
                                   precision_logreg, precision_rf, precision_lda, precision_knn, precision_svm, precision_gb,
                                   recall_logreg, recall_rf, recall_lda, recall_knn, recall_svm, recall_gb,
-                                  f1_logreg, f1_rf, f1_lda, f1_knn, f1_svm, f1_gb):
+                                  f1_logreg, f1_rf, f1_lda, f1_knn, f1_svm, f1_gb,
+                                  specificity_logreg, specificity_rf, specificity_lda, specificity_knn, specificity_svm, specificity_gb):
     classifiers = ['Log Reg', 'RF', 'LDA', 'KNN', 'SVM' , 'Ensemble w/ GB']
-    performance_metrics = ['accuracy', 'precision', 'recall', 'f1-score']
+    performance_metrics = ['accuracy', 'precision', 'recall', 'f1-score', 'specificity']
 
     accuracy = np.array([accuracy_logreg, accuracy_rf, accuracy_lda, accuracy_knn, accuracy_svm, accuracy_gb])
     precision = np.array([precision_logreg, precision_rf, precision_lda, precision_knn, precision_svm, precision_gb])
     recall = np.array([recall_logreg, recall_rf, recall_lda, recall_knn, recall_svm, recall_gb])
     f1 = np.array([f1_logreg, f1_rf, f1_lda, f1_knn, f1_svm, f1_gb])
-    combined_metrics = np.column_stack((accuracy, precision, recall, f1))
+    specificity = np.array([specificity_logreg, specificity_rf, specificity_lda, specificity_knn, specificity_svm, specificity_gb])
+    combined_metrics = np.column_stack((accuracy, precision, recall, f1, specificity))
 
     performance_metric_summary = pd.DataFrame(combined_metrics, index = classifiers, columns = performance_metrics)
 
     return performance_metric_summary
+
+def find_prediction_window(gloc_data_reduced, gloc, time_variable):
+    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+    max_prediction_offset = np.zeros(len(trial_id_in_data))
+    for i in range(len(trial_id_in_data)):
+        current_index = gloc_data_reduced['trial_id'] == trial_id_in_data[i]
+
+        time = gloc_data_reduced[time_variable]
+        accel = gloc_data_reduced['magnitude - Centrifuge']
+
+        current_time = np.array(time[current_index])
+        current_accel = np.array(accel[current_index])
+        current_gloc = gloc[current_index]
+
+        if i == 7 or i == 8 or i == 19:
+            ror = [m for m in range(len(current_time)) if current_time[m] >= 600]
+        else:
+            ror = [t for t in range(len(current_time)) if current_time[t] >= 400]
+
+        reduced_time = current_time[ror]
+        reduced_accel = current_accel[ror]
+        reduced_gloc = current_gloc[ror]
+
+        fig, ax = plt.subplots()
+        ax.plot(reduced_time, reduced_accel)
+        ax.plot(reduced_time, reduced_gloc)
+        plt.show()
+
+        gloc_vals = [j for j in range(len(reduced_gloc)) if reduced_gloc[j] == 1]
+        if len(gloc_vals) == 0:
+            gloc_index = np.nan
+        else:
+            gloc_index = gloc_vals[0]
+
+        accel_increase = [k for k in range(len(reduced_accel)) if reduced_accel[k] >= 1.3]
+        if len(accel_increase) == 0:
+            accel_index = np.nan
+        else:
+            accel_index = accel_increase[0]
+
+        if (np.isnan(accel_index)) | (np.isnan(gloc_index)):
+            max_prediction_offset[i] = np.nan
+        else:
+            max_prediction_offset[i] = reduced_time[gloc_index] - reduced_time[accel_index]
+
+    # Creating a customized histogram with a density plot
+    sns.histplot(max_prediction_offset)
+
+    # Adding labels and title
+    plt.xlabel('LOCINDTI')
+    plt.ylabel('Number of Trials')
+    plt.title('Time Prior to LOC post Acceleration')
+
+    # Display the plot
+    plt.show()
+
+    # Find Mean, Median, Max, Min, Range, Std. Dev
+    mean_locindti = np.nanmean(max_prediction_offset)
+    median_locindti = np.nanmedian(max_prediction_offset)
+    max_locindti = np.nanmax(max_prediction_offset)
+    min_locindti = np.nanmin(max_prediction_offset)
+    range_locindti = max_locindti - min_locindti
+    stddev_locindti = np.nanstd(max_prediction_offset)
+
+    y = 1
