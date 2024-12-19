@@ -84,22 +84,38 @@ def load_and_process_csv(filename, analysis_type, feature_to_analyze, time_varia
 
     if 'fnirs' in feature_to_analyze:
         fnirs_features = ['HbO2 - fNIRS', 'Hbd - fNIRS']
+
+        ######### Generate Additional fnirs specific features #########
+        # HbO2/Hbd
+        ox_deox_ratio = gloc_data_reduced['HbO2 - fNIRS'] / gloc_data_reduced['Hbd - fNIRS']
+        gloc_data_reduced['HbO2 / Hbd'] = ox_deox_ratio
+
+        # augment fnirs_features
+        fnirs_features.append('HbO2 / Hbd')
     else:
         fnirs_features = []
 
     if 'eyetracking' in feature_to_analyze:
         eyetracking_features = ['Pupil position left X [HUCS mm] - Tobii', 'Pupil position left Y [HUCS mm] - Tobii', 'Pupil position left Z [HUCS mm] - Tobii', 'Pupil position right X [HUCS mm] - Tobii',
             'Pupil position right Y [HUCS mm] - Tobii', 'Pupil position right Z [HUCS mm] - Tobii', 'Pupil diameter left [mm] - Tobii', 'Pupil diameter right [mm] - Tobii']
+
+        ######### Generate Additional pupil specific features #########
+        # Pupil Difference
+        pupil_difference = gloc_data_reduced['Pupil diameter left [mm] - Tobii'] - gloc_data_reduced['Pupil diameter right [mm] - Tobii']
+        gloc_data_reduced['Pupil Difference [mm]'] = pupil_difference
+
+        # augment eyetracking_features
+        eyetracking_features.append('Pupil Difference [mm]')
+
     else:
         eyetracking_features = []
 
-    if 'EEG' in feature_to_analyze:
-        eeg_features = []
-    else:
-        eeg_features = []
-
     if 'AFE' in feature_to_analyze:
         afe_features = ['condition']
+
+        # Adjust columns of data frame for feature
+        gloc_data_reduced['condition'].replace('N', 0, inplace=True)
+        gloc_data_reduced['condition'].replace('AFE', 1, inplace=True)
     else:
         afe_features = []
 
@@ -108,77 +124,73 @@ def load_and_process_csv(filename, analysis_type, feature_to_analyze, time_varia
     else:
         g_features = []
 
-    all_features = ecg_features + br_features + temp_features + fnirs_features + eyetracking_features + eeg_features + afe_features + g_features
+    if 'cognitive' in feature_to_analyze:
+        cognitive_features = ['deviation - Cog', 'RespTime - Cog', 'Correct - Cog', 'joystickVelMag - Cog'] #, 'tgtposX - Cog', 'tgtposY - Cog']
+
+        # Adjust columns of data frame for feature
+        gloc_data_reduced['Correct - Cog'].replace('correct', 1, inplace=True)
+        gloc_data_reduced['Correct - Cog'].replace('no response', 0, inplace=True)
+        gloc_data_reduced['Correct - Cog'].replace('incorrect', -1, inplace=True)
+        gloc_data_reduced['Correct - Cog'].replace('NO VALUE', np.nan, inplace=True)
+    else:
+        cognitive_features = []
+
+    if 'EEG' in feature_to_analyze:
+        eeg_features = []
+    else:
+        eeg_features = []
+
+    if 'strain' in feature_to_analyze:
+        strain_features = []
+    else:
+        strain_features = []
+
+    # Combine names of different feature categories for baseline methods
+    all_features = ecg_features + br_features + temp_features + fnirs_features + eyetracking_features + afe_features + g_features + cognitive_features + eeg_features + strain_features
+    all_features_phys = ecg_features + br_features + temp_features + fnirs_features + eyetracking_features + eeg_features
+    all_features_ecg = ecg_features
 
     # Create matrix of all features for data being analyzed
     features = gloc_data_reduced[all_features].to_numpy()
+    features_phys = gloc_data_reduced[all_features_phys].to_numpy()
+    features_ecg = gloc_data_reduced[all_features_ecg].to_numpy()
 
-    return gloc_data_reduced, features, all_features
+    return gloc_data_reduced, features, features_phys, features_ecg, all_features, all_features_phys, all_features_ecg
 
-def baseline_features(baseline_window, gloc_data_reduced, features, time_variable):
-    """
-    This function baselines features for each trial being analyzed. The baseline window is specified
-    in main. Each feature is defined by the average of the baseline feature for that trial.
-    """
-
+def combine_all_baseline(gloc_data_reduced, features_v0, features_v0_derivative, features_v0_second_derivative,
+                                             features_v1, features_v1_derivative, features_v1_second_derivative,
+                                             features_v2, features_v2_derivative, features_v2_second_derivative,
+                                             features_v3, features_v3_derivative, features_v3_second_derivative,
+                                             features_v4, features_v4_derivative, features_v4_second_derivative,
+                                             features_v5, features_v5_derivative, features_v5_second_derivative,
+                                             features_v6, features_v6_derivative, features_v6_second_derivative,
+                                             baseline_names_v0, baseline_names_v1, baseline_names_v2, baseline_names_v3,
+                                             baseline_names_v4, baseline_names_v5, baseline_names_v6):
     # Find Unique Trial ID
     trial_id_in_data = gloc_data_reduced.trial_id.unique()
 
     # Build Dictionary for each trial_id
-    feature_baseline = dict()
-    feature_baseline_derivative = dict()
-    feature_baseline_second_derivative = dict()
+    combined_baseline = dict()
 
+    # Iterate through all unique trial_id
     for i in range(np.size(trial_id_in_data)):
+        combined_baseline[trial_id_in_data[i]] = np.column_stack((features_v0[trial_id_in_data[i]], features_v0_derivative[trial_id_in_data[i]], features_v0_second_derivative[trial_id_in_data[i]],
+                                                                  features_v1[trial_id_in_data[i]], features_v1_derivative[trial_id_in_data[i]], features_v1_second_derivative[trial_id_in_data[i]],
+                                                                  features_v2[trial_id_in_data[i]], features_v2_derivative[trial_id_in_data[i]], features_v2_second_derivative[trial_id_in_data[i]],
+                                                                  features_v3[trial_id_in_data[i]], features_v3_derivative[trial_id_in_data[i]], features_v3_second_derivative[trial_id_in_data[i]],
+                                                                  features_v4[trial_id_in_data[i]], features_v4_derivative[trial_id_in_data[i]], features_v4_second_derivative[trial_id_in_data[i]],
+                                                                  features_v5[trial_id_in_data[i]], features_v5_derivative[trial_id_in_data[i]], features_v5_second_derivative[trial_id_in_data[i]],
+                                                                  features_v6[trial_id_in_data[i]], features_v6_derivative[trial_id_in_data[i]], features_v6_second_derivative[trial_id_in_data[i]]))
 
-        # Find time window
-        index_window = ((gloc_data_reduced[time_variable]<baseline_window) & (gloc_data_reduced.trial_id == trial_id_in_data[i]))
-        time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
-        time_array = np.array(gloc_data_reduced[time_variable])
+    combined_baseline_names = (baseline_names_v0 + [s + '_derivative' for s in baseline_names_v0] + [s + '_2derivative' for s in baseline_names_v0] +
+                               baseline_names_v1 + [s + '_derivative' for s in baseline_names_v1] + [s + '_2derivative' for s in baseline_names_v1] +
+                               baseline_names_v2 + [s + '_derivative' for s in baseline_names_v2] + [s + '_2derivative' for s in baseline_names_v2] +
+                               baseline_names_v3 + [s + '_derivative' for s in baseline_names_v3] + [s + '_2derivative' for s in baseline_names_v3] +
+                               baseline_names_v4 + [s + '_derivative' for s in baseline_names_v4] + [s + '_2derivative' for s in baseline_names_v4] +
+                               baseline_names_v5 + [s + '_derivative' for s in baseline_names_v5] + [s + '_2derivative' for s in baseline_names_v5] +
+                               baseline_names_v6 + [s + '_derivative' for s in baseline_names_v6] + [s + '_2derivative' for s in baseline_names_v6])
 
-        # Find baseline average based on specified baseline window
-        baseline_feature = np.mean(features[index_window], axis = 0)
-
-        # Divide features for that trial by baselined data
-        feature_baseline[trial_id_in_data[i]] = np.array(features[(gloc_data_reduced.trial_id == trial_id_in_data[i])] /baseline_feature)
-
-        # Compute derivative
-        time = time_array[time_index]
-        feature_baseline_derivative[trial_id_in_data[i]] = np.gradient(feature_baseline[trial_id_in_data[i]], time, axis = 0)
-
-        # Compute 2nd derivative
-        feature_baseline_second_derivative[trial_id_in_data[i]] = np.gradient(feature_baseline_derivative[trial_id_in_data[i]], time, axis = 0)
-
-    return feature_baseline, feature_baseline_derivative, feature_baseline_second_derivative
-
-def non_baseline_features(baseline_window, gloc_data_reduced, features, time_variable):
-    """
-    This function puts features into an interpretable array without baselining these features
-    by trial.
-    """
-    # Find Unique Trial ID
-    trial_id_in_data = gloc_data_reduced.trial_id.unique()
-
-    # Build Dictionary for each trial_id
-    feature_no_baseline = dict()
-    feature_no_baseline_derivative = dict()
-
-    for i in range(np.size(trial_id_in_data)):
-        # Find time window
-        time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
-        time_array = np.array(gloc_data_reduced[time_variable])
-
-        # Divide features for that trial by baselined data
-        feature_no_baseline[trial_id_in_data[i]] = np.array(features[(gloc_data_reduced.trial_id == trial_id_in_data[i])])
-
-        # Compute derivative
-        time = time_array[time_index]
-
-        feature_no_baseline_derivative[trial_id_in_data[i]] = np.gradient(feature_no_baseline[trial_id_in_data[i]], time,
-                                                                       axis=0)
-
-    return feature_no_baseline, feature_no_baseline_derivative
-
+    return combined_baseline, combined_baseline_names
 
 def tabulateNaN(feature_baseline, all_features, gloc, gloc_data_reduced):
     """
@@ -228,11 +240,13 @@ def tabulateNaN(feature_baseline, all_features, gloc, gloc_data_reduced):
     print("There are ", number_NaN_gloc_rows, " trials with all NaNs during GLOC out of ", sum_gloc_trials, "trials with GLOC. ")
     return NaN_table, NaN_proportion, NaN_gloc_proportion
 
-def unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window_stddev, sliding_window_max, sliding_window_range,
-                sliding_window_pupil_difference, sliding_window_ox_deox_ratio,
-                sliding_window_integral_left_pupil,sliding_window_integral_right_pupil,
-                sliding_window_consecutive_elements_mean_left_pupil, sliding_window_consecutive_elements_mean_right_pupil,
-                sliding_window_consecutive_elements_max_left_pupil, sliding_window_consecutive_elements_max_right_pupil, sliding_window_hrv_sdnn, sliding_window_hrv_rmssd):
+def unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window_stddev,
+                                                  sliding_window_max, sliding_window_range,
+                                                  sliding_window_integral_left_pupil,sliding_window_integral_right_pupil,
+                                                  sliding_window_consecutive_elements_mean_left_pupil, sliding_window_consecutive_elements_mean_right_pupil,
+                                                  sliding_window_consecutive_elements_max_left_pupil, sliding_window_consecutive_elements_max_right_pupil,
+                                                  sliding_window_consecutive_elements_sum_left_pupil, sliding_window_consecutive_elements_sum_right_pupil,
+                                                  sliding_window_hrv_sdnn, sliding_window_hrv_rmssd):
     """
     This function unpacks the dictionary structure to create a large features matrix (X matrix) and
     labels matrix (y matrix) for all trials being analyzed. This function will become unnecessary if
@@ -254,7 +268,8 @@ def unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window
                 + np.shape(sliding_window_ox_deox_ratio[trial_id_in_data[0]])[1] + np.shape(sliding_window_integral_left_pupil[trial_id_in_data[0]])[1]
                 + np.shape(sliding_window_integral_right_pupil[trial_id_in_data[0]])[1] + np.shape(sliding_window_consecutive_elements_mean_left_pupil[trial_id_in_data[0]])[1]
                 + np.shape(sliding_window_consecutive_elements_mean_right_pupil[trial_id_in_data[0]])[1] + np.shape(sliding_window_consecutive_elements_max_left_pupil[trial_id_in_data[0]])[1]
-                + np.shape(sliding_window_consecutive_elements_max_right_pupil[trial_id_in_data[0]])[1] + np.shape(sliding_window_hrv_sdnn[trial_id_in_data[0]])[1]
+                + np.shape(sliding_window_consecutive_elements_max_right_pupil[trial_id_in_data[0]])[1] + np.shape(sliding_window_consecutive_elements_sum_left_pupil[trial_id_in_data[0]])[1]
+                + np.shape(sliding_window_consecutive_elements_sum_right_pupil[trial_id_in_data[0]])[1] + np.shape(sliding_window_hrv_sdnn[trial_id_in_data[0]])[1]
                 + np.shape(sliding_window_hrv_rmssd[trial_id_in_data[0]])[1]))
 
     # Pre-allocate
@@ -280,6 +295,8 @@ def unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window
                                                                                      sliding_window_consecutive_elements_mean_right_pupil[trial_id_in_data[i]],
                                                                                      sliding_window_consecutive_elements_max_left_pupil[trial_id_in_data[i]],
                                                                                      sliding_window_consecutive_elements_max_right_pupil[trial_id_in_data[i]],
+                                                                                     sliding_window_consecutive_elements_sum_left_pupil[trial_id_in_data[i]],
+                                                                                     sliding_window_consecutive_elements_sum_right_pupil[trial_id_in_data[i]],
                                                                                      sliding_window_hrv_sdnn[trial_id_in_data[i]],
                                                                                      sliding_window_hrv_rmssd[trial_id_in_data[i]]))
 

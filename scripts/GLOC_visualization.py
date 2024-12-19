@@ -98,3 +98,21 @@ def create_confusion_matrix(y_testing, label_predictions, model_type):
     plt.ylabel('Actual label')
     plt.xlabel('Predicted label')
     plt.show()
+
+if __name__ == "__main__":
+
+    # Plot Flags
+    plot_data = 0       # flag to set whether plots should be generated (0 = no, 1 = yes)
+    plot_pairwise = 0   # flag to set whether pairwise plots should be generated (0 = no, 1 = yes)
+
+    # Visualization of feature throughout trial
+    if plot_data == 1:
+        initial_visualization(gloc_data_reduced, gloc, feature_baseline, all_features, time_variable)
+
+    # Visualize sliding window mean
+    if plot_data == 1:
+        sliding_window_visualization(gloc_window, sliding_window_mean, number_windows, all_features, gloc_data_reduced)
+
+    # Visualization of pairwise features
+    if plot_pairwise == 1:
+        pairwise_visualization(gloc_window, sliding_window_mean, all_features, gloc_data_reduced)
