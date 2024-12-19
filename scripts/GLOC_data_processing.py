@@ -264,8 +264,7 @@ def unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window
     # Find number of columns
     num_cols = ((np.shape(sliding_window_mean[trial_id_in_data[0]])[1] + np.shape(sliding_window_stddev[trial_id_in_data[0]])[1]
                 + np.shape(sliding_window_max[trial_id_in_data[0]])[1] + np.shape(sliding_window_range[trial_id_in_data[0]])[1]
-                + np.shape(sliding_window_pupil_difference[trial_id_in_data[0]])[1]
-                + np.shape(sliding_window_ox_deox_ratio[trial_id_in_data[0]])[1] + np.shape(sliding_window_integral_left_pupil[trial_id_in_data[0]])[1]
+                + np.shape(sliding_window_integral_left_pupil[trial_id_in_data[0]])[1]
                 + np.shape(sliding_window_integral_right_pupil[trial_id_in_data[0]])[1] + np.shape(sliding_window_consecutive_elements_mean_left_pupil[trial_id_in_data[0]])[1]
                 + np.shape(sliding_window_consecutive_elements_mean_right_pupil[trial_id_in_data[0]])[1] + np.shape(sliding_window_consecutive_elements_max_left_pupil[trial_id_in_data[0]])[1]
                 + np.shape(sliding_window_consecutive_elements_max_right_pupil[trial_id_in_data[0]])[1] + np.shape(sliding_window_consecutive_elements_sum_left_pupil[trial_id_in_data[0]])[1]
@@ -287,8 +286,6 @@ def unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window
                                                                                      sliding_window_stddev[trial_id_in_data[i]],
                                                                                      sliding_window_max[trial_id_in_data[i]],
                                                                                      sliding_window_range[trial_id_in_data[i]],
-                                                                                     sliding_window_pupil_difference[trial_id_in_data[i]],
-                                                                                     sliding_window_ox_deox_ratio[trial_id_in_data[i]],
                                                                                      sliding_window_integral_left_pupil[trial_id_in_data[i]],
                                                                                      sliding_window_integral_right_pupil[trial_id_in_data[i]],
                                                                                      sliding_window_consecutive_elements_mean_left_pupil[trial_id_in_data[i]],
@@ -400,5 +397,3 @@ def find_prediction_window(gloc_data_reduced, gloc, time_variable):
     min_locindti = np.nanmin(max_prediction_offset)
     range_locindti = max_locindti - min_locindti
     stddev_locindti = np.nanstd(max_prediction_offset)
-
-    y = 1

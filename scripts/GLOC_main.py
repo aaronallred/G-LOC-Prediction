@@ -21,16 +21,20 @@ if __name__ == "__main__":
 
     # Feature Info
     # feature_to_analyze options:
-        # ECG ('HR (bpm) - Equivital','ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital', 'HR_instant - Equivital', 'HR_average - Equivital', 'HR_w_average - Equivital')
+        # ECG ('HR (bpm) - Equivital','ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital', 'HR_instant - Equivital',
+            # 'HR_average - Equivital', 'HR_w_average - Equivital')
         # BR ('BR (rpm) - Equivital')
         # temp ('Skin Temperature - IR Thermometer (°C) - Equivital')
         # fnirs ('HbO2 - fNIRS', 'Hbd - fNIRS')
-        # eyetracking ('Pupil position left X [HUCS mm] - Tobii', 'Pupil position left Y [HUCS mm] - Tobii', 'Pupil position left Z [HUCS mm] - Tobii', 'Pupil position right X [HUCS mm] - Tobii'
-            # 'Pupil position right Y [HUCS mm] - Tobii', 'Pupil position right Z [HUCS mm] - Tobii', 'Pupil diameter left [mm] - Tobii', 'Pupil diameter right [mm] - Tobii')
+        # eyetracking ('Pupil position left X [HUCS mm] - Tobii', 'Pupil position left Y [HUCS mm] - Tobii',
+            # 'Pupil position left Z [HUCS mm] - Tobii', 'Pupil position right X [HUCS mm] - Tobii'
+            # 'Pupil position right Y [HUCS mm] - Tobii', 'Pupil position right Z [HUCS mm] - Tobii',
+            # 'Pupil diameter left [mm] - Tobii', 'Pupil diameter right [mm] - Tobii')
         # AFE ('condition')
         # G ('magnitude - Centrifuge')
         # cognitive ('deviation - Cog', 'RespTime - Cog', 'Correct - Cog', 'joystickVelMag - Cog')
-            #coming soon:'tgtposX - Cog', 'tgtposY - Cog' related to deviation and other combo metrics (accuracy & speed combo)
+            #coming soon:'tgtposX - Cog', 'tgtposY - Cog'
+            # related to deviation and other combo metrics (accuracy & speed combo)
         # EEG (coming soon!!!- Waiting on more info)
         # strain (coming soon!!!- Waiting on more info)
 
@@ -130,7 +134,8 @@ if __name__ == "__main__":
         baseline_names_v2 = []
 
     if 'v3' in baseline_methods_to_use:
-        # V3: pre ROR: divide by baseline window pre GOR, ROR: divide by baseline window pre ROR (feature categories: ECG, BR, temp, fnirs, eyetracking)
+        # V3: pre ROR: divide by baseline window pre GOR, ROR: divide by baseline window pre ROR
+        # feature categories: ECG, BR, temp, fnirs, eyetracking
             # to be implemented: EEG
         baseline_v3, baseline_v3_derivative, baseline_v3_second_derivative, baseline_names_v3 = (
             create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
@@ -141,7 +146,8 @@ if __name__ == "__main__":
         baseline_names_v3 =[]
 
     if 'v4' in baseline_methods_to_use:
-        # V4: pre ROR: subtract baseline window pre GOR, ROR: subtract baseline window pre ROR (feature categories: ECG, BR, temp, fnirs, eyetracking)
+        # V4: pre ROR: subtract baseline window pre GOR, ROR: subtract baseline window pre ROR
+        # feature categories: ECG, BR, temp, fnirs, eyetracking
             # to be implemented: EEG
         baseline_v4, baseline_v4_derivative, baseline_v4_second_derivative, baseline_names_v4 = (
             create_v4_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
@@ -159,7 +165,8 @@ if __name__ == "__main__":
 
         # V5: Divide by seated resting HR (feature categories: ECG)
         baseline_v5, baseline_v5_derivative, baseline_v5_second_derivative, baseline_names_v5 = (
-            create_v5_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable, participant_seated_rhr, all_features_ecg))
+            create_v5_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable, participant_seated_rhr,
+                               all_features_ecg))
     else:
         baseline_v5 = []
         baseline_v5_derivative = []
@@ -175,7 +182,8 @@ if __name__ == "__main__":
 
         # V6: Subtract seated resting HR (feature categories: ECG)
         baseline_v6, baseline_v6_derivative, baseline_v6_second_derivative, baseline_names_v6 = (
-            create_v6_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable, participant_seated_rhr, all_features_ecg))
+            create_v6_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable, participant_seated_rhr,
+                               all_features_ecg))
     else:
         baseline_v6 = []
         baseline_v6_derivative = []
@@ -183,7 +191,8 @@ if __name__ == "__main__":
         baseline_names_v6 =[]
 
     # Combine all baseline methods into a large dictionary
-    combined_baseline, combined_baseline_names = combine_all_baseline(gloc_data_reduced, baseline_v0, baseline_v0_derivative, baseline_v0_second_derivative,
+    combined_baseline, combined_baseline_names = combine_all_baseline(gloc_data_reduced,
+                                             baseline_v0, baseline_v0_derivative, baseline_v0_second_derivative,
                                              baseline_v1, baseline_v1_derivative, baseline_v1_second_derivative,
                                              baseline_v2, baseline_v2_derivative, baseline_v2_second_derivative,
                                              baseline_v3, baseline_v3_derivative, baseline_v3_second_derivative,
@@ -197,11 +206,13 @@ if __name__ == "__main__":
 
     # Sliding Window Mean
     gloc_window, sliding_window_mean, number_windows, all_features_mean = (
-        sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc, gloc_data_reduced, time_variable, combined_baseline_names))
+        sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc, gloc_data_reduced,
+                                 time_variable, combined_baseline_names))
 
     # Sliding Window Standard Deviation, Max, Range
     sliding_window_stddev, sliding_window_max, sliding_window_range, all_features_stddev, all_features_max, all_features_range = (
-        sliding_window_calc(time_start, stride, window_size, combined_baseline, gloc_data_reduced, time_variable, number_windows, combined_baseline_names))
+        sliding_window_calc(time_start, stride, window_size, combined_baseline, gloc_data_reduced, time_variable,
+                            number_windows, combined_baseline_names))
 
     # Additional Features
     (sliding_window_integral_left_pupil, sliding_window_integral_right_pupil,
@@ -209,15 +220,19 @@ if __name__ == "__main__":
      sliding_window_consecutive_elements_max_left_pupil, sliding_window_consecutive_elements_max_right_pupil,
      sliding_window_consecutive_elements_sum_left_pupil, sliding_window_consecutive_elements_sum_right_pupil,
      sliding_window_hrv_sdnn, sliding_window_hrv_rmssd, all_features_additional) = (
-        sliding_window_other_features(time_start, stride, window_size, gloc_data_reduced,time_variable, number_windows,baseline_names_v0, baseline_v0))
+        sliding_window_other_features(time_start, stride, window_size, gloc_data_reduced,time_variable, number_windows,
+                                      baseline_names_v0, baseline_v0))
 
     # Unpack Dictionary into Array & combine features into one feature array
     y_gloc_labels, x_feature_matrix = unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window_stddev,
                                                   sliding_window_max, sliding_window_range,
                                                   sliding_window_integral_left_pupil,sliding_window_integral_right_pupil,
-                                                  sliding_window_consecutive_elements_mean_left_pupil, sliding_window_consecutive_elements_mean_right_pupil,
-                                                  sliding_window_consecutive_elements_max_left_pupil, sliding_window_consecutive_elements_max_right_pupil,
-                                                  sliding_window_consecutive_elements_sum_left_pupil, sliding_window_consecutive_elements_sum_right_pupil,
+                                                  sliding_window_consecutive_elements_mean_left_pupil,
+                                                  sliding_window_consecutive_elements_mean_right_pupil,
+                                                  sliding_window_consecutive_elements_max_left_pupil,
+                                                  sliding_window_consecutive_elements_max_right_pupil,
+                                                  sliding_window_consecutive_elements_sum_left_pupil,
+                                                  sliding_window_consecutive_elements_sum_right_pupil,
                                                   sliding_window_hrv_sdnn, sliding_window_hrv_rmssd)
 
     # Remove rows with NaN (temporary solution-should replace with other method eventually)
@@ -225,8 +240,11 @@ if __name__ == "__main__":
 
     all_features = all_features_mean + all_features_stddev + all_features_max +  all_features_range + all_features_additional
 
+    ################################################ FEATURE SELECTION ################################################
+
     # Training/Test Split
-    x_train, x_test, y_train, y_test = pre_classification_training_test_split(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio)
+    x_train, x_test, y_train, y_test = pre_classification_training_test_split(y_gloc_labels_noNaN, x_feature_matrix_noNaN,
+                                                                              training_ratio)
 
     # Feature Selection
     selected_features_lasso = feature_selection_lasso(x_train, y_train, all_features)
@@ -234,16 +252,19 @@ if __name__ == "__main__":
     selected_features_ridge = feature_selection_ridge(x_train, y_train, all_features)
     selected_features_mrmr = feature_selection_mrmr(x_train, y_train, all_features)
 
-    ## Call functions for ML classification ##
+    ################################################ MACHINE LEARNING ################################################
 
     # Logistic Regression
-    accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg = classify_logistic_regression(x_train, x_test, y_train, y_test, all_features)
+    accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg = (
+        classify_logistic_regression(x_train, x_test, y_train, y_test, all_features))
 
     # RF
-    accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf = classify_random_forest(x_train, x_test, y_train, y_test, all_features)
+    accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf = (
+        classify_random_forest(x_train, x_test, y_train, y_test, all_features))
 
     # LDA
-    accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda = classify_lda(x_train, x_test, y_train, y_test, all_features)
+    accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda = (
+        classify_lda(x_train, x_test, y_train, y_test, all_features))
 
     # KNN
     accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn = classify_knn(x_train, x_test, y_train, y_test)
@@ -252,14 +273,16 @@ if __name__ == "__main__":
     accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm = classify_svm(x_train, x_test, y_train, y_test)
 
     # Ensemble with Gradient Boosting
-    accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb = classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test)
+    accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb = (
+        classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test))
 
     # Build Performance Metric Summary Tables
-    performance_metric_summary = summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda, accuracy_knn, accuracy_svm, accuracy_gb,
-                                                     precision_logreg, precision_rf, precision_lda, precision_knn, precision_svm, precision_gb,
-                                                     recall_logreg, recall_rf, recall_lda, recall_knn, recall_svm, recall_gb,
-                                                     f1_logreg, f1_rf, f1_lda, f1_knn, f1_svm, f1_gb,
-                                                     specificity_logreg, specificity_rf, specificity_lda, specificity_knn, specificity_svm, specificity_gb)
+    performance_metric_summary = (
+        summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda, accuracy_knn, accuracy_svm, accuracy_gb,
+                                      precision_logreg, precision_rf, precision_lda, precision_knn, precision_svm, precision_gb,
+                                      recall_logreg, recall_rf, recall_lda, recall_knn, recall_svm, recall_gb,
+                                      f1_logreg, f1_rf, f1_lda, f1_knn, f1_svm, f1_gb,
+                                      specificity_logreg, specificity_rf, specificity_lda, specificity_knn, specificity_svm, specificity_gb))
 
 
     # Breakpoint for troubleshooting

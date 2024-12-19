@@ -212,6 +212,9 @@ def sliding_window_other_features(time_start, stride, window_size, gloc_data_red
     sliding_window_consecutive_elements_mean_left_pupil = dict()
     sliding_window_consecutive_elements_mean_right_pupil = dict()
 
+    sliding_window_consecutive_elements_max_left_pupil = dict()
+    sliding_window_consecutive_elements_max_right_pupil = dict()
+
     sliding_window_consecutive_elements_sum_left_pupil = dict()
     sliding_window_consecutive_elements_sum_right_pupil = dict()
 
@@ -329,9 +332,6 @@ def sliding_window_other_features(time_start, stride, window_size, gloc_data_red
                                                / np.nanstd(sliding_window_hrv_rmssd_current, axis = 0, keepdims=True))
 
         # Define dictionary item for trial_id
-        sliding_window_pupil_difference[trial_id_in_data[i]] = sliding_window_pupil_difference_current_z_score
-        sliding_window_ox_deox_ratio[trial_id_in_data[i]] = sliding_window_ox_deox_ratio_current_z_score
-
         sliding_window_integral_left_pupil[trial_id_in_data[i]] = sliding_window_integral_left_pupil_current_z_score
         sliding_window_integral_right_pupil[trial_id_in_data[i]] = sliding_window_integral_right_pupil_current_z_score
         sliding_window_consecutive_elements_mean_left_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_left_pupil_current_z_score
