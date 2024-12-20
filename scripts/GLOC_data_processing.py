@@ -157,38 +157,22 @@ def load_and_process_csv(filename, analysis_type, feature_to_analyze, time_varia
 
     return gloc_data_reduced, features, features_phys, features_ecg, all_features, all_features_phys, all_features_ecg
 
-def combine_all_baseline(gloc_data_reduced, features_v0, features_v0_derivative, features_v0_second_derivative,
-                                             features_v1, features_v1_derivative, features_v1_second_derivative,
-                                             features_v2, features_v2_derivative, features_v2_second_derivative,
-                                             features_v3, features_v3_derivative, features_v3_second_derivative,
-                                             features_v4, features_v4_derivative, features_v4_second_derivative,
-                                             features_v5, features_v5_derivative, features_v5_second_derivative,
-                                             features_v6, features_v6_derivative, features_v6_second_derivative,
-                                             baseline_names_v0, baseline_names_v1, baseline_names_v2, baseline_names_v3,
-                                             baseline_names_v4, baseline_names_v5, baseline_names_v6):
+def combine_all_baseline(gloc_data_reduced, baseline, baseline_derivative, baseline_second_derivative, baseline_names):
     # Find Unique Trial ID
     trial_id_in_data = gloc_data_reduced.trial_id.unique()
-
-    # Build Dictionary for each trial_id
     combined_baseline = dict()
-
     # Iterate through all unique trial_id
-    for i in range(np.size(trial_id_in_data)):
-        combined_baseline[trial_id_in_data[i]] = np.column_stack((features_v0[trial_id_in_data[i]], features_v0_derivative[trial_id_in_data[i]], features_v0_second_derivative[trial_id_in_data[i]],
-                                                                  features_v1[trial_id_in_data[i]], features_v1_derivative[trial_id_in_data[i]], features_v1_second_derivative[trial_id_in_data[i]],
-                                                                  features_v2[trial_id_in_data[i]], features_v2_derivative[trial_id_in_data[i]], features_v2_second_derivative[trial_id_in_data[i]],
-                                                                  features_v3[trial_id_in_data[i]], features_v3_derivative[trial_id_in_data[i]], features_v3_second_derivative[trial_id_in_data[i]],
-                                                                  features_v4[trial_id_in_data[i]], features_v4_derivative[trial_id_in_data[i]], features_v4_second_derivative[trial_id_in_data[i]],
-                                                                  features_v5[trial_id_in_data[i]], features_v5_derivative[trial_id_in_data[i]], features_v5_second_derivative[trial_id_in_data[i]],
-                                                                  features_v6[trial_id_in_data[i]], features_v6_derivative[trial_id_in_data[i]], features_v6_second_derivative[trial_id_in_data[i]]))
+    for id in trial_id_in_data:
+        all_baseline_data = []
+        for method in baseline.keys():
+            all_baseline_data.append(baseline[method][id])
+            all_baseline_data.append(baseline_derivative[method][id])
+            all_baseline_data.append(baseline_second_derivative[method][id])
 
-    combined_baseline_names = (baseline_names_v0 + [s + '_derivative' for s in baseline_names_v0] + [s + '_2derivative' for s in baseline_names_v0] +
-                               baseline_names_v1 + [s + '_derivative' for s in baseline_names_v1] + [s + '_2derivative' for s in baseline_names_v1] +
-                               baseline_names_v2 + [s + '_derivative' for s in baseline_names_v2] + [s + '_2derivative' for s in baseline_names_v2] +
-                               baseline_names_v3 + [s + '_derivative' for s in baseline_names_v3] + [s + '_2derivative' for s in baseline_names_v3] +
-                               baseline_names_v4 + [s + '_derivative' for s in baseline_names_v4] + [s + '_2derivative' for s in baseline_names_v4] +
-                               baseline_names_v5 + [s + '_derivative' for s in baseline_names_v5] + [s + '_2derivative' for s in baseline_names_v5] +
-                               baseline_names_v6 + [s + '_derivative' for s in baseline_names_v6] + [s + '_2derivative' for s in baseline_names_v6])
+        combined_baseline[id] = np.column_stack(tuple(all_baseline_data))
+
+    combined_baseline_names = sum([baseline_names[method] + [s + '_derivative' for s in baseline_names[method]] +
+                                       [s + '_2derivative' for s in baseline_names[method]] for method in baseline_names.keys()], [])
 
     return combined_baseline, combined_baseline_names
 

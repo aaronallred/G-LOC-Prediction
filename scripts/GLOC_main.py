@@ -16,7 +16,7 @@ if __name__ == "__main__":
     baseline_data_filename = "../../ParticipantBaseline.csv"
 
     # Tabulate NaN
-    # NaN_table, NaN_proportion, NaN_gloc_proportion = tabulateNaN(baseline_v1, all_features, gloc, gloc_data_reduced)
+    # NaN_table, NaN_proportion, NaN_gloc_proportion = tabulateNaN(baseline[method], all_features, gloc, gloc_data_reduced)
     Nan_proportion_all = pd.read_pickle('../../NaN_proportion_all.pkl')
 
     # Feature Info
@@ -38,10 +38,11 @@ if __name__ == "__main__":
         # EEG (coming soon!!!- Waiting on more info)
         # strain (coming soon!!!- Waiting on more info)
 
-    feature_to_analyze = ['ECG','BR', 'temp', 'fnirs', 'eyetracking', 'AFE', 'G', 'cognitive']
+    feature_to_analyze = ['ECG','BR', 'temp', 'fnirs', 'eyetracking'] #, 'AFE', 'G', 'cognitive']
 
     # Baseline Method Info
-    baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
+    #baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
+    baseline_methods_to_use = ['v0', 'v1', 'v3', 'v5', 'v6']
     # baseline_methods_to_use options:
         # V0: no baseline
         # V1: divide by baseline window
@@ -97,110 +98,70 @@ if __name__ == "__main__":
 
     # Find time window after acceleration before GLOC
     # find_prediction_window(gloc_data_reduced, gloc, time_variable)
-
+    baseline = dict()
+    baseline_derivative = dict()
+    baseline_second_derivative = dict()
+    baseline_names = dict()
     ################################################## BASELINE DATA ##################################################
-
-    if 'v0' in baseline_methods_to_use:
-        # V0: No Baseline (feature categories: ECG, BR, temp, fnirs, eyetracking, AFE, G, cognitive)
-            # to be implemented: EEG, strain
-        baseline_v0, baseline_v0_derivative, baseline_v0_second_derivative, baseline_names_v0 = (
-            create_v0_baseline(gloc_data_reduced, features, time_variable, all_features))
-    else:
-        baseline_v0 = []
-        baseline_v0_derivative = []
-        baseline_v0_second_derivative = []
-        baseline_names_v0 = []
-
-    if 'v1' in baseline_methods_to_use:
-        # V1: Divide by Baseline Window (feature categories: ECG, BR, temp, fnirs, eyetracking)
-            # to be implemented: EEG
-        baseline_v1, baseline_v1_derivative, baseline_v1_second_derivative, baseline_names_v1 = (
-            create_v1_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
-    else:
-        baseline_v1 = []
-        baseline_v1_derivative = []
-        baseline_v1_second_derivative = []
-        baseline_names_v1 = []
-
-    if 'v2' in baseline_methods_to_use:
-        # V2: Subtract Baseline Window (feature categories: ECG, BR, temp, fnirs, eyetracking)
-            # to be implemented: EEG
-        baseline_v2, baseline_v2_derivative, baseline_v2_second_derivative, baseline_names_v2 = (
-            create_v2_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
-    else:
-        baseline_v2 = []
-        baseline_v2_derivative = []
-        baseline_v2_second_derivative = []
-        baseline_names_v2 = []
-
-    if 'v3' in baseline_methods_to_use:
-        # V3: pre ROR: divide by baseline window pre GOR, ROR: divide by baseline window pre ROR
-        # feature categories: ECG, BR, temp, fnirs, eyetracking
-            # to be implemented: EEG
-        baseline_v3, baseline_v3_derivative, baseline_v3_second_derivative, baseline_names_v3 = (
-            create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
-    else:
-        baseline_v3 = []
-        baseline_v3_derivative = []
-        baseline_v3_second_derivative = []
-        baseline_names_v3 =[]
-
-    if 'v4' in baseline_methods_to_use:
-        # V4: pre ROR: subtract baseline window pre GOR, ROR: subtract baseline window pre ROR
-        # feature categories: ECG, BR, temp, fnirs, eyetracking
-            # to be implemented: EEG
-        baseline_v4, baseline_v4_derivative, baseline_v4_second_derivative, baseline_names_v4 = (
-            create_v4_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
-    else:
-        baseline_v4 = []
-        baseline_v4_derivative = []
-        baseline_v4_second_derivative = []
-        baseline_names_v4 = []
-
-    if 'v5' in baseline_methods_to_use:
-        # Import xlsx File
-        participant_baseline = pd.read_csv(baseline_data_filename)
-        participant_seated_rhr = participant_baseline['resting HR [seated]'][0:-1]
-        participant_seated_rhr.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13']
-
-        # V5: Divide by seated resting HR (feature categories: ECG)
-        baseline_v5, baseline_v5_derivative, baseline_v5_second_derivative, baseline_names_v5 = (
-            create_v5_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable, participant_seated_rhr,
-                               all_features_ecg))
-    else:
-        baseline_v5 = []
-        baseline_v5_derivative = []
-        baseline_v5_second_derivative = []
-        baseline_names_v5 = []
-
-    if 'v6' in baseline_methods_to_use:
-        # Import xlsx File (if not already imported from v5)
-        if 'participant_baseline' not in locals() and 'participant_baseline' not in globals():
+    for method in baseline_methods_to_use:
+        if method == 'v0':
+            # V0: No Baseline (feature categories: ECG, BR, temp, fnirs, eyetracking, AFE, G, cognitive)
+                # to be implemented: EEG, strain
+            baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
+                create_v0_baseline(gloc_data_reduced, features, time_variable, all_features))
+    
+        if method == 'v1':
+            # V1: Divide by Baseline Window (feature categories: ECG, BR, temp, fnirs, eyetracking)
+                # to be implemented: EEG
+            baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
+                create_v1_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
+    
+        if method == 'v2':
+            # V2: Subtract Baseline Window (feature categories: ECG, BR, temp, fnirs, eyetracking)
+                # to be implemented: EEG
+            baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
+                create_v2_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
+    
+        if method == 'v3':
+            # V3: pre ROR: divide by baseline window pre GOR, ROR: divide by baseline window pre ROR
+            # feature categories: ECG, BR, temp, fnirs, eyetracking
+                # to be implemented: EEG
+            baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
+                create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
+    
+        if method == 'v4':
+            # V4: pre ROR: subtract baseline window pre GOR, ROR: subtract baseline window pre ROR
+            # feature categories: ECG, BR, temp, fnirs, eyetracking
+                # to be implemented: EEG
+            baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
+                create_v4_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
+    
+        if method == 'v5':
+            # Import xlsx File
             participant_baseline = pd.read_csv(baseline_data_filename)
             participant_seated_rhr = participant_baseline['resting HR [seated]'][0:-1]
             participant_seated_rhr.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13']
-
-        # V6: Subtract seated resting HR (feature categories: ECG)
-        baseline_v6, baseline_v6_derivative, baseline_v6_second_derivative, baseline_names_v6 = (
-            create_v6_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable, participant_seated_rhr,
-                               all_features_ecg))
-    else:
-        baseline_v6 = []
-        baseline_v6_derivative = []
-        baseline_v6_second_derivative = []
-        baseline_names_v6 =[]
+    
+            # V5: Divide by seated resting HR (feature categories: ECG)
+            baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
+                create_v5_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable, participant_seated_rhr,
+                                   all_features_ecg))
+    
+        if method == 'v6':
+            # Import xlsx File (if not already imported from v5)
+            if 'participant_baseline' not in locals() and 'participant_baseline' not in globals():
+                participant_baseline = pd.read_csv(baseline_data_filename)
+                participant_seated_rhr = participant_baseline['resting HR [seated]'][0:-1]
+                participant_seated_rhr.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13']
+    
+            # V6: Subtract seated resting HR (feature categories: ECG)
+            baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
+                create_v6_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable, participant_seated_rhr,
+                                   all_features_ecg))
 
     # Combine all baseline methods into a large dictionary
-    combined_baseline, combined_baseline_names = combine_all_baseline(gloc_data_reduced,
-                                             baseline_v0, baseline_v0_derivative, baseline_v0_second_derivative,
-                                             baseline_v1, baseline_v1_derivative, baseline_v1_second_derivative,
-                                             baseline_v2, baseline_v2_derivative, baseline_v2_second_derivative,
-                                             baseline_v3, baseline_v3_derivative, baseline_v3_second_derivative,
-                                             baseline_v4, baseline_v4_derivative, baseline_v4_second_derivative,
-                                             baseline_v5, baseline_v5_derivative, baseline_v5_second_derivative,
-                                             baseline_v6, baseline_v6_derivative, baseline_v6_second_derivative,
-                                             baseline_names_v0, baseline_names_v1, baseline_names_v2, baseline_names_v3,
-                                             baseline_names_v4, baseline_names_v5, baseline_names_v6)
+    combined_baseline, combined_baseline_names = combine_all_baseline(gloc_data_reduced, baseline, baseline_derivative,
+                                                                      baseline_second_derivative, baseline_names)
 
     ################################################ GENERATE FEATURES ################################################
 
@@ -221,7 +182,7 @@ if __name__ == "__main__":
      sliding_window_consecutive_elements_sum_left_pupil, sliding_window_consecutive_elements_sum_right_pupil,
      sliding_window_hrv_sdnn, sliding_window_hrv_rmssd, all_features_additional) = (
         sliding_window_other_features(time_start, stride, window_size, gloc_data_reduced,time_variable, number_windows,
-                                      baseline_names_v0, baseline_v0))
+                                      baseline_names['v0'], baseline['v0']))
 
     # Unpack Dictionary into Array & combine features into one feature array
     y_gloc_labels, x_feature_matrix = unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window_stddev,
