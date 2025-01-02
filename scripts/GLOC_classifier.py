@@ -487,40 +487,38 @@ def gam_classifier_cat(X,y,training_ratio,all_features):
     return accuracy, precision, recall, f1, gam
 
 
+def lstm_binary_class(X,Y,training_ratio,stride):
+    """ Long Short Term Memory Classifier for Binary Classification"""
 
-
-def lstm_binary_class(X,y,training_ratio,all_features):
+    # Define window size and step size
+    time_window = 20 # seconds of window to feed at a time
+    window_size = round(time_window/stride)  # Length of each subsequence window
+    step_size = round(window_size/2)  # Step size for moving the window set at 50%
 
     # Train Test Split
-    Y = y
-    # Define window size and step size
-    window_size = 10*5  # Length of each subsequence window
-    step_size = 10*2  # Step size for moving the window
-
     train_dataset, test_dataset, train_windows_tensor, train_labels_tensor, test_windows_tensor, test_labels_tensor = (
         train_test_split_trials(X, Y, window_size, step_size, training_ratio))
 
-
-    # Create DataLoaders with smaller batches
-    batch_size = 32
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-
-    # Define model parameters
-    input_dim = train_windows_tensor.shape[2]
-    hidden_dim = 64
+    # Define model parameters to be tuned with validation dataset
+    num_epochs = 25
+    hidden_dim = 64*2
     output_dim = 1  # Binary classification output
     num_layers = 2
     dropout = 0.3
+    batch_size = 32
+    learning_rate = 0.001
+
+    # Create DataLoaders with smaller batches
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     # Initialize model, loss function, and optimizer
+    input_dim = train_windows_tensor.shape[2]
     model = LSTMClassifier(input_dim, hidden_dim, output_dim, num_layers, dropout)
     criterion = nn.BCELoss()  # Binary Cross Entropy loss for binary classification
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     # Training loop
-    num_epochs = 15
-
     for epoch in range(num_epochs):
         model.train()
         for x_batch, y_batch in train_loader:
@@ -538,6 +536,7 @@ def lstm_binary_class(X,y,training_ratio,all_features):
     # Evaluation
     model.eval()
     all_preds, all_labels = [], []
+    predictors_over_time = []
     with torch.no_grad():
         for x_batch, y_batch in test_loader:
             # Get model predictions
@@ -548,9 +547,13 @@ def lstm_binary_class(X,y,training_ratio,all_features):
             all_preds.extend(preds.numpy())
             all_labels.extend(y_batch.numpy())
 
+            # Append the input data for plotting predictors
+            predictors_over_time.extend(x_batch.numpy())
+
     # Convert lists to numpy arrays
     all_preds = np.array(all_preds)
     all_labels = np.array(all_labels)
+    predictors_over_time = np.array(predictors_over_time)
 
     # Calculate metrics
     accuracy = metrics.accuracy_score(all_labels, all_preds)
@@ -567,6 +570,6 @@ def lstm_binary_class(X,y,training_ratio,all_features):
     # Plot Results
     create_confusion_matrix(all_labels, all_preds, 'LSTM')
     roc_curve_plot(all_labels, all_preds)
-    prediction_time_plot(all_labels, all_preds)
+    prediction_time_plot(all_labels, all_preds,predictors_over_time)
 
     return accuracy, precision, recall, f1

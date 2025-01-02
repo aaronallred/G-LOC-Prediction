@@ -35,8 +35,8 @@ if __name__ == "__main__":
                             # if analysis_type = 2, then no extra parameters need to be set
 
     baseline_window = 10 # seconds
-    window_size = 0.1     # seconds
-    stride = 0.1           # seconds
+    window_size = 0.3     # seconds
+    stride = 0.15           # seconds
     offset = 0          # seconds
     time_start = 0       # seconds
 
@@ -154,9 +154,9 @@ if __name__ == "__main__":
         y_gloc_noNaN, x_feature_noNaN = process_NaN(y_gloc_labels_id, x_feature_matrix_id)
 
         # Train and Evaluate
-        training_ratio = 0.6
+        training_ratio = 0.75
         accuracy, precision, recall, f1 = lstm_binary_class(
-            x_feature_noNaN, y_gloc_noNaN, training_ratio,all_features)
+            x_feature_noNaN, y_gloc_noNaN, training_ratio,stride)
 
 
     ################################ Other Visualization Code Needs Cleaning! ##########################################

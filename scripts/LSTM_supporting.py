@@ -18,7 +18,7 @@ def train_test_split_trials(X,Y,window_size,step_size,training_ratio):
     # Creates train test split based on trials
     # Split data by trials
     unique_trials = np.unique(X[:, -1])  # Get unique trial identifiers
-    train_trials, test_trials = train_test_split(unique_trials, test_size=1 - training_ratio, random_state=1)
+    train_trials, test_trials = train_test_split(unique_trials, test_size=1 - training_ratio, random_state=60)
 
 
     # Prepare train and test windows
