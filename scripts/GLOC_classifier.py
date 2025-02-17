@@ -18,24 +18,6 @@ from sklearn.linear_model import Lasso
 from sklearn.model_selection import GridSearchCV, KFold
 from mrmr import mrmr_classif
 
-def label_gloc_events(gloc_data_reduced):
-    """
-    This function creates a g-loc label for the data based on the event_validated column. The event
-    is labeled as 1 between GLOC and Return to Consciousness.
-    """
-
-    # Create GLOC Classifier Vector
-    event_validated = gloc_data_reduced['event_validated'].to_numpy()
-    gloc_classifier = np.zeros(event_validated.shape)
-
-    gloc_indices = np.argwhere(event_validated == 'GLOC')
-    rtc_indices = np.argwhere(event_validated == 'return to consciousness')
-
-    for i in range(gloc_indices.shape[0]):
-        gloc_classifier[gloc_indices[i, 0]:rtc_indices[i, 0]] = 1
-
-    return gloc_classifier
-
 def check_event_columns(gloc_data):
     """
     This function was created to understand if ALOC data was available. It will check which
@@ -49,13 +31,13 @@ def check_event_columns(gloc_data):
 
 # Training Test Split
 # USING RANDOM STATE = 42
-def pre_classification_training_test_split(gloc_window, sliding_window_mean, training_ratio):
+def pre_classification_training_test_split(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio):
     """
     This function splits the X and y matrix into training and test matrix.
     """
 
     # Train/Test Split
-    x_train, x_test, y_train, y_test = train_test_split(sliding_window_mean, gloc_window,
+    x_train, x_test, y_train, y_test = train_test_split(x_feature_matrix_noNaN, y_gloc_labels_noNaN,
                                                                     test_size=(1 - training_ratio), random_state=42)
 
     return x_train, x_test, y_train, y_test
@@ -83,6 +65,7 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, all_features)
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
 
+    # Print performance metrics
     print("\nLogistic Regression Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
@@ -136,6 +119,7 @@ def classify_random_forest(x_train, x_test, y_train, y_test, all_features):
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
 
+    # Print performance metrics
     print("\nRandom Forest Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
@@ -181,6 +165,7 @@ def classify_lda(x_train, x_test, y_train, y_test, all_features):
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
 
+    # Print performance metrics
     print("\nLinear Discriminant Analysis Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
@@ -213,6 +198,7 @@ def classify_knn(x_train, x_test, y_train, y_test):
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
 
+    # Print performance metrics
     print("\nKNN Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
@@ -245,6 +231,7 @@ def classify_svm(x_train, x_test, y_train, y_test):
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
 
+    # Print performance metrics
     print("\nSVM Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
@@ -277,6 +264,7 @@ def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test):
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
 
+    # Print performance metrics
     print("\nEnsemble Learner with Gradient Boosting Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)

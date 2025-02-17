@@ -4,8 +4,10 @@ import os
 
 def create_v0_baseline(gloc_data_reduced, features, time_variable, all_features):
     """
-    This function takes features and puts them into a matrix with baseline method v0 (no baseline).
-    The first and second derivative of each feature are computed and output.
+    This function baselines the features with baseline method v0 (no baseline)
+    and puts them into a dictionary per trial. This dictionary is output.
+    The first and second derivative of each baselined feature are computed and
+    output in a dictionary.
     """
     # Find Unique Trial ID
     trial_id_in_data = gloc_data_reduced.trial_id.unique()
@@ -15,6 +17,7 @@ def create_v0_baseline(gloc_data_reduced, features, time_variable, all_features)
     baseline_v0_derivative = dict()
     baseline_v0_second_derivative = dict()
 
+    # Iterate through trials
     for i in range(np.size(trial_id_in_data)):
         # Find time window
         time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
@@ -37,8 +40,10 @@ def create_v0_baseline(gloc_data_reduced, features, time_variable, all_features)
 
 def create_v1_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys):
     """
-    This function baselines features for each trial being analyzed. The baseline window is specified
-    in main. Each feature is defined by the average of the baseline feature for that trial.
+    This function baselines the features with baseline method v1 (divide by mean)
+    and puts them into a dictionary per trial. This dictionary is output.
+    The first and second derivative of each baselined feature are computed and
+    output in a dictionary.
     """
 
     # Find Unique Trial ID
@@ -49,6 +54,7 @@ def create_v1_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
     baseline_v1_derivative = dict()
     baseline_v1_second_derivative = dict()
 
+    # Iterate through trials
     for i in range(np.size(trial_id_in_data)):
 
         # Find time window
@@ -76,8 +82,10 @@ def create_v1_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
 
 def create_v2_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys):
     """
-    This function baselines features for each trial being analyzed. The baseline window is specified
-    in main. Each feature is defined by the average of the baseline feature for that trial.
+    This function baselines the features with baseline method v2 (subtract mean)
+    and puts them into a dictionary per trial. This dictionary is output.
+    The first and second derivative of each baselined feature are computed and
+    output in a dictionary.
     """
 
     # Find Unique Trial ID
@@ -88,6 +96,7 @@ def create_v2_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
     baseline_v2_derivative = dict()
     baseline_v2_second_derivative = dict()
 
+    # Iterate through trials
     for i in range(np.size(trial_id_in_data)):
 
         # Find time window
@@ -115,9 +124,11 @@ def create_v2_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
 
 def create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys):
     """
-    This function baselines features for each trial being analyzed. The width of the baseline window is specified
-    in main. Each feature prior to ROR is divided by the first portion of the trial for baseline. The rest of the
-    trial is divided by the portion prior to ROR for baseline.
+    This function baselines the features with baseline method v3 (Each feature prior to ROR
+    is divided by the first portion of the trial for baseline & the rest of the
+    trial is divided by the portion prior to ROR for baseline) and puts them into a
+    dictionary per trial. This dictionary is output. The first and second derivative of
+    each baselined feature are computed and output in a dictionary.
     """
 
     # Find Unique Trial ID
@@ -128,10 +139,13 @@ def create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
     baseline_v3_derivative = dict()
     baseline_v3_second_derivative = dict()
 
+    # Iterate through trials
     for i in range(np.size(trial_id_in_data)):
 
-        # Find time window
+        # Define first baseline period (during initial specified baseline window)
         index_window1 = ((gloc_data_reduced[time_variable]<baseline_window) & (gloc_data_reduced.trial_id == trial_id_in_data[i]))
+
+        # Find indices of other variables
         time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
         time_array = np.array(gloc_data_reduced[time_variable])
         time = time_array[time_index]
@@ -145,6 +159,8 @@ def create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
         if 'begin ROR' in current_trial_event:
             begin_ROR_index = np.argwhere(current_trial_event == 'begin ROR')
             time_ROR = time_array[begin_ROR_index][0,0]
+
+            # Define second baseline period
             index_window2 = ((gloc_data_reduced[time_variable]>(time_ROR - baseline_window)) & (gloc_data_reduced[time_variable]<time_ROR)
                                                                                                 & (gloc_data_reduced.trial_id == trial_id_in_data[i]))
 
@@ -155,9 +171,11 @@ def create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
             first_baseline_period = (time_array < (time_ROR - baseline_window)) & (gloc_data_reduced.trial_id == trial_id_in_data[i])
             second_baseline_period = (time_array >= (time_ROR - baseline_window)) & (gloc_data_reduced.trial_id == trial_id_in_data[i])
 
+            # Stack data from two windows of baselined data together
             baseline_v3[trial_id_in_data[i]] = np.array(features_phys[(first_baseline_period)] / baseline_period1_feature)
             baseline_v3[trial_id_in_data[i]] = np.vstack((baseline_v3[trial_id_in_data[i]], np.array(features_phys[(second_baseline_period)] / baseline_period2_feature)))
 
+        # if no labeled begin of ROR, then just use the intial baseline period
         else:
             baseline_v3[trial_id_in_data[i]] = np.array(features_phys[(gloc_data_reduced.trial_id == trial_id_in_data[i])] / baseline_period1_feature)
 
@@ -175,9 +193,11 @@ def create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
 
 def create_v4_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys):
     """
-    This function baselines features for each trial being analyzed. The width of the baseline window is specified
-    in main. The first portion of the trial is subtracted from each feature prior to ROR for baseline. For the rest of the
-    trial, the portion prior to ROR is subtracted from the feature to baseline.
+    This function baselines the features with baseline method v4 (The first portion of
+    the trial is subtracted from each feature prior to ROR & the period prior to ROR gets
+    subtracted from the feature for the rest of the trial) and puts them into a
+    dictionary per trial. This dictionary is output. The first and second derivative of
+    each baselined feature are computed and output in a dictionary.
     """
 
     # Find Unique Trial ID
@@ -188,10 +208,13 @@ def create_v4_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
     baseline_v4_derivative = dict()
     baseline_v4_second_derivative = dict()
 
+    # Iterate through trials
     for i in range(np.size(trial_id_in_data)):
 
-        # Find time window
+        # Define first baseline period (during initial specified baseline window)
         index_window1 = ((gloc_data_reduced[time_variable]<baseline_window) & (gloc_data_reduced.trial_id == trial_id_in_data[i]))
+
+        # Find indices of other variables
         time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
         time_array = np.array(gloc_data_reduced[time_variable])
         time = time_array[time_index]
@@ -205,19 +228,23 @@ def create_v4_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
         if 'begin ROR' in current_trial_event:
             begin_ROR_index = np.argwhere(current_trial_event == 'begin ROR')
             time_ROR = time_array[begin_ROR_index][0,0]
+
+            # Define second baseline period
             index_window2 = ((gloc_data_reduced[time_variable]>(time_ROR - baseline_window)) & (gloc_data_reduced[time_variable]<time_ROR)
                                                                                                 & (gloc_data_reduced.trial_id == trial_id_in_data[i]))
 
             # Find baseline average based on specified baseline window
             baseline_period2_feature = np.mean(features_phys[index_window2], axis=0)
 
-            # Divide features for that trial by correct baseline period
+            # Subtract features for that trial by correct baseline period
             first_baseline_period = (time_array < (time_ROR - baseline_window)) & (gloc_data_reduced.trial_id == trial_id_in_data[i])
             second_baseline_period = (time_array >= (time_ROR - baseline_window)) & (gloc_data_reduced.trial_id == trial_id_in_data[i])
 
+            # Stack data from two windows of baselined data together
             baseline_v4[trial_id_in_data[i]] = np.array(features_phys[(first_baseline_period)] - baseline_period1_feature)
             baseline_v4[trial_id_in_data[i]] = np.vstack((baseline_v4[trial_id_in_data[i]], np.array(features_phys[(second_baseline_period)] - baseline_period2_feature)))
 
+        # if no labeled begin of ROR, then just use the intial baseline period
         else:
             baseline_v4[trial_id_in_data[i]] = np.array(features_phys[(gloc_data_reduced.trial_id == trial_id_in_data[i])] / baseline_period1_feature)
 
@@ -235,8 +262,10 @@ def create_v4_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
 
 def create_v5_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable, participant_seated_rhr, all_features_ecg):
     """
-    This function baselines features for each trial being analyzed. Each feature is divided by the resting HR
-    from another study.
+    This function baselines the features with baseline method v5 (divide by RHR
+    from another study) and puts them into a dictionary per trial. This dictionary is output.
+    The first and second derivative of each baselined feature are computed and
+    output in a dictionary.
     """
 
     # Find Unique Trial ID
@@ -247,10 +276,10 @@ def create_v5_baseline(baseline_window, gloc_data_reduced, features_ecg, time_va
     baseline_v5_derivative = dict()
     baseline_v5_second_derivative = dict()
 
+    # Iterate through trials
     for i in range(np.size(trial_id_in_data)):
 
-        # Find time window
-        index_window = ((gloc_data_reduced[time_variable]<baseline_window) & (gloc_data_reduced.trial_id == trial_id_in_data[i]))
+        # Find time index and current participant
         time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
         time_array = np.array(gloc_data_reduced[time_variable])
         participant_array = np.array(gloc_data_reduced.subject)
@@ -276,8 +305,10 @@ def create_v5_baseline(baseline_window, gloc_data_reduced, features_ecg, time_va
 
 def create_v6_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable, participant_seated_rhr, all_features_ecg):
     """
-    This function baselines features for each trial being analyzed. The resting HR
-    from another study is subtracted from every feature.
+    This function baselines the features with baseline method v6 (subtract RHR
+    from another study) and puts them into a dictionary per trial. This dictionary is output.
+    The first and second derivative of each baselined feature are computed and
+    output in a dictionary.
     """
 
     # Find Unique Trial ID
@@ -288,10 +319,10 @@ def create_v6_baseline(baseline_window, gloc_data_reduced, features_ecg, time_va
     baseline_v6_derivative = dict()
     baseline_v6_second_derivative = dict()
 
+    # Iterate through trials
     for i in range(np.size(trial_id_in_data)):
 
-        # Find time window
-        index_window = ((gloc_data_reduced[time_variable]<baseline_window) & (gloc_data_reduced.trial_id == trial_id_in_data[i]))
+        # Find time index and current participant
         time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
         time_array = np.array(gloc_data_reduced[time_variable])
         participant_array = np.array(gloc_data_reduced.subject)

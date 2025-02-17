@@ -67,7 +67,10 @@ def sliding_window_mean_calc(time_start, offset, stride, window_size, combined_b
             # Adjust iteration_time
             time_iteration = stride + time_iteration
 
-        # Compute z-score to standardize
+        ## Compute z-score to standardize (intra-trial standardization)
+        # if np.nanstd(sliding_window_mean_current == 0:
+        #
+        # else:
         sliding_window_mean_current_z_score = ((sliding_window_mean_current - np.nanmean(sliding_window_mean_current, axis = 0, keepdims=True))
                                                / np.nanstd(sliding_window_mean_current, axis = 0, keepdims=True))
 
@@ -76,7 +79,11 @@ def sliding_window_mean_calc(time_start, offset, stride, window_size, combined_b
         gloc_window[trial_id_in_data[i]] = gloc_window_current
         number_windows[trial_id_in_data[i]] = number_windows_current
 
+        # Name all features
         all_features_mean = [s + '_mean' for s in combined_baseline_names]
+
+    ## Compute z-score to standardize (inter-trial standardization)
+    #inter_trial_z_score =
 
     return gloc_window, sliding_window_mean, number_windows, all_features_mean
 
@@ -94,7 +101,6 @@ def sliding_window_calc(time_start, stride, window_size, combined_baseline, gloc
     sliding_window_stddev = dict()
     sliding_window_max = dict()
     sliding_window_range = dict()
-    # sliding_window_regress_slope = dict()
 
     # Iterate through all unique trial_id
     for i in range(np.size(trial_id_in_data)):
@@ -113,7 +119,6 @@ def sliding_window_calc(time_start, stride, window_size, combined_baseline, gloc
         sliding_window_stddev_current = np.zeros((number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1]))
         sliding_window_max_current = np.zeros((number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1]))
         sliding_window_range_current = np.zeros((number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1]))
-        # sliding_window_regress_slope_current = np.zeros((number_windows_current, np.shape(combined_baseline)[1]))
 
         # Define iteration time
         time_iteration = time_start
@@ -136,28 +141,6 @@ def sliding_window_calc(time_start, stride, window_size, combined_baseline, gloc
             # Take nan range for the window (one value per column (feature))
             sliding_window_range_current[j, :] = np.nanmax(current_combined_baseline, axis=0, keepdims=True) - np.nanmin(current_combined_baseline, axis=0, keepdims=True)
 
-            # ## Compute regression slope
-            #
-            # # Loop through all columns
-            # for k in range(np.shape(feature_window)[1]):
-            #     sliding_window_regress = linear_model.LinearRegression()
-            #     feature_window_vector = feature_window[:, k]
-            #
-            #     # Check NaNs
-            #     # if feature window is all NaNs
-            #     if np.count_nonzero(np.isnan(feature_window_vector)) == len(feature_window_vector):
-            #         sliding_window_regress_slope_current[j, k] = np.NaN
-            #
-            #     # if feature window partially NaNs or no NaNs, remove the NaN rows & fit regression
-            #     elif np.count_nonzero(np.isnan(feature_window_vector)) < len(feature_window_vector):
-            #         time_vector = time_trimmed[time_period_feature].reshape(-1, 1)
-            #
-            #         time_vector_noNaN = time_vector[~np.isnan(feature_window_vector)]
-            #         feature_window_noNaN = feature_window_vector[~np.isnan(feature_window_vector)]
-            #
-            #         sliding_window_regress.fit(time_vector_noNaN, feature_window_noNaN)
-            #         sliding_window_regress_slope_current[j, k] = sliding_window_regress.coef_
-
             # Adjust iteration_time
             time_iteration = stride + time_iteration
 
@@ -171,41 +154,65 @@ def sliding_window_calc(time_start, stride, window_size, combined_baseline, gloc
         sliding_window_range_current_z_score = ((sliding_window_range_current - np.nanmean(sliding_window_range_current, axis = 0, keepdims=True))
                                                / np.nanstd(sliding_window_range_current, axis = 0, keepdims=True))
 
-        # sliding_window_regress_current_z_score = ((sliding_window_regress_slope_current - np.nanmean(sliding_window_regress_slope_current, axis=0, keepdims=True))
-        #             / np.nanstd(sliding_window_regress_slope_current, axis=0, keepdims=True))
 
         # Define dictionary item for trial_id
         sliding_window_stddev[trial_id_in_data[i]] = sliding_window_stddev_current_z_score
         sliding_window_max[trial_id_in_data[i]] = sliding_window_max_current_z_score
         sliding_window_range[trial_id_in_data[i]] = sliding_window_range_current_z_score
-        # sliding_window_regress_slope[trial_id_in_data[i]] = sliding_window_regress_current_z_score
 
+        # Name features
         all_features_stddev = [s + '_stddev' for s in combined_baseline_names]
         all_features_max = [s + '_max' for s in combined_baseline_names]
         all_features_range = [s + '_range' for s in combined_baseline_names]
 
-    return sliding_window_stddev, sliding_window_max, sliding_window_range, all_features_stddev, all_features_max, all_features_range #sliding_window_regress_slope
+    return sliding_window_stddev, sliding_window_max, sliding_window_range, all_features_stddev, all_features_max, all_features_range
 
-def sliding_window_other_features(time_start, stride, window_size, gloc_data_reduced, time_variable, number_windows, baseline_names_v0, baseline_v0):
+def sliding_window_other_features(time_start, stride, window_size, gloc_data_reduced, time_variable, number_windows,
+                                  baseline_names_v0, baseline_v0, feature_groups_to_analyze):
     """
     This function creates the engineered features and gloc labels for the data. This includes a
     sliding window mean of the difference between left and right pupil and HbO/Hbd ratio.
     """
 
-    # Find indices of left and right pupil
-    index_left_pupil = baseline_names_v0.index('Pupil diameter left [mm] - Tobii_v0')
-    index_right_pupil = baseline_names_v0.index('Pupil diameter right [mm] - Tobii_v0')
-
-    # Find indices of HR
-    index_HR = baseline_names_v0.index('HR (bpm) - Equivital_v0')
-
     # Find Unique Trial ID
     trial_id_in_data = gloc_data_reduced.trial_id.unique()
 
-    # Build Dictionary for each trial_id
-    sliding_window_hrv_sdnn = dict()
-    sliding_window_hrv_rmssd = dict()
+    if 'eyetracking' in feature_groups_to_analyze:
+        # Find indices of left and right pupil
+        index_left_pupil = baseline_names_v0.index('Pupil diameter left [mm] - Tobii_v0')
+        index_right_pupil = baseline_names_v0.index('Pupil diameter right [mm] - Tobii_v0')
 
+        # Define eyetracking feature names
+        eye_tracking_features = ['Left Pupil Integral (Non-Baseline)', 'Right Pupil Integral (Non-Baseline)',
+                                   'Left Pupil Mean of Consecutive Difference (Non-Baseline)',
+                                   'Right Pupil Mean of Consecutive Difference (Non-Baseline)',
+                                   'Left Pupil Max of Consecutive Difference (Non-Baseline)',
+                                   'Right Pupil Max of Consecutive Difference (Non-Baseline)',
+                                   'Left Pupil Sum of Consecutive Difference (Non-Baseline)',
+                                   'Right Pupil Sum of Consecutive Difference (Non-Baseline)']
+    else:
+        eye_tracking_features = []
+
+    if 'ECG' in feature_groups_to_analyze:
+        # Find indices of HR
+        index_HR = baseline_names_v0.index('HR (bpm) - Equivital_v0')
+
+        # Define ECG feature names
+        ecg_features = ['HRV (SDNN)', 'HRV (RMSSD)']#, 'HRV (PNN50)']
+    else:
+        ecg_features = []
+
+    if 'cognitive' in feature_groups_to_analyze:
+        # Find indices of Cognitive Response Time and Correct
+        index_response_time = baseline_names_v0.index('RespTime - Cog_v0')
+        index_correct = baseline_names_v0.index('Correct - Cog_v0')
+
+        # Define ECG feature names
+        cognitive_features = ['Cognitive IES']
+    else:
+        cognitive_features = []
+
+    # Build Dictionary for each trial_id
     sliding_window_integral_left_pupil = dict()
     sliding_window_integral_right_pupil = dict()
 
@@ -217,6 +224,12 @@ def sliding_window_other_features(time_start, stride, window_size, gloc_data_red
 
     sliding_window_consecutive_elements_sum_left_pupil = dict()
     sliding_window_consecutive_elements_sum_right_pupil = dict()
+
+    sliding_window_hrv_sdnn = dict()
+    sliding_window_hrv_rmssd = dict()
+    sliding_window_hrv_pnn50 = dict()
+
+    sliding_window_cognitive_IES = dict()
 
     # Iterate through all unique trial_id
     for i in range(np.size(trial_id_in_data)):
@@ -232,16 +245,21 @@ def sliding_window_other_features(time_start, stride, window_size, gloc_data_red
         number_windows_current = number_windows[trial_id_in_data[i]]
 
         # Pre-allocate arrays
-        sliding_window_integral_left_pupil_current = np.zeros((number_windows_current, 1))
-        sliding_window_integral_right_pupil_current = np.zeros((number_windows_current, 1))
-        sliding_window_consecutive_elements_mean_left_pupil_current = np.zeros((number_windows_current, 1))
-        sliding_window_consecutive_elements_mean_right_pupil_current = np.zeros((number_windows_current, 1))
-        sliding_window_consecutive_elements_max_left_pupil_current = np.zeros((number_windows_current, 1))
-        sliding_window_consecutive_elements_max_right_pupil_current = np.zeros((number_windows_current, 1))
-        sliding_window_consecutive_elements_sum_left_pupil_current = np.zeros((number_windows_current, 1))
-        sliding_window_consecutive_elements_sum_right_pupil_current = np.zeros((number_windows_current, 1))
-        sliding_window_hrv_sdnn_current = np.zeros((number_windows_current, 1))
-        sliding_window_hrv_rmssd_current = np.zeros((number_windows_current, 1))
+        if 'eyetracking' in feature_groups_to_analyze:
+            sliding_window_integral_left_pupil_current = np.zeros((number_windows_current, 1))
+            sliding_window_integral_right_pupil_current = np.zeros((number_windows_current, 1))
+            sliding_window_consecutive_elements_mean_left_pupil_current = np.zeros((number_windows_current, 1))
+            sliding_window_consecutive_elements_mean_right_pupil_current = np.zeros((number_windows_current, 1))
+            sliding_window_consecutive_elements_max_left_pupil_current = np.zeros((number_windows_current, 1))
+            sliding_window_consecutive_elements_max_right_pupil_current = np.zeros((number_windows_current, 1))
+            sliding_window_consecutive_elements_sum_left_pupil_current = np.zeros((number_windows_current, 1))
+            sliding_window_consecutive_elements_sum_right_pupil_current = np.zeros((number_windows_current, 1))
+        if 'ECG' in feature_groups_to_analyze:
+            sliding_window_hrv_sdnn_current = np.zeros((number_windows_current, 1))
+            sliding_window_hrv_rmssd_current = np.zeros((number_windows_current, 1))
+            # sliding_window_hrv_pnn50_current = np.zeros((number_windows_current, 1))
+        if 'cognitive' in feature_groups_to_analyze:
+            sliding_window_cognitive_IES_current = np.zeros((number_windows_current, 1))
 
         # Define iteration time
         time_iteration = time_start
@@ -255,103 +273,125 @@ def sliding_window_other_features(time_start, stride, window_size, gloc_data_red
             # Find non-baseline feature for current window
             feature_window_no_baseline = baseline_v0[trial_id_in_data[i]][time_period_feature]
 
-            # Compute HRV
-            RR_interval = 60000 / feature_window_no_baseline[:,index_HR]
-            sliding_window_hrv_sdnn_current[j] = np.nanstd(RR_interval)
+            if 'ECG' in feature_groups_to_analyze:
+                # Compute HRV
+                RR_interval = 60000 / feature_window_no_baseline[:,index_HR]
+                sliding_window_hrv_sdnn_current[j] = np.nanstd(RR_interval)
 
-            successive_difference = np.diff(feature_window_no_baseline[:,index_HR])
-            sliding_window_hrv_rmssd_current[j] = np.sqrt(np.nanmean(successive_difference**2))
+                successive_difference = np.diff(RR_interval)
+                sliding_window_hrv_rmssd_current[j] = np.sqrt(np.nanmean(successive_difference**2))
 
-            # Compute non-baseline pupil features
-            left_pupil_no_baseline = feature_window_no_baseline[:, index_left_pupil]
-            right_pupil_no_baseline = feature_window_no_baseline[:, index_right_pupil]
+                # # Compute PNN50
+                # count_50ms_diff_current = np.sum(np.abs(successive_difference) > 50)
+                # sliding_window_hrv_pnn50_current[j] = (count_50ms_diff_current / len(successive_difference)) * 100
 
-            # Integral (using Trapezoid rule)
-            sliding_window_integral_left_pupil_current[j] = (window_size / 2) * (left_pupil_no_baseline[-1] + left_pupil_no_baseline[0])
-            sliding_window_integral_right_pupil_current[j] = (window_size / 2) * (right_pupil_no_baseline[-1] + right_pupil_no_baseline[0])
+            if 'cognitive' in feature_groups_to_analyze:
+                # Compute IES (Inverse Efficiency Score)
+                sliding_window_cognitive_IES_current[j] = np.mean(feature_window_no_baseline[:,index_response_time]) / (np.mean(feature_window_no_baseline[:,index_correct]))
 
-            # Compute average difference between consecutive elements
-            left_pupil_consecutive_difference = np.diff(left_pupil_no_baseline)
-            left_pupil_consecutive_difference_full = np.append(left_pupil_consecutive_difference, np.nan)
+            if 'eyetracking' in feature_groups_to_analyze:
+                # Compute non-baseline pupil features
+                left_pupil_no_baseline = feature_window_no_baseline[:, index_left_pupil]
+                right_pupil_no_baseline = feature_window_no_baseline[:, index_right_pupil]
 
-            right_pupil_consecutive_difference = np.diff(right_pupil_no_baseline)
-            right_pupil_consecutive_difference_full = np.append(right_pupil_consecutive_difference, np.nan)
+                # Integral (using Trapezoid rule)
+                sliding_window_integral_left_pupil_current[j] = (window_size / 2) * (left_pupil_no_baseline[-1] + left_pupil_no_baseline[0])
+                sliding_window_integral_right_pupil_current[j] = (window_size / 2) * (right_pupil_no_baseline[-1] + right_pupil_no_baseline[0])
 
-            sliding_window_consecutive_elements_mean_left_pupil_current[j] = np.nanmean(left_pupil_consecutive_difference_full)
-            sliding_window_consecutive_elements_mean_right_pupil_current[j] = np.nanmean(right_pupil_consecutive_difference_full)
+                # Compute average difference between consecutive elements
+                left_pupil_consecutive_difference = np.diff(left_pupil_no_baseline)
+                left_pupil_consecutive_difference_full = np.append(left_pupil_consecutive_difference, np.nan)
 
-            # Compute max difference between consecutive elements
-            sliding_window_consecutive_elements_max_left_pupil_current[j] = np.nanmax(left_pupil_consecutive_difference_full)
-            sliding_window_consecutive_elements_max_right_pupil_current[j] = np.nanmax(right_pupil_consecutive_difference_full)
+                right_pupil_consecutive_difference = np.diff(right_pupil_no_baseline)
+                right_pupil_consecutive_difference_full = np.append(right_pupil_consecutive_difference, np.nan)
 
-            # Compute sum of difference between consecutive elements
-            sliding_window_consecutive_elements_sum_left_pupil_current[j] = np.sum(left_pupil_consecutive_difference_full)
-            sliding_window_consecutive_elements_sum_right_pupil_current[j] = np.sum(right_pupil_consecutive_difference_full)
+                sliding_window_consecutive_elements_mean_left_pupil_current[j] = np.nanmean(left_pupil_consecutive_difference_full)
+                sliding_window_consecutive_elements_mean_right_pupil_current[j] = np.nanmean(right_pupil_consecutive_difference_full)
+
+                # Compute max difference between consecutive elements
+                sliding_window_consecutive_elements_max_left_pupil_current[j] = np.nanmax(left_pupil_consecutive_difference_full)
+                sliding_window_consecutive_elements_max_right_pupil_current[j] = np.nanmax(right_pupil_consecutive_difference_full)
+
+                # Compute sum of difference between consecutive elements
+                sliding_window_consecutive_elements_sum_left_pupil_current[j] = np.nansum(left_pupil_consecutive_difference_full)
+                sliding_window_consecutive_elements_sum_right_pupil_current[j] = np.nansum(right_pupil_consecutive_difference_full)
 
             # Adjust iteration_time
             time_iteration = stride + time_iteration
 
-        # Compute z-score to standardize integral left pupil
-        sliding_window_integral_left_pupil_current_z_score = ((sliding_window_integral_left_pupil_current - np.nanmean(sliding_window_integral_left_pupil_current, axis = 0, keepdims=True))
-                                               / np.nanstd(sliding_window_integral_left_pupil_current, axis = 0, keepdims=True))
+        # Compute Z-score
+        if 'eyetracking' in feature_groups_to_analyze:
+            # Compute z-score to standardize integral left pupil
+            sliding_window_integral_left_pupil_current_z_score = ((sliding_window_integral_left_pupil_current - np.nanmean(sliding_window_integral_left_pupil_current, axis = 0, keepdims=True))
+                                                   / np.nanstd(sliding_window_integral_left_pupil_current, axis = 0, keepdims=True))
 
-        # Compute z-score to standardize integral right pupil
-        sliding_window_integral_right_pupil_current_z_score = ((sliding_window_integral_right_pupil_current - np.nanmean(sliding_window_integral_right_pupil_current, axis = 0, keepdims=True))
-                                               / np.nanstd(sliding_window_integral_right_pupil_current, axis = 0, keepdims=True))
+            # Compute z-score to standardize integral right pupil
+            sliding_window_integral_right_pupil_current_z_score = ((sliding_window_integral_right_pupil_current - np.nanmean(sliding_window_integral_right_pupil_current, axis = 0, keepdims=True))
+                                                   / np.nanstd(sliding_window_integral_right_pupil_current, axis = 0, keepdims=True))
 
-        # Compute z-score to standardize mean of difference of consecutive elements-left pupil
-        sliding_window_consecutive_elements_mean_left_pupil_current_z_score = ((sliding_window_consecutive_elements_mean_left_pupil_current - np.nanmean(sliding_window_consecutive_elements_mean_left_pupil_current, axis = 0, keepdims=True))
-                                               / np.nanstd(sliding_window_consecutive_elements_mean_left_pupil_current, axis = 0, keepdims=True))
+            # Compute z-score to standardize mean of difference of consecutive elements-left pupil
+            sliding_window_consecutive_elements_mean_left_pupil_current_z_score = ((sliding_window_consecutive_elements_mean_left_pupil_current - np.nanmean(sliding_window_consecutive_elements_mean_left_pupil_current, axis = 0, keepdims=True))
+                                                   / np.nanstd(sliding_window_consecutive_elements_mean_left_pupil_current, axis = 0, keepdims=True))
 
-        # Compute z-score to standardize mean of difference of consecutive elements-right pupil
-        sliding_window_consecutive_elements_mean_right_pupil_current_z_score = ((sliding_window_consecutive_elements_mean_right_pupil_current - np.nanmean(sliding_window_consecutive_elements_mean_right_pupil_current, axis = 0, keepdims=True))
-                                               / np.nanstd(sliding_window_consecutive_elements_mean_right_pupil_current, axis = 0, keepdims=True))
+            # Compute z-score to standardize mean of difference of consecutive elements-right pupil
+            sliding_window_consecutive_elements_mean_right_pupil_current_z_score = ((sliding_window_consecutive_elements_mean_right_pupil_current - np.nanmean(sliding_window_consecutive_elements_mean_right_pupil_current, axis = 0, keepdims=True))
+                                                   / np.nanstd(sliding_window_consecutive_elements_mean_right_pupil_current, axis = 0, keepdims=True))
 
-        # Compute z-score to standardize max of difference of consecutive elements-left pupil
-        sliding_window_consecutive_elements_max_left_pupil_current_z_score = ((sliding_window_consecutive_elements_max_left_pupil_current - np.nanmean(sliding_window_consecutive_elements_max_left_pupil_current, axis = 0, keepdims=True))
-                                               / np.nanstd(sliding_window_consecutive_elements_max_left_pupil_current, axis = 0, keepdims=True))
+            # Compute z-score to standardize max of difference of consecutive elements-left pupil
+            sliding_window_consecutive_elements_max_left_pupil_current_z_score = ((sliding_window_consecutive_elements_max_left_pupil_current - np.nanmean(sliding_window_consecutive_elements_max_left_pupil_current, axis = 0, keepdims=True))
+                                                   / np.nanstd(sliding_window_consecutive_elements_max_left_pupil_current, axis = 0, keepdims=True))
 
-        # Compute z-score to standardize max of difference of consecutive elements-right pupil
-        sliding_window_consecutive_elements_max_right_pupil_current_z_score = ((sliding_window_consecutive_elements_max_right_pupil_current - np.nanmean(sliding_window_consecutive_elements_max_right_pupil_current, axis = 0, keepdims=True))
-                                               / np.nanstd(sliding_window_consecutive_elements_max_right_pupil_current, axis = 0, keepdims=True))
+            # Compute z-score to standardize max of difference of consecutive elements-right pupil
+            sliding_window_consecutive_elements_max_right_pupil_current_z_score = ((sliding_window_consecutive_elements_max_right_pupil_current - np.nanmean(sliding_window_consecutive_elements_max_right_pupil_current, axis = 0, keepdims=True))
+                                                   / np.nanstd(sliding_window_consecutive_elements_max_right_pupil_current, axis = 0, keepdims=True))
 
-        # Compute z-score to standardize sum of difference of consecutive elements-left pupil
-        sliding_window_consecutive_elements_sum_left_pupil_current_z_score = ((sliding_window_consecutive_elements_sum_left_pupil_current - np.nanmean(sliding_window_consecutive_elements_sum_left_pupil_current, axis = 0, keepdims=True))
-                                               / np.nanstd(sliding_window_consecutive_elements_sum_left_pupil_current, axis = 0, keepdims=True))
+            # Compute z-score to standardize sum of difference of consecutive elements-left pupil
+            sliding_window_consecutive_elements_sum_left_pupil_current_z_score = ((sliding_window_consecutive_elements_sum_left_pupil_current - np.nanmean(sliding_window_consecutive_elements_sum_left_pupil_current, axis = 0, keepdims=True))
+                                                   / np.nanstd(sliding_window_consecutive_elements_sum_left_pupil_current, axis = 0, keepdims=True))
 
-        # Compute z-score to standardize sum of difference of consecutive elements-right pupil
-        sliding_window_consecutive_elements_sum_right_pupil_current_z_score = ((sliding_window_consecutive_elements_sum_right_pupil_current - np.nanmean(sliding_window_consecutive_elements_sum_right_pupil_current, axis = 0, keepdims=True))
-                                               / np.nanstd(sliding_window_consecutive_elements_sum_right_pupil_current, axis = 0, keepdims=True))
+            # Compute z-score to standardize sum of difference of consecutive elements-right pupil
+            sliding_window_consecutive_elements_sum_right_pupil_current_z_score = ((sliding_window_consecutive_elements_sum_right_pupil_current - np.nanmean(sliding_window_consecutive_elements_sum_right_pupil_current, axis = 0, keepdims=True))
+                                                   / np.nanstd(sliding_window_consecutive_elements_sum_right_pupil_current, axis = 0, keepdims=True))
+        if 'ECG' in feature_groups_to_analyze:
+            # Compute z-score to standardize hrv sdnn
+            sliding_window_hrv_sdnn_current_z_score = ((sliding_window_hrv_sdnn_current - np.nanmean(sliding_window_hrv_sdnn_current, axis = 0, keepdims=True))
+                                                   / np.nanstd(sliding_window_hrv_sdnn_current, axis = 0, keepdims=True))
 
-        # Compute z-score to standardize hrv sdnn
-        sliding_window_hrv_sdnn_current_z_score = ((sliding_window_hrv_sdnn_current - np.nanmean(sliding_window_hrv_sdnn_current, axis = 0, keepdims=True))
-                                               / np.nanstd(sliding_window_hrv_sdnn_current, axis = 0, keepdims=True))
+            # Compute z-score to standardize hrv rmssd
+            sliding_window_hrv_rmssd_current_z_score = ((sliding_window_hrv_rmssd_current - np.nanmean(sliding_window_hrv_rmssd_current, axis = 0, keepdims=True))
+                                                   / np.nanstd(sliding_window_hrv_rmssd_current, axis = 0, keepdims=True))
 
-        # Compute z-score to standardize hrv rmssd
-        sliding_window_hrv_rmssd_current_z_score = ((sliding_window_hrv_rmssd_current - np.nanmean(sliding_window_hrv_rmssd_current, axis = 0, keepdims=True))
-                                               / np.nanstd(sliding_window_hrv_rmssd_current, axis = 0, keepdims=True))
+            # # Compute z-score to standardize hrv pnn50
+            # sliding_window_hrv_pnn50_current_z_score = ((sliding_window_hrv_pnn50_current - np.nanmean(sliding_window_hrv_pnn50_current, axis=0, keepdims=True))
+            #                                        / np.nanstd(sliding_window_hrv_pnn50_current, axis=0, keepdims=True))
+
+        if 'cognitive' in feature_groups_to_analyze:
+            # Compute z-score to standardize cognitive IES
+            sliding_window_cognitive_IES_current_z_score = ((sliding_window_cognitive_IES_current - np.nanmean(sliding_window_cognitive_IES_current, axis=0, keepdims=True))
+                                                   / np.nanstd(sliding_window_cognitive_IES_current, axis=0, keepdims=True))
 
         # Define dictionary item for trial_id
-        sliding_window_integral_left_pupil[trial_id_in_data[i]] = sliding_window_integral_left_pupil_current_z_score
-        sliding_window_integral_right_pupil[trial_id_in_data[i]] = sliding_window_integral_right_pupil_current_z_score
-        sliding_window_consecutive_elements_mean_left_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_left_pupil_current_z_score
-        sliding_window_consecutive_elements_mean_right_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_right_pupil_current_z_score
-        sliding_window_consecutive_elements_max_left_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_max_left_pupil_current_z_score
-        sliding_window_consecutive_elements_max_right_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_max_right_pupil_current_z_score
-        sliding_window_consecutive_elements_sum_left_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_left_pupil_current_z_score
-        sliding_window_consecutive_elements_sum_right_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_right_pupil_current_z_score
+        if 'eyetracking' in feature_groups_to_analyze:
+            sliding_window_integral_left_pupil[trial_id_in_data[i]] = sliding_window_integral_left_pupil_current_z_score
+            sliding_window_integral_right_pupil[trial_id_in_data[i]] = sliding_window_integral_right_pupil_current_z_score
+            sliding_window_consecutive_elements_mean_left_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_left_pupil_current_z_score
+            sliding_window_consecutive_elements_mean_right_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_right_pupil_current_z_score
+            sliding_window_consecutive_elements_max_left_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_max_left_pupil_current_z_score
+            sliding_window_consecutive_elements_max_right_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_max_right_pupil_current_z_score
+            sliding_window_consecutive_elements_sum_left_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_left_pupil_current_z_score
+            sliding_window_consecutive_elements_sum_right_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_right_pupil_current_z_score
+        if 'ECG' in feature_groups_to_analyze:
+            sliding_window_hrv_sdnn[trial_id_in_data[i]] = sliding_window_hrv_sdnn_current_z_score
+            sliding_window_hrv_rmssd[trial_id_in_data[i]] = sliding_window_hrv_rmssd_current_z_score
+            # sliding_window_hrv_pnn50[trial_id_in_data[i]] = sliding_window_hrv_pnn50_current_z_score
+        if 'cognitive' in feature_groups_to_analyze:
+            sliding_window_cognitive_IES[trial_id_in_data[i]] = sliding_window_cognitive_IES_current_z_score
 
-        sliding_window_hrv_sdnn[trial_id_in_data[i]] = sliding_window_hrv_sdnn_current_z_score
-        sliding_window_hrv_rmssd[trial_id_in_data[i]] = sliding_window_hrv_rmssd_current_z_score
+        # Name all features
+        all_features_additional = eye_tracking_features + ecg_features + cognitive_features
 
-        all_features_additional = ['Left Pupil Integral (Non-Baseline)', 'Right Pupil Integral (Non-Baseline)',
-                                   'Left Pupil Mean of Consecutive Difference (Non-Baseline)', 'Right Pupil Mean of Consecutive Difference (Non-Baseline)',
-                                   'Left Pupil Max of Consecutive Difference (Non-Baseline)', 'Right Pupil Max of Consecutive Difference (Non-Baseline)',
-                                   'Left Pupil Sum of Consecutive Difference (Non-Baseline)', 'Right Pupil Sum of Consecutive Difference (Non-Baseline)',
-                                   'HRV (SDNN)', 'HRV (RMSSD)']
-
-    return (sliding_window_integral_left_pupil, sliding_window_integral_right_pupil,
+    return (all_features_additional, sliding_window_integral_left_pupil, sliding_window_integral_right_pupil,
             sliding_window_consecutive_elements_mean_left_pupil, sliding_window_consecutive_elements_mean_right_pupil,
             sliding_window_consecutive_elements_max_left_pupil, sliding_window_consecutive_elements_max_right_pupil,
             sliding_window_consecutive_elements_sum_left_pupil, sliding_window_consecutive_elements_sum_right_pupil,
-            sliding_window_hrv_sdnn, sliding_window_hrv_rmssd, all_features_additional)
+            sliding_window_hrv_sdnn, sliding_window_hrv_rmssd, sliding_window_hrv_pnn50, sliding_window_cognitive_IES)

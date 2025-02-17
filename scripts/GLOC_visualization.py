@@ -99,6 +99,161 @@ def create_confusion_matrix(y_testing, label_predictions, model_type):
     plt.xlabel('Predicted label')
     plt.show()
 
+def plot_HR_data():
+    x = 250
+    trial = 0
+    fig, ax = plt.subplots()
+    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+    current_index = (gloc_data_reduced['trial_id'] == trial_id_in_data[trial])
+    current_time = np.array(gloc_data_reduced[time_variable])
+    time = current_time[current_index]
+    current_lead1 = np.array(gloc_data_reduced['ECG Lead 1 - Equivital'])
+    lead_1 = current_lead1[current_index]
+
+    current_lead2 = np.array(gloc_data_reduced['ECG Lead 2 - Equivital'])
+    lead_2 = current_lead2[current_index]
+
+    ax.plot(time[0:x], lead_1[0:x], label = 'Lead 1')
+    ax.plot(time[0:x], lead_2[0:x], label = 'Lead 2')
+
+    gloc_plot = gloc[current_index]
+    ax.plot(time[0:x], gloc_plot[0:x], label='g-loc')
+    # ax.plot(time, gloc_data_reduced['magnitude - Centrifuge'][current_index], label='centrifuge g')
+
+    plt.xlabel(time_variable)
+    plt.ylabel('ECG Lead Data')
+    plt.legend()
+    plt.title(f'ECG Lead Raw Data for Subject: {trial_id_in_data[trial][0:2]} & Trial: {trial_id_in_data[trial][3:]}')
+
+    plt.show()
+
+    fig, ax = plt.subplots()
+    current_hr  = np.array(gloc_data_reduced['HR (bpm) - Equivital'])
+    hr = current_hr[current_index]
+
+    current_hr_instant = np.array(gloc_data_reduced['HR_instant - Equivital'])
+    hr_instant = current_hr_instant[current_index]
+
+    current_hr_average = np.array(gloc_data_reduced['HR_average - Equivital'])
+    hr_average = current_hr_average[current_index]
+
+    current_hr_w_average = np.array(gloc_data_reduced['HR_w_average - Equivital'])
+    hr_w_average = current_hr_w_average[current_index]
+
+    ax.plot(time[0:x], hr[0:x], label = 'HR')
+    ax.plot(time[0:x], hr_instant[0:x], label='HR_instant')
+    ax.plot(time[0:x], hr_average[0:x], label='HR_average')
+    ax.plot(time[0:x], hr_w_average[0:x], label='HR_w_average')
+
+    # gloc_plot = gloc[current_index]
+    # ax.plot(time[0:100], gloc_plot[0:100], label='g-loc')
+    # ax.plot(time, gloc_data_reduced['magnitude - Centrifuge'][current_index], label='centrifuge g')
+
+    plt.xlabel(time_variable)
+    plt.ylabel('Equivital HR Data')
+    plt.title(f'HR Data for Subject: {trial_id_in_data[trial][0:2]} & Trial: {trial_id_in_data[trial][3:]}')
+
+    RR_interval = 60000 / hr[0:x]
+    hrv_sdnn = np.nanstd(RR_interval)
+
+    successive_difference = np.diff(RR_interval)
+    hrv_rmssd = np.sqrt(np.nanmean(successive_difference ** 2))
+
+    # Compute PNN50
+    count_50ms_diff = np.sum(np.abs(successive_difference) > 50)
+    hrv_pnn50 = (count_50ms_diff / len(successive_difference)) * 100
+
+    ax.plot(time[0:x], hrv_sdnn * np.ones(x), label='SDNN')
+    ax.plot(time[0:x], hrv_rmssd * np.ones(x), label='RMSSD')
+    ax.plot(time[0:x], hrv_pnn50 * np.ones(x), label='PNN50')
+    plt.legend()
+
+    plt.show()
+
+    ## Compute actual RR calcs
+    # Find the indices within the specified x range
+    x_min = 2.75
+    x_max = 2.875
+    indices_in_range = np.where((time >= x_min) & (time <= x_max))
+    # Extract the time values in the range
+    time_range = time[indices_in_range]
+    # Extract the ECG values within the range
+    ECG_lead_range = lead_1[indices_in_range]
+    # Find the index of the maximum peak
+    max_peak_index = np.argmax(ECG_lead_range)
+    time_peak = time_range[max_peak_index]
+    val_peak = ECG_lead_range[max_peak_index]
+
+def plot_tgt_pos():
+    fig, ax = plt.subplots()
+    current_index = (gloc_data_reduced['trial_id'] == '01-01')
+    current_time = np.array(gloc_data_reduced[time_variable])
+    time = current_time[current_index]
+    target_pos_x = np.array(gloc_data_reduced['tgtposX - Cog'])
+    target_pos_y = np.array(gloc_data_reduced['tgtposY - Cog'])
+    target_pos_x_plot = target_pos_x[current_index]
+    target_pos_y_plot = target_pos_y[current_index]
+    ax.plot(time, target_pos_x_plot, label='target X')
+    ax.plot(time, target_pos_y_plot, label='target Y')
+    plt.show()
+
+    fig, ax = plt.subplots()
+    current_index = (gloc_data_reduced['trial_id'] == '01-01')
+    current_time = np.array(gloc_data_reduced[time_variable])
+    time = current_time[current_index]
+    user_delta_x = np.array(gloc_data_reduced['userdeltaX - Cog'])
+    user_delta_y = np.array(gloc_data_reduced['userdeltaY - Cog'])
+    user_delta_x_plot = user_delta_x[current_index]
+    user_delta_y_plot = user_delta_y[current_index]
+    ax.plot(time, user_delta_x_plot, label='user delta X')
+    ax.plot(time, user_delta_y_plot, label='user delta Y')
+    plt.show()
+
+    fig, ax = plt.subplots()
+    current_index = (gloc_data_reduced['trial_id'] == '01-01')
+    current_time = np.array(gloc_data_reduced[time_variable])
+    time = current_time[current_index]
+    target_delta_x = np.array(gloc_data_reduced['targetDeltaX - Cog'])
+    target_delta_y = np.array(gloc_data_reduced['targetDeltaY - Cog'])
+    target_delta_x_plot = target_delta_x[current_index]
+    taraget_delta_y_plot = target_delta_y[current_index]
+    ax.plot(time, target_delta_x_plot, label='target delta X')
+    ax.plot(time, taraget_delta_y_plot, label='target delta Y')
+    plt.show()
+
+    fig, ax = plt.subplots()
+    current_index = (gloc_data_reduced['trial_id'] == '01-01')
+    current_time = np.array(gloc_data_reduced[time_variable])
+    time = current_time[current_index]
+    deviation = np.array(gloc_data_reduced['deviation - Cog'])
+    deviation_plot = deviation[current_index]
+    ax.plot(time, deviation_plot, label='deviation')
+    plt.show()
+
+
+def plot_strain():
+
+    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+
+    for i in range(np.size(trial_id_in_data)):
+        fig, ax = plt.subplots()
+        current_index = (gloc_data_reduced['trial_id'] == trial_id_in_data[i])
+        current_time = np.array(gloc_data_reduced[time_variable])
+        time = current_time[current_index]
+        current_strain = np.array(gloc_data_reduced['Strain [0/1]'])
+        strain_plot = current_strain[current_index]
+
+        ax.plot(time, strain_plot, label = 'Strain [0/1]')
+
+        ax.plot(time, gloc_data_reduced['magnitude - Centrifuge'][current_index], label='centrifuge g')
+
+        plt.xlabel(time_variable)
+        plt.ylabel('Strain Data')
+        plt.legend()
+        plt.title(f'Strain Data for Subject: {trial_id_in_data[i][0:2]} & Trial: {trial_id_in_data[i][3:]}')
+
+        plt.show()
+
 if __name__ == "__main__":
 
     # Plot Flags

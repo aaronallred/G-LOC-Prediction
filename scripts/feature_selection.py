@@ -57,6 +57,9 @@ def feature_selection_lasso(x_train, y_train, all_features):
     return feature_subset
 
 def feature_selection_mrmr(x_training, y_training, all_features):
+    """
+    This function takes the training data and labels to complete mrmr.
+    """
 
     x_train = pd.DataFrame(x_training, columns = all_features)
     y_train = pd.DataFrame(y_training)

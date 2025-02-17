@@ -10,47 +10,40 @@ import pandas as pd
 if __name__ == "__main__":
 
     ##################################################### SETUP  #####################################################
-    # File Name & Path
+    ## File Name & Path
+    # Data CSV
     filename = '../../all_trials_25_hz_stacked_null_str_filled.csv'
 
+    # Baseline Data (HR)
     baseline_data_filename = "../../ParticipantBaseline.csv"
 
-    # Tabulate NaN
-    # NaN_table, NaN_proportion, NaN_gloc_proportion = tabulateNaN(baseline[method], all_features, gloc, gloc_data_reduced)
-    Nan_proportion_all = pd.read_pickle('../../NaN_proportion_all.pkl')
+    # Modified Demographic Data (put in order of participant 1-13, removed excess calculations, and converted from .xlsx to .csv)
+    demographic_data_filename = "../../GLOC_Effectiveness_Final.csv"
 
     # Feature Info
-    # feature_to_analyze options:
-        # ECG ('HR (bpm) - Equivital','ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital', 'HR_instant - Equivital',
-            # 'HR_average - Equivital', 'HR_w_average - Equivital')
-        # BR ('BR (rpm) - Equivital')
-        # temp ('Skin Temperature - IR Thermometer (°C) - Equivital')
-        # fnirs ('HbO2 - fNIRS', 'Hbd - fNIRS')
-        # eyetracking ('Pupil position left X [HUCS mm] - Tobii', 'Pupil position left Y [HUCS mm] - Tobii',
-            # 'Pupil position left Z [HUCS mm] - Tobii', 'Pupil position right X [HUCS mm] - Tobii'
-            # 'Pupil position right Y [HUCS mm] - Tobii', 'Pupil position right Z [HUCS mm] - Tobii',
-            # 'Pupil diameter left [mm] - Tobii', 'Pupil diameter right [mm] - Tobii')
-        # AFE ('condition')
-        # G ('magnitude - Centrifuge')
-        # cognitive ('deviation - Cog', 'RespTime - Cog', 'Correct - Cog', 'joystickVelMag - Cog')
-            #coming soon:'tgtposX - Cog', 'tgtposY - Cog'
-            # related to deviation and other combo metrics (accuracy & speed combo)
-        # EEG (coming soon!!!- Waiting on more info)
-        # strain (coming soon!!!- Waiting on more info)
+        # Example with all feature groups:
+            # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'fnirs', 'eyetracking', 'AFE', 'G', 'cognitive',
+                # 'rawEEG_shared', 'processedEEG_shared', 'strain', 'demographics']
+        # NOTES:
+            # Update from GLOC tagup 01/15/25: Chris said the FNIRS data should not be trusted and should not be used.
+            # The light from the eye tracking glasses washed out this data.
+    feature_groups_to_analyze = ['ECG', 'BR', 'eyetracking', 'strain']
 
-    feature_to_analyze = ['ECG','BR', 'temp', 'fnirs', 'eyetracking'] #, 'AFE', 'G', 'cognitive']
-
-    # Baseline Method Info
-    #baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
-    baseline_methods_to_use = ['v0', 'v1', 'v3', 'v5', 'v6']
-    # baseline_methods_to_use options:
-        # V0: no baseline
-        # V1: divide by baseline window
-        # V2: subtract baseline window
-        # V3: pre ROR: divide by baseline window pre GOR, ROR: divide by baseline window pre ROR
-        # V4: pre ROR: subtract baseline window pre GOR, ROR: subtract baseline window pre ROR
-        # V5: divide by seated resting HR
-        # V6: subtract seated resting HR
+    # Baseline Method
+        # baseline_methods_to_use options:
+            # V0: no baseline
+            # V1: divide by baseline window
+            # V2: subtract baseline window
+            # V3: pre ROR: divide by baseline window pre GOR, ROR: divide by baseline window pre ROR
+            # V4: pre ROR: subtract baseline window pre GOR, ROR: subtract baseline window pre ROR
+            # V5: divide by seated resting HR
+            # V6: subtract seated resting HR
+        # Example with all feature groups:
+            # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
+        # NOTES:
+            # ALWAYS use v0- it is needed for several additional features that get computed
+    # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
+    baseline_methods_to_use = ['v0']
 
     time_variable = 'Time (s)'
 
@@ -66,50 +59,56 @@ if __name__ == "__main__":
     baseline_window = 10 # seconds
     window_size = 10     # seconds
     stride = 1           # seconds
-    offset = 30          # seconds
+    offset = 0           # seconds
     time_start = 0       # seconds
 
-    # ML Splits
+    # ML Splits (Training/Test Split, specify proportion of training data 0-1)
     training_ratio = 0.8
 
-    # Subject & Trial Information
+    # Subject & Trial Information (only need to adjust this if doing analysis type 0,1)
     subject_to_analyze = '01'
     trial_to_analyze = '02'
 
-    ################################################ LOAD AND PROCESS ################################################
+    ############################################# LOAD AND PROCESS DATA #############################################
 
     # Process CSV
     if analysis_type == 0:  # One Trial / One Subject
         gloc_data_reduced, features, features_phys, features_ecg, all_features, all_features_phys, all_features_ecg = (
-            load_and_process_csv(filename, analysis_type, feature_to_analyze, time_variable,
+            load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, demographic_data_filename,
                                  trial_to_analyze=trial_to_analyze,subject_to_analyze = subject_to_analyze))
 
     elif analysis_type == 1:  # All Trials for One Subject
         gloc_data_reduced, features, features_phys, features_ecg, all_features, all_features_phys, all_features_ecg = (
-            load_and_process_csv(filename, analysis_type, feature_to_analyze, time_variable,
+            load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, demographic_data_filename,
                                  subject_to_analyze = subject_to_analyze))
 
     elif analysis_type == 2: # All Trials for All Subjects
         gloc_data_reduced, features, features_phys, features_ecg, all_features, all_features_phys, all_features_ecg = (
-            load_and_process_csv(filename, analysis_type, feature_to_analyze, time_variable))
+            load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, demographic_data_filename))
 
     # Create GLOC Categorical Vector
     gloc = label_gloc_events(gloc_data_reduced)
 
-    # Find time window after acceleration before GLOC
+    # Find time window after acceleration before GLOC (to compare our data to LOCINDTI)
     # find_prediction_window(gloc_data_reduced, gloc, time_variable)
+
+    ################################################## BASELINE DATA ##################################################
     baseline = dict()
     baseline_derivative = dict()
     baseline_second_derivative = dict()
     baseline_names = dict()
-    ################################################## BASELINE DATA ##################################################
+
     for method in baseline_methods_to_use:
         if method == 'v0':
             # V0: No Baseline (feature categories: ECG, BR, temp, fnirs, eyetracking, AFE, G, cognitive)
                 # to be implemented: EEG, strain
             baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
                 create_v0_baseline(gloc_data_reduced, features, time_variable, all_features))
-    
+
+        # Tabulate NaN
+        NaN_table, NaN_proportion, NaN_gloc_proportion = tabulateNaN(baseline[method], all_features, gloc, gloc_data_reduced)
+        # Nan_proportion_all = pd.read_pickle('../../NaN_proportion_all.pkl')
+
         if method == 'v1':
             # V1: Divide by Baseline Window (feature categories: ECG, BR, temp, fnirs, eyetracking)
                 # to be implemented: EEG
@@ -176,13 +175,13 @@ if __name__ == "__main__":
                             number_windows, combined_baseline_names))
 
     # Additional Features
-    (sliding_window_integral_left_pupil, sliding_window_integral_right_pupil,
+    (all_features_additional, sliding_window_integral_left_pupil, sliding_window_integral_right_pupil,
      sliding_window_consecutive_elements_mean_left_pupil, sliding_window_consecutive_elements_mean_right_pupil,
      sliding_window_consecutive_elements_max_left_pupil, sliding_window_consecutive_elements_max_right_pupil,
      sliding_window_consecutive_elements_sum_left_pupil, sliding_window_consecutive_elements_sum_right_pupil,
-     sliding_window_hrv_sdnn, sliding_window_hrv_rmssd, all_features_additional) = (
-        sliding_window_other_features(time_start, stride, window_size, gloc_data_reduced,time_variable, number_windows,
-                                      baseline_names['v0'], baseline['v0']))
+     sliding_window_hrv_sdnn, sliding_window_hrv_rmssd, sliding_window_hrv_pnn50, sliding_window_cognitive_IES) = \
+        (sliding_window_other_features(time_start, stride, window_size, gloc_data_reduced,time_variable, number_windows,
+                                      baseline_names['v0'], baseline['v0'], feature_groups_to_analyze))
 
     # Unpack Dictionary into Array & combine features into one feature array
     y_gloc_labels, x_feature_matrix = unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window_stddev,
@@ -194,7 +193,8 @@ if __name__ == "__main__":
                                                   sliding_window_consecutive_elements_max_right_pupil,
                                                   sliding_window_consecutive_elements_sum_left_pupil,
                                                   sliding_window_consecutive_elements_sum_right_pupil,
-                                                  sliding_window_hrv_sdnn, sliding_window_hrv_rmssd)
+                                                  sliding_window_hrv_sdnn, sliding_window_hrv_rmssd,
+                                                  sliding_window_hrv_pnn50, sliding_window_cognitive_IES)
 
     # Remove rows with NaN (temporary solution-should replace with other method eventually)
     y_gloc_labels_noNaN, x_feature_matrix_noNaN = process_NaN(y_gloc_labels, x_feature_matrix)
