@@ -27,7 +27,7 @@ if __name__ == "__main__":
         # NOTES:
             # Update from GLOC tagup 01/15/25: Chris said the FNIRS data should not be trusted and should not be used.
             # The light from the eye tracking glasses washed out this data.
-    feature_groups_to_analyze = ['ECG', 'BR', 'eyetracking', 'strain']
+    feature_groups_to_analyze = ['ECG']
 
     # Baseline Method
         # baseline_methods_to_use options:
@@ -43,7 +43,7 @@ if __name__ == "__main__":
         # NOTES:
             # ALWAYS use v0- it is needed for several additional features that get computed
     # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
-    baseline_methods_to_use = ['v0']
+    baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
 
     time_variable = 'Time (s)'
 
@@ -105,9 +105,9 @@ if __name__ == "__main__":
             baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
                 create_v0_baseline(gloc_data_reduced, features, time_variable, all_features))
 
-        # Tabulate NaN
-        NaN_table, NaN_proportion, NaN_gloc_proportion = tabulateNaN(baseline[method], all_features, gloc, gloc_data_reduced)
-        # Nan_proportion_all = pd.read_pickle('../../NaN_proportion_all.pkl')
+            # Tabulate NaN
+            NaN_table, NaN_proportion, NaN_gloc_proportion = tabulateNaN(baseline[method], all_features, gloc, gloc_data_reduced)
+            # Nan_proportion_all = pd.read_pickle('../../NaN_proportion_all.pkl')
 
         if method == 'v1':
             # V1: Divide by Baseline Window (feature categories: ECG, BR, temp, fnirs, eyetracking)
@@ -164,42 +164,62 @@ if __name__ == "__main__":
 
     ################################################ GENERATE FEATURES ################################################
 
-    # Sliding Window Mean
-    gloc_window, sliding_window_mean, number_windows, all_features_mean = (
+    # Sliding Window Mean (Intra-Trial Standardization)
+    gloc_window, sliding_window_mean_s1, number_windows, all_features_mean_s1, sliding_window_mean_s2, all_features_mean_s2= (
         sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc, gloc_data_reduced,
                                  time_variable, combined_baseline_names))
 
     # Sliding Window Standard Deviation, Max, Range
-    sliding_window_stddev, sliding_window_max, sliding_window_range, all_features_stddev, all_features_max, all_features_range = (
-        sliding_window_calc(time_start, stride, window_size, combined_baseline, gloc_data_reduced, time_variable,
+    (sliding_window_stddev_s1, sliding_window_max_s1, sliding_window_range_s1, all_features_stddev_s1, all_features_max_s1,
+     all_features_range_s1, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2, all_features_stddev_s2, all_features_max_s2,
+     all_features_range_s2) = (sliding_window_calc(time_start, stride, window_size, combined_baseline, gloc_data_reduced, time_variable,
                             number_windows, combined_baseline_names))
 
     # Additional Features
-    (all_features_additional, sliding_window_integral_left_pupil, sliding_window_integral_right_pupil,
-     sliding_window_consecutive_elements_mean_left_pupil, sliding_window_consecutive_elements_mean_right_pupil,
-     sliding_window_consecutive_elements_max_left_pupil, sliding_window_consecutive_elements_max_right_pupil,
-     sliding_window_consecutive_elements_sum_left_pupil, sliding_window_consecutive_elements_sum_right_pupil,
-     sliding_window_hrv_sdnn, sliding_window_hrv_rmssd, sliding_window_hrv_pnn50, sliding_window_cognitive_IES) = \
+    (all_features_additional_s1, sliding_window_integral_left_pupil_s1, sliding_window_integral_right_pupil_s1,
+     sliding_window_consecutive_elements_mean_left_pupil_s1, sliding_window_consecutive_elements_mean_right_pupil_s1,
+     sliding_window_consecutive_elements_max_left_pupil_s1, sliding_window_consecutive_elements_max_right_pupil_s1,
+     sliding_window_consecutive_elements_sum_left_pupil_s1, sliding_window_consecutive_elements_sum_right_pupil_s1,
+     sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_hrv_pnn50_s1, sliding_window_cognitive_IES_s1,
+     all_features_additional_s2, sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
+     sliding_window_consecutive_elements_mean_left_pupil_s2, sliding_window_consecutive_elements_mean_right_pupil_s2,
+     sliding_window_consecutive_elements_max_left_pupil_s2, sliding_window_consecutive_elements_max_right_pupil_s2,
+     sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
+     sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2, sliding_window_hrv_pnn50_s2,
+     sliding_window_cognitive_IES_s2) = \
         (sliding_window_other_features(time_start, stride, window_size, gloc_data_reduced,time_variable, number_windows,
                                       baseline_names['v0'], baseline['v0'], feature_groups_to_analyze))
 
     # Unpack Dictionary into Array & combine features into one feature array
-    y_gloc_labels, x_feature_matrix = unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window_stddev,
-                                                  sliding_window_max, sliding_window_range,
-                                                  sliding_window_integral_left_pupil,sliding_window_integral_right_pupil,
-                                                  sliding_window_consecutive_elements_mean_left_pupil,
-                                                  sliding_window_consecutive_elements_mean_right_pupil,
-                                                  sliding_window_consecutive_elements_max_left_pupil,
-                                                  sliding_window_consecutive_elements_max_right_pupil,
-                                                  sliding_window_consecutive_elements_sum_left_pupil,
-                                                  sliding_window_consecutive_elements_sum_right_pupil,
-                                                  sliding_window_hrv_sdnn, sliding_window_hrv_rmssd,
-                                                  sliding_window_hrv_pnn50, sliding_window_cognitive_IES)
+    y_gloc_labels, x_feature_matrix = unpack_dict(gloc_window, sliding_window_mean_s1, number_windows, sliding_window_stddev_s1,
+                                                  sliding_window_max_s1, sliding_window_range_s1,
+                                                  sliding_window_integral_left_pupil_s1,sliding_window_integral_right_pupil_s1,
+                                                  sliding_window_consecutive_elements_mean_left_pupil_s1,
+                                                  sliding_window_consecutive_elements_mean_right_pupil_s1,
+                                                  sliding_window_consecutive_elements_max_left_pupil_s1,
+                                                  sliding_window_consecutive_elements_max_right_pupil_s1,
+                                                  sliding_window_consecutive_elements_sum_left_pupil_s1,
+                                                  sliding_window_consecutive_elements_sum_right_pupil_s1,
+                                                  sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1,
+                                                  sliding_window_hrv_pnn50_s1, sliding_window_cognitive_IES_s1,
+                                                  sliding_window_mean_s2, sliding_window_stddev_s2,
+                                                  sliding_window_max_s2, sliding_window_range_s2,
+                                                  sliding_window_integral_left_pupil_s2,
+                                                  sliding_window_integral_right_pupil_s2,
+                                                  sliding_window_consecutive_elements_mean_left_pupil_s2,
+                                                  sliding_window_consecutive_elements_mean_right_pupil_s2,
+                                                  sliding_window_consecutive_elements_max_left_pupil_s2,
+                                                  sliding_window_consecutive_elements_max_right_pupil_s2,
+                                                  sliding_window_consecutive_elements_sum_left_pupil_s2,
+                                                  sliding_window_consecutive_elements_sum_right_pupil_s2,
+                                                  sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
+                                                  sliding_window_hrv_pnn50_s2, sliding_window_cognitive_IES_s2)
 
     # Remove rows with NaN (temporary solution-should replace with other method eventually)
     y_gloc_labels_noNaN, x_feature_matrix_noNaN = process_NaN(y_gloc_labels, x_feature_matrix)
 
-    all_features = all_features_mean + all_features_stddev + all_features_max +  all_features_range + all_features_additional
+    all_features = (all_features_mean_s1 + all_features_stddev_s1 + all_features_max_s1 +  all_features_range_s1 + all_features_additional_s1 +
+                    all_features_mean_s2 + all_features_stddev_s2 + all_features_max_s2 + all_features_range_s2 + all_features_additional_s2)
 
     ################################################ FEATURE SELECTION ################################################
 

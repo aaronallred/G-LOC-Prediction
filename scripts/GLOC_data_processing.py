@@ -778,13 +778,18 @@ def tabulateNaN(feature_baseline, all_features, gloc, gloc_data_reduced):
     print("There are ", number_NaN_gloc_rows, " trials with all NaNs during GLOC out of ", sum_gloc_trials, "trials with GLOC. ")
     return NaN_table, NaN_proportion, NaN_gloc_proportion
 
-def unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window_stddev,
-                                                  sliding_window_max, sliding_window_range,
-                                                  sliding_window_integral_left_pupil,sliding_window_integral_right_pupil,
-                                                  sliding_window_consecutive_elements_mean_left_pupil, sliding_window_consecutive_elements_mean_right_pupil,
-                                                  sliding_window_consecutive_elements_max_left_pupil, sliding_window_consecutive_elements_max_right_pupil,
-                                                  sliding_window_consecutive_elements_sum_left_pupil, sliding_window_consecutive_elements_sum_right_pupil,
-                                                  sliding_window_hrv_sdnn, sliding_window_hrv_rmssd, sliding_window_hrv_pnn50, sliding_window_cognitive_IES):
+def unpack_dict(gloc_window, sliding_window_mean_s1, number_windows, sliding_window_stddev_s1,sliding_window_max_s1,
+                sliding_window_range_s1,sliding_window_integral_left_pupil_s1,sliding_window_integral_right_pupil_s1,
+                sliding_window_consecutive_elements_mean_left_pupil_s1, sliding_window_consecutive_elements_mean_right_pupil_s1,
+                sliding_window_consecutive_elements_max_left_pupil_s1, sliding_window_consecutive_elements_max_right_pupil_s1,
+                sliding_window_consecutive_elements_sum_left_pupil_s1, sliding_window_consecutive_elements_sum_right_pupil_s1,
+                sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_hrv_pnn50_s1, sliding_window_cognitive_IES_s1,
+                sliding_window_mean_s2, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2,
+                sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
+                sliding_window_consecutive_elements_mean_left_pupil_s2, sliding_window_consecutive_elements_mean_right_pupil_s2,
+                sliding_window_consecutive_elements_max_left_pupil_s2, sliding_window_consecutive_elements_max_right_pupil_s2,
+                sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
+                sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2, sliding_window_hrv_pnn50_s2, sliding_window_cognitive_IES_s2):
     """
     This function unpacks the dictionary structure to create a large features matrix (X matrix) and
     labels matrix (y matrix) for all trials being analyzed. This function will become unnecessary if
@@ -792,7 +797,7 @@ def unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window
     """
 
     # Find Unique Trial ID
-    trial_id_in_data = list(sliding_window_mean.keys())
+    trial_id_in_data = list(sliding_window_mean_s1.keys())
 
     # Determine total length of new unpacked dictionary items
     total_rows = 0
@@ -800,12 +805,18 @@ def unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window
         total_rows += number_windows[trial_id_in_data[i]]
 
     # Create tuple of all dictionaries
-    all_feature_dictionaries = [sliding_window_mean, sliding_window_stddev, sliding_window_max, sliding_window_range,
-                                sliding_window_integral_left_pupil, sliding_window_integral_right_pupil,
-                                sliding_window_consecutive_elements_mean_left_pupil, sliding_window_consecutive_elements_mean_right_pupil,
-                                sliding_window_consecutive_elements_max_left_pupil, sliding_window_consecutive_elements_max_right_pupil,
-                                sliding_window_consecutive_elements_sum_left_pupil, sliding_window_consecutive_elements_sum_right_pupil,
-                                sliding_window_hrv_sdnn, sliding_window_hrv_rmssd, sliding_window_hrv_pnn50, sliding_window_cognitive_IES]
+    all_feature_dictionaries = [sliding_window_mean_s1, sliding_window_stddev_s1, sliding_window_max_s1, sliding_window_range_s1,
+                                sliding_window_integral_left_pupil_s1, sliding_window_integral_right_pupil_s1,
+                                sliding_window_consecutive_elements_mean_left_pupil_s1, sliding_window_consecutive_elements_mean_right_pupil_s1,
+                                sliding_window_consecutive_elements_max_left_pupil_s1, sliding_window_consecutive_elements_max_right_pupil_s1,
+                                sliding_window_consecutive_elements_sum_left_pupil_s1, sliding_window_consecutive_elements_sum_right_pupil_s1,
+                                sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_hrv_pnn50_s1, sliding_window_cognitive_IES_s1,
+                                sliding_window_mean_s2, sliding_window_stddev_s2, sliding_window_max_s2,sliding_window_range_s2,
+                                sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
+                                sliding_window_consecutive_elements_mean_left_pupil_s2,sliding_window_consecutive_elements_mean_right_pupil_s2,
+                                sliding_window_consecutive_elements_max_left_pupil_s2, sliding_window_consecutive_elements_max_right_pupil_s2,
+                                sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
+                                sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2, sliding_window_hrv_pnn50_s2, sliding_window_cognitive_IES_s2]
 
     # Find all non-empty dictionaries
     non_empty_feature_dictionaries = []
@@ -828,7 +839,7 @@ def unpack_dict(gloc_window, sliding_window_mean, number_windows, sliding_window
     for i in range(np.size(trial_id_in_data)):
 
         # Find number of rows in trial
-        num_rows = np.shape(sliding_window_mean[trial_id_in_data[i]])[0]
+        num_rows = np.shape(sliding_window_mean_s1[trial_id_in_data[i]])[0]
 
         # For all non-empty dictionaries, set specific rows equal to the dictionary item corresponding to trial_id
         column_index = 0
