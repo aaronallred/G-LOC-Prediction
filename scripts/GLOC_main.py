@@ -4,6 +4,7 @@ from GLOC_classifier import *
 from features import *
 from feature_selection import *
 from baseline_methods import *
+from Imputation import *
 import numpy as np
 import pandas as pd
 
@@ -12,13 +13,13 @@ if __name__ == "__main__":
     ##################################################### SETUP  #####################################################
     ## File Name & Path
     # Data CSV
-    filename = '../../all_trials_25_hz_stacked_null_str_filled.csv'
+    filename = '../data/all_trials_25_hz_stacked_null_str_filled.csv'
 
     # Baseline Data (HR)
-    baseline_data_filename = "../../ParticipantBaseline.csv"
+    baseline_data_filename = "../data/ParticipantBaseline.csv"
 
     # Modified Demographic Data (put in order of participant 1-13, removed excess calculations, and converted from .xlsx to .csv)
-    demographic_data_filename = "../../GLOC_Effectiveness_Final.csv"
+    demographic_data_filename = "../data/GLOC_Effectiveness_Final.csv"
 
     # Feature Info
         # Example with all feature groups:
@@ -69,6 +70,7 @@ if __name__ == "__main__":
     subject_to_analyze = '01'
     trial_to_analyze = '02'
 
+    impute_type = 2
     ############################################# LOAD AND PROCESS DATA #############################################
 
     # Process CSV
@@ -216,7 +218,14 @@ if __name__ == "__main__":
                                                   sliding_window_hrv_pnn50_s2, sliding_window_cognitive_IES_s2)
 
     # Remove rows with NaN (temporary solution-should replace with other method eventually)
-    y_gloc_labels_noNaN, x_feature_matrix_noNaN = process_NaN(y_gloc_labels, x_feature_matrix)
+    if impute_type == 0:
+        y_gloc_labels_noNaN, x_feature_matrix_noNaN = process_NaN(y_gloc_labels, x_feature_matrix)
+    elif impute_type == 1:
+        y_gloc_labels_noNaN, x_feature_matrix_noNaN = knn_impute(y_gloc_labels, x_feature_matrix)
+    elif impute_type == 2:
+        y_gloc_labels_noNaN, x_feature_matrix_noNaN = knn_impute_with_smim(y_gloc_labels, x_feature_matrix)
+
+
 
     all_features = (all_features_mean_s1 + all_features_stddev_s1 + all_features_max_s1 +  all_features_range_s1 + all_features_additional_s1 +
                     all_features_mean_s2 + all_features_stddev_s2 + all_features_max_s2 + all_features_range_s2 + all_features_additional_s2)
