@@ -79,7 +79,7 @@ if __name__ == "__main__":
             # The light from the eye tracking glasses washed out this data.
     # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'cognitive', 'strain', 'demographics']
     # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'rawEEG', 'processedEEG', 'demographics', 'strain']
-    feature_groups_to_analyze = ['processedEEG']
+    feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'cognitive', 'strain', 'demographics']
 
     # Baseline Method
         # baseline_methods_to_use options:
@@ -90,12 +90,14 @@ if __name__ == "__main__":
             # V4: pre ROR: subtract baseline window pre GOR, ROR: subtract baseline window pre ROR
             # V5: divide by seated resting HR
             # V6: subtract seated resting HR
+            # V7: divide by resting EEG
+            # V8: subtract resting EEG
         # Example with all feature groups:
-            # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
+            # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']
         # NOTES:
             # ALWAYS use v0- it is needed for several additional features that get computed
-    # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
-    baseline_methods_to_use = ['v0', 'v7']
+    # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']
+    baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
 
     time_variable = 'Time (s)'
 
