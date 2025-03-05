@@ -345,3 +345,159 @@ def create_v6_baseline(baseline_window, gloc_data_reduced, features_ecg, time_va
         all_features_ecg_updated = [s + '_v6' for s in all_features_ecg]
 
     return baseline_v6, baseline_v6_derivative, baseline_v6_second_derivative, all_features_ecg_updated
+
+def create_v7_baseline(baseline_window, gloc_data_reduced, features_eeg, time_variable, eeg_baseline_delta,
+                       eeg_baseline_theta, eeg_baseline_alpha, eeg_baseline_beta, all_features_eeg):
+    """
+    This function baselines the features with baseline method v7 (divide by processed EEG baseline)
+    and puts them into a dictionary per trial. This dictionary is output.
+    The first and second derivative of each baselined feature are computed and
+    output in a dictionary.
+    """
+    # Find Unique Trial ID
+    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+
+    # Build Dictionary for each trial_id
+    baseline_v7 = dict()
+    baseline_v7_derivative = dict()
+    baseline_v7_second_derivative = dict()
+
+    # Iterate through trials
+    for i in range(np.size(trial_id_in_data)):
+
+        # Find time index and current participant
+        time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
+        time_array = np.array(gloc_data_reduced[time_variable])
+        participant_array = np.array(gloc_data_reduced.subject)
+
+        # Find baseline for current participant
+        current_participant = participant_array[time_index][0]
+        baseline_feature_delta = eeg_baseline_delta.loc[current_participant]
+        baseline_feature_theta = eeg_baseline_theta.loc[current_participant]
+        baseline_feature_alpha = eeg_baseline_alpha.loc[current_participant]
+        baseline_feature_beta = eeg_baseline_beta.loc[current_participant]
+
+        # Set current trial
+        current_trial_data = features_eeg[(gloc_data_reduced.trial_id == trial_id_in_data[i])]
+
+        # Initialize np array to fill with each trial's data
+        baselined_trial_data = np.zeros_like(current_trial_data)
+
+        # Iterate through columns to divide by correct baseline channel
+        for col in range(len(all_features_eeg)):
+            # Get current column name
+            column_name = all_features_eeg[col]
+
+            # From column name in all_features_eeg, obtain the corresponding column name in
+            # the baseline CSV file
+            name_split = column_name.split('_')
+            channel_name = name_split[0]
+
+            # Find index of corresponding channel name in baseline file
+            channel_index = baseline_feature_delta.index.get_loc(channel_name)
+
+            if name_split[1] == 'delta - EEG':
+                # Divide features for that trial by baselined data
+                baselined_trial_data[:,col] = current_trial_data[:,col] / baseline_feature_delta[channel_index]
+            elif name_split[1] == 'theta - EEG':
+                # Divide features for that trial by baselined data
+                baselined_trial_data[:, col] = current_trial_data[:, col] / baseline_feature_theta[channel_index]
+            elif name_split[1] == 'alpha - EEG':
+                # Divide features for that trial by baselined data
+                baselined_trial_data[:, col] = current_trial_data[:, col] / baseline_feature_alpha[channel_index]
+            elif name_split[1] == 'beta - EEG':
+                # Divide features for that trial by baselined data
+                baselined_trial_data[:, col] = current_trial_data[:, col] / baseline_feature_beta[channel_index]
+
+        # Once all columns have been iterated through, define baseline_v7
+        baseline_v7[trial_id_in_data[i]] = baselined_trial_data
+
+        # Compute derivative
+        time = time_array[time_index]
+        baseline_v7_derivative[trial_id_in_data[i]] = np.gradient(baseline_v7[trial_id_in_data[i]], time, axis = 0)
+
+        # Compute 2nd derivative
+        baseline_v7_second_derivative[trial_id_in_data[i]] = np.gradient(baseline_v7_derivative[trial_id_in_data[i]], time, axis = 0)
+
+        # Update baseline names
+        all_features_eeg_updated = [s + '_v7' for s in all_features_eeg]
+
+    return baseline_v7, baseline_v7_derivative, baseline_v7_second_derivative, all_features_eeg_updated
+
+def create_v8_baseline(baseline_window, gloc_data_reduced, features_eeg, time_variable, eeg_baseline_delta,
+                       eeg_baseline_theta, eeg_baseline_alpha, eeg_baseline_beta, all_features_eeg):
+    """
+    This function baselines the features with baseline method v8 (subtract EEG baseline)
+    and puts them into a dictionary per trial. This dictionary is output.
+    The first and second derivative of each baselined feature are computed and
+    output in a dictionary.
+    """
+    # Find Unique Trial ID
+    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+
+    # Build Dictionary for each trial_id
+    baseline_v8 = dict()
+    baseline_v8_derivative = dict()
+    baseline_v8_second_derivative = dict()
+
+    # Iterate through trials
+    for i in range(np.size(trial_id_in_data)):
+
+        # Find time index and current participant
+        time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
+        time_array = np.array(gloc_data_reduced[time_variable])
+        participant_array = np.array(gloc_data_reduced.subject)
+
+        # Find baseline for current participant
+        current_participant = participant_array[time_index][0]
+        baseline_feature_delta = eeg_baseline_delta.loc[current_participant]
+        baseline_feature_theta = eeg_baseline_theta.loc[current_participant]
+        baseline_feature_alpha = eeg_baseline_alpha.loc[current_participant]
+        baseline_feature_beta = eeg_baseline_beta.loc[current_participant]
+
+        # Set current trial
+        current_trial_data = features_eeg[(gloc_data_reduced.trial_id == trial_id_in_data[i])]
+
+        # Initialize np array to fill with each trial's data
+        baselined_trial_data = np.zeros_like(current_trial_data)
+
+        # Iterate through columns to divide by correct baseline channel
+        for col in range(len(all_features_eeg)):
+            # Get current column name
+            column_name = all_features_eeg[col]
+
+            # From column name in all_features_eeg, obtain the corresponding column name in
+            # the baseline CSV file
+            name_split = column_name.split('_')
+            channel_name = name_split[0]
+
+            # Find index of corresponding channel name in baseline file
+            channel_index = baseline_feature_delta.index.get_loc(channel_name)
+
+            if name_split[1] == 'delta - EEG':
+                # Divide features for that trial by baselined data
+                baselined_trial_data[:,col] = current_trial_data[:,col] - baseline_feature_delta[channel_index]
+            elif name_split[1] == 'theta - EEG':
+                # Divide features for that trial by baselined data
+                baselined_trial_data[:, col] = current_trial_data[:, col] - baseline_feature_theta[channel_index]
+            elif name_split[1] == 'alpha - EEG':
+                # Divide features for that trial by baselined data
+                baselined_trial_data[:, col] = current_trial_data[:, col] - baseline_feature_alpha[channel_index]
+            elif name_split[1] == 'beta - EEG':
+                # Divide features for that trial by baselined data
+                baselined_trial_data[:, col] = current_trial_data[:, col] - baseline_feature_beta[channel_index]
+
+        # Once all columns have been iterated through, define baseline_v7
+        baseline_v8[trial_id_in_data[i]] = baselined_trial_data
+
+        # Compute derivative
+        time = time_array[time_index]
+        baseline_v8_derivative[trial_id_in_data[i]] = np.gradient(baseline_v8[trial_id_in_data[i]], time, axis = 0)
+
+        # Compute 2nd derivative
+        baseline_v8_second_derivative[trial_id_in_data[i]] = np.gradient(baseline_v8_derivative[trial_id_in_data[i]], time, axis = 0)
+
+        # Update baseline names
+        all_features_eeg_updated = [s + '_v8' for s in all_features_eeg]
+
+    return baseline_v8, baseline_v8_derivative, baseline_v8_second_derivative, all_features_eeg_updated

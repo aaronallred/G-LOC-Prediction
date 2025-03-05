@@ -6,6 +6,7 @@ from feature_selection import *
 from baseline_methods import *
 import numpy as np
 import pandas as pd
+import warnings
 
 if __name__ == "__main__":
 
@@ -20,14 +21,65 @@ if __name__ == "__main__":
     # Modified Demographic Data (put in order of participant 1-13, removed excess calculations, and converted from .xlsx to .csv)
     demographic_data_filename = "../../GLOC_Effectiveness_Final.csv"
 
+    # Input GOR EEG data from separate files
+    list_of_eeg_data_files = ["../../GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC2_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC3_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC2_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC3_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC2_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC3_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC2_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC3_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC2_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC3_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC4_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC6_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC2_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC4_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC6_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC3_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC2_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC5_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC6_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC2_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC4_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC5_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_11_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC5_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC3_25Hz_EEG_power_wMAR.xlsx",
+                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC6_25Hz_EEG_power_wMAR.xlsx"]
+
+    list_of_baseline_eeg_processed_files = ["../../GLOC_EEG_baseline_delta_noAFE1.csv",
+                                            "../../GLOC_EEG_baseline_theta_noAFE1.csv",
+                                            "../../GLOC_EEG_baseline_alpha_noAFE1.csv",
+                                            "../../GLOC_EEG_baseline_beta_noAFE1.csv"]
+    # Model Type
+        # Two parameters to specify:
+            # either 'AFE' or 'noAFE'
+            # either 'explicit' or 'implicit'
+                # implicit: does NOT contain direct features for g, strain, demographics
+                # explicit: DOES contain direct features for g, strain, demographics
+    model_type = ['noAFE', 'explicit']
+
     # Feature Info
         # Example with all feature groups:
             # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'fnirs', 'eyetracking', 'AFE', 'G', 'cognitive',
-                # 'rawEEG_shared', 'processedEEG_shared', 'strain', 'demographics']
+                # 'rawEEG', 'processedEEG', 'strain', 'demographics']
         # NOTES:
             # Update from GLOC tagup 01/15/25: Chris said the FNIRS data should not be trusted and should not be used.
             # The light from the eye tracking glasses washed out this data.
-    feature_groups_to_analyze = ['ECG']
+    # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'cognitive', 'strain', 'demographics']
+    # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'rawEEG', 'processedEEG', 'demographics', 'strain']
+    feature_groups_to_analyze = ['processedEEG']
 
     # Baseline Method
         # baseline_methods_to_use options:
@@ -43,7 +95,7 @@ if __name__ == "__main__":
         # NOTES:
             # ALWAYS use v0- it is needed for several additional features that get computed
     # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
-    baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
+    baseline_methods_to_use = ['v0', 'v7']
 
     time_variable = 'Time (s)'
 
@@ -73,18 +125,22 @@ if __name__ == "__main__":
 
     # Process CSV
     if analysis_type == 0:  # One Trial / One Subject
-        gloc_data_reduced, features, features_phys, features_ecg, all_features, all_features_phys, all_features_ecg = (
-            load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, demographic_data_filename,
-                                 trial_to_analyze=trial_to_analyze,subject_to_analyze = subject_to_analyze))
+        (gloc_data_reduced, features, features_phys, features_ecg, features_eeg, all_features, all_features_phys,
+         all_features_ecg, all_features_eeg) = (load_and_process_csv(filename, analysis_type, feature_groups_to_analyze,
+                                                                     demographic_data_filename, model_type, list_of_eeg_data_files,
+                                                                     trial_to_analyze=trial_to_analyze,
+                                                                     subject_to_analyze = subject_to_analyze))
 
     elif analysis_type == 1:  # All Trials for One Subject
-        gloc_data_reduced, features, features_phys, features_ecg, all_features, all_features_phys, all_features_ecg = (
-            load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, demographic_data_filename,
-                                 subject_to_analyze = subject_to_analyze))
+        (gloc_data_reduced, features, features_phys, features_ecg, features_eeg, all_features, all_features_phys,
+         all_features_ecg, all_features_eeg) = (load_and_process_csv(filename, analysis_type, feature_groups_to_analyze,
+                                                                     demographic_data_filename, model_type, list_of_eeg_data_files,
+                                                                     subject_to_analyze = subject_to_analyze))
 
     elif analysis_type == 2: # All Trials for All Subjects
-        gloc_data_reduced, features, features_phys, features_ecg, all_features, all_features_phys, all_features_ecg = (
-            load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, demographic_data_filename))
+        (gloc_data_reduced, features, features_phys, features_ecg, features_eeg, all_features, all_features_phys,
+         all_features_ecg, all_features_eeg) = (load_and_process_csv(filename, analysis_type, feature_groups_to_analyze,
+                                                                     demographic_data_filename, model_type, list_of_eeg_data_files))
 
     # Create GLOC Categorical Vector
     gloc = label_gloc_events(gloc_data_reduced)
@@ -100,8 +156,7 @@ if __name__ == "__main__":
 
     for method in baseline_methods_to_use:
         if method == 'v0':
-            # V0: No Baseline (feature categories: ECG, BR, temp, fnirs, eyetracking, AFE, G, cognitive)
-                # to be implemented: EEG, strain
+            # V0: No Baseline (feature categories: ECG, BR, temp, fnirs, eyetracking, AFE, G, cognitive, strain, EEG)
             baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
                 create_v0_baseline(gloc_data_reduced, features, time_variable, all_features))
 
@@ -110,53 +165,105 @@ if __name__ == "__main__":
             # Nan_proportion_all = pd.read_pickle('../../NaN_proportion_all.pkl')
 
         if method == 'v1':
-            # V1: Divide by Baseline Window (feature categories: ECG, BR, temp, fnirs, eyetracking)
-                # to be implemented: EEG
+            # V1: Divide by Baseline Window (feature categories: ECG, BR, temp, fnirs, eyetracking, EEG)
             baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
                 create_v1_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
     
         if method == 'v2':
-            # V2: Subtract Baseline Window (feature categories: ECG, BR, temp, fnirs, eyetracking)
-                # to be implemented: EEG
+            # V2: Subtract Baseline Window (feature categories: ECG, BR, temp, fnirs, eyetracking, EEG)
             baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
                 create_v2_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
     
         if method == 'v3':
             # V3: pre ROR: divide by baseline window pre GOR, ROR: divide by baseline window pre ROR
-            # feature categories: ECG, BR, temp, fnirs, eyetracking
-                # to be implemented: EEG
+            # feature categories: ECG, BR, temp, fnirs, eyetracking, EEG
             baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
                 create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
     
         if method == 'v4':
             # V4: pre ROR: subtract baseline window pre GOR, ROR: subtract baseline window pre ROR
-            # feature categories: ECG, BR, temp, fnirs, eyetracking
-                # to be implemented: EEG
+            # feature categories: ECG, BR, temp, fnirs, eyetracking, EEG
             baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
                 create_v4_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
     
         if method == 'v5':
-            # Import xlsx File
+            # V5: Divide by seated resting HR (feature categories: ECG)
+            # Import csv File
             participant_baseline = pd.read_csv(baseline_data_filename)
             participant_seated_rhr = participant_baseline['resting HR [seated]'][0:-1]
             participant_seated_rhr.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13']
     
-            # V5: Divide by seated resting HR (feature categories: ECG)
+            # V5: Divide by seated resting HR
             baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
                 create_v5_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable, participant_seated_rhr,
                                    all_features_ecg))
     
         if method == 'v6':
-            # Import xlsx File (if not already imported from v5)
+            # V6: Subtract seated resting HR (feature categories: ECG)
+            # Import csv File (if not already imported from v5)
             if 'participant_baseline' not in locals() and 'participant_baseline' not in globals():
                 participant_baseline = pd.read_csv(baseline_data_filename)
                 participant_seated_rhr = participant_baseline['resting HR [seated]'][0:-1]
                 participant_seated_rhr.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13']
     
-            # V6: Subtract seated resting HR (feature categories: ECG)
+            # V6: Subtract seated resting HR
             baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
                 create_v6_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable, participant_seated_rhr,
                                    all_features_ecg))
+
+        if method == 'v7':
+            # V7: Divide by resting EEG from first noAFE trial (feature categories: EEG)
+            if 'noAFE' in model_type:
+                # Import csv files
+                eeg_baseline_delta = pd.read_csv(list_of_baseline_eeg_processed_files[0])
+                eeg_baseline_delta.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13']
+
+                eeg_baseline_theta = pd.read_csv(list_of_baseline_eeg_processed_files[1])
+                eeg_baseline_theta.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13']
+
+                eeg_baseline_alpha = pd.read_csv(list_of_baseline_eeg_processed_files[2])
+                eeg_baseline_alpha.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13']
+
+                eeg_baseline_beta = pd.read_csv(list_of_baseline_eeg_processed_files[3])
+                eeg_baseline_beta.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13']
+
+                # V7: Divide by resting EEG from first noAFE trial
+                baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
+                    create_v7_baseline(baseline_window, gloc_data_reduced, features_eeg, time_variable, eeg_baseline_delta,
+                                       eeg_baseline_theta, eeg_baseline_alpha, eeg_baseline_beta, all_features_eeg))
+
+            elif 'AFE' in model_type:
+                # Output Warning
+                warnings.warn('EEG baseline methods not implemented for AFE conditions yet. Waiting on data.')
+
+        if method == 'v8':
+            # V8: Subtract resting EEG from first noAFE trial (feature categories: EEG)
+            # Import csv File (if not already imported from v5)
+            if 'eeg_baseline_delta' not in locals() and 'eeg_baseline_delta' not in globals():
+                if 'noAFE' in model_type:
+                    # Import csv files
+                    eeg_baseline_delta = pd.read_csv(list_of_baseline_eeg_processed_files[0])
+                    eeg_baseline_delta.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13']
+
+                    eeg_baseline_theta = pd.read_csv(list_of_baseline_eeg_processed_files[1])
+                    eeg_baseline_theta.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13']
+
+                    eeg_baseline_alpha = pd.read_csv(list_of_baseline_eeg_processed_files[2])
+                    eeg_baseline_alpha.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13']
+
+                    eeg_baseline_beta = pd.read_csv(list_of_baseline_eeg_processed_files[3])
+                    eeg_baseline_beta.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13']
+
+                elif 'AFE' in model_type:
+                    # Output Warning
+                    warnings.warn('EEG baseline methods not implemented for AFE conditions yet. Waiting on data.')
+            else:
+                # V8: Subtract resting EEG from first noAFE trial
+                baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
+                    create_v8_baseline(baseline_window, gloc_data_reduced, features_eeg, time_variable, eeg_baseline_delta,
+                                       eeg_baseline_theta, eeg_baseline_alpha, eeg_baseline_beta, all_features_eeg))
+
+
 
     # Combine all baseline methods into a large dictionary
     combined_baseline, combined_baseline_names = combine_all_baseline(gloc_data_reduced, baseline, baseline_derivative,
@@ -215,11 +322,16 @@ if __name__ == "__main__":
                                                   sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
                                                   sliding_window_hrv_pnn50_s2, sliding_window_cognitive_IES_s2)
 
-    # Remove rows with NaN (temporary solution-should replace with other method eventually)
-    y_gloc_labels_noNaN, x_feature_matrix_noNaN = process_NaN(y_gloc_labels, x_feature_matrix)
-
+    # Combine all features into array
     all_features = (all_features_mean_s1 + all_features_stddev_s1 + all_features_max_s1 +  all_features_range_s1 + all_features_additional_s1 +
                     all_features_mean_s2 + all_features_stddev_s2 + all_features_max_s2 + all_features_range_s2 + all_features_additional_s2)
+
+    # Remove rows with NaN (temporary solution-should replace with other method eventually)
+    y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features = process_NaN(y_gloc_labels, x_feature_matrix, all_features)
+
+    # Remove constant columns
+    x_feature_matrix_noNaN, all_features = remove_constant_columns(x_feature_matrix_noNaN, all_features)
+
 
     ################################################ FEATURE SELECTION ################################################
 
@@ -228,10 +340,10 @@ if __name__ == "__main__":
                                                                               training_ratio)
 
     # Feature Selection
-    selected_features_lasso = feature_selection_lasso(x_train, y_train, all_features)
-    selected_features_enet = feature_selection_elastic_net(x_train, y_train, all_features)
-    selected_features_ridge = feature_selection_ridge(x_train, y_train, all_features)
-    selected_features_mrmr = feature_selection_mrmr(x_train, y_train, all_features)
+    # selected_features_lasso = feature_selection_lasso(x_train, y_train, all_features)
+    # selected_features_enet = feature_selection_elastic_net(x_train, y_train, all_features)
+    # selected_features_ridge = feature_selection_ridge(x_train, y_train, all_features)
+    # selected_features_mrmr = feature_selection_mrmr(x_train, y_train, all_features)
 
     ################################################ MACHINE LEARNING ################################################
 

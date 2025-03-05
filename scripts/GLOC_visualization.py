@@ -195,6 +195,10 @@ def plot_tgt_pos():
     target_pos_y_plot = target_pos_y[current_index]
     ax.plot(time, target_pos_x_plot, label='target X')
     ax.plot(time, target_pos_y_plot, label='target Y')
+    plt.xlabel(time_variable)
+    plt.ylabel('TgT Position')
+    plt.legend()
+    plt.title(f'Target Position for Trial 01-01')
     plt.show()
 
     fig, ax = plt.subplots()
@@ -228,6 +232,10 @@ def plot_tgt_pos():
     deviation = np.array(gloc_data_reduced['deviation - Cog'])
     deviation_plot = deviation[current_index]
     ax.plot(time, deviation_plot, label='deviation')
+    plt.xlabel(time_variable)
+    plt.ylabel('Deviation')
+    plt.legend()
+    plt.title(f'Deviation for Trial 01-01')
     plt.show()
 
 
