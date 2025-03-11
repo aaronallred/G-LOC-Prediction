@@ -1,4 +1,6 @@
 import numpy as np
+import os
+import joblib  # For saving the model
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 import seaborn as sns
@@ -44,7 +46,8 @@ def pre_classification_training_test_split(y_gloc_labels_noNaN, x_feature_matrix
 
 
 # Logistic Regression Classifier
-def classify_logistic_regression(x_train, x_test, y_train, y_test, all_features):
+def classify_logistic_regression(x_train, x_test, y_train, y_test, all_features,
+                                 save_folder="../ModelSave",model_name="logistic_regression_model.pkl",retrain=True):
     """
     This function fits and assesses performance of a logistic regression ML classifier for the data
     specified. Within this function, a separate confusion matrix function is called. Additional
@@ -52,8 +55,12 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, all_features)
     """
     # feature_subset = feature_selection_lasso(x_train, y_train, all_features)
 
-    # Use Default Parameters & Fit Model
-    logreg = LogisticRegression(class_weight = "balanced", random_state=42, max_iter=1000).fit(x_train, np.ravel(y_train))
+    if retrain:
+        # Use Default Parameters & Fit Model
+        logreg = LogisticRegression(class_weight = "balanced", random_state=42, max_iter=1000).fit(x_train, np.ravel(y_train))
+    else:
+        model_path = os.path.join(save_folder, model_name)
+        logreg = joblib.load(model_path)
 
     # Predict
     label_predictions = logreg.predict(x_test)
@@ -96,18 +103,27 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, all_features)
     #     plt.ylabel('Predicted')
     #     plt.show()
 
+    # Save model
+    if retrain:
+        save_model_weights(logreg, save_folder, model_name)
+
     return accuracy, precision, recall, f1, specificity
 
 # Random Forest Classifier
-def classify_random_forest(x_train, x_test, y_train, y_test, all_features):
+def classify_random_forest(x_train, x_test, y_train, y_test, all_features,
+                           save_folder="../ModelSave",model_name="random_forest_model.pkl",retrain=True):
     """
     This function fits and assesses performance of a random forest ML classifier for the data
     specified. Within this function, a separate confusion matrix function is called. Additional
     visualization capabilities include random forest visualization.
     """
 
-    # Use Default Parameters & Fit Model
-    rf = RandomForestClassifier(class_weight="balanced", random_state=42).fit(x_train, np.ravel(y_train))
+    if retrain:
+        # Use Default Parameters & Fit Model
+        rf = RandomForestClassifier(class_weight="balanced", random_state=42).fit(x_train, np.ravel(y_train))
+    else:
+        model_path = os.path.join(save_folder, model_name)
+        rf = joblib.load(model_path)
 
     # Predict
     label_predictions = rf.predict(x_test)
@@ -143,17 +159,26 @@ def classify_random_forest(x_train, x_test, y_train, y_test, all_features):
     # Create Confusion Matrix
     # create_confusion_matrix(y_testing, label_predictions, 'Random Forest')
 
+    # Save model
+    if retrain:
+        save_model_weights(rf, save_folder, model_name)
+
     return accuracy, precision, recall, f1, tree_depth, specificity
 
 # Linear Discriminant Analysis
-def classify_lda(x_train, x_test, y_train, y_test, all_features):
+def classify_lda(x_train, x_test, y_train, y_test, all_features,
+                 save_folder="../ModelSave",model_name="LDA_model.pkl",retrain=True):
     """
     This function fits and assesses performance of a linear discriminant analysis ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
     """
 
-    # Use Default Parameters & Fit Model
-    lda = LinearDiscriminantAnalysis().fit(x_train, np.ravel(y_train))
+    if retrain:
+        # Use Default Parameters & Fit Model
+        lda = LinearDiscriminantAnalysis().fit(x_train, np.ravel(y_train))
+    else:
+        model_path = os.path.join(save_folder, model_name)
+        lda = joblib.load(model_path)
 
     # Predict
     label_predictions = lda.predict(x_test)
@@ -176,17 +201,26 @@ def classify_lda(x_train, x_test, y_train, y_test, all_features):
     # Create Confusion Matrix
     create_confusion_matrix(y_test, label_predictions, 'Linear Discriminant Analysis')
 
+    # Save model
+    if retrain:
+        save_model_weights(lda, save_folder, model_name)
+
     return accuracy, precision, recall, f1, specificity
 
 # k Nearest Neighbors
-def classify_knn(x_train, x_test, y_train, y_test):
+def classify_knn(x_train, x_test, y_train, y_test,
+                 save_folder="../ModelSave",model_name="KNN_model.pkl",retrain=True):
     """
     This function fits and assesses performance of a K Nearest Neighbors ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
     """
 
-    # Use Default Parameters & Fit Model
-    neigh = KNeighborsClassifier().fit(x_train, np.ravel(y_train))
+    if retrain:
+        # Use Default Parameters & Fit Model
+        neigh = KNeighborsClassifier().fit(x_train, np.ravel(y_train))
+    else:
+        model_path = os.path.join(save_folder, model_name)
+        neigh = joblib.load(model_path)
 
     # Predict
     label_predictions = neigh.predict(x_test)
@@ -209,17 +243,26 @@ def classify_knn(x_train, x_test, y_train, y_test):
     # Create Confusion Matrix
     create_confusion_matrix(y_test, label_predictions, 'kNN')
 
+    # Save model
+    if retrain:
+        save_model_weights(neigh, save_folder, model_name)
+
     return accuracy, precision, recall, f1, specificity
 
 # Support Vector Machine
-def classify_svm(x_train, x_test, y_train, y_test):
+def classify_svm(x_train, x_test, y_train, y_test,
+                 save_folder="../ModelSave",model_name="svm_model.pkl", retrain = True):
     """
     This function fits and assesses performance of a Support Vector Machine ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
     """
 
-    # Use Default Parameters & Fit Model
-    svm_class = svm.SVC(kernel="linear", class_weight="balanced").fit(x_train, np.ravel(y_train))
+    if retrain:
+        # Use Default Parameters & Fit Model
+        svm_class = svm.SVC(kernel="linear", class_weight="balanced").fit(x_train, np.ravel(y_train))
+    else:
+        model_path = os.path.join(save_folder, model_name)
+        svm_class = joblib.load(model_path)
 
     # Predict
     label_predictions = svm_class.predict(x_test)
@@ -242,17 +285,26 @@ def classify_svm(x_train, x_test, y_train, y_test):
     # Create Confusion Matrix
     create_confusion_matrix(y_test, label_predictions, 'Support Vector Machine')
 
+    # Save model
+    if retrain:
+        save_model_weights(svm_class, save_folder, model_name)
+
     return accuracy, precision, recall, f1, specificity
 
 # Ensemble Learner with Gradient Boost
-def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test):
+def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,
+                                     save_folder="../ModelSave",model_name="ensemble_model.pkl", retrain = True):
     """
     This function fits and assesses performance of an Ensemble Learner w/ Grad Boost ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
     """
 
     # Use Default Parameters & Fit Model
-    gb = GradientBoostingClassifier(random_state=42).fit(x_train, np.ravel(y_train))
+    if retrain:
+        gb = GradientBoostingClassifier(random_state=42).fit(x_train, np.ravel(y_train))
+    else:
+        model_path = os.path.join(save_folder, model_name)
+        gb = joblib.load(model_path)
 
     # Predict
     label_predictions = gb.predict(x_test)
@@ -275,4 +327,23 @@ def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test):
     # Create Confusion Matrix
     create_confusion_matrix(y_test, label_predictions, 'Gradient Boosting')
 
+    # Save model
+    if retrain:
+        save_model_weights(gb, save_folder, model_name)
+
     return accuracy, precision, recall, f1, specificity
+
+def save_model_weights(model,save_folder,model_name):
+    """
+
+    Saves Model Weights to save folder
+
+    """
+    # Ensure the save folder exists
+    if not os.path.exists(save_folder):
+        os.makedirs(save_folder)
+
+    # Save the trained model to the specified folder
+    model_path = os.path.join(save_folder, model_name)
+    joblib.dump(model, model_path)
+    print(f"\nModel saved to: {model_path}")

@@ -4,6 +4,7 @@ from GLOC_classifier import *
 from features import *
 from feature_selection import *
 from baseline_methods import *
+from imputation import *
 import numpy as np
 import pandas as pd
 import warnings
@@ -13,55 +14,55 @@ if __name__ == "__main__":
     ##################################################### SETUP  #####################################################
     ## File Name & Path
     # Data CSV
-    filename = '../../all_trials_25_hz_stacked_null_str_filled.csv'
+    filename = '../data/all_trials_25_hz_stacked_null_str_filled.csv'
 
     # Baseline Data (HR)
-    baseline_data_filename = "../../ParticipantBaseline.csv"
+    baseline_data_filename = "../data/ParticipantBaseline.csv"
 
     # Modified Demographic Data (put in order of participant 1-13, removed excess calculations, and converted from .xlsx to .csv)
-    demographic_data_filename = "../../GLOC_Effectiveness_Final.csv"
+    demographic_data_filename = "../data/GLOC_Effectiveness_Final.csv"
 
     # Input GOR EEG data from separate files
-    list_of_eeg_data_files = ["../../GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC2_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC3_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC2_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC3_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC2_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC3_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC2_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC3_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC2_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC3_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC4_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC6_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC2_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC4_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC6_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC3_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC2_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC5_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC6_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC2_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC4_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC5_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_11_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC5_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC3_25Hz_EEG_power_wMAR.xlsx",
-                              "../../GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC6_25Hz_EEG_power_wMAR.xlsx"]
+    list_of_eeg_data_files = ["../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC2_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC3_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC2_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC3_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC2_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC3_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC2_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC3_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC2_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC3_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC4_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC6_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC2_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC4_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC6_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC3_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC2_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC5_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC6_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC2_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC4_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC5_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_11_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC5_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC1_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC3_25Hz_EEG_power_wMAR.xlsx",
+                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC6_25Hz_EEG_power_wMAR.xlsx"]
 
-    list_of_baseline_eeg_processed_files = ["../../GLOC_EEG_baseline_delta_noAFE1.csv",
-                                            "../../GLOC_EEG_baseline_theta_noAFE1.csv",
-                                            "../../GLOC_EEG_baseline_alpha_noAFE1.csv",
-                                            "../../GLOC_EEG_baseline_beta_noAFE1.csv"]
+    list_of_baseline_eeg_processed_files = ["../data/GLOC_EEG_baseline_delta_noAFE1.csv",
+                                            "../data/GLOC_EEG_baseline_theta_noAFE1.csv",
+                                            "../data/GLOC_EEG_baseline_alpha_noAFE1.csv",
+                                            "../data/GLOC_EEG_baseline_beta_noAFE1.csv"]
     # Model Type
         # Two parameters to specify:
             # either 'AFE' or 'noAFE'
@@ -79,7 +80,8 @@ if __name__ == "__main__":
             # The light from the eye tracking glasses washed out this data.
     # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'cognitive', 'strain', 'demographics']
     # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'rawEEG', 'processedEEG', 'demographics', 'strain']
-    feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'cognitive', 'strain', 'demographics']
+    # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'cognitive', 'strain', 'demographics']
+    feature_groups_to_analyze = ['ECG']
 
     # Baseline Method
         # baseline_methods_to_use options:
@@ -97,7 +99,8 @@ if __name__ == "__main__":
         # NOTES:
             # ALWAYS use v0- it is needed for several additional features that get computed
     # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']
-    baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
+    # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
+    baseline_methods_to_use = ['v0']
 
     time_variable = 'Time (s)'
 
@@ -122,6 +125,11 @@ if __name__ == "__main__":
     # Subject & Trial Information (only need to adjust this if doing analysis type 0,1)
     subject_to_analyze = '01'
     trial_to_analyze = '02'
+
+    # Type of Imputation to perform
+    # 0: Remove raw NaN rows | 1: KNN impute raw data |
+    # 2: remove feature NaN rows | 3: KNN impute features
+    impute_type = 2
 
     ############################################# LOAD AND PROCESS DATA #############################################
 
@@ -149,6 +157,20 @@ if __name__ == "__main__":
 
     # Find time window after acceleration before GLOC (to compare our data to LOCINDTI)
     # find_prediction_window(gloc_data_reduced, gloc, time_variable)
+
+    ####################################### DATA CLEAN AND PREP #######################################################
+
+    ### Tabulate NaN
+    # Tabulate NaN
+    # NaN_table, NaN_proportion, NaN_gloc_proportion = tabulateNaNraw(features, all_features, gloc, gloc_data_reduced)
+    ### Remove full trials with NaN
+
+    ### Impute missing row data
+    if impute_type == 0:
+        # Remove rows with NaN (temporary solution-should replace with other method eventually)
+        gloc, features, gloc_data_reduced = process_NaN_raw(gloc, features, gloc_data_reduced)
+    elif impute_type == 1:
+        features, indicator_matrix = knn_impute(features, n_neighbors=5)
 
     ################################################## BASELINE DATA ##################################################
     baseline = dict()
@@ -328,11 +350,18 @@ if __name__ == "__main__":
     all_features = (all_features_mean_s1 + all_features_stddev_s1 + all_features_max_s1 +  all_features_range_s1 + all_features_additional_s1 +
                     all_features_mean_s2 + all_features_stddev_s2 + all_features_max_s2 + all_features_range_s2 + all_features_additional_s2)
 
-    # Remove rows with NaN (temporary solution-should replace with other method eventually)
-    y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features = process_NaN(y_gloc_labels, x_feature_matrix, all_features)
-
     # Remove constant columns
-    x_feature_matrix_noNaN, all_features = remove_constant_columns(x_feature_matrix_noNaN, all_features)
+    x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
+
+    if impute_type == 2:
+        # Remove rows with NaN (temporary solution-should replace with other method eventually)
+        y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features = process_NaN(y_gloc_labels, x_feature_matrix,
+                                                                                all_features)
+    elif impute_type == 3:
+        y_gloc_labels_noNaN = y_gloc_labels
+        x_feature_matrix_noNaN, indicator_matrix = knn_impute(x_feature_matrix, n_neighbors=5)
+    else:
+        y_gloc_labels_noNaN, x_feature_matrix_noNaN = y_gloc_labels, x_feature_matrix
 
 
     ################################################ FEATURE SELECTION ################################################
