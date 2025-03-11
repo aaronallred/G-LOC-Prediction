@@ -893,29 +893,6 @@ def read_and_process_demographics(demographic_data_filename, gloc_data_reduced):
     gloc_data_reduced = pd.concat([gloc_data_reduced, demographics_concat], axis=1)
     return gloc_data_reduced, demographics_names
 
-def combine_all_baseline(gloc_data_reduced, baseline, baseline_derivative, baseline_second_derivative, baseline_names):
-    """
-    This function combines the features, derivative of features, and second derivative of features into one np array.
-    """
-    # Find Unique Trial ID
-    trial_id_in_data = gloc_data_reduced.trial_id.unique()
-
-    # Iterate through all unique trial_id & combine the baseline, baseline derivative, and baseline second derivative
-    combined_baseline = dict()
-    for id in trial_id_in_data:
-        all_baseline_data = []
-        for method in baseline.keys():
-            all_baseline_data.append(baseline[method][id])
-            all_baseline_data.append(baseline_derivative[method][id])
-            all_baseline_data.append(baseline_second_derivative[method][id])
-
-        combined_baseline[id] = np.column_stack(tuple(all_baseline_data))
-
-    combined_baseline_names = sum([baseline_names[method] + [s + '_derivative' for s in baseline_names[method]] +
-                                       [s + '_2derivative' for s in baseline_names[method]] for method in baseline_names.keys()], [])
-
-    return combined_baseline, combined_baseline_names
-
 def tabulateNaN(feature_baseline, all_features, gloc, gloc_data_reduced):
     """
     This function tabulates NaN values for each feature for each trial.

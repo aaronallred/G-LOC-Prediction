@@ -1,6 +1,9 @@
 import numpy as np
 import pandas as pd
 import os
+import warnings
+from GLOC_data_processing import tabulateNaN
+
 
 def create_v0_baseline(gloc_data_reduced, features, time_variable, all_features):
     """
@@ -501,3 +504,173 @@ def create_v8_baseline(baseline_window, gloc_data_reduced, features_eeg, time_va
         all_features_eeg_updated = [s + '_v8' for s in all_features_eeg]
 
     return baseline_v8, baseline_v8_derivative, baseline_v8_second_derivative, all_features_eeg_updated
+
+def combine_all_baseline(gloc_data_reduced, baseline, baseline_derivative, baseline_second_derivative, baseline_names):
+    """
+    This function combines the features, derivative of features, and second derivative of features into one np array.
+    """
+    # Find Unique Trial ID
+    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+
+    # Iterate through all unique trial_id & combine the baseline, baseline derivative, and baseline second derivative
+    combined_baseline = dict()
+    for id in trial_id_in_data:
+        all_baseline_data = []
+        for method in baseline.keys():
+            all_baseline_data.append(baseline[method][id])
+            all_baseline_data.append(baseline_derivative[method][id])
+            all_baseline_data.append(baseline_second_derivative[method][id])
+
+        combined_baseline[id] = np.column_stack(tuple(all_baseline_data))
+
+    combined_baseline_names = sum([baseline_names[method] + [s + '_derivative' for s in baseline_names[method]] +
+                                       [s + '_2derivative' for s in baseline_names[method]] for method in baseline_names.keys()], [])
+
+    return combined_baseline, combined_baseline_names
+
+def baseline_data(baseline_methods_to_use, gloc_data_reduced, features,time_variable, all_features, gloc,baseline_window,
+             features_phys, all_features_phys, features_ecg, all_features_ecg, features_eeg, all_features_eeg,
+             baseline_data_filename, list_of_baseline_eeg_processed_files,model_type):
+
+    baseline = dict()
+    baseline_derivative = dict()
+    baseline_second_derivative = dict()
+    baseline_names = dict()
+
+    for method in baseline_methods_to_use:
+        if method == 'v0':
+            # V0: No Baseline (feature categories: ECG, BR, temp, fnirs, eyetracking, AFE, G, cognitive, strain, EEG)
+            baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[
+                method] = (
+                create_v0_baseline(gloc_data_reduced, features, time_variable, all_features))
+
+            # Tabulate NaN
+            NaN_table, NaN_proportion, NaN_gloc_proportion = tabulateNaN(baseline[method], all_features, gloc,
+                                                                         gloc_data_reduced)
+            # Nan_proportion_all = pd.read_pickle('../../NaN_proportion_all.pkl')
+
+        if method == 'v1':
+            # V1: Divide by Baseline Window (feature categories: ECG, BR, temp, fnirs, eyetracking, EEG)
+            baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[
+                method] = (
+                create_v1_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
+
+        if method == 'v2':
+            # V2: Subtract Baseline Window (feature categories: ECG, BR, temp, fnirs, eyetracking, EEG)
+            baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[
+                method] = (
+                create_v2_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
+
+        if method == 'v3':
+            # V3: pre ROR: divide by baseline window pre GOR, ROR: divide by baseline window pre ROR
+            # feature categories: ECG, BR, temp, fnirs, eyetracking, EEG
+            baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[
+                method] = (
+                create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
+
+        if method == 'v4':
+            # V4: pre ROR: subtract baseline window pre GOR, ROR: subtract baseline window pre ROR
+            # feature categories: ECG, BR, temp, fnirs, eyetracking, EEG
+            baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[
+                method] = (
+                create_v4_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys))
+
+        if method == 'v5':
+            # V5: Divide by seated resting HR (feature categories: ECG)
+            # Import csv File
+            participant_baseline = pd.read_csv(baseline_data_filename)
+            participant_seated_rhr = participant_baseline['resting HR [seated]'][0:-1]
+            participant_seated_rhr.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12',
+                                            '13']
+
+            # V5: Divide by seated resting HR
+            baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[
+                method] = (
+                create_v5_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable,
+                                   participant_seated_rhr,
+                                   all_features_ecg))
+
+        if method == 'v6':
+            # V6: Subtract seated resting HR (feature categories: ECG)
+            # Import csv File (if not already imported from v5)
+            if 'participant_baseline' not in locals() and 'participant_baseline' not in globals():
+                participant_baseline = pd.read_csv(baseline_data_filename)
+                participant_seated_rhr = participant_baseline['resting HR [seated]'][0:-1]
+                participant_seated_rhr.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12',
+                                                '13']
+
+            # V6: Subtract seated resting HR
+            baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[
+                method] = (
+                create_v6_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable,
+                                   participant_seated_rhr,
+                                   all_features_ecg))
+
+        if method == 'v7':
+            # V7: Divide by resting EEG from first noAFE trial (feature categories: EEG)
+            if 'noAFE' in model_type:
+                # Import csv files
+                eeg_baseline_delta = pd.read_csv(list_of_baseline_eeg_processed_files[0])
+                eeg_baseline_delta.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12',
+                                            '13']
+
+                eeg_baseline_theta = pd.read_csv(list_of_baseline_eeg_processed_files[1])
+                eeg_baseline_theta.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12',
+                                            '13']
+
+                eeg_baseline_alpha = pd.read_csv(list_of_baseline_eeg_processed_files[2])
+                eeg_baseline_alpha.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12',
+                                            '13']
+
+                eeg_baseline_beta = pd.read_csv(list_of_baseline_eeg_processed_files[3])
+                eeg_baseline_beta.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13']
+
+                # V7: Divide by resting EEG from first noAFE trial
+                baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[
+                    method] = (
+                    create_v7_baseline(baseline_window, gloc_data_reduced, features_eeg, time_variable,
+                                       eeg_baseline_delta,
+                                       eeg_baseline_theta, eeg_baseline_alpha, eeg_baseline_beta, all_features_eeg))
+
+            elif 'AFE' in model_type:
+                # Output Warning
+                warnings.warn('EEG baseline methods not implemented for AFE conditions yet. Waiting on data.')
+
+        if method == 'v8':
+            # V8: Subtract resting EEG from first noAFE trial (feature categories: EEG)
+            # Import csv File (if not already imported from v5)
+            if 'eeg_baseline_delta' not in locals() and 'eeg_baseline_delta' not in globals():
+                if 'noAFE' in model_type:
+                    # Import csv files
+                    eeg_baseline_delta = pd.read_csv(list_of_baseline_eeg_processed_files[0])
+                    eeg_baseline_delta.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12',
+                                                '13']
+
+                    eeg_baseline_theta = pd.read_csv(list_of_baseline_eeg_processed_files[1])
+                    eeg_baseline_theta.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12',
+                                                '13']
+
+                    eeg_baseline_alpha = pd.read_csv(list_of_baseline_eeg_processed_files[2])
+                    eeg_baseline_alpha.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12',
+                                                '13']
+
+                    eeg_baseline_beta = pd.read_csv(list_of_baseline_eeg_processed_files[3])
+                    eeg_baseline_beta.index = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12',
+                                               '13']
+
+                elif 'AFE' in model_type:
+                    # Output Warning
+                    warnings.warn('EEG baseline methods not implemented for AFE conditions yet. Waiting on data.')
+            else:
+                # V8: Subtract resting EEG from first noAFE trial
+                baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[
+                    method] = (
+                    create_v8_baseline(baseline_window, gloc_data_reduced, features_eeg, time_variable,
+                                       eeg_baseline_delta,
+                                       eeg_baseline_theta, eeg_baseline_alpha, eeg_baseline_beta, all_features_eeg))
+
+    # Combine all baseline methods into a large dictionary
+    combined_baseline, combined_baseline_names = combine_all_baseline(gloc_data_reduced, baseline, baseline_derivative,
+                                                                      baseline_second_derivative, baseline_names)
+
+    return combined_baseline, combined_baseline_names, baseline, baseline_names
