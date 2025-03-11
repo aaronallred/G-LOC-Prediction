@@ -4,47 +4,40 @@ from sklearn.preprocessing import StandardScaler
 from scipy.stats import chi2_contingency
 from statsmodels.stats.multitest import multipletests
 
-def knn_impute(labels, predictors, n_neighbors=5, scale_data=False):
+def knn_impute(predictors, n_neighbors=5, scale_data=False):
     """
     Imputes missing values in the predictor array using k-Nearest Neighbors (kNN).
 
     Parameters:
-        labels (numpy.ndarray): The label array with shape (n_samples, 1).
         predictors (numpy.ndarray): The predictor array with shape (n_samples, n_features).
         n_neighbors (int): Number of neighbors to use for kNN imputation. Default is 5. Can be a hyperparameter
         scale_data (bool): Whether to scale the data before imputation.
             Default is False. We are normalizing features before the imputation code is run.
 
     Returns:
-        imputed_labels (numpy.ndarray): The label array after imputation.
         imputed_predictors (numpy.ndarray): The predictor array after imputation.
+        indicator_matrix (numpy.ndarray): The missing indicator matrix
     """
-
-    # Combine labels and predictors
-    combined_data = np.hstack((labels, predictors))
 
     # Optionally scale the data
     if scale_data:
         scaler = StandardScaler()
-        scaled_data = scaler.fit_transform(combined_data)
+        scaled_data = scaler.fit_transform(predictors)
     else:
-        scaled_data = combined_data
+        scaled_data = predictors
 
     # Create and fit the KNN imputer
     imputer = KNNImputer(n_neighbors=n_neighbors, weights='uniform')
-    imputed_data = imputer.fit_transform(scaled_data)
-
-    # Separate the imputed data back into labels and predictors
-    imputed_labels = imputed_data[:, 0].reshape(-1, 1)
-    imputed_predictors = imputed_data[:, 1:]
+    imputed_predictors = imputer.fit_transform(scaled_data)
 
     # Inverse transform to get back to original scale if scaling was applied
     if scale_data:
-        imputed_data_original_scale = scaler.inverse_transform(imputed_data)
-        imputed_labels = imputed_data_original_scale[:, 0].reshape(-1, 1)
-        imputed_predictors = imputed_data_original_scale[:, 1:]
+        imputed_predictors = scaler.inverse_transform(imputed_predictors)
 
-    return imputed_labels, imputed_predictors
+    # Generate the indicator matrix: 1 where values were imputed, 0 otherwise
+    indicator_matrix = np.isnan(predictors).astype(int)
+
+    return imputed_predictors, indicator_matrix
 
 def knn_impute_with_smim(labels, predictors, n_neighbors=5, scale_data=False, fdr_level=0.05):
     """
@@ -67,6 +60,8 @@ def knn_impute_with_smim(labels, predictors, n_neighbors=5, scale_data=False, fd
 
     # Create mask for missing values
     missing_mask = np.isnan(combined_data)
+
+    # get rid of columns with no mask
 
     # Perform chi-square test for all features
     p_values = []

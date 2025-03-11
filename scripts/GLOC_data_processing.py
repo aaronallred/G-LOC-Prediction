@@ -990,3 +990,78 @@ def find_prediction_window(gloc_data_reduced, gloc, time_variable):
     min_locindti = np.nanmin(max_prediction_offset)
     range_locindti = max_locindti - min_locindti
     stddev_locindti = np.nanstd(max_prediction_offset)
+
+def tabulateNaN_raw(features, all_features, gloc, gloc_data_reduced):
+    """
+    This function tabulates NaN values for each feature for each trial.
+    """
+
+    # Find Unique Trial ID
+    trial_id_in_data = list(feature_baseline.keys())
+
+    # Initialize NaN variables
+    NaN_count = np.zeros((len(trial_id_in_data), len(all_features)))
+    NaN_prop = np.zeros((len(trial_id_in_data), len(all_features)))
+    NaN_gloc = np.zeros((len(trial_id_in_data), 1))
+
+    # Loop through dictionary values and count NaNs per trial/feature
+    sum_gloc_trials = 0
+    for i in range(len(trial_id_in_data)):
+
+        # Count number of NaNs
+        NaN_count[i,:] = np.count_nonzero(pd.isna(feature_baseline[trial_id_in_data[i]]), axis=0, keepdims=True)
+
+        # Calculate proportion of trial that are NaNs
+        NaN_prop[i,:] = NaN_count[i,:] / np.shape(feature_baseline[trial_id_in_data[i]])[0]
+
+        # Create trimmed gloc data to count number of GLOC trials corresponding to NaN
+        gloc_trimmed = gloc[(gloc_data_reduced.trial_id == trial_id_in_data[i])]
+        no_gloc = np.count_nonzero(gloc_trimmed == 1) == 0
+
+        # Parse all columns to find if any values are NaN for that row, if they are
+        # set NaN_index for that column equal to True
+        NaN_index = np.any(pd.isna(feature_baseline[trial_id_in_data[i]]), axis = 1)
+
+        # Set NaN_gloc variable based on if NaNs occur during a gloc trial
+        if no_gloc:
+            NaN_gloc[i, :] = np.nan
+        else:
+            # Find proportion of gloc time steps that have a Nan in at least one column
+            NaN_gloc[i,:] = np.count_nonzero(((gloc_trimmed == 1) & (NaN_index == True))) / np.count_nonzero(gloc_trimmed == 1)
+            sum_gloc_trials += 1
+
+    # Output in Data Frame
+    NaN_table = pd.DataFrame(NaN_count, columns = all_features, index = trial_id_in_data)
+    NaN_proportion = pd.DataFrame(NaN_prop, columns = all_features, index = trial_id_in_data)
+    NaN_gloc_proportion = pd.DataFrame(NaN_gloc, index = trial_id_in_data)
+
+    # Sum all NaN rows
+    NaN_rows = (NaN_proportion == 1).any(axis = 1)
+    number_NaN_rows = NaN_rows.values.sum()
+
+    # Sum all NaN GLOC rows
+    NaN_gloc_rows = NaN_gloc_proportion == 1
+    number_NaN_gloc_rows = NaN_gloc_rows.values.sum()
+
+    # Total number of trials
+    total_rows = NaN_proportion.shape[0]
+
+    # Print NaN findings
+    print("There are ", number_NaN_rows, " trials with all NaNs for at least one feature out of ", total_rows, "trials. ", total_rows - number_NaN_rows, " trials remaining.")
+    print("There are ", number_NaN_gloc_rows, " trials with all NaNs during GLOC out of ", sum_gloc_trials, "trials with GLOC. ")
+    return NaN_table, NaN_proportion, NaN_gloc_proportion
+
+def process_NaN_raw(gloc, features, gloc_data_reduced):
+    """
+    This is a temporary function for removing all rows with NaN values. This can be replaced by
+    another method in the future, but is necessary for feeding into ML Classifiers.
+    """
+
+    # Find & Remove rows in X matrix if they have NaN values
+    features_noNaN = features[~np.isnan(features).any(axis=1)]
+    gloc_data_reduced_noNaN = gloc_data_reduced[~np.isnan(features).any(axis=1)]
+
+    # Find & Remove rows in label array if the features have any NaN values in that row
+    gloc_noNaN = gloc[~np.isnan(features).any(axis=1)]
+
+    return gloc_noNaN, features_noNaN, gloc_data_reduced_noNaN

@@ -91,7 +91,7 @@ def main_analysis_loop(filename, plot_data, plot_pairwise, feature_to_analyze, t
 
 if __name__ == "__main__":
     # File Name & Path
-    filename = '../../all_trials_25_hz_stacked_null_str_filled.csv'
+    filename = '../data/all_trials_25_hz_stacked_null_str_filled.csv'
 
     # Plot Flags
     plot_data = 0  # flag to set whether plots should be generated (0 = no, 1 = yes)

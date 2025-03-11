@@ -44,12 +44,12 @@ if __name__ == "__main__":
         # NOTES:
             # ALWAYS use v0- it is needed for several additional features that get computed
     # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
-    baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
+    baseline_methods_to_use = ['v0']
 
     time_variable = 'Time (s)'
 
     # Data Parameters
-    analysis_type = 2   # flag to set which data should be analyzed
+    analysis_type = 1   # flag to set which data should be analyzed
                         # analysis_type = 0: analyze one trial from a subject
                             # if analysis_type = 0, then set subject_to_analyze and trial_to_analyze parameters below
                         # analysis_type = 1: analyze subject data (all trials for a subject)
@@ -70,7 +70,9 @@ if __name__ == "__main__":
     subject_to_analyze = '01'
     trial_to_analyze = '02'
 
-    impute_type = 2
+    # Type of Imputation to perform
+    # 0: Remove raw NaN rows | 1: KNN impute raw data | 2: remove feature NaN rows | 3: KNN impute features
+    impute_type = 1
     ############################################# LOAD AND PROCESS DATA #############################################
 
     # Process CSV
@@ -94,11 +96,28 @@ if __name__ == "__main__":
     # Find time window after acceleration before GLOC (to compare our data to LOCINDTI)
     # find_prediction_window(gloc_data_reduced, gloc, time_variable)
 
+
+    ####################################### DATA CLEAN AND PREP #######################################################
+
+    ### Tabulate NaN
+    # Tabulate NaN
+    # NaN_table, NaN_proportion, NaN_gloc_proportion = tabulateNaNraw(features, all_features, gloc, gloc_data_reduced)
+    ### Remove full trials with NaN
+
+    ### Impute missing row data
+    if impute_type == 0:
+        # Remove rows with NaN (temporary solution-should replace with other method eventually)
+        gloc, features, gloc_data_reduced = process_NaN_raw(gloc, features, gloc_data_reduced)
+    elif impute_type == 1:
+        features, indicator_matrix = knn_impute(features, n_neighbors=5)
+
+
     ################################################## BASELINE DATA ##################################################
     baseline = dict()
     baseline_derivative = dict()
     baseline_second_derivative = dict()
     baseline_names = dict()
+
 
     for method in baseline_methods_to_use:
         if method == 'v0':
@@ -106,10 +125,6 @@ if __name__ == "__main__":
                 # to be implemented: EEG, strain
             baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = (
                 create_v0_baseline(gloc_data_reduced, features, time_variable, all_features))
-
-            # Tabulate NaN
-            NaN_table, NaN_proportion, NaN_gloc_proportion = tabulateNaN(baseline[method], all_features, gloc, gloc_data_reduced)
-            # Nan_proportion_all = pd.read_pickle('../../NaN_proportion_all.pkl')
 
         if method == 'v1':
             # V1: Divide by Baseline Window (feature categories: ECG, BR, temp, fnirs, eyetracking)
@@ -218,13 +233,13 @@ if __name__ == "__main__":
                                                   sliding_window_hrv_pnn50_s2, sliding_window_cognitive_IES_s2)
 
     # Remove rows with NaN (temporary solution-should replace with other method eventually)
-    if impute_type == 0:
+    if impute_type == 2:
         y_gloc_labels_noNaN, x_feature_matrix_noNaN = process_NaN(y_gloc_labels, x_feature_matrix)
-    elif impute_type == 1:
-        y_gloc_labels_noNaN, x_feature_matrix_noNaN = knn_impute(y_gloc_labels, x_feature_matrix)
-    elif impute_type == 2:
-        y_gloc_labels_noNaN, x_feature_matrix_noNaN = knn_impute_with_smim(y_gloc_labels, x_feature_matrix)
-
+    elif impute_type == 3:
+        y_gloc_labels_noNaN = y_gloc_labels
+        x_feature_matrix_noNaN, indicator_matrix = knn_impute(x_feature_matrix, n_neighbors=5)
+    else:
+        y_gloc_labels_noNaN, x_feature_matrix_noNaN = y_gloc_labels, x_feature_matrix
 
 
     all_features = (all_features_mean_s1 + all_features_stddev_s1 + all_features_max_s1 +  all_features_range_s1 + all_features_additional_s1 +
@@ -237,11 +252,12 @@ if __name__ == "__main__":
                                                                               training_ratio)
 
     # Feature Selection
+    """
     selected_features_lasso = feature_selection_lasso(x_train, y_train, all_features)
     selected_features_enet = feature_selection_elastic_net(x_train, y_train, all_features)
     selected_features_ridge = feature_selection_ridge(x_train, y_train, all_features)
     selected_features_mrmr = feature_selection_mrmr(x_train, y_train, all_features)
-
+    """
     ################################################ MACHINE LEARNING ################################################
 
     # Logistic Regression
