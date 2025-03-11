@@ -6,6 +6,61 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings
 
+def data_locations(datafolder):
+    ## File Name & Path
+    # Data CSV
+    filename = os.path.join(datafolder,'all_trials_25_hz_stacked_null_str_filled.csv')
+
+    # Baseline Data (HR)
+    baseline_data_filename = os.path.join(datafolder,'ParticipantBaseline.csv')
+
+    # Modified Demographic Data (put in order of participant 1-13, removed excess calculations, and converted from .xlsx to .csv)
+    demographic_data_filename = os.path.join(datafolder,'GLOC_Effectiveness_Final.csv')
+
+    # Input GOR EEG data from separate files
+    list_of_eeg_data_files = [os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC2_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC3_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC2_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC3_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC2_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC3_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC2_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC3_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC2_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC3_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC4_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC6_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC2_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC4_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC6_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC3_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC2_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC5_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC6_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC2_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC4_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC5_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_11_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC5_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC3_25Hz_EEG_power_wMAR.xlsx'),
+                              os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC6_25Hz_EEG_power_wMAR.xlsx')]
+
+    list_of_baseline_eeg_processed_files = [os.path.join(datafolder,'GLOC_EEG_baseline_delta_noAFE1.csv'),
+                                            os.path.join(datafolder,'GLOC_EEG_baseline_theta_noAFE1.csv'),
+                                            os.path.join(datafolder,'GLOC_EEG_baseline_alpha_noAFE1.csv'),
+                                            os.path.join(datafolder,'GLOC_EEG_baseline_beta_noAFE1.csv')]
+
+    return filename, baseline_data_filename, demographic_data_filename, list_of_eeg_data_files, list_of_baseline_eeg_processed_files
+
 def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, demographic_data_filename, model_type, list_of_eeg_data_files, **kwargs):
     """
     This function first checks for a pickle file to import (much quicker than loading csv). If the
@@ -312,7 +367,8 @@ def process_EEG_GOR(list_of_eeg_data_files, gloc_data):
         current_file = list_of_eeg_data_files[file]
 
         # Grab corresponding trial based on file name
-        corresponding_trial = current_file[47] + current_file[48] + '-0' + current_file[52]
+        # corresponding_trial = current_file[47] + current_file[48] + '-0' + current_file[52]
+        corresponding_trial = current_file[-31] + current_file[-30] + '-0' + current_file[-26]
 
         # Define data frame for delta, theta, alpha, and beta bands
         df_delta = pd.read_excel(current_file, sheet_name='delta')

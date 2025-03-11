@@ -12,57 +12,12 @@ import warnings
 if __name__ == "__main__":
 
     ##################################################### SETUP  #####################################################
-    ## File Name & Path
-    # Data CSV
-    filename = '../data/all_trials_25_hz_stacked_null_str_filled.csv'
+    ## Data Folder Location
+    datafolder = '../data/'
 
-    # Baseline Data (HR)
-    baseline_data_filename = "../data/ParticipantBaseline.csv"
+    (filename, baseline_data_filename, demographic_data_filename,
+     list_of_eeg_data_files, list_of_baseline_eeg_processed_files) = data_locations(datafolder)
 
-    # Modified Demographic Data (put in order of participant 1-13, removed excess calculations, and converted from .xlsx to .csv)
-    demographic_data_filename = "../data/GLOC_Effectiveness_Final.csv"
-
-    # Input GOR EEG data from separate files
-    list_of_eeg_data_files = ["../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC2_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC3_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC2_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC3_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC2_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC3_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC2_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC3_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC2_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC3_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC4_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC6_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC2_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC4_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC6_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC3_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC2_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC5_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC6_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC2_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC4_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC5_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_11_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC5_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC1_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC3_25Hz_EEG_power_wMAR.xlsx",
-                              "../data/GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC6_25Hz_EEG_power_wMAR.xlsx"]
-
-    list_of_baseline_eeg_processed_files = ["../data/GLOC_EEG_baseline_delta_noAFE1.csv",
-                                            "../data/GLOC_EEG_baseline_theta_noAFE1.csv",
-                                            "../data/GLOC_EEG_baseline_alpha_noAFE1.csv",
-                                            "../data/GLOC_EEG_baseline_beta_noAFE1.csv"]
     # Model Type
         # Two parameters to specify:
             # either 'AFE' or 'noAFE'
