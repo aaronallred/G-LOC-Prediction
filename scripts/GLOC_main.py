@@ -11,35 +11,63 @@ import warnings
 
 if __name__ == "__main__":
 
-    ##################################################### SETUP  #####################################################
+    ################################################### USER INPUTS  ###################################################
     ## Data Folder Location
     datafolder = '../data/'
 
-    (filename, baseline_data_filename, demographic_data_filename,
-     list_of_eeg_data_files, list_of_baseline_eeg_processed_files) = data_locations(datafolder)
+    ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
+    classifier_type = 'all'
+    train_class = True
 
-    # Model Type
-        # Two parameters to specify:
-            # either 'AFE' or 'noAFE'
-            # either 'explicit' or 'implicit'
-                # implicit: does NOT contain direct features for g, strain, demographics
-                # explicit: DOES contain direct features for g, strain, demographics
+    ## Model Parameters
     model_type = ['noAFE', 'explicit']
-
-    # Feature Info
-        # Example with all feature groups:
-            # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'fnirs', 'eyetracking', 'AFE', 'G', 'cognitive',
-                # 'rawEEG', 'processedEEG', 'strain', 'demographics']
-        # NOTES:
-            # Update from GLOC tagup 01/15/25: Chris said the FNIRS data should not be trusted and should not be used.
-            # The light from the eye tracking glasses washed out this data.
-    # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'cognitive', 'strain', 'demographics']
-    # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'rawEEG', 'processedEEG', 'demographics', 'strain']
-    # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'cognitive', 'strain', 'demographics']
     feature_groups_to_analyze = ['ECG']
+    baseline_methods_to_use = ['v0']
+    time_variable = 'Time (s)'
+    analysis_type = 2
+    impute_type = 2
 
-    # Baseline Method
-        # baseline_methods_to_use options:
+    baseline_window = 10  # seconds
+    window_size = 10  # seconds
+    stride = 1  # seconds
+    offset = 0  # seconds
+    time_start = 0  # seconds
+
+    training_ratio = 0.8
+
+    # Subject & Trial Information (only need to adjust this if doing analysis type 0,1)
+    subject_to_analyze = '01'
+    trial_to_analyze = '02'
+
+    #### DESCRIPTIONS OF ABOVE PARAMETERS
+    ## datafolder: Location of structured data files
+
+    ## classifier_type: Type of Classifier
+        # options are 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB'
+        # select 'all' to run all of the above
+
+    ## train_class: Retrain or load pre-existing weights
+
+    ## model_type: Type of Model with Two parameters to specify:
+        # either 'AFE' or 'noAFE'
+        # either 'explicit' or 'implicit'
+            # implicit: does NOT contain direct features for g, strain, demographics
+            # explicit: DOES contain direct features for g, strain, demographics
+
+    ## feature_groups_to_analyze: Feature Groups to Pull from GLOC Data File
+        # Example with all feature groups:
+        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'fnirs', 'eyetracking', 'AFE', 'G', 'cognitive',
+                                     # 'rawEEG', 'processedEEG', 'strain', 'demographics']
+        # NOTES:
+        # Update from GLOC tagup 01/15/25: Chris said the fNIRS data should not be trusted and should not be used.
+        # The light from the eye tracking glasses washed out this data.
+        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'cognitive', 'strain', 'demographics']
+        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'rawEEG', 'processedEEG',
+                                     # 'demographics', 'strain']
+        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'cognitive', 'strain', 'demographics']
+
+    ##  baseline_methods_to_use: Baseline Methods to Use on Feature Set
+        #  options:
             # V0: no baseline
             # V1: divide by baseline window
             # V2: subtract baseline window
@@ -49,44 +77,33 @@ if __name__ == "__main__":
             # V6: subtract seated resting HR
             # V7: divide by resting EEG
             # V8: subtract resting EEG
-        # Example with all feature groups:
+            # Example with all feature groups:
             # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']
-        # NOTES:
+            # NOTES:
             # ALWAYS use v0- it is needed for several additional features that get computed
-    # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']
-    # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
-    baseline_methods_to_use = ['v0']
+            # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']
+            # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
 
-    time_variable = 'Time (s)'
+    ## impute_type: Type of Imputation to perform
+        # 0: Remove raw NaN rows | 1: KNN impute raw data | 2: remove feature NaN rows | 3: KNN impute features
 
-    # Data Parameters
-    analysis_type = 2   # flag to set which data should be analyzed
-                        # analysis_type = 0: analyze one trial from a subject
-                            # if analysis_type = 0, then set subject_to_analyze and trial_to_analyze parameters below
-                        # analysis_type = 1: analyze subject data (all trials for a subject)
-                            # if analysis_type = 1, then set subject_to_analyze parameter below
-                        # analysis_type = 2: analyze cohort data (all subjects, all trials)
-                            # if analysis_type = 2, then no extra parameters need to be set
+    ## training_ratio: ML Splits (Training/Test Split, specify proportion of training data 0-1)
 
-    baseline_window = 10 # seconds
-    window_size = 10     # seconds
-    stride = 1           # seconds
-    offset = 0           # seconds
-    time_start = 0       # seconds
+    ## baseline_window, window_size, stride,offset, time_start: (all in seconds) Sliding Window Parameters
 
-    # ML Splits (Training/Test Split, specify proportion of training data 0-1)
-    training_ratio = 0.8
+    ## analysis_type: Flags which data should be analyzed
+        # analysis_type = 0: analyze one trial from a subject
+            # if analysis_type = 0, then set subject_to_analyze and trial_to_analyze parameters below
+        # analysis_type = 1: analyze subject data (all trials for a subject)
+            # if analysis_type = 1, then set subject_to_analyze parameter below
+        # analysis_type = 2: analyze cohort data (all subjects, all trials)
+            # if analysis_type = 2, then no extra parameters need to be set
 
-    # Subject & Trial Information (only need to adjust this if doing analysis type 0,1)
-    subject_to_analyze = '01'
-    trial_to_analyze = '02'
-
-    # Type of Imputation to perform
-    # 0: Remove raw NaN rows | 1: KNN impute raw data |
-    # 2: remove feature NaN rows | 3: KNN impute features
-    impute_type = 2
 
     ############################################# LOAD AND PROCESS DATA #############################################
+    # Grab Data File Locations
+    (filename, baseline_data_filename, demographic_data_filename,
+     list_of_eeg_data_files, list_of_baseline_eeg_processed_files) = data_locations(datafolder)
 
     # Process CSV
     if analysis_type == 0:  # One Trial / One Subject
@@ -302,8 +319,9 @@ if __name__ == "__main__":
                                                   sliding_window_hrv_pnn50_s2, sliding_window_cognitive_IES_s2)
 
     # Combine all features into array
-    all_features = (all_features_mean_s1 + all_features_stddev_s1 + all_features_max_s1 +  all_features_range_s1 + all_features_additional_s1 +
-                    all_features_mean_s2 + all_features_stddev_s2 + all_features_max_s2 + all_features_range_s2 + all_features_additional_s2)
+    all_features = (all_features_mean_s1 + all_features_stddev_s1 + all_features_max_s1 +  all_features_range_s1 +
+                    all_features_additional_s1 + all_features_mean_s2 + all_features_stddev_s2 + all_features_max_s2 +
+                    all_features_range_s2 + all_features_additional_s2)
 
     # Remove constant columns
     x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
@@ -322,8 +340,8 @@ if __name__ == "__main__":
     ################################################ FEATURE SELECTION ################################################
 
     # Training/Test Split
-    x_train, x_test, y_train, y_test = pre_classification_training_test_split(y_gloc_labels_noNaN, x_feature_matrix_noNaN,
-                                                                              training_ratio)
+    x_train, x_test, y_train, y_test = pre_classification_training_test_split(y_gloc_labels_noNaN,
+                                                                              x_feature_matrix_noNaN,training_ratio)
 
     # Feature Selection
     # selected_features_lasso = feature_selection_lasso(x_train, y_train, all_features)
@@ -333,35 +351,47 @@ if __name__ == "__main__":
 
     ################################################ MACHINE LEARNING ################################################
 
-    # Logistic Regression
-    accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg = (
-        classify_logistic_regression(x_train, x_test, y_train, y_test, all_features))
+    # Logistic Regression | logreg
+    if classifier_type == 'all' or classifier_type == 'logreg':
+        accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg = (
+            classify_logistic_regression(x_train, x_test, y_train, y_test, all_features,retrain=train_class))
 
-    # RF
-    accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf = (
-        classify_random_forest(x_train, x_test, y_train, y_test, all_features))
+    # Random Forrest | rf
+    if classifier_type == 'all' or classifier_type == 'rf':
+        accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf = (
+            classify_random_forest(x_train, x_test, y_train, y_test, all_features,retrain=train_class))
 
-    # LDA
-    accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda = (
-        classify_lda(x_train, x_test, y_train, y_test, all_features))
+    # Linear discriminant analysis | LDA
+    if classifier_type == 'all' or classifier_type == 'LDA':
+        accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda = (
+            classify_lda(x_train, x_test, y_train, y_test, all_features,retrain=train_class))
 
     # KNN
-    accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn = classify_knn(x_train, x_test, y_train, y_test)
+    if classifier_type == 'all' or classifier_type == 'KNN':
+        accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn = (
+            classify_knn(x_train, x_test, y_train, y_test,retrain=train_class))
 
     # SVM
-    accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm = classify_svm(x_train, x_test, y_train, y_test)
+    if classifier_type == 'all' or classifier_type == 'SVM':
+        accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm = (
+            classify_svm(x_train, x_test, y_train, y_test,retrain=train_class))
 
     # Ensemble with Gradient Boosting
-    accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb = (
-        classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test))
+    if classifier_type == 'all' or classifier_type == 'EGB':
+        accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb = (
+            classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,retrain=train_class))
 
     # Build Performance Metric Summary Tables
-    performance_metric_summary = (
-        summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda, accuracy_knn, accuracy_svm, accuracy_gb,
-                                      precision_logreg, precision_rf, precision_lda, precision_knn, precision_svm, precision_gb,
-                                      recall_logreg, recall_rf, recall_lda, recall_knn, recall_svm, recall_gb,
-                                      f1_logreg, f1_rf, f1_lda, f1_knn, f1_svm, f1_gb,
-                                      specificity_logreg, specificity_rf, specificity_lda, specificity_knn, specificity_svm, specificity_gb))
+    if classifier_type == 'all':
+        performance_metric_summary = (summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda,
+                                                                    accuracy_knn, accuracy_svm, accuracy_gb,
+                                                                    precision_logreg, precision_rf, precision_lda,
+                                                                    precision_knn, precision_svm, precision_gb,
+                                                                    recall_logreg, recall_rf, recall_lda, recall_knn,
+                                                                    recall_svm, recall_gb, f1_logreg, f1_rf, f1_lda,
+                                                                    f1_knn, f1_svm, f1_gb,specificity_logreg,
+                                                                    specificity_rf, specificity_lda, specificity_knn,
+                                                                    specificity_svm, specificity_gb))
 
 
     # Breakpoint for troubleshooting
