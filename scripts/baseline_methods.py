@@ -61,6 +61,10 @@ def baseline_data(baseline_methods_to_use, gloc_data_reduced, features, time_var
     baseline_v0 = baseline['v0']
     baseline_names_v0 = baseline_names['v0']
 
+    # Tabulate NaN
+    NaN_table, NaN_proportion, NaN_gloc_proportion = tabulateNaN(baseline_v0, all_features, gloc,
+                                                                 gloc_data_reduced)
+
     return combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0
 
 def create_v0_baseline(gloc_data_reduced, features, time_variable, all_features):
