@@ -1,7 +1,82 @@
 import numpy as np
+from GLOC_data_processing import unpack_dict
 import pandas as pd
 import os
 from sklearn import linear_model
+
+def feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, gloc_data_reduced,
+                       time_variable, combined_baseline_names,baseline_names, baseline,
+                       feature_groups_to_analyze):
+
+    """
+    Generates Features from Baseline Data
+    :return:
+    """
+
+    # Sliding Window Mean (Intra-Trial Standardization)
+    gloc_window, sliding_window_mean_s1, number_windows, all_features_mean_s1, sliding_window_mean_s2, all_features_mean_s2 = (
+        sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc, gloc_data_reduced,
+                                 time_variable, combined_baseline_names))
+
+    # Sliding Window Standard Deviation, Max, Range
+    (sliding_window_stddev_s1, sliding_window_max_s1, sliding_window_range_s1, all_features_stddev_s1,
+     all_features_max_s1,
+     all_features_range_s1, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2,
+     all_features_stddev_s2, all_features_max_s2,
+     all_features_range_s2) = (
+        sliding_window_calc(time_start, stride, window_size, combined_baseline, gloc_data_reduced, time_variable,
+                            number_windows, combined_baseline_names))
+
+    # Additional Features
+    (all_features_additional_s1, sliding_window_integral_left_pupil_s1, sliding_window_integral_right_pupil_s1,
+     sliding_window_consecutive_elements_mean_left_pupil_s1, sliding_window_consecutive_elements_mean_right_pupil_s1,
+     sliding_window_consecutive_elements_max_left_pupil_s1, sliding_window_consecutive_elements_max_right_pupil_s1,
+     sliding_window_consecutive_elements_sum_left_pupil_s1, sliding_window_consecutive_elements_sum_right_pupil_s1,
+     sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_hrv_pnn50_s1,
+     sliding_window_cognitive_IES_s1,
+     all_features_additional_s2, sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
+     sliding_window_consecutive_elements_mean_left_pupil_s2, sliding_window_consecutive_elements_mean_right_pupil_s2,
+     sliding_window_consecutive_elements_max_left_pupil_s2, sliding_window_consecutive_elements_max_right_pupil_s2,
+     sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
+     sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2, sliding_window_hrv_pnn50_s2,
+     sliding_window_cognitive_IES_s2) = \
+        (sliding_window_other_features(time_start, stride, window_size, gloc_data_reduced, time_variable,
+                                       number_windows,
+                                       baseline_names['v0'], baseline['v0'], feature_groups_to_analyze))
+
+    # Unpack Dictionary into Array & combine features into one feature array
+    y_gloc_labels, x_feature_matrix = unpack_dict(gloc_window, sliding_window_mean_s1, number_windows,
+                                                  sliding_window_stddev_s1,
+                                                  sliding_window_max_s1, sliding_window_range_s1,
+                                                  sliding_window_integral_left_pupil_s1,
+                                                  sliding_window_integral_right_pupil_s1,
+                                                  sliding_window_consecutive_elements_mean_left_pupil_s1,
+                                                  sliding_window_consecutive_elements_mean_right_pupil_s1,
+                                                  sliding_window_consecutive_elements_max_left_pupil_s1,
+                                                  sliding_window_consecutive_elements_max_right_pupil_s1,
+                                                  sliding_window_consecutive_elements_sum_left_pupil_s1,
+                                                  sliding_window_consecutive_elements_sum_right_pupil_s1,
+                                                  sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1,
+                                                  sliding_window_hrv_pnn50_s1, sliding_window_cognitive_IES_s1,
+                                                  sliding_window_mean_s2, sliding_window_stddev_s2,
+                                                  sliding_window_max_s2, sliding_window_range_s2,
+                                                  sliding_window_integral_left_pupil_s2,
+                                                  sliding_window_integral_right_pupil_s2,
+                                                  sliding_window_consecutive_elements_mean_left_pupil_s2,
+                                                  sliding_window_consecutive_elements_mean_right_pupil_s2,
+                                                  sliding_window_consecutive_elements_max_left_pupil_s2,
+                                                  sliding_window_consecutive_elements_max_right_pupil_s2,
+                                                  sliding_window_consecutive_elements_sum_left_pupil_s2,
+                                                  sliding_window_consecutive_elements_sum_right_pupil_s2,
+                                                  sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
+                                                  sliding_window_hrv_pnn50_s2, sliding_window_cognitive_IES_s2)
+
+    # Combine all features into array
+    all_features = (all_features_mean_s1 + all_features_stddev_s1 + all_features_max_s1 + all_features_range_s1 +
+                    all_features_additional_s1 + all_features_mean_s2 + all_features_stddev_s2 + all_features_max_s2 +
+                    all_features_range_s2 + all_features_additional_s2)
+
+    return y_gloc_labels, x_feature_matrix, all_features
 
 def sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc, gloc_data_reduced, time_variable, combined_baseline_names):
     """

@@ -100,28 +100,19 @@ if __name__ == "__main__":
 
 
     ############################################# LOAD AND PROCESS DATA #############################################
+    """ 
+       Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze'
+    """
+
     # Grab Data File Locations
     (filename, baseline_data_filename, demographic_data_filename,
      list_of_eeg_data_files, list_of_baseline_eeg_processed_files) = data_locations(datafolder)
 
-    # Process CSV
-    if analysis_type == 0:  # One Trial / One Subject
-        (gloc_data_reduced, features, features_phys, features_ecg, features_eeg, all_features, all_features_phys,
-         all_features_ecg, all_features_eeg) = (load_and_process_csv(filename, analysis_type, feature_groups_to_analyze,
-                                                                     demographic_data_filename, model_type, list_of_eeg_data_files,
-                                                                     trial_to_analyze=trial_to_analyze,
-                                                                     subject_to_analyze = subject_to_analyze))
-
-    elif analysis_type == 1:  # All Trials for One Subject
-        (gloc_data_reduced, features, features_phys, features_ecg, features_eeg, all_features, all_features_phys,
-         all_features_ecg, all_features_eeg) = (load_and_process_csv(filename, analysis_type, feature_groups_to_analyze,
-                                                                     demographic_data_filename, model_type, list_of_eeg_data_files,
-                                                                     subject_to_analyze = subject_to_analyze))
-
-    elif analysis_type == 2: # All Trials for All Subjects
-        (gloc_data_reduced, features, features_phys, features_ecg, features_eeg, all_features, all_features_phys,
-         all_features_ecg, all_features_eeg) = (load_and_process_csv(filename, analysis_type, feature_groups_to_analyze,
-                                                                     demographic_data_filename, model_type, list_of_eeg_data_files))
+    # Load Data
+    (gloc_data_reduced, features, features_phys, features_ecg, features_eeg, all_features, all_features_phys,
+     all_features_ecg, all_features_eeg) = (
+        analysis_driven_csv_processing(analysis_type, filename, feature_groups_to_analyze, demographic_data_filename,
+                                       model_type,list_of_eeg_data_files,trial_to_analyze,subject_to_analyze))
 
     # Create GLOC Categorical Vector
     gloc = label_gloc_events(gloc_data_reduced)
@@ -129,11 +120,12 @@ if __name__ == "__main__":
     # Find time window after acceleration before GLOC (to compare our data to LOCINDTI)
     # find_prediction_window(gloc_data_reduced, gloc, time_variable)
 
-    ####################################### DATA CLEAN AND PREP #######################################################
 
-    ### Tabulate NaN
-    # Tabulate NaN
-    # NaN_table, NaN_proportion, NaN_gloc_proportion = tabulateNaNraw(features, all_features, gloc, gloc_data_reduced)
+    ############################################### DATA CLEAN AND PREP ###############################################
+    """ 
+       Optional handling of raw NaN data, depending on 'impute_type' <= 1
+    """
+
     ### Remove full trials with NaN
 
     ### Impute missing row data
@@ -143,13 +135,10 @@ if __name__ == "__main__":
     elif impute_type == 1:
         features, indicator_matrix = knn_impute(features, n_neighbors=5)
 
+
     ################################################## BASELINE DATA ##################################################
-    """
-    Baselines pre-feature data based on 'baseline_methods_to_use' 
-        combined_baseline: dict that specifics 'participant-trial' and their baseline data
-        combined_baseline_names: specifies column names of data within combined_baseline['part-trial']
-        baseline: dict that specifics 'method' and then 'participant-trial' and their baseline data
-        baseline_names: dict that specifies column names of data within baseline['method']['part-trial']
+    """ 
+        Baselines pre-feature data based on 'baseline_methods_to_use'
     """
 
     combined_baseline, combined_baseline_names, baseline, baseline_names= (
@@ -158,63 +147,22 @@ if __name__ == "__main__":
                       features_eeg, all_features_eeg, baseline_data_filename, list_of_baseline_eeg_processed_files,
                       model_type))
 
+
     ################################################ GENERATE FEATURES ################################################
+    """
+        Generates features from baseline data
+    """
 
-    # Sliding Window Mean (Intra-Trial Standardization)
-    gloc_window, sliding_window_mean_s1, number_windows, all_features_mean_s1, sliding_window_mean_s2, all_features_mean_s2= (
-        sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc, gloc_data_reduced,
-                                 time_variable, combined_baseline_names))
+    y_gloc_labels, x_feature_matrix, all_features = (
+        feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, gloc_data_reduced,
+                           time_variable, combined_baseline_names,baseline_names, baseline,
+                           feature_groups_to_analyze))
 
-    # Sliding Window Standard Deviation, Max, Range
-    (sliding_window_stddev_s1, sliding_window_max_s1, sliding_window_range_s1, all_features_stddev_s1, all_features_max_s1,
-     all_features_range_s1, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2, all_features_stddev_s2, all_features_max_s2,
-     all_features_range_s2) = (sliding_window_calc(time_start, stride, window_size, combined_baseline, gloc_data_reduced, time_variable,
-                            number_windows, combined_baseline_names))
 
-    # Additional Features
-    (all_features_additional_s1, sliding_window_integral_left_pupil_s1, sliding_window_integral_right_pupil_s1,
-     sliding_window_consecutive_elements_mean_left_pupil_s1, sliding_window_consecutive_elements_mean_right_pupil_s1,
-     sliding_window_consecutive_elements_max_left_pupil_s1, sliding_window_consecutive_elements_max_right_pupil_s1,
-     sliding_window_consecutive_elements_sum_left_pupil_s1, sliding_window_consecutive_elements_sum_right_pupil_s1,
-     sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_hrv_pnn50_s1, sliding_window_cognitive_IES_s1,
-     all_features_additional_s2, sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
-     sliding_window_consecutive_elements_mean_left_pupil_s2, sliding_window_consecutive_elements_mean_right_pupil_s2,
-     sliding_window_consecutive_elements_max_left_pupil_s2, sliding_window_consecutive_elements_max_right_pupil_s2,
-     sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
-     sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2, sliding_window_hrv_pnn50_s2,
-     sliding_window_cognitive_IES_s2) = \
-        (sliding_window_other_features(time_start, stride, window_size, gloc_data_reduced,time_variable, number_windows,
-                                      baseline_names['v0'], baseline['v0'], feature_groups_to_analyze))
-
-    # Unpack Dictionary into Array & combine features into one feature array
-    y_gloc_labels, x_feature_matrix = unpack_dict(gloc_window, sliding_window_mean_s1, number_windows, sliding_window_stddev_s1,
-                                                  sliding_window_max_s1, sliding_window_range_s1,
-                                                  sliding_window_integral_left_pupil_s1,sliding_window_integral_right_pupil_s1,
-                                                  sliding_window_consecutive_elements_mean_left_pupil_s1,
-                                                  sliding_window_consecutive_elements_mean_right_pupil_s1,
-                                                  sliding_window_consecutive_elements_max_left_pupil_s1,
-                                                  sliding_window_consecutive_elements_max_right_pupil_s1,
-                                                  sliding_window_consecutive_elements_sum_left_pupil_s1,
-                                                  sliding_window_consecutive_elements_sum_right_pupil_s1,
-                                                  sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1,
-                                                  sliding_window_hrv_pnn50_s1, sliding_window_cognitive_IES_s1,
-                                                  sliding_window_mean_s2, sliding_window_stddev_s2,
-                                                  sliding_window_max_s2, sliding_window_range_s2,
-                                                  sliding_window_integral_left_pupil_s2,
-                                                  sliding_window_integral_right_pupil_s2,
-                                                  sliding_window_consecutive_elements_mean_left_pupil_s2,
-                                                  sliding_window_consecutive_elements_mean_right_pupil_s2,
-                                                  sliding_window_consecutive_elements_max_left_pupil_s2,
-                                                  sliding_window_consecutive_elements_max_right_pupil_s2,
-                                                  sliding_window_consecutive_elements_sum_left_pupil_s2,
-                                                  sliding_window_consecutive_elements_sum_right_pupil_s2,
-                                                  sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
-                                                  sliding_window_hrv_pnn50_s2, sliding_window_cognitive_IES_s2)
-
-    # Combine all features into array
-    all_features = (all_features_mean_s1 + all_features_stddev_s1 + all_features_max_s1 +  all_features_range_s1 +
-                    all_features_additional_s1 + all_features_mean_s2 + all_features_stddev_s2 + all_features_max_s2 +
-                    all_features_range_s2 + all_features_additional_s2)
+    ############################################# FEATURE CLEAN AND PREP ##############################################
+    """ 
+          Optional handling of raw NaN data, depending on 'impute_type' >= 2
+    """
 
     # Remove constant columns
     x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
@@ -241,6 +189,7 @@ if __name__ == "__main__":
     # selected_features_enet = feature_selection_elastic_net(x_train, y_train, all_features)
     # selected_features_ridge = feature_selection_ridge(x_train, y_train, all_features)
     # selected_features_mrmr = feature_selection_mrmr(x_train, y_train, all_features)
+
 
     ################################################ MACHINE LEARNING ################################################
 
