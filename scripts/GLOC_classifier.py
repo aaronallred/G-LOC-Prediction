@@ -57,7 +57,8 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, all_features,
 
     if retrain:
         # Use Default Parameters & Fit Model
-        logreg = LogisticRegression(class_weight = "balanced", random_state=42, max_iter=1000).fit(x_train, np.ravel(y_train))
+        #weights = {0: 1.0, 1: 10.0}
+        logreg = LogisticRegression(class_weight = 'balanced', random_state=42, max_iter=1000).fit(x_train, np.ravel(y_train))
     else:
         model_path = os.path.join(save_folder, model_name)
         logreg = joblib.load(model_path)
@@ -335,10 +336,9 @@ def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,
 
 def save_model_weights(model,save_folder,model_name):
     """
-
     Saves Model Weights to save folder
-
     """
+
     # Ensure the save folder exists
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)

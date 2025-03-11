@@ -97,7 +97,7 @@ def create_confusion_matrix(y_testing, label_predictions, model_type):
     plt.title(f'Confusion matrix: {model_type}', y=1.1)
     plt.ylabel('Actual label')
     plt.xlabel('Predicted label')
-    plt.show()
+    plt.show(block=False)
 
 def plot_HR_data():
     x = 250

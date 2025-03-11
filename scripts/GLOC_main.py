@@ -20,7 +20,8 @@ if __name__ == "__main__":
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
-    feature_groups_to_analyze = ['ECG']
+    feature_groups_to_analyze =  ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'rawEEG', 'processedEEG',
+                                  'demographics', 'strain']
     baseline_methods_to_use = ['v0']
     time_variable = 'Time (s)'
     analysis_type = 2
@@ -141,7 +142,7 @@ if __name__ == "__main__":
         Baselines pre-feature data based on 'baseline_methods_to_use'
     """
 
-    combined_baseline, combined_baseline_names, baseline, baseline_names= (
+    combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0= (
         baseline_data(baseline_methods_to_use, gloc_data_reduced, features, time_variable, all_features,
                       gloc,baseline_window, features_phys, all_features_phys, features_ecg, all_features_ecg,
                       features_eeg, all_features_eeg, baseline_data_filename, list_of_baseline_eeg_processed_files,
@@ -155,7 +156,7 @@ if __name__ == "__main__":
 
     y_gloc_labels, x_feature_matrix, all_features = (
         feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, gloc_data_reduced,
-                           time_variable, combined_baseline_names,baseline_names, baseline,
+                           time_variable, combined_baseline_names,baseline_names_v0, baseline_v0,
                            feature_groups_to_analyze))
 
 

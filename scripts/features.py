@@ -4,8 +4,9 @@ import pandas as pd
 import os
 from sklearn import linear_model
 
+
 def feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, gloc_data_reduced,
-                       time_variable, combined_baseline_names,baseline_names, baseline,
+                       time_variable, combined_baseline_names,baseline_names_v0, baseline_v0,
                        feature_groups_to_analyze):
 
     """
@@ -42,7 +43,7 @@ def feature_generation(time_start, offset, stride, window_size, combined_baselin
      sliding_window_cognitive_IES_s2) = \
         (sliding_window_other_features(time_start, stride, window_size, gloc_data_reduced, time_variable,
                                        number_windows,
-                                       baseline_names['v0'], baseline['v0'], feature_groups_to_analyze))
+                                       baseline_names_v0, baseline_v0, feature_groups_to_analyze))
 
     # Unpack Dictionary into Array & combine features into one feature array
     y_gloc_labels, x_feature_matrix = unpack_dict(gloc_window, sliding_window_mean_s1, number_windows,
