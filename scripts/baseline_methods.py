@@ -591,7 +591,6 @@ def combine_all_baseline(gloc_data_reduced, baseline, baseline_derivative, basel
 
 
 ####  OLD CHUCKS AARON DOESN'T WANT TO DELETE
-"""
 def baseline_data_old(baseline_methods_to_use, gloc_data_reduced, features,time_variable, all_features, gloc,baseline_window,
              features_phys, all_features_phys, features_ecg, all_features_ecg, features_eeg, all_features_eeg,
              baseline_data_filename, list_of_baseline_eeg_processed_files,model_type):
@@ -748,4 +747,3 @@ def baseline_data_old(baseline_methods_to_use, gloc_data_reduced, features,time_
     baseline_names_v0 = baseline_names['v0']
 
     return combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0
-"""
