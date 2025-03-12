@@ -1269,6 +1269,8 @@ def remove_all_nan_trials(gloc_data_reduced,all_features,features,gloc):
 
     # Get rid of rows in the DF and array
     gloc_data_reduced = gloc_data_reduced.drop(rows_to_remove)
+    gloc_data_reduced = gloc_data_reduced.reset_index(drop=True)
+
     features = np.delete(features, rows_to_remove, axis=0)
     gloc = np.delete(gloc, rows_to_remove, axis=0)
 
@@ -1277,3 +1279,51 @@ def remove_all_nan_trials(gloc_data_reduced,all_features,features,gloc):
           "trials. ", N - M, " trials remaining.")
 
     return gloc_data_reduced, features, gloc, nan_proportion_df
+
+def afe_subset(model_type, gloc_data_reduced,all_features,features,gloc):
+    """
+        Remove trials where there is atl east one data stream that is all NaN
+        Also returns a NaN proportionality table that says for each trial, what prop are NaN for each data stream
+    """
+
+    if model_type[0] == 'AFE':
+        cond = 'AFE'
+    else:
+        cond = 'N'
+
+    # All features and subject trial info to be put into a reduced dataframe from gloc_data_reduced
+    all_features_with_ids = all_features + ['condition','subject','trial']
+    reduced_data_frame = gloc_data_reduced[all_features_with_ids]
+
+    rows_to_remove = []
+
+    N = 0 # number of trials total
+    M = 0 # number of trials with missing data streams
+    for (subject, trial), group in reduced_data_frame.groupby(['subject', 'trial']):
+        trial_data = reduced_data_frame[(reduced_data_frame['subject'] == subject) &
+                                        (reduced_data_frame['trial'] == trial)]
+
+
+        # Check if the chosen condition is violated
+        if trial_data['condition'].iloc[0] != cond:
+            # If so, add these indices to the list of rows to remove
+            rows_to_remove.append(trial_data.index)
+            M = M+1 # to be removed
+
+        N = N+1 # count trials
+
+    # Flatten list of indices and remove them from the DataFrame
+    rows_to_remove = [item for sublist in rows_to_remove for item in sublist]
+
+    # Get rid of rows in the DF and array
+    gloc_data_reduced = gloc_data_reduced.drop(rows_to_remove)
+    gloc_data_reduced = gloc_data_reduced.reset_index(drop=True)
+
+    features = np.delete(features, rows_to_remove, axis=0)
+    gloc = np.delete(gloc, rows_to_remove, axis=0)
+
+    # Print NaN findings
+    print("There are ", N - M, " trials that match the chosen AFE condition out of ", N,
+          "trials. ")
+
+    return gloc_data_reduced, features, gloc

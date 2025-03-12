@@ -22,8 +22,7 @@ if __name__ == "__main__":
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
-    feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'fnirs', 'eyetracking', 'AFE', 'G', 'cognitive',
-                                 'rawEEG', 'processedEEG', 'strain', 'demographics']
+    feature_groups_to_analyze = ['rawEEG']
     baseline_methods_to_use = ['v0']
     analysis_type = 2
 
@@ -119,6 +118,9 @@ if __name__ == "__main__":
 
     # Create GLOC Categorical Vector
     gloc = label_gloc_events(gloc_data_reduced)
+
+    # Reduce Dataset based on AFE / nonAFE condition
+    gloc_data_reduced, features, gloc = afe_subset(model_type, gloc_data_reduced,all_features,features,gloc)
 
     # Find time window after acceleration before GLOC (to compare our data to LOCINDTI)
     # find_prediction_window(gloc_data_reduced, gloc, time_variable)
