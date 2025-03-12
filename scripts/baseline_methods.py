@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-import os
 import warnings
 from GLOC_data_processing import tabulateNaN
 

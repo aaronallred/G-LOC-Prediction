@@ -1,9 +1,5 @@
 import numpy as np
 from GLOC_data_processing import unpack_dict
-import pandas as pd
-import os
-from sklearn import linear_model
-
 
 def feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, gloc_data_reduced,
                        time_variable, combined_baseline_names,baseline_names_v0, baseline_v0,

@@ -1,12 +1,10 @@
 from GLOC_data_processing import *
-from GLOC_visualization import *
-from GLOC_classifier import *
+from imputation import *
+from baseline_methods import *
 from features import *
 from feature_selection import *
-from baseline_methods import *
-from imputation import *
-import numpy as np
-import pandas as pd
+from GLOC_classifier import *
+from GLOC_visualization import *
 
 if __name__ == "__main__":
 
@@ -18,26 +16,28 @@ if __name__ == "__main__":
     classifier_type = 'logreg'
     train_class = True
 
+    # Data Handling Options
+    remove_NaN_trials = True
+    impute_type = 2
+
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
-    feature_groups_to_analyze =  ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'rawEEG', 'processedEEG',
-                                  'demographics', 'strain']
+    feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'fnirs', 'eyetracking', 'AFE', 'G', 'cognitive',
+                                 'rawEEG', 'processedEEG', 'strain', 'demographics']
     baseline_methods_to_use = ['v0']
-    time_variable = 'Time (s)'
     analysis_type = 2
-    impute_type = 2
 
     baseline_window = 10  # seconds
     window_size = 10  # seconds
     stride = 1  # seconds
     offset = 0  # seconds
     time_start = 0  # seconds
-
     training_ratio = 0.8
 
     # Subject & Trial Information (only need to adjust this if doing analysis type 0,1)
     subject_to_analyze = '01'
     trial_to_analyze = '02'
+    time_variable = 'Time (s)'
 
     #### DESCRIPTIONS OF ABOVE PARAMETERS
     ## datafolder: Location of structured data files
@@ -84,6 +84,8 @@ if __name__ == "__main__":
             # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']
             # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
 
+    ## remove_NaN_trials: Remove Trials that are missing a chosen data stream that has all NaN during the trial
+
     ## impute_type: Type of Imputation to perform
         # 0: Remove raw NaN rows | 1: KNN impute raw data | 2: remove feature NaN rows | 3: KNN impute features
 
@@ -124,10 +126,13 @@ if __name__ == "__main__":
 
     ############################################### DATA CLEAN AND PREP ###############################################
     """ 
-       Optional handling of raw NaN data, depending on 'impute_type' <= 1
+       Optional handling of raw NaN data, depending on 'remove_NaN_trials' 'impute_type' <= 1
     """
 
     ### Remove full trials with NaN
+    if remove_NaN_trials:
+        gloc_data_reduced, features, gloc, nan_proportion_df = (
+            remove_all_nan_trials(gloc_data_reduced, all_features, features,gloc))
 
     ### Impute missing row data
     if impute_type == 0:

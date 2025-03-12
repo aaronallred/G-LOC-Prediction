@@ -3,10 +3,7 @@ import os
 import joblib  # For saving the model
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
-import seaborn as sns
 from sklearn import metrics
-from matplotlib import pyplot as plt
-import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.datasets import make_classification
 from sklearn.tree import plot_tree
