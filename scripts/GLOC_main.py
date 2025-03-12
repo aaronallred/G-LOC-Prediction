@@ -121,7 +121,9 @@ if __name__ == "__main__":
     gloc = label_gloc_events(gloc_data_reduced)
 
     # Reduce Dataset based on AFE / nonAFE condition
-    gloc_data_reduced, features, gloc = afe_subset(model_type, gloc_data_reduced,all_features,features,gloc)
+    gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
+        afe_subset(model_type, gloc_data_reduced,all_features,
+                   features,features_phys, features_ecg, features_eeg, gloc))
 
     # Find time window after acceleration before GLOC (to compare our data to LOCINDTI)
     # find_prediction_window(gloc_data_reduced, gloc, time_variable)
@@ -134,8 +136,9 @@ if __name__ == "__main__":
 
     ### Remove full trials with NaN
     if remove_NaN_trials:
-        gloc_data_reduced, features, gloc, nan_proportion_df = (
-            remove_all_nan_trials(gloc_data_reduced, all_features, features,gloc))
+        gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc, nan_proportion_df = (
+            remove_all_nan_trials(gloc_data_reduced, all_features,
+                                  features,features_phys, features_ecg, features_eeg, gloc))
 
     ### Impute missing row data
     if impute_type == 0:
@@ -166,7 +169,6 @@ if __name__ == "__main__":
         feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, gloc_data_reduced,
                            time_variable, combined_baseline_names,baseline_names_v0, baseline_v0,
                            feature_groups_to_analyze))
-
 
     ############################################# FEATURE CLEAN AND PREP ##############################################
     """ 

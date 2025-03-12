@@ -1229,7 +1229,8 @@ def process_NaN_raw(gloc, features, gloc_data_reduced):
 
     return gloc_noNaN, features_noNaN, gloc_data_reduced_noNaN
 
-def remove_all_nan_trials(gloc_data_reduced,all_features,features,gloc):
+def remove_all_nan_trials(gloc_data_reduced,all_features,
+                          features,features_phys, features_ecg, features_eeg, gloc):
     """
         Remove trials where there is atl east one data stream that is all NaN
         Also returns a NaN proportionality table that says for each trial, what prop are NaN for each data stream
@@ -1272,15 +1273,19 @@ def remove_all_nan_trials(gloc_data_reduced,all_features,features,gloc):
     gloc_data_reduced = gloc_data_reduced.reset_index(drop=True)
 
     features = np.delete(features, rows_to_remove, axis=0)
+    features_phys = np.delete(features_phys, rows_to_remove, axis=0)
+    features_ecg = np.delete(features_ecg, rows_to_remove, axis=0)
+    features_eeg = np.delete(features_eeg, rows_to_remove, axis=0)
     gloc = np.delete(gloc, rows_to_remove, axis=0)
 
     # Print NaN findings
     print("There are ", M, " trials with all NaNs for at least one feature out of ", N,
           "trials. ", N - M, " trials remaining.")
 
-    return gloc_data_reduced, features, gloc, nan_proportion_df
+    return gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc, nan_proportion_df
 
-def afe_subset(model_type, gloc_data_reduced,all_features,features,gloc):
+def afe_subset(model_type, gloc_data_reduced,all_features,
+               features,features_phys, features_ecg, features_eeg,gloc):
     """
         Remove trials where there is atl east one data stream that is all NaN
         Also returns a NaN proportionality table that says for each trial, what prop are NaN for each data stream
@@ -1292,6 +1297,7 @@ def afe_subset(model_type, gloc_data_reduced,all_features,features,gloc):
         cond = 0
 
     # All features and subject trial info to be put into a reduced dataframe from gloc_data_reduced
+    # add on 'condition' to always check | requires second '.any()' statement below in the condition
     all_features_with_ids = all_features + ['condition','subject','trial']
     reduced_data_frame = gloc_data_reduced[all_features_with_ids]
 
@@ -1304,7 +1310,7 @@ def afe_subset(model_type, gloc_data_reduced,all_features,features,gloc):
                                         (reduced_data_frame['trial'] == trial)]
 
 
-        # Check if the chosen condition is violated
+        # Check if the chosen AFE condition is violated at all during the trial
         if trial_data['condition'].any().any() != cond:
             # If so, add these indices to the list of rows to remove
             rows_to_remove.append(trial_data.index)
@@ -1320,10 +1326,13 @@ def afe_subset(model_type, gloc_data_reduced,all_features,features,gloc):
     gloc_data_reduced = gloc_data_reduced.reset_index(drop=True)
 
     features = np.delete(features, rows_to_remove, axis=0)
+    features_phys = np.delete(features_phys, rows_to_remove, axis=0)
+    features_ecg = np.delete(features_ecg, rows_to_remove, axis=0)
+    features_eeg = np.delete(features_eeg, rows_to_remove, axis=0)
     gloc = np.delete(gloc, rows_to_remove, axis=0)
 
     # Print NaN findings
     print("There are ", N - M, " trials that match the chosen AFE condition out of ", N,
           "trials. ")
 
-    return gloc_data_reduced, features, gloc
+    return gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc
