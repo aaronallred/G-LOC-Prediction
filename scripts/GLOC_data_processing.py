@@ -190,12 +190,12 @@ def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, dem
     else:
         eyetracking_features = []
 
+    # Adjust columns of data frame for feature always
+    gloc_data_reduced['condition'].replace('N', 0, inplace=True)
+    gloc_data_reduced['condition'].replace('AFE', 1, inplace=True)
     if 'AFE' in feature_groups_to_analyze:
         afe_features = ['condition']
 
-        # Adjust columns of data frame for feature
-        gloc_data_reduced['condition'].replace('N', 0, inplace=True)
-        gloc_data_reduced['condition'].replace('AFE', 1, inplace=True)
     else:
         afe_features = []
 
@@ -1287,9 +1287,9 @@ def afe_subset(model_type, gloc_data_reduced,all_features,features,gloc):
     """
 
     if model_type[0] == 'AFE':
-        cond = 'AFE'
+        cond = 1
     else:
-        cond = 'N'
+        cond = 0
 
     # All features and subject trial info to be put into a reduced dataframe from gloc_data_reduced
     all_features_with_ids = all_features + ['condition','subject','trial']
@@ -1305,7 +1305,7 @@ def afe_subset(model_type, gloc_data_reduced,all_features,features,gloc):
 
 
         # Check if the chosen condition is violated
-        if trial_data['condition'].iloc[0] != cond:
+        if trial_data['condition'].any().any() != cond:
             # If so, add these indices to the list of rows to remove
             rows_to_remove.append(trial_data.index)
             M = M+1 # to be removed

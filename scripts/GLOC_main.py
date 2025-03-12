@@ -13,7 +13,7 @@ if __name__ == "__main__":
     datafolder = '../data/'
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
-    classifier_type = 'logreg'
+    classifier_type = 'all'
     train_class = True
 
     # Data Handling Options
@@ -22,8 +22,9 @@ if __name__ == "__main__":
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
-    feature_groups_to_analyze = ['rawEEG']
-    baseline_methods_to_use = ['v0']
+    feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'fnirs', 'eyetracking', 'AFE', 'G', 'cognitive',
+                                 'rawEEG', 'processedEEG', 'strain', 'demographics']
+    baseline_methods_to_use = ['v0','v1']
     analysis_type = 2
 
     baseline_window = 10  # seconds
