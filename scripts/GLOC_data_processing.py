@@ -485,10 +485,10 @@ def process_strain_data(gloc_data_reduced):
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
-    first_nan_post_GOR_peak = np.argmax(magnitude_g_trial[gor_peak:-1])
+    return_to_base_spin_index = np.where(magnitude_g_trial[gor_peak:-1] == 1.2)[0]
 
     # Find the index of new end GOR label in full length csv
-    end_GOR_label_index = trial_index.idxmax() + gor_peak + first_nan_post_GOR_peak
+    end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
     gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
 
@@ -512,10 +512,10 @@ def process_strain_data(gloc_data_reduced):
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
-    first_nan_post_GOR_peak = np.argmax(magnitude_g_trial[gor_peak:-1])
+    return_to_base_spin_index = np.argmax(magnitude_g_trial[gor_peak:-1])
 
     # Find the index of new end GOR label in full length csv
-    end_GOR_label_index = trial_index.idxmax() + gor_peak + first_nan_post_GOR_peak
+    end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
     gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
 
@@ -557,10 +557,10 @@ def process_strain_data(gloc_data_reduced):
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
-    first_nan_post_GOR_peak = np.argmax(magnitude_g_trial[gor_peak:-1])
+    return_to_base_spin_index = np.where(magnitude_g_trial[gor_peak:-1] == 1.2)[0]
 
     # Find the index of new end GOR label in full length csv
-    end_GOR_label_index = trial_index.idxmax() + gor_peak + first_nan_post_GOR_peak
+    end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
     gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
 
@@ -584,10 +584,10 @@ def process_strain_data(gloc_data_reduced):
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
-    first_nan_post_GOR_peak = np.argmax(magnitude_g_trial[gor_peak:-1])
+    return_to_base_spin_index = np.where(magnitude_g_trial[gor_peak:-1] == 1.2)[0]
 
     # Find the index of new end GOR label in full length csv
-    end_GOR_label_index = trial_index.idxmax() + gor_peak + first_nan_post_GOR_peak
+    end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
     gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
 
@@ -611,10 +611,10 @@ def process_strain_data(gloc_data_reduced):
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
-    first_nan_post_GOR_peak = np.argmax(magnitude_g_trial[gor_peak:-1])
+    return_to_base_spin_index = np.where(magnitude_g_trial[gor_peak:-1] == 1.2)[0]
 
     # Find the index of new end GOR label in full length csv
-    end_GOR_label_index = trial_index.idxmax() + gor_peak + first_nan_post_GOR_peak
+    end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
     gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
 
@@ -656,10 +656,10 @@ def process_strain_data(gloc_data_reduced):
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
-    first_nan_post_GOR_peak = np.argmax(magnitude_g_trial[gor_peak:-1])
+    return_to_base_spin_index = np.where(magnitude_g_trial[gor_peak:-1] == 1.2)[0]
 
     # Find the index of new end GOR label in full length csv
-    end_GOR_label_index = trial_index.idxmax() + gor_peak + first_nan_post_GOR_peak
+    end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
     gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
 
@@ -708,10 +708,10 @@ def process_strain_data(gloc_data_reduced):
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
-    first_nan_post_GOR_peak = np.argmax(magnitude_g_trial[gor_peak:-1])
+    return_to_base_spin_index = np.where(magnitude_g_trial[gor_peak:-1] == 1.2)[0]
 
     # Find the index of new end GOR label in full length csv
-    end_GOR_label_index = trial_index.idxmax() + gor_peak + first_nan_post_GOR_peak
+    end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
     gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
 
@@ -735,10 +735,10 @@ def process_strain_data(gloc_data_reduced):
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
-    first_nan_post_GOR_peak = np.argmax(magnitude_g_trial[gor_peak:-1])
+    return_to_base_spin_index = np.where(magnitude_g_trial[gor_peak:-1] == 1.2)[0]
 
     # Find the index of new end GOR label in full length csv
-    end_GOR_label_index = trial_index.idxmax() + gor_peak + first_nan_post_GOR_peak
+    end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
     gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
 
@@ -780,10 +780,10 @@ def process_strain_data(gloc_data_reduced):
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
-    first_nan_post_GOR_peak = np.argmax(magnitude_g_trial[gor_peak:-1])
+    return_to_base_spin_index = np.where(magnitude_g_trial[gor_peak:-1] == 1.2)[0]
 
     # Find the index of new end GOR label in full length csv
-    end_GOR_label_index = trial_index.idxmax() + gor_peak + first_nan_post_GOR_peak
+    end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
     gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
 
