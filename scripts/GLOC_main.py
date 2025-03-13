@@ -18,6 +18,9 @@ if __name__ == "__main__":
     classifier_type = 'all'
     train_class = True
 
+    ## Sequential Optimization Mode | Pick 'none' 'imbalance' 'nan' 'sliding_window' or 'feature_reduction'
+    sequential_optimization_mode = 'none'
+
     ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
     imbalance_technique = 'all'
 
@@ -196,72 +199,108 @@ if __name__ == "__main__":
         y_gloc_labels_noNaN, x_feature_matrix_noNaN = y_gloc_labels, x_feature_matrix
 
     ################################################ TRAIN/TEST SPLIT  ################################################
+    """ 
+          Split data into training/test for optimization loop of sequential optimization framework.
+    """
+
     # Training/Test Split
     x_train, x_test, y_train, y_test = pre_classification_training_test_split(y_gloc_labels_noNaN,
                                                                               x_feature_matrix_noNaN,training_ratio)
 
     ################################################  CLASS IMBALANCE  ################################################
-    ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
-    if classifier_type == 'all' or classifier_type == 'rus':
-        rus_x_train, rus_y_train = resample_rus(x_train, y_train)
-        class_weight_imb = 'None'
+    """ 
+          Explore Class Imbalance Section of Sequential Optimization Framework
+    """
 
-        performance_metric_summary_rus = (call_all_classifiers(classifier_type, rus_x_train, x_test, rus_y_train,
-                                                               y_test, all_features, train_class, class_weight_imb))
-
-    if classifier_type == 'all' or classifier_type == 'ros':
-        ros_x_train, ros_y_train = resample_ros(x_train, y_train)
-        class_weight_imb = 'None'
-
-        performance_metric_summary_ros = (call_all_classifiers(classifier_type, ros_x_train, x_test, ros_y_train,
-                                                               y_test, all_features, train_class, class_weight_imb))
-
-    if classifier_type == 'all' or classifier_type == 'smote':
-        smote_x_train, smote_y_train = resample_smote(x_train, y_train)
-        class_weight_imb = 'None'
-
-        performance_metric_summary_smote = (call_all_classifiers(classifier_type, smote_x_train, x_test, smote_y_train,
-                                                               y_test, all_features, train_class, class_weight_imb))
-
-    if classifier_type == 'all' or classifier_type == 'cost_function':
-        class_weight_imb = 'balanced'
-        performance_metric_summary_cf = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
-                                                               y_test, all_features, train_class, class_weight_imb))
-
-    if classifier_type == 'all' or classifier_type == 'rus_cf':
-        class_weight_imb = 'balanced'
-        if rus_x_train not in globals():
+    if sequential_optimization_mode == 'imbalance':
+        ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
+        if classifier_type == 'all' or classifier_type == 'rus':
             rus_x_train, rus_y_train = resample_rus(x_train, y_train)
+            class_weight_imb = 'None'
 
-        performance_metric_summary_rus_cf = (call_all_classifiers(classifier_type, rus_x_train, x_test, rus_y_train,
-                                                               y_test, all_features, train_class, class_weight_imb))
+            performance_metric_summary_rus = (call_all_classifiers(classifier_type, rus_x_train, x_test, rus_y_train,
+                                                                   y_test, all_features, train_class, class_weight_imb))
 
-    if classifier_type == 'all' or classifier_type == 'ros_cf':
-        class_weight_imb = 'balanced'
-        if ros_x_train not in globals():
+        if classifier_type == 'all' or classifier_type == 'ros':
             ros_x_train, ros_y_train = resample_ros(x_train, y_train)
+            class_weight_imb = 'None'
 
-        performance_metric_summary_ros_cf = (call_all_classifiers(classifier_type, ros_x_train, x_test, ros_y_train,
+            performance_metric_summary_ros = (call_all_classifiers(classifier_type, ros_x_train, x_test, ros_y_train,
                                                                    y_test, all_features, train_class, class_weight_imb))
 
-    if classifier_type == 'all' or classifier_type == 'smote_cf':
-        class_weight_imb = 'balanced'
-        if smote_x_train not in globals():
+        if classifier_type == 'all' or classifier_type == 'smote':
             smote_x_train, smote_y_train = resample_smote(x_train, y_train)
+            class_weight_imb = 'None'
 
-        performance_metric_summary_smote_cf = (call_all_classifiers(classifier_type, smote_x_train, x_test, smote_y_train,
+            performance_metric_summary_smote = (call_all_classifiers(classifier_type, smote_x_train, x_test, smote_y_train,
                                                                    y_test, all_features, train_class, class_weight_imb))
 
-    if classifier_type == 'all' or classifier_type == 'none':
-        class_weight_imb = 'None'
+        if classifier_type == 'all' or classifier_type == 'cost_function':
+            class_weight_imb = 'balanced'
+            performance_metric_summary_cf = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+                                                                   y_test, all_features, train_class, class_weight_imb))
 
-        performance_metric_summary_none = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
-                                 y_test, all_features, train_class, class_weight_imb))
+        if classifier_type == 'all' or classifier_type == 'rus_cf':
+            class_weight_imb = 'balanced'
+            if rus_x_train not in globals():
+                rus_x_train, rus_y_train = resample_rus(x_train, y_train)
+
+            performance_metric_summary_rus_cf = (call_all_classifiers(classifier_type, rus_x_train, x_test, rus_y_train,
+                                                                   y_test, all_features, train_class, class_weight_imb))
+
+        if classifier_type == 'all' or classifier_type == 'ros_cf':
+            class_weight_imb = 'balanced'
+            if ros_x_train not in globals():
+                ros_x_train, ros_y_train = resample_ros(x_train, y_train)
+
+            performance_metric_summary_ros_cf = (call_all_classifiers(classifier_type, ros_x_train, x_test, ros_y_train,
+                                                                       y_test, all_features, train_class, class_weight_imb))
+
+        if classifier_type == 'all' or classifier_type == 'smote_cf':
+            class_weight_imb = 'balanced'
+            if smote_x_train not in globals():
+                smote_x_train, smote_y_train = resample_smote(x_train, y_train)
+
+            performance_metric_summary_smote_cf = (call_all_classifiers(classifier_type, smote_x_train, x_test, smote_y_train,
+                                                                       y_test, all_features, train_class, class_weight_imb))
+
+        if classifier_type == 'all' or classifier_type == 'none':
+            class_weight_imb = 'None'
+
+            performance_metric_summary_none = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+                                     y_test, all_features, train_class, class_weight_imb))
 
 
-    ################################################ FEATURE SELECTION ################################################
+    ################################################ FEATURE REDUCTION ################################################
+    """ 
+          Explore Feature Reduction Section of Sequential Optimization Framework
+    """
 
+    if sequential_optimization_mode == 'feature_reduction':
+        ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' or 'all'
+        if feature_reduction_type == 'all' or feature_reduction_type == 'lasso':
+            selected_features_lasso = feature_selection_lasso(x_train, y_train, all_features)
 
+        if feature_reduction_type == 'all' or feature_reduction_type == 'enet':
+            selected_features_enet = feature_selection_elastic_net(x_train, y_train, all_features)
+
+        if feature_reduction_type == 'all' or feature_reduction_type == 'ridge':
+            selected_features_ridge = feature_selection_ridge(x_train, y_train, all_features)
+
+        if feature_reduction_type == 'all' or feature_reduction_type == 'mrmr':
+            selected_features_mrmr = feature_selection_mrmr(x_train, y_train, all_features)
+
+        if feature_reduction_type == 'all' or feature_reduction_type == 'pca':
+            selected_features_pca = feature_selection_pca(x_train, y_train, all_features)
+
+        if feature_reduction_type == 'all' or feature_reduction_type == 'target_mean':
+            selected_features_target_mean = feature_selection_target_mean(x_train, y_train, all_features)
+
+        if feature_reduction_type == 'all' or feature_reduction_type == 'performance':
+            selected_features_performance = feature_selection_performance(x_train, y_train, all_features)
+
+        if feature_reduction_type == 'all' or feature_reduction_type == 'shuffle':
+            selected_features_shuffle = feature_selection_shuffle(x_train, y_train, all_features)
 
 
     # Feature Selection
@@ -270,54 +309,51 @@ if __name__ == "__main__":
     # selected_features_ridge = feature_selection_ridge(x_train, y_train, all_features)
     # selected_features_mrmr = feature_selection_mrmr(x_train, y_train, all_features)
 
-
-
-
     ################################################ MACHINE LEARNING ################################################
+    if sequential_optimization_mode == 'none':
+        # Logistic Regression | logreg
+        if classifier_type == 'all' or classifier_type == 'logreg':
+            accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
+                classify_logistic_regression(x_train, x_test, y_train, y_test, all_features,retrain=train_class))
 
-    # Logistic Regression | logreg
-    if classifier_type == 'all' or classifier_type == 'logreg':
-        accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
-            classify_logistic_regression(x_train, x_test, y_train, y_test, all_features,retrain=train_class))
+        # Random Forrest | rf
+        if classifier_type == 'all' or classifier_type == 'rf':
+            accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
+                classify_random_forest(x_train, x_test, y_train, y_test, all_features,retrain=train_class))
 
-    # Random Forrest | rf
-    if classifier_type == 'all' or classifier_type == 'rf':
-        accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
-            classify_random_forest(x_train, x_test, y_train, y_test, all_features,retrain=train_class))
+        # Linear discriminant analysis | LDA
+        if classifier_type == 'all' or classifier_type == 'LDA':
+            accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
+                classify_lda(x_train, x_test, y_train, y_test, all_features,retrain=train_class))
 
-    # Linear discriminant analysis | LDA
-    if classifier_type == 'all' or classifier_type == 'LDA':
-        accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
-            classify_lda(x_train, x_test, y_train, y_test, all_features,retrain=train_class))
+        # KNN
+        if classifier_type == 'all' or classifier_type == 'KNN':
+            accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
+                classify_knn(x_train, x_test, y_train, y_test,retrain=train_class))
 
-    # KNN
-    if classifier_type == 'all' or classifier_type == 'KNN':
-        accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
-            classify_knn(x_train, x_test, y_train, y_test,retrain=train_class))
+        # SVM
+        if classifier_type == 'all' or classifier_type == 'SVM':
+            accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
+                classify_svm(x_train, x_test, y_train, y_test,retrain=train_class))
 
-    # SVM
-    if classifier_type == 'all' or classifier_type == 'SVM':
-        accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
-            classify_svm(x_train, x_test, y_train, y_test,retrain=train_class))
+        # Ensemble with Gradient Boosting
+        if classifier_type == 'all' or classifier_type == 'EGB':
+            accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
+                classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,retrain=train_class))
 
-    # Ensemble with Gradient Boosting
-    if classifier_type == 'all' or classifier_type == 'EGB':
-        accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
-            classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,retrain=train_class))
-
-    # Build Performance Metric Summary Tables
-    if classifier_type == 'all':
-        performance_metric_summary = (summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda,
-                                                                    accuracy_knn, accuracy_svm, accuracy_gb,
-                                                                    precision_logreg, precision_rf, precision_lda,
-                                                                    precision_knn, precision_svm, precision_gb,
-                                                                    recall_logreg, recall_rf, recall_lda, recall_knn,
-                                                                    recall_svm, recall_gb, f1_logreg, f1_rf, f1_lda,
-                                                                    f1_knn, f1_svm, f1_gb,specificity_logreg,
-                                                                    specificity_rf, specificity_lda, specificity_knn,
-                                                                    specificity_svm, specificity_gb, g_mean_logreg,
-                                                                    g_mean_rf, g_mean_lda, g_mean_knn,
-                                                                    g_mean_svm, g_mean_gb))
+        # Build Performance Metric Summary Tables
+        if classifier_type == 'all':
+            performance_metric_summary = (summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda,
+                                                                        accuracy_knn, accuracy_svm, accuracy_gb,
+                                                                        precision_logreg, precision_rf, precision_lda,
+                                                                        precision_knn, precision_svm, precision_gb,
+                                                                        recall_logreg, recall_rf, recall_lda, recall_knn,
+                                                                        recall_svm, recall_gb, f1_logreg, f1_rf, f1_lda,
+                                                                        f1_knn, f1_svm, f1_gb,specificity_logreg,
+                                                                        specificity_rf, specificity_lda, specificity_knn,
+                                                                        specificity_svm, specificity_gb, g_mean_logreg,
+                                                                        g_mean_rf, g_mean_lda, g_mean_knn,
+                                                                        g_mean_svm, g_mean_gb))
 
 
     # Breakpoint for troubleshooting
