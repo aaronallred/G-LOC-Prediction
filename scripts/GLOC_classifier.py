@@ -16,6 +16,7 @@ from GLOC_visualization import create_confusion_matrix
 from sklearn.linear_model import Lasso
 from sklearn.model_selection import GridSearchCV, KFold
 from mrmr import mrmr_classif
+from imblearn.metrics import geometric_mean_score
 
 def check_event_columns(gloc_data):
     """
@@ -69,6 +70,7 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, all_features,
     recall = metrics.recall_score(y_test, label_predictions)
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
+    g_mean = imblearn.metrics.geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
     print("\nLogistic Regression Performance Metrics:")
@@ -77,6 +79,7 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, all_features,
     print("Recall: ", recall)
     print("F1 Score: ", f1)
     print("Specificity: ", specificity)
+    print("G-Mean: ", g_mean)
 
     # Create Confusion Matrix
     create_confusion_matrix(y_test, label_predictions, 'Log. Reg.')
@@ -105,7 +108,7 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, all_features,
     if retrain:
         save_model_weights(logreg, save_folder, model_name)
 
-    return accuracy, precision, recall, f1, specificity
+    return accuracy, precision, recall, f1, specificity, g_mean
 
 # Random Forest Classifier
 def classify_random_forest(x_train, x_test, y_train, y_test, all_features,
@@ -132,6 +135,7 @@ def classify_random_forest(x_train, x_test, y_train, y_test, all_features,
     recall = metrics.recall_score(y_test, label_predictions)
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
+    g_mean = imblearn.metrics.geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
     print("\nRandom Forest Performance Metrics:")
@@ -140,6 +144,7 @@ def classify_random_forest(x_train, x_test, y_train, y_test, all_features,
     print("Recall: ", recall)
     print("F1 Score: ", f1)
     print("Specificity: ", specificity)
+    print("G-Mean: ", g_mean)
 
     # Find Tree Depth
     tree_depth = [estimator.get_depth() for estimator in rf.estimators_]
@@ -161,7 +166,7 @@ def classify_random_forest(x_train, x_test, y_train, y_test, all_features,
     if retrain:
         save_model_weights(rf, save_folder, model_name)
 
-    return accuracy, precision, recall, f1, tree_depth, specificity
+    return accuracy, precision, recall, f1, tree_depth, specificity, g_mean
 
 # Linear Discriminant Analysis
 def classify_lda(x_train, x_test, y_train, y_test, all_features,
@@ -187,6 +192,7 @@ def classify_lda(x_train, x_test, y_train, y_test, all_features,
     recall = metrics.recall_score(y_test, label_predictions)
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
+    g_mean = imblearn.metrics.geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
     print("\nLinear Discriminant Analysis Performance Metrics:")
@@ -195,6 +201,7 @@ def classify_lda(x_train, x_test, y_train, y_test, all_features,
     print("Recall: ", recall)
     print("F1 Score: ", f1)
     print("Specificity: ", specificity)
+    print("G-Mean: ", g_mean)
 
     # Create Confusion Matrix
     create_confusion_matrix(y_test, label_predictions, 'Linear Discriminant Analysis')
@@ -203,7 +210,7 @@ def classify_lda(x_train, x_test, y_train, y_test, all_features,
     if retrain:
         save_model_weights(lda, save_folder, model_name)
 
-    return accuracy, precision, recall, f1, specificity
+    return accuracy, precision, recall, f1, specificity, g_mean
 
 # k Nearest Neighbors
 def classify_knn(x_train, x_test, y_train, y_test,
@@ -229,6 +236,7 @@ def classify_knn(x_train, x_test, y_train, y_test,
     recall = metrics.recall_score(y_test, label_predictions)
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
+    g_mean = imblearn.metrics.geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
     print("\nKNN Performance Metrics:")
@@ -237,6 +245,7 @@ def classify_knn(x_train, x_test, y_train, y_test,
     print("Recall: ", recall)
     print("F1 Score: ", f1)
     print("Specificity: ", specificity)
+    print("G-Mean: ", g_mean)
 
     # Create Confusion Matrix
     create_confusion_matrix(y_test, label_predictions, 'kNN')
@@ -245,7 +254,7 @@ def classify_knn(x_train, x_test, y_train, y_test,
     if retrain:
         save_model_weights(neigh, save_folder, model_name)
 
-    return accuracy, precision, recall, f1, specificity
+    return accuracy, precision, recall, f1, specificity, g_mean
 
 # Support Vector Machine
 def classify_svm(x_train, x_test, y_train, y_test,
@@ -271,6 +280,7 @@ def classify_svm(x_train, x_test, y_train, y_test,
     recall = metrics.recall_score(y_test, label_predictions)
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
+    g_mean = imblearn.metrics.geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
     print("\nSVM Performance Metrics:")
@@ -279,6 +289,7 @@ def classify_svm(x_train, x_test, y_train, y_test,
     print("Recall: ", recall)
     print("F1 Score: ", f1)
     print("Specificity: ", specificity)
+    print("G-Mean: ", g_mean)
 
     # Create Confusion Matrix
     create_confusion_matrix(y_test, label_predictions, 'Support Vector Machine')
@@ -287,7 +298,7 @@ def classify_svm(x_train, x_test, y_train, y_test,
     if retrain:
         save_model_weights(svm_class, save_folder, model_name)
 
-    return accuracy, precision, recall, f1, specificity
+    return accuracy, precision, recall, f1, specificity, g_mean
 
 # Ensemble Learner with Gradient Boost
 def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,
@@ -313,6 +324,7 @@ def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,
     recall = metrics.recall_score(y_test, label_predictions)
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
+    g_mean = imblearn.metrics.geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
     print("\nEnsemble Learner with Gradient Boosting Performance Metrics:")
@@ -321,6 +333,7 @@ def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,
     print("Recall: ", recall)
     print("F1 Score: ", f1)
     print("Specificity: ", specificity)
+    print("G-Mean: ", g_mean)
 
     # Create Confusion Matrix
     create_confusion_matrix(y_test, label_predictions, 'Gradient Boosting')
@@ -329,7 +342,7 @@ def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,
     if retrain:
         save_model_weights(gb, save_folder, model_name)
 
-    return accuracy, precision, recall, f1, specificity
+    return accuracy, precision, recall, f1, specificity, g_mean
 
 def save_model_weights(model,save_folder,model_name):
     """

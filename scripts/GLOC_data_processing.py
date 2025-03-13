@@ -1108,7 +1108,8 @@ def summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda, ac
                                   precision_logreg, precision_rf, precision_lda, precision_knn, precision_svm, precision_gb,
                                   recall_logreg, recall_rf, recall_lda, recall_knn, recall_svm, recall_gb,
                                   f1_logreg, f1_rf, f1_lda, f1_knn, f1_svm, f1_gb,
-                                  specificity_logreg, specificity_rf, specificity_lda, specificity_knn, specificity_svm, specificity_gb):
+                                  specificity_logreg, specificity_rf, specificity_lda, specificity_knn, specificity_svm, specificity_gb,
+                                  g_mean_logreg, g_mean_rf, g_mean_lda, g_mean_knn, g_mean_svm, g_mean_gb):
     """
     This function takes the performance metrics from each classifier and outputs a data frame
     with a performance summary.
@@ -1124,9 +1125,10 @@ def summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda, ac
     recall = np.array([recall_logreg, recall_rf, recall_lda, recall_knn, recall_svm, recall_gb])
     f1 = np.array([f1_logreg, f1_rf, f1_lda, f1_knn, f1_svm, f1_gb])
     specificity = np.array([specificity_logreg, specificity_rf, specificity_lda, specificity_knn, specificity_svm, specificity_gb])
+    g_mean = np.array([g_mean_logreg, g_mean_rf, g_mean_lda, g_mean_knn, g_mean_svm, g_mean_gb])
 
     # create combined stack of all performance metrics
-    combined_metrics = np.column_stack((accuracy, precision, recall, f1, specificity))
+    combined_metrics = np.column_stack((accuracy, precision, recall, f1, specificity, g_mean))
 
     # label combined metrics by classifier name and performance metric name
     performance_metric_summary = pd.DataFrame(combined_metrics, index = classifiers, columns = performance_metrics)

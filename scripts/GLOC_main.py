@@ -17,13 +17,16 @@ if __name__ == "__main__":
     classifier_type = 'all'
     train_class = True
 
+    ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' or 'all'
+    feature_reduction_type = 'all'
+
     # Data Handling Options
     remove_NaN_trials = True
     impute_type = 2
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
-    feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'cognitive', 'G',
+    feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
     baseline_methods_to_use = ['v0','v1']
     analysis_type = 2
@@ -61,7 +64,9 @@ if __name__ == "__main__":
                                      # 'rawEEG', 'processedEEG', 'strain', 'demographics']
         # NOTES:
         # Update from GLOC tagup 01/15/25: Chris said the fNIRS data should not be trusted and should not be used.
-        # The light from the eye tracking glasses washed out this data.
+            # The light from the eye tracking glasses washed out this data.
+        # The cognitive data only exists for some period before and after ROR.
+            # removing cognitive features rather than imputing
 
 
     ##  baseline_methods_to_use: Baseline Methods to Use on Feature Set
@@ -200,36 +205,38 @@ if __name__ == "__main__":
     # selected_features_mrmr = feature_selection_mrmr(x_train, y_train, all_features)
 
 
+
+
     ################################################ MACHINE LEARNING ################################################
 
     # Logistic Regression | logreg
     if classifier_type == 'all' or classifier_type == 'logreg':
-        accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg = (
+        accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
             classify_logistic_regression(x_train, x_test, y_train, y_test, all_features,retrain=train_class))
 
     # Random Forrest | rf
     if classifier_type == 'all' or classifier_type == 'rf':
-        accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf = (
+        accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
             classify_random_forest(x_train, x_test, y_train, y_test, all_features,retrain=train_class))
 
     # Linear discriminant analysis | LDA
     if classifier_type == 'all' or classifier_type == 'LDA':
-        accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda = (
+        accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
             classify_lda(x_train, x_test, y_train, y_test, all_features,retrain=train_class))
 
     # KNN
     if classifier_type == 'all' or classifier_type == 'KNN':
-        accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn = (
+        accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
             classify_knn(x_train, x_test, y_train, y_test,retrain=train_class))
 
     # SVM
     if classifier_type == 'all' or classifier_type == 'SVM':
-        accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm = (
+        accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
             classify_svm(x_train, x_test, y_train, y_test,retrain=train_class))
 
     # Ensemble with Gradient Boosting
     if classifier_type == 'all' or classifier_type == 'EGB':
-        accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb = (
+        accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
             classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,retrain=train_class))
 
     # Build Performance Metric Summary Tables
@@ -242,7 +249,9 @@ if __name__ == "__main__":
                                                                     recall_svm, recall_gb, f1_logreg, f1_rf, f1_lda,
                                                                     f1_knn, f1_svm, f1_gb,specificity_logreg,
                                                                     specificity_rf, specificity_lda, specificity_knn,
-                                                                    specificity_svm, specificity_gb))
+                                                                    specificity_svm, specificity_gb, g_mean_logreg,
+                                                                    g_mean_rf, g_mean_lda, g_mean_knn,
+                                                                    g_mean_svm, g_mean_gb))
 
 
     # Breakpoint for troubleshooting
