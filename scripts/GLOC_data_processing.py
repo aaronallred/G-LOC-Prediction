@@ -200,6 +200,10 @@ def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, dem
         afe_features = []
 
     if 'G' in feature_groups_to_analyze and 'explicit' in model_type:
+        # Process magnitude Centrifuge column to include 1.2g instead of NaN
+        gloc_data_reduced['magnitude - Centrifuge'].fillna(1.2, inplace=True)
+
+        # Grab g feature column
         g_features = ['magnitude - Centrifuge']
     elif 'G' in feature_groups_to_analyze and 'implicit' in model_type:
         # output warning message for implicit vs. explicit models

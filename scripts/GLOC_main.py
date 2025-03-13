@@ -10,7 +10,8 @@ if __name__ == "__main__":
 
     ################################################### USER INPUTS  ###################################################
     ## Data Folder Location
-    datafolder = '../data/'
+    datafolder = '../../'
+    # datafolder = '../data/'
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
     classifier_type = 'all'
@@ -22,7 +23,7 @@ if __name__ == "__main__":
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
-    feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'fnirs', 'eyetracking', 'AFE', 'G', 'cognitive',
+    feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'cognitive', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
     baseline_methods_to_use = ['v0','v1']
     analysis_type = 2
@@ -56,15 +57,12 @@ if __name__ == "__main__":
 
     ## feature_groups_to_analyze: Feature Groups to Pull from GLOC Data File
         # Example with all feature groups:
-        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'fnirs', 'eyetracking', 'AFE', 'G', 'cognitive',
+        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G', 'cognitive',
                                      # 'rawEEG', 'processedEEG', 'strain', 'demographics']
         # NOTES:
         # Update from GLOC tagup 01/15/25: Chris said the fNIRS data should not be trusted and should not be used.
         # The light from the eye tracking glasses washed out this data.
-        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'cognitive', 'strain', 'demographics']
-        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'rawEEG', 'processedEEG',
-                                     # 'demographics', 'strain']
-        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'cognitive', 'strain', 'demographics']
+
 
     ##  baseline_methods_to_use: Baseline Methods to Use on Feature Set
         #  options:
