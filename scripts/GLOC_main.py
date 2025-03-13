@@ -5,6 +5,7 @@ from features import *
 from feature_selection import *
 from GLOC_classifier import *
 from GLOC_visualization import *
+from imbalance_techniques import *
 
 if __name__ == "__main__":
 
@@ -16,6 +17,9 @@ if __name__ == "__main__":
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
     classifier_type = 'all'
     train_class = True
+
+    ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
+    imbalance_technique = 'all'
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' or 'all'
     feature_reduction_type = 'all'
@@ -191,12 +195,74 @@ if __name__ == "__main__":
     else:
         y_gloc_labels_noNaN, x_feature_matrix_noNaN = y_gloc_labels, x_feature_matrix
 
-
-    ################################################ FEATURE SELECTION ################################################
-
+    ################################################ TRAIN/TEST SPLIT  ################################################
     # Training/Test Split
     x_train, x_test, y_train, y_test = pre_classification_training_test_split(y_gloc_labels_noNaN,
                                                                               x_feature_matrix_noNaN,training_ratio)
+
+    ################################################  CLASS IMBALANCE  ################################################
+    ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
+    if classifier_type == 'all' or classifier_type == 'rus':
+        rus_x_train, rus_y_train = resample_rus(x_train, y_train)
+        class_weight_imb = 'None'
+
+        performance_metric_summary_rus = (call_all_classifiers(classifier_type, rus_x_train, x_test, rus_y_train,
+                                                               y_test, all_features, train_class, class_weight_imb))
+
+    if classifier_type == 'all' or classifier_type == 'ros':
+        ros_x_train, ros_y_train = resample_ros(x_train, y_train)
+        class_weight_imb = 'None'
+
+        performance_metric_summary_ros = (call_all_classifiers(classifier_type, ros_x_train, x_test, ros_y_train,
+                                                               y_test, all_features, train_class, class_weight_imb))
+
+    if classifier_type == 'all' or classifier_type == 'smote':
+        smote_x_train, smote_y_train = resample_smote(x_train, y_train)
+        class_weight_imb = 'None'
+
+        performance_metric_summary_smote = (call_all_classifiers(classifier_type, smote_x_train, x_test, smote_y_train,
+                                                               y_test, all_features, train_class, class_weight_imb))
+
+    if classifier_type == 'all' or classifier_type == 'cost_function':
+        class_weight_imb = 'balanced'
+        performance_metric_summary_cf = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+                                                               y_test, all_features, train_class, class_weight_imb))
+
+    if classifier_type == 'all' or classifier_type == 'rus_cf':
+        class_weight_imb = 'balanced'
+        if rus_x_train not in globals():
+            rus_x_train, rus_y_train = resample_rus(x_train, y_train)
+
+        performance_metric_summary_rus_cf = (call_all_classifiers(classifier_type, rus_x_train, x_test, rus_y_train,
+                                                               y_test, all_features, train_class, class_weight_imb))
+
+    if classifier_type == 'all' or classifier_type == 'ros_cf':
+        class_weight_imb = 'balanced'
+        if ros_x_train not in globals():
+            ros_x_train, ros_y_train = resample_ros(x_train, y_train)
+
+        performance_metric_summary_ros_cf = (call_all_classifiers(classifier_type, ros_x_train, x_test, ros_y_train,
+                                                                   y_test, all_features, train_class, class_weight_imb))
+
+    if classifier_type == 'all' or classifier_type == 'smote_cf':
+        class_weight_imb = 'balanced'
+        if smote_x_train not in globals():
+            smote_x_train, smote_y_train = resample_smote(x_train, y_train)
+
+        performance_metric_summary_smote_cf = (call_all_classifiers(classifier_type, smote_x_train, x_test, smote_y_train,
+                                                                   y_test, all_features, train_class, class_weight_imb))
+
+    if classifier_type == 'all' or classifier_type == 'none':
+        class_weight_imb = 'None'
+
+        performance_metric_summary_none = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+                                 y_test, all_features, train_class, class_weight_imb))
+
+
+    ################################################ FEATURE SELECTION ################################################
+
+
+
 
     # Feature Selection
     # selected_features_lasso = feature_selection_lasso(x_train, y_train, all_features)
