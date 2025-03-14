@@ -45,7 +45,7 @@ def pre_classification_training_test_split(y_gloc_labels_noNaN, x_feature_matrix
 
 
 # Logistic Regression Classifier
-def classify_logistic_regression(x_train, x_test, y_train, y_test, all_features, class_weight_imb,
+def classify_logistic_regression(x_train, x_test, y_train, y_test, all_features,
                                  save_folder="../ModelSave",model_name="logistic_regression_model.pkl",retrain=True):
     """
     This function fits and assesses performance of a logistic regression ML classifier for the data
@@ -57,7 +57,7 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, all_features,
     if retrain:
         # Use Default Parameters & Fit Model
         #weights = {0: 1.0, 1: 10.0}
-        logreg = LogisticRegression(class_weight = class_weight_imb, random_state=42, max_iter=1000).fit(x_train, np.ravel(y_train))
+        logreg = LogisticRegression(class_weight = "balanced", random_state=42, max_iter=1000).fit(x_train, np.ravel(y_train))
     else:
         model_path = os.path.join(save_folder, model_name)
         logreg = joblib.load(model_path)
@@ -71,7 +71,7 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, all_features,
     recall = metrics.recall_score(y_test, label_predictions)
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
-    g_mean = imblearn.metrics.geometric_mean_score(y_test, label_predictions)
+    g_mean = geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
     print("\nLogistic Regression Performance Metrics:")
@@ -112,7 +112,7 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, all_features,
     return accuracy, precision, recall, f1, specificity, g_mean
 
 # Random Forest Classifier
-def classify_random_forest(x_train, x_test, y_train, y_test, all_features, class_weight_imb,
+def classify_random_forest(x_train, x_test, y_train, y_test, all_features,
                            save_folder="../ModelSave",model_name="random_forest_model.pkl",retrain=True):
     """
     This function fits and assesses performance of a random forest ML classifier for the data
@@ -122,7 +122,7 @@ def classify_random_forest(x_train, x_test, y_train, y_test, all_features, class
 
     if retrain:
         # Use Default Parameters & Fit Model
-        rf = RandomForestClassifier(class_weight=class_weight_imb, random_state=42).fit(x_train, np.ravel(y_train))
+        rf = RandomForestClassifier(class_weight="balanced", random_state=42).fit(x_train, np.ravel(y_train))
     else:
         model_path = os.path.join(save_folder, model_name)
         rf = joblib.load(model_path)
@@ -136,7 +136,7 @@ def classify_random_forest(x_train, x_test, y_train, y_test, all_features, class
     recall = metrics.recall_score(y_test, label_predictions)
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
-    g_mean = imblearn.metrics.geometric_mean_score(y_test, label_predictions)
+    g_mean = geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
     print("\nRandom Forest Performance Metrics:")
@@ -170,7 +170,7 @@ def classify_random_forest(x_train, x_test, y_train, y_test, all_features, class
     return accuracy, precision, recall, f1, tree_depth, specificity, g_mean
 
 # Linear Discriminant Analysis
-def classify_lda(x_train, x_test, y_train, y_test, all_features, class_weight_imb,
+def classify_lda(x_train, x_test, y_train, y_test, all_features,
                  save_folder="../ModelSave",model_name="LDA_model.pkl",retrain=True):
     """
     This function fits and assesses performance of a linear discriminant analysis ML classifier for
@@ -193,7 +193,7 @@ def classify_lda(x_train, x_test, y_train, y_test, all_features, class_weight_im
     recall = metrics.recall_score(y_test, label_predictions)
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
-    g_mean = imblearn.metrics.geometric_mean_score(y_test, label_predictions)
+    g_mean = geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
     print("\nLinear Discriminant Analysis Performance Metrics:")
@@ -214,7 +214,7 @@ def classify_lda(x_train, x_test, y_train, y_test, all_features, class_weight_im
     return accuracy, precision, recall, f1, specificity, g_mean
 
 # k Nearest Neighbors
-def classify_knn(x_train, x_test, y_train, y_test, class_weight_imb,
+def classify_knn(x_train, x_test, y_train, y_test,
                  save_folder="../ModelSave",model_name="KNN_model.pkl",retrain=True):
     """
     This function fits and assesses performance of a K Nearest Neighbors ML classifier for
@@ -237,7 +237,7 @@ def classify_knn(x_train, x_test, y_train, y_test, class_weight_imb,
     recall = metrics.recall_score(y_test, label_predictions)
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
-    g_mean = imblearn.metrics.geometric_mean_score(y_test, label_predictions)
+    g_mean = geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
     print("\nKNN Performance Metrics:")
@@ -258,7 +258,7 @@ def classify_knn(x_train, x_test, y_train, y_test, class_weight_imb,
     return accuracy, precision, recall, f1, specificity, g_mean
 
 # Support Vector Machine
-def classify_svm(x_train, x_test, y_train, y_test, class_weight_imb,
+def classify_svm(x_train, x_test, y_train, y_test,
                  save_folder="../ModelSave",model_name="svm_model.pkl", retrain = True):
     """
     This function fits and assesses performance of a Support Vector Machine ML classifier for
@@ -267,7 +267,7 @@ def classify_svm(x_train, x_test, y_train, y_test, class_weight_imb,
 
     if retrain:
         # Use Default Parameters & Fit Model
-        svm_class = svm.SVC(kernel="linear", class_weight=class_weight_imb).fit(x_train, np.ravel(y_train))
+        svm_class = svm.SVC(kernel="linear", class_weight="balanced").fit(x_train, np.ravel(y_train))
     else:
         model_path = os.path.join(save_folder, model_name)
         svm_class = joblib.load(model_path)
@@ -281,7 +281,7 @@ def classify_svm(x_train, x_test, y_train, y_test, class_weight_imb,
     recall = metrics.recall_score(y_test, label_predictions)
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
-    g_mean = imblearn.metrics.geometric_mean_score(y_test, label_predictions)
+    g_mean = geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
     print("\nSVM Performance Metrics:")
@@ -302,7 +302,7 @@ def classify_svm(x_train, x_test, y_train, y_test, class_weight_imb,
     return accuracy, precision, recall, f1, specificity, g_mean
 
 # Ensemble Learner with Gradient Boost
-def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, class_weight_imb,
+def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,
                                      save_folder="../ModelSave",model_name="ensemble_model.pkl", retrain = True):
     """
     This function fits and assesses performance of an Ensemble Learner w/ Grad Boost ML classifier for
@@ -325,7 +325,7 @@ def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, class_wei
     recall = metrics.recall_score(y_test, label_predictions)
     f1 = metrics.f1_score(y_test, label_predictions)
     specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
-    g_mean = imblearn.metrics.geometric_mean_score(y_test, label_predictions)
+    g_mean = geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
     print("\nEnsemble Learner with Gradient Boosting Performance Metrics:")
