@@ -184,6 +184,79 @@ def plot_HR_data():
     time_peak = time_range[max_peak_index]
     val_peak = ECG_lead_range[max_peak_index]
 
+def plot_PNN50():
+    index_HR = baseline_names_v0.index('HR (bpm) - Equivital_v0')
+    index_HR_instant = baseline_names_v0.index('HR_instant - Equivital_v0')
+    index_HR_average = baseline_names_v0.index('HR_average - Equivital_v0')
+    index_HR_w_average = baseline_names_v0.index('HR_w_average - Equivital_v0')
+
+    RR_interval_HR = 60000 / feature_window_no_baseline[:, index_HR]
+    RR_interval_HR_instant = 60000 / feature_window_no_baseline[:, index_HR_instant]
+    RR_interval_HR_average = 60000 / feature_window_no_baseline[:, index_HR_average]
+    RR_interval_HR_w_average = 60000 / feature_window_no_baseline[:, index_HR_w_average]
+
+    successive_difference_HR = np.diff(RR_interval_HR)
+    successive_difference_HR_instant = np.diff(RR_interval_HR_instant)
+    successive_difference_HR_average = np.diff(RR_interval_HR_average)
+    successive_difference_HR_w_average = np.diff(RR_interval_HR_w_average)
+
+    fig, ax = plt.subplots()
+    ax.plot(new_time[1:], successive_difference_HR, label='HR')
+    ax.plot(new_time[1:], successive_difference_HR_instant, label='HR_instant')
+    ax.plot(new_time[1:], successive_difference_HR_average, label='HR_average')
+    ax.plot(new_time[1:], successive_difference_HR_w_average, label='HR_w_average')
+
+    plt.legend()
+
+    plt.xlabel(time_variable)
+    plt.ylabel('Successive Difference between RR Interval (at 25Hz frequency)')
+    plt.title(f'HR Data for Subject: {trial_id_in_data[i][0:2]} & Trial: {trial_id_in_data[i][3:]}')
+
+    plt.show()
+
+    fig, ax = plt.subplots()
+    ax.plot(new_time, RR_interval_HR, label='HR')
+    ax.plot(new_time, RR_interval_HR_instant, label='HR_instant')
+    ax.plot(new_time, RR_interval_HR_average, label='HR_average')
+    ax.plot(new_time, RR_interval_HR_w_average, label='HR_w_average')
+
+    plt.legend()
+
+    plt.xlabel(time_variable)
+    plt.ylabel('RR Interval (at 25Hz frequency)')
+    plt.title(f'HR Data for Subject: {trial_id_in_data[i][0:2]} & Trial: {trial_id_in_data[i][3:]}')
+
+    plt.show()
+
+    fig, ax = plt.subplots()
+    ax.plot(new_time, feature_window_no_baseline[:, index_HR], label='HR')
+    ax.plot(new_time, feature_window_no_baseline[:, index_HR_instant], label='HR_instant')
+    ax.plot(new_time, feature_window_no_baseline[:, index_HR_average], label='HR_average')
+    ax.plot(new_time, feature_window_no_baseline[:, index_HR_w_average], label='HR_w_average')
+
+    plt.legend()
+
+    plt.xlabel(time_variable)
+    plt.ylabel('Heart Rate')
+    plt.title(f'HR Data for Subject: {trial_id_in_data[i][0:2]} & Trial: {trial_id_in_data[i][3:]}')
+
+    plt.show()
+
+
+    fig, ax = plt.subplots()
+    ax.plot(new_time[1:], np.gradient(successive_difference_HR), label='HR')
+    ax.plot(new_time[1:], np.gradient(successive_difference_HR_instant), label='HR_instant')
+    ax.plot(new_time[1:], np.gradient(successive_difference_HR_average), label='HR_average')
+    ax.plot(new_time[1:], np.gradient(successive_difference_HR_w_average), label='HR_w_average')
+
+    plt.legend()
+
+    plt.xlabel(time_variable)
+    plt.ylabel('Derivative of Successive Difference')
+    plt.title(f'HR Data for Subject: {trial_id_in_data[i][0:2]} & Trial: {trial_id_in_data[i][3:]}')
+
+    plt.show()
+
 def plot_tgt_pos():
     fig, ax = plt.subplots()
     current_index = (gloc_data_reduced['trial_id'] == '01-01')
@@ -237,7 +310,6 @@ def plot_tgt_pos():
     plt.legend()
     plt.title(f'Deviation for Trial 01-01')
     plt.show()
-
 
 def plot_strain():
 

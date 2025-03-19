@@ -3,7 +3,7 @@ import pandas as pd
 import warnings
 from GLOC_data_processing import tabulateNaN
 
-def baseline_data(baseline_methods_to_use, gloc_data_reduced, features, time_variable, all_features, gloc, baseline_window,
+def baseline_data(baseline_methods_to_use, trial_column, time_column, event_validated_column, subject_column, features, all_features, gloc, baseline_window,
                   features_phys, all_features_phys, features_ecg, all_features_ecg, features_eeg, all_features_eeg,
                   baseline_data_filename, list_of_baseline_eeg_processed_files, model_type):
 
@@ -30,18 +30,18 @@ def baseline_data(baseline_methods_to_use, gloc_data_reduced, features, time_var
 
     # Define baseline functions
     baseline_methods = {
-        'v0': lambda: create_v0_baseline(gloc_data_reduced, features, time_variable, all_features),
-        'v1': lambda: create_v1_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys),
-        'v2': lambda: create_v2_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys),
-        'v3': lambda: create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys),
-        'v4': lambda: create_v4_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys),
-        'v5': lambda: create_v5_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable, participant_seated_rhr, all_features_ecg),
-        'v6': lambda: create_v6_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable, participant_seated_rhr, all_features_ecg),
-        'v7': lambda: create_v7_baseline(baseline_window, gloc_data_reduced, features_eeg, time_variable,
+        'v0': lambda: create_v0_baseline(trial_column, time_column, features, all_features),
+        'v1': lambda: create_v1_baseline(baseline_window, trial_column, time_column, features_phys, all_features_phys),
+        'v2': lambda: create_v2_baseline(baseline_window, trial_column, time_column, features_phys, all_features_phys),
+        'v3': lambda: create_v3_baseline(baseline_window, trial_column, time_column, event_validated_column, features_phys, all_features_phys),
+        'v4': lambda: create_v4_baseline(baseline_window, trial_column, time_column, event_validated_column, features_phys, all_features_phys),
+        'v5': lambda: create_v5_baseline(baseline_window, trial_column, time_column, subject_column, features_ecg, participant_seated_rhr, all_features_ecg),
+        'v6': lambda: create_v6_baseline(baseline_window, trial_column, time_column, subject_column, features_ecg, participant_seated_rhr, all_features_ecg),
+        'v7': lambda: create_v7_baseline(baseline_window, trial_column, time_column, features_eeg,
                                          eeg_baseline_data['delta'], eeg_baseline_data['theta'],
                                          eeg_baseline_data['alpha'], eeg_baseline_data['beta'], all_features_eeg)
                 if 'noAFE' in model_type else warnings.warn('EEG baseline methods not implemented for AFE conditions yet.'),
-        'v8': lambda: create_v8_baseline(baseline_window, gloc_data_reduced, features_eeg, time_variable,
+        'v8': lambda: create_v8_baseline(baseline_window, trial_column, time_column, features_eeg,
                                          eeg_baseline_data['delta'], eeg_baseline_data['theta'],
                                          eeg_baseline_data['alpha'], eeg_baseline_data['beta'], all_features_eeg)
                 if 'noAFE' in model_type else warnings.warn('EEG baseline methods not implemented for AFE conditions yet.')
@@ -54,19 +54,19 @@ def baseline_data(baseline_methods_to_use, gloc_data_reduced, features, time_var
              baseline_names[method]) = baseline_methods[method]()
 
     # Combine all baseline methods into a large dictionary
-    combined_baseline, combined_baseline_names = combine_all_baseline(gloc_data_reduced, baseline, baseline_derivative,
+    combined_baseline, combined_baseline_names = combine_all_baseline(trial_column, baseline, baseline_derivative,
                                                                       baseline_second_derivative, baseline_names)
 
     # baseline_v0 = baseline['v0']
     # baseline_names_v0 = baseline_names['v0']
 
     # Tabulate NaN
-    NaN_table, NaN_proportion, NaN_gloc_proportion = tabulateNaN(baseline['v0'], all_features, gloc,
-                                                                 gloc_data_reduced)
+    # NaN_table, NaN_proportion, NaN_gloc_proportion = tabulateNaN(baseline['v0'], all_features, gloc,
+    #                                                              gloc_data_reduced)
 
     return combined_baseline, combined_baseline_names, baseline['v0'], baseline_names['v0']
 
-def create_v0_baseline(gloc_data_reduced, features, time_variable, all_features):
+def create_v0_baseline(trial_column, time_column, features, all_features):
     """
     This function baselines the features with baseline method v0 (no baseline)
     and puts them into a dictionary per trial. This dictionary is output.
@@ -74,7 +74,7 @@ def create_v0_baseline(gloc_data_reduced, features, time_variable, all_features)
     output in a dictionary.
     """
     # Find Unique Trial ID
-    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+    trial_id_in_data = trial_column.unique()
 
     # Build Dictionary for each trial_id
     baseline_v0 = dict()
@@ -84,11 +84,11 @@ def create_v0_baseline(gloc_data_reduced, features, time_variable, all_features)
     # Iterate through trials
     for i in range(np.size(trial_id_in_data)):
         # Find time window
-        time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
-        time_array = np.array(gloc_data_reduced[time_variable])
+        time_index = (trial_column == trial_id_in_data[i])
+        time_array = np.array(time_column)
 
         # Access all features for that trial id
-        baseline_v0[trial_id_in_data[i]] = np.array(features[(gloc_data_reduced.trial_id == trial_id_in_data[i])])
+        baseline_v0[trial_id_in_data[i]] = np.array(features[(trial_column == trial_id_in_data[i])])
 
         # Compute derivative
         time = time_array[time_index]
@@ -102,7 +102,7 @@ def create_v0_baseline(gloc_data_reduced, features, time_variable, all_features)
 
     return baseline_v0, baseline_v0_derivative, baseline_v0_second_derivative, all_features_updated
 
-def create_v1_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys):
+def create_v1_baseline(baseline_window, trial_column, time_column, features_phys, all_features_phys):
     """
     This function baselines the features with baseline method v1 (divide by mean)
     and puts them into a dictionary per trial. This dictionary is output.
@@ -111,7 +111,7 @@ def create_v1_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
     """
 
     # Find Unique Trial ID
-    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+    trial_id_in_data = trial_column.unique()
 
     # Build Dictionary for each trial_id
     baseline_v1 = dict()
@@ -122,15 +122,15 @@ def create_v1_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
     for i in range(np.size(trial_id_in_data)):
 
         # Find time window
-        index_window = ((gloc_data_reduced[time_variable]<baseline_window) & (gloc_data_reduced.trial_id == trial_id_in_data[i]))
-        time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
-        time_array = np.array(gloc_data_reduced[time_variable])
+        index_window = ((time_column<baseline_window) & (trial_column == trial_id_in_data[i]))
+        time_index = (trial_column == trial_id_in_data[i])
+        time_array = np.array(time_column)
 
         # Find baseline average based on specified baseline window
         baseline_feature = np.mean(features_phys[index_window], axis = 0)
 
         # Divide features for that trial by baselined data
-        baseline_v1[trial_id_in_data[i]] = np.array(features_phys[(gloc_data_reduced.trial_id == trial_id_in_data[i])] /baseline_feature)
+        baseline_v1[trial_id_in_data[i]] = np.array(features_phys[(trial_column == trial_id_in_data[i])] /baseline_feature)
 
         # Compute derivative
         time = time_array[time_index]
@@ -144,7 +144,7 @@ def create_v1_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
 
     return baseline_v1, baseline_v1_derivative, baseline_v1_second_derivative, all_features_phys_updated
 
-def create_v2_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys):
+def create_v2_baseline(baseline_window, trial_column, time_column, features_phys, all_features_phys):
     """
     This function baselines the features with baseline method v2 (subtract mean)
     and puts them into a dictionary per trial. This dictionary is output.
@@ -153,7 +153,7 @@ def create_v2_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
     """
 
     # Find Unique Trial ID
-    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+    trial_id_in_data = trial_column.unique()
 
     # Build Dictionary for each trial_id
     baseline_v2 = dict()
@@ -164,15 +164,15 @@ def create_v2_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
     for i in range(np.size(trial_id_in_data)):
 
         # Find time window
-        index_window = ((gloc_data_reduced[time_variable]<baseline_window) & (gloc_data_reduced.trial_id == trial_id_in_data[i]))
-        time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
-        time_array = np.array(gloc_data_reduced[time_variable])
+        index_window = ((time_column<baseline_window) & (trial_column == trial_id_in_data[i]))
+        time_index = (trial_column == trial_id_in_data[i])
+        time_array = np.array(time_column)
 
         # Find baseline average based on specified baseline window
         baseline_feature = np.mean(features_phys[index_window], axis = 0)
 
         # Subtract baseline data (baseline v2)
-        baseline_v2[trial_id_in_data[i]] = np.array(features_phys[(gloc_data_reduced.trial_id == trial_id_in_data[i])] - baseline_feature)
+        baseline_v2[trial_id_in_data[i]] = np.array(features_phys[(trial_column == trial_id_in_data[i])] - baseline_feature)
 
         # Compute derivative
         time = time_array[time_index]
@@ -186,7 +186,7 @@ def create_v2_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
 
     return baseline_v2, baseline_v2_derivative, baseline_v2_second_derivative, all_features_phys_updated
 
-def create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys):
+def create_v3_baseline(baseline_window, trial_column, time_column, event_validated_column, features_phys, all_features_phys):
     """
     This function baselines the features with baseline method v3 (Each feature prior to ROR
     is divided by the first portion of the trial for baseline & the rest of the
@@ -196,7 +196,7 @@ def create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
     """
 
     # Find Unique Trial ID
-    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+    trial_id_in_data = trial_column.unique()
 
     # Build Dictionary for each trial_id
     baseline_v3 = dict()
@@ -207,13 +207,13 @@ def create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
     for i in range(np.size(trial_id_in_data)):
 
         # Define first baseline period (during initial specified baseline window)
-        index_window1 = ((gloc_data_reduced[time_variable]<baseline_window) & (gloc_data_reduced.trial_id == trial_id_in_data[i]))
+        index_window1 = ((time_column<baseline_window) & (trial_column == trial_id_in_data[i]))
 
         # Find indices of other variables
-        time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
-        time_array = np.array(gloc_data_reduced[time_variable])
+        time_index = (trial_column == trial_id_in_data[i])
+        time_array = np.array(time_column)
         time = time_array[time_index]
-        event_array = np.array(gloc_data_reduced['event_validated'])
+        event_array = np.array(event_validated_column)
 
         # Find baseline average based on specified baseline window
         baseline_period1_feature = np.mean(features_phys[index_window1], axis=0)
@@ -225,15 +225,15 @@ def create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
             time_ROR = time_array[begin_ROR_index][0,0]
 
             # Define second baseline period
-            index_window2 = ((gloc_data_reduced[time_variable]>(time_ROR - baseline_window)) & (gloc_data_reduced[time_variable]<time_ROR)
-                                                                                                & (gloc_data_reduced.trial_id == trial_id_in_data[i]))
+            index_window2 = ((time_column>(time_ROR - baseline_window)) & (time_column<time_ROR) &
+                             (trial_column == trial_id_in_data[i]))
 
             # Find baseline average based on specified baseline window
             baseline_period2_feature = np.mean(features_phys[index_window2], axis=0)
 
             # Divide features for that trial by correct baseline period
-            first_baseline_period = (time_array < (time_ROR - baseline_window)) & (gloc_data_reduced.trial_id == trial_id_in_data[i])
-            second_baseline_period = (time_array >= (time_ROR - baseline_window)) & (gloc_data_reduced.trial_id == trial_id_in_data[i])
+            first_baseline_period = (time_array < (time_ROR - baseline_window)) & (trial_column == trial_id_in_data[i])
+            second_baseline_period = (time_array >= (time_ROR - baseline_window)) & (trial_column == trial_id_in_data[i])
 
             # Stack data from two windows of baselined data together
             baseline_v3[trial_id_in_data[i]] = np.array(features_phys[(first_baseline_period)] / baseline_period1_feature)
@@ -241,7 +241,7 @@ def create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
 
         # if no labeled begin of ROR, then just use the intial baseline period
         else:
-            baseline_v3[trial_id_in_data[i]] = np.array(features_phys[(gloc_data_reduced.trial_id == trial_id_in_data[i])] / baseline_period1_feature)
+            baseline_v3[trial_id_in_data[i]] = np.array(features_phys[(trial_column == trial_id_in_data[i])] / baseline_period1_feature)
 
 
         # Compute derivative
@@ -255,7 +255,7 @@ def create_v3_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
 
     return baseline_v3, baseline_v3_derivative, baseline_v3_second_derivative, all_features_phys_updated
 
-def create_v4_baseline(baseline_window, gloc_data_reduced, features_phys, time_variable, all_features_phys):
+def create_v4_baseline(baseline_window, trial_column, time_column, event_validated_column, features_phys, all_features_phys):
     """
     This function baselines the features with baseline method v4 (The first portion of
     the trial is subtracted from each feature prior to ROR & the period prior to ROR gets
@@ -265,7 +265,7 @@ def create_v4_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
     """
 
     # Find Unique Trial ID
-    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+    trial_id_in_data = trial_column.unique()
 
     # Build Dictionary for each trial_id
     baseline_v4 = dict()
@@ -276,13 +276,13 @@ def create_v4_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
     for i in range(np.size(trial_id_in_data)):
 
         # Define first baseline period (during initial specified baseline window)
-        index_window1 = ((gloc_data_reduced[time_variable]<baseline_window) & (gloc_data_reduced.trial_id == trial_id_in_data[i]))
+        index_window1 = ((time_column<baseline_window) & (trial_column == trial_id_in_data[i]))
 
         # Find indices of other variables
-        time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
-        time_array = np.array(gloc_data_reduced[time_variable])
+        time_index = (trial_column == trial_id_in_data[i])
+        time_array = np.array(time_column)
         time = time_array[time_index]
-        event_array = np.array(gloc_data_reduced['event_validated'])
+        event_array = np.array(event_validated_column)
 
         # Find baseline average based on specified baseline window
         baseline_period1_feature = np.mean(features_phys[index_window1], axis=0)
@@ -294,15 +294,15 @@ def create_v4_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
             time_ROR = time_array[begin_ROR_index][0,0]
 
             # Define second baseline period
-            index_window2 = ((gloc_data_reduced[time_variable]>(time_ROR - baseline_window)) & (gloc_data_reduced[time_variable]<time_ROR)
-                                                                                                & (gloc_data_reduced.trial_id == trial_id_in_data[i]))
+            index_window2 = ((time_column>(time_ROR - baseline_window)) & (time_column<time_ROR)
+                             & (trial_column == trial_id_in_data[i]))
 
             # Find baseline average based on specified baseline window
             baseline_period2_feature = np.mean(features_phys[index_window2], axis=0)
 
             # Subtract features for that trial by correct baseline period
-            first_baseline_period = (time_array < (time_ROR - baseline_window)) & (gloc_data_reduced.trial_id == trial_id_in_data[i])
-            second_baseline_period = (time_array >= (time_ROR - baseline_window)) & (gloc_data_reduced.trial_id == trial_id_in_data[i])
+            first_baseline_period = (time_array < (time_ROR - baseline_window)) & (trial_column == trial_id_in_data[i])
+            second_baseline_period = (time_array >= (time_ROR - baseline_window)) & (trial_column == trial_id_in_data[i])
 
             # Stack data from two windows of baselined data together
             baseline_v4[trial_id_in_data[i]] = np.array(features_phys[(first_baseline_period)] - baseline_period1_feature)
@@ -310,7 +310,7 @@ def create_v4_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
 
         # if no labeled begin of ROR, then just use the intial baseline period
         else:
-            baseline_v4[trial_id_in_data[i]] = np.array(features_phys[(gloc_data_reduced.trial_id == trial_id_in_data[i])] / baseline_period1_feature)
+            baseline_v4[trial_id_in_data[i]] = np.array(features_phys[(trial_column == trial_id_in_data[i])] / baseline_period1_feature)
 
 
         # Compute derivative
@@ -324,7 +324,7 @@ def create_v4_baseline(baseline_window, gloc_data_reduced, features_phys, time_v
 
     return baseline_v4, baseline_v4_derivative, baseline_v4_second_derivative, all_features_phys_updated
 
-def create_v5_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable, participant_seated_rhr, all_features_ecg):
+def create_v5_baseline(baseline_window, trial_column, time_column, subject_column, features_ecg, participant_seated_rhr, all_features_ecg):
     """
     This function baselines the features with baseline method v5 (divide by RHR
     from another study) and puts them into a dictionary per trial. This dictionary is output.
@@ -333,7 +333,7 @@ def create_v5_baseline(baseline_window, gloc_data_reduced, features_ecg, time_va
     """
 
     # Find Unique Trial ID
-    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+    trial_id_in_data = trial_column.unique()
 
     # Build Dictionary for each trial_id
     baseline_v5 = dict()
@@ -344,16 +344,16 @@ def create_v5_baseline(baseline_window, gloc_data_reduced, features_ecg, time_va
     for i in range(np.size(trial_id_in_data)):
 
         # Find time index and current participant
-        time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
-        time_array = np.array(gloc_data_reduced[time_variable])
-        participant_array = np.array(gloc_data_reduced.subject)
+        time_index = (trial_column == trial_id_in_data[i])
+        time_array = np.array(time_column)
+        participant_array = np.array(subject_column)
 
         # Find baseline for current participant
         current_participant = participant_array[time_index][0]
         baseline_feature = participant_seated_rhr[current_participant]
 
         # Divide features for that trial by baselined data
-        baseline_v5[trial_id_in_data[i]] = np.array(features_ecg[(gloc_data_reduced.trial_id == trial_id_in_data[i])] /baseline_feature)
+        baseline_v5[trial_id_in_data[i]] = np.array(features_ecg[(trial_column == trial_id_in_data[i])] /baseline_feature)
 
         # Compute derivative
         time = time_array[time_index]
@@ -367,7 +367,7 @@ def create_v5_baseline(baseline_window, gloc_data_reduced, features_ecg, time_va
 
     return baseline_v5, baseline_v5_derivative, baseline_v5_second_derivative, all_features_ecg_updated
 
-def create_v6_baseline(baseline_window, gloc_data_reduced, features_ecg, time_variable, participant_seated_rhr, all_features_ecg):
+def create_v6_baseline(baseline_window, trial_column, time_column, subject_column, features_ecg, participant_seated_rhr, all_features_ecg):
     """
     This function baselines the features with baseline method v6 (subtract RHR
     from another study) and puts them into a dictionary per trial. This dictionary is output.
@@ -376,7 +376,7 @@ def create_v6_baseline(baseline_window, gloc_data_reduced, features_ecg, time_va
     """
 
     # Find Unique Trial ID
-    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+    trial_id_in_data = trial_column.unique()
 
     # Build Dictionary for each trial_id
     baseline_v6 = dict()
@@ -387,16 +387,16 @@ def create_v6_baseline(baseline_window, gloc_data_reduced, features_ecg, time_va
     for i in range(np.size(trial_id_in_data)):
 
         # Find time index and current participant
-        time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
-        time_array = np.array(gloc_data_reduced[time_variable])
-        participant_array = np.array(gloc_data_reduced.subject)
+        time_index = (trial_column == trial_id_in_data[i])
+        time_array = np.array(time_column)
+        participant_array = np.array(subject_column)
 
         # Find baseline for current participant
         current_participant = participant_array[time_index][0]
         baseline_feature = participant_seated_rhr[current_participant]
 
         # Divide features for that trial by baselined data
-        baseline_v6[trial_id_in_data[i]] = np.array(features_ecg[(gloc_data_reduced.trial_id == trial_id_in_data[i])] - baseline_feature)
+        baseline_v6[trial_id_in_data[i]] = np.array(features_ecg[(trial_column == trial_id_in_data[i])] - baseline_feature)
 
         # Compute derivative
         time = time_array[time_index]
@@ -410,7 +410,7 @@ def create_v6_baseline(baseline_window, gloc_data_reduced, features_ecg, time_va
 
     return baseline_v6, baseline_v6_derivative, baseline_v6_second_derivative, all_features_ecg_updated
 
-def create_v7_baseline(baseline_window, gloc_data_reduced, features_eeg, time_variable, eeg_baseline_delta,
+def create_v7_baseline(baseline_window, trial_column, time_column, features_eeg, eeg_baseline_delta,
                        eeg_baseline_theta, eeg_baseline_alpha, eeg_baseline_beta, all_features_eeg):
     """
     This function baselines the features with baseline method v7 (divide by processed EEG baseline)
@@ -419,7 +419,7 @@ def create_v7_baseline(baseline_window, gloc_data_reduced, features_eeg, time_va
     output in a dictionary.
     """
     # Find Unique Trial ID
-    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+    trial_id_in_data = trial_column.unique()
 
     # Build Dictionary for each trial_id
     baseline_v7 = dict()
@@ -430,9 +430,9 @@ def create_v7_baseline(baseline_window, gloc_data_reduced, features_eeg, time_va
     for i in range(np.size(trial_id_in_data)):
 
         # Find time index and current participant
-        time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
-        time_array = np.array(gloc_data_reduced[time_variable])
-        participant_array = np.array(gloc_data_reduced.subject)
+        time_index = (trial_column == trial_id_in_data[i])
+        time_array = np.array(time_column)
+        participant_array = np.array(subject_column)
 
         # Find baseline for current participant
         current_participant = participant_array[time_index][0]
@@ -442,7 +442,7 @@ def create_v7_baseline(baseline_window, gloc_data_reduced, features_eeg, time_va
         baseline_feature_beta = eeg_baseline_beta.loc[current_participant]
 
         # Set current trial
-        current_trial_data = features_eeg[(gloc_data_reduced.trial_id == trial_id_in_data[i])]
+        current_trial_data = features_eeg[(trial_column == trial_id_in_data[i])]
 
         # Initialize np array to fill with each trial's data
         baselined_trial_data = np.zeros_like(current_trial_data)
@@ -488,7 +488,7 @@ def create_v7_baseline(baseline_window, gloc_data_reduced, features_eeg, time_va
 
     return baseline_v7, baseline_v7_derivative, baseline_v7_second_derivative, all_features_eeg_updated
 
-def create_v8_baseline(baseline_window, gloc_data_reduced, features_eeg, time_variable, eeg_baseline_delta,
+def create_v8_baseline(baseline_window, trial_column, time_column, features_eeg, eeg_baseline_delta,
                        eeg_baseline_theta, eeg_baseline_alpha, eeg_baseline_beta, all_features_eeg):
     """
     This function baselines the features with baseline method v8 (subtract EEG baseline)
@@ -497,7 +497,7 @@ def create_v8_baseline(baseline_window, gloc_data_reduced, features_eeg, time_va
     output in a dictionary.
     """
     # Find Unique Trial ID
-    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+    trial_id_in_data = trial_column.unique()
 
     # Build Dictionary for each trial_id
     baseline_v8 = dict()
@@ -508,9 +508,9 @@ def create_v8_baseline(baseline_window, gloc_data_reduced, features_eeg, time_va
     for i in range(np.size(trial_id_in_data)):
 
         # Find time index and current participant
-        time_index = (gloc_data_reduced.trial_id == trial_id_in_data[i])
-        time_array = np.array(gloc_data_reduced[time_variable])
-        participant_array = np.array(gloc_data_reduced.subject)
+        time_index = (trial_column == trial_id_in_data[i])
+        time_array = np.array(time_column)
+        participant_array = np.array(subject_column)
 
         # Find baseline for current participant
         current_participant = participant_array[time_index][0]
@@ -520,7 +520,7 @@ def create_v8_baseline(baseline_window, gloc_data_reduced, features_eeg, time_va
         baseline_feature_beta = eeg_baseline_beta.loc[current_participant]
 
         # Set current trial
-        current_trial_data = features_eeg[(gloc_data_reduced.trial_id == trial_id_in_data[i])]
+        current_trial_data = features_eeg[(trial_column == trial_id_in_data[i])]
 
         # Initialize np array to fill with each trial's data
         baselined_trial_data = np.zeros_like(current_trial_data)
@@ -566,13 +566,13 @@ def create_v8_baseline(baseline_window, gloc_data_reduced, features_eeg, time_va
 
     return baseline_v8, baseline_v8_derivative, baseline_v8_second_derivative, all_features_eeg_updated
 
-def combine_all_baseline(gloc_data_reduced, baseline, baseline_derivative, baseline_second_derivative, baseline_names):
+def combine_all_baseline(trial_column, baseline, baseline_derivative, baseline_second_derivative, baseline_names):
     """
     This function combines the features, derivative of features, and second derivative of features into one np array.
     """
 
     # Find Unique Trial ID
-    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+    trial_id_in_data = trial_column.unique()
 
     # Preallocate the dictionary with NumPy arrays
     combined_baseline = {id: np.empty((baseline[list(baseline.keys())[0]][id].shape[0], 0)) for id in trial_id_in_data}

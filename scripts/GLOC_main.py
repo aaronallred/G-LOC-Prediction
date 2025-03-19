@@ -35,7 +35,7 @@ if __name__ == "__main__":
     model_type = ['noAFE', 'explicit']
     feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
-    baseline_methods_to_use = ['v0','v1']
+    baseline_methods_to_use = ['v0','v1','v2']
     analysis_type = 2
 
     baseline_window = 10  # seconds
@@ -48,7 +48,6 @@ if __name__ == "__main__":
     # Subject & Trial Information (only need to adjust this if doing analysis type 0,1)
     subject_to_analyze = '01'
     trial_to_analyze = '02'
-    time_variable = 'Time (s)'
 
     #### DESCRIPTIONS OF ABOVE PARAMETERS
     ## datafolder: Location of structured data files
@@ -157,6 +156,15 @@ if __name__ == "__main__":
     elif impute_type == 1:
         features, indicator_matrix = knn_impute(features, n_neighbors=5)
 
+    ################################################## REDUCE MEMORY ##################################################
+
+    # Grab columns from gloc_data_reduced and remove gloc_data_reduced variable from memory
+    trial_column = gloc_data_reduced['trial_id']
+    time_column = gloc_data_reduced['Time (s)']
+    event_validated_column = gloc_data_reduced['event_validated']
+    subject_column = gloc_data_reduced['subject']
+
+    del gloc_data_reduced
 
     ################################################## BASELINE DATA ##################################################
     """ 
@@ -164,7 +172,7 @@ if __name__ == "__main__":
     """
 
     combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0= (
-        baseline_data(baseline_methods_to_use, gloc_data_reduced, features, time_variable, all_features,
+        baseline_data(baseline_methods_to_use, trial_column, time_column, event_validated_column, subject_column, features, all_features,
                       gloc,baseline_window, features_phys, all_features_phys, features_ecg, all_features_ecg,
                       features_eeg, all_features_eeg, baseline_data_filename, list_of_baseline_eeg_processed_files,
                       model_type))
@@ -176,9 +184,8 @@ if __name__ == "__main__":
     """
 
     y_gloc_labels, x_feature_matrix, all_features = (
-        feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, gloc_data_reduced,
-                           time_variable, combined_baseline_names,baseline_names_v0, baseline_v0,
-                           feature_groups_to_analyze))
+        feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column,
+                           combined_baseline_names,baseline_names_v0, baseline_v0, feature_groups_to_analyze))
 
     ############################################# FEATURE CLEAN AND PREP ##############################################
     """ 
@@ -308,6 +315,11 @@ if __name__ == "__main__":
     # selected_features_enet = feature_selection_elastic_net(x_train, y_train, all_features)
     # selected_features_ridge = feature_selection_ridge(x_train, y_train, all_features)
     # selected_features_mrmr = feature_selection_mrmr(x_train, y_train, all_features)
+    # selected_features_pca = feature_selection_pca(x_train, y_train, all_features)
+    # selected_features_target_mean = feature_selection_target_mean(x_train, y_train, all_features)
+    # selected_features_performance = feature_selection_performance(x_train, y_train, all_features)
+    # selected_features_shuffle = feature_selection_shuffle(x_train, y_train, all_features)
+
 
     ################################################ MACHINE LEARNING ################################################
     if sequential_optimization_mode == 'none':

@@ -1,19 +1,18 @@
 import numpy as np
 from GLOC_data_processing import unpack_dict
 
-def feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, gloc_data_reduced,
-                       time_variable, combined_baseline_names,baseline_names_v0, baseline_v0,
-                       feature_groups_to_analyze):
+def feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column,
+                       combined_baseline_names,baseline_names_v0, baseline_v0, feature_groups_to_analyze):
 
     """
     Generates Features from Baseline Data
     :return:
     """
 
-    # Sliding Window Mean (Intra-Trial Standardization)
+    # Sliding Window Mean
     gloc_window, sliding_window_mean_s1, number_windows, all_features_mean_s1, sliding_window_mean_s2, all_features_mean_s2 = (
-        sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc, gloc_data_reduced,
-                                 time_variable, combined_baseline_names))
+        sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column,
+        time_column, combined_baseline_names))
 
     # Sliding Window Standard Deviation, Max, Range
     (sliding_window_stddev_s1, sliding_window_max_s1, sliding_window_range_s1, all_features_stddev_s1,
@@ -21,7 +20,7 @@ def feature_generation(time_start, offset, stride, window_size, combined_baselin
      all_features_range_s1, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2,
      all_features_stddev_s2, all_features_max_s2,
      all_features_range_s2) = (
-        sliding_window_calc(time_start, stride, window_size, combined_baseline, gloc_data_reduced, time_variable,
+        sliding_window_calc(time_start, stride, window_size, combined_baseline, trial_column, time_column,
                             number_windows, combined_baseline_names))
 
     # Additional Features
@@ -37,7 +36,7 @@ def feature_generation(time_start, offset, stride, window_size, combined_baselin
      sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
      sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2, sliding_window_hrv_pnn50_s2,
      sliding_window_cognitive_IES_s2) = \
-        (sliding_window_other_features(time_start, stride, window_size, gloc_data_reduced, time_variable,
+        (sliding_window_other_features(time_start, stride, window_size, trial_column, time_column,
                                        number_windows,
                                        baseline_names_v0, baseline_v0, feature_groups_to_analyze))
 
@@ -75,7 +74,7 @@ def feature_generation(time_start, offset, stride, window_size, combined_baselin
 
     return y_gloc_labels, x_feature_matrix, all_features
 
-def sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc, gloc_data_reduced, time_variable, combined_baseline_names):
+def sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column, combined_baseline_names):
     """
     This function creates the engineered features and gloc labels for the data. This includes a
     sliding window mean for each of the features for each trial_id. The number of windows is
@@ -86,7 +85,7 @@ def sliding_window_mean_calc(time_start, offset, stride, window_size, combined_b
     """
 
     # Find Unique Trial ID
-    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+    trial_id_in_data = trial_column.unique()
 
     # Build Dictionary for each trial_id
     sliding_window_mean = dict()
@@ -98,10 +97,10 @@ def sliding_window_mean_calc(time_start, offset, stride, window_size, combined_b
     for i in range(np.size(trial_id_in_data)):
 
         # Determine index from current trial_id
-        current_index = (gloc_data_reduced['trial_id'] == trial_id_in_data[i])
+        current_index = (trial_column == trial_id_in_data[i])
 
         # Create time array based on current_index
-        current_time = np.array(gloc_data_reduced[time_variable])
+        current_time = np.array(time_column)
         time_trimmed = current_time[current_index]
 
         # Find end time for specific trial
@@ -115,7 +114,7 @@ def sliding_window_mean_calc(time_start, offset, stride, window_size, combined_b
         gloc_window_current = np.zeros((number_windows_current, 1))
 
         # Create trimmed gloc data for the specific
-        gloc_trimmed = gloc[(gloc_data_reduced.trial_id == trial_id_in_data[i])]
+        gloc_trimmed = gloc[(trial_column == trial_id_in_data[i])]
 
         # Define iteration time
         time_iteration = time_start
@@ -229,7 +228,7 @@ def inter_trial_standardization(feature_dictionary):
 
     return sliding_window_s2
 
-def sliding_window_calc(time_start, stride, window_size, combined_baseline, gloc_data_reduced, time_variable,
+def sliding_window_calc(time_start, stride, window_size, combined_baseline, trial_column, time_column,
                         number_windows, combined_baseline_names):
     """
     This function creates the engineered features and gloc labels for the data. This includes a
@@ -238,7 +237,7 @@ def sliding_window_calc(time_start, stride, window_size, combined_baseline, gloc
     """
 
     # Find Unique Trial ID
-    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+    trial_id_in_data = trial_column.unique()
 
     # Build Dictionary for each trial_id
     # Windowed data (no standardization)
@@ -260,10 +259,10 @@ def sliding_window_calc(time_start, stride, window_size, combined_baseline, gloc
     for i in range(np.size(trial_id_in_data)):
 
         # Determine index from current trial_id
-        current_index = (gloc_data_reduced['trial_id'] == trial_id_in_data[i])
+        current_index = (trial_column == trial_id_in_data[i])
 
         # Create time array based on current_index
-        current_time = np.array(gloc_data_reduced[time_variable])
+        current_time = np.array(time_column)
         time_trimmed = current_time[current_index]
 
         # Determine number of windows
@@ -372,7 +371,7 @@ def sliding_window_calc(time_start, stride, window_size, combined_baseline, gloc
             all_features_range_s1, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2, all_features_stddev_s2,
             all_features_max_s2, all_features_range_s2)
 
-def sliding_window_other_features(time_start, stride, window_size, gloc_data_reduced, time_variable, number_windows,
+def sliding_window_other_features(time_start, stride, window_size, trial_column, time_column, number_windows,
                                   baseline_names_v0, baseline_v0, feature_groups_to_analyze):
     """
     This function creates the engineered features and gloc labels for the data. This includes a
@@ -380,7 +379,7 @@ def sliding_window_other_features(time_start, stride, window_size, gloc_data_red
     """
 
     # Find Unique Trial ID
-    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+    trial_id_in_data = trial_column.unique()
 
     if 'eyetracking' in feature_groups_to_analyze:
         # Find indices of left and right pupil
@@ -464,10 +463,10 @@ def sliding_window_other_features(time_start, stride, window_size, gloc_data_red
     for i in range(np.size(trial_id_in_data)):
 
         # Determine index from current trial_id
-        current_index = (gloc_data_reduced['trial_id'] == trial_id_in_data[i])
+        current_index = (trial_column == trial_id_in_data[i])
 
         # Create time array based on current_index
-        current_time = np.array(gloc_data_reduced[time_variable])
+        current_time = np.array(time_column)
         time_trimmed = current_time[current_index]
 
         # Determine number of windows

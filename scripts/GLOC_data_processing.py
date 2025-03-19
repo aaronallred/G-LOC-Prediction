@@ -222,13 +222,15 @@ def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, dem
         gloc_data_reduced['Correct - Cog'].replace('incorrect', -1, inplace=True)
         gloc_data_reduced['Correct - Cog'].replace('NO VALUE', np.nan, inplace=True)
 
-        ######### Generate additional cognitive task specific features #########
-        # Deviation/Screen Pos
-        deviation_wrt_target_position =  gloc_data_reduced['deviation - Cog'] / np.sqrt(gloc_data_reduced['tgtposX - Cog']**2 +  gloc_data_reduced['tgtposY - Cog']**2)
-        gloc_data_reduced['Deviation wrt Target Position'] = deviation_wrt_target_position
-
-        # append cognitive features
-        cognitive_features.append('Deviation wrt Target Position')
+        # Note post 3/12 meeting: the target is stationary, while the participant moves the tracker
+        # so this metric no longer makes sense
+        # ######### Generate additional cognitive task specific features #########
+        # # Deviation/Screen Pos
+        # deviation_wrt_target_position =  gloc_data_reduced['deviation - Cog'] / np.sqrt(gloc_data_reduced['tgtposX - Cog']**2 +  gloc_data_reduced['tgtposY - Cog']**2)
+        # gloc_data_reduced['Deviation wrt Target Position'] = deviation_wrt_target_position
+        #
+        # # append cognitive features
+        # cognitive_features.append('Deviation wrt Target Position')
     else:
         cognitive_features = []
 
@@ -1117,7 +1119,7 @@ def summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda, ac
 
     # Define classifiers being used and summary performance meetrics to use
     classifiers = ['Log Reg', 'RF', 'LDA', 'KNN', 'SVM' , 'Ensemble w/ GB']
-    performance_metrics = ['accuracy', 'precision', 'recall', 'f1-score', 'specificity']
+    performance_metrics = ['accuracy', 'precision', 'recall', 'f1-score', 'specificity', 'g mean']
 
     # For each performance metric, combine each machine learning method into np array
     accuracy = np.array([accuracy_logreg, accuracy_rf, accuracy_lda, accuracy_knn, accuracy_svm, accuracy_gb])
