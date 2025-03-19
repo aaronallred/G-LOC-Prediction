@@ -35,7 +35,7 @@ if __name__ == "__main__":
     model_type = ['noAFE', 'explicit']
     feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
-    baseline_methods_to_use = ['v0','v1','v2']
+    baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
     analysis_type = 2
 
     baseline_window = 10  # seconds
@@ -214,6 +214,8 @@ if __name__ == "__main__":
     x_train, x_test, y_train, y_test = pre_classification_training_test_split(y_gloc_labels_noNaN,
                                                                               x_feature_matrix_noNaN,training_ratio)
 
+    x = 1
+
     ################################################  CLASS IMBALANCE  ################################################
     """ 
           Explore Class Imbalance Section of Sequential Optimization Framework
@@ -288,26 +290,98 @@ if __name__ == "__main__":
         if feature_reduction_type == 'all' or feature_reduction_type == 'lasso':
             selected_features_lasso = feature_selection_lasso(x_train, y_train, all_features)
 
+            # Grab relevant feature columns from x_train and x_test
+            feature_index = np.where(all_features == selected_features_lasso)
+            x_train = x_train[:,feature_index]
+            x_test = x_test[:,feature_index]
+
+            # Assess performance for all classifiers
+            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+                                                                   y_test, selected_features_lasso, train_class, class_weight_imb))
+
         if feature_reduction_type == 'all' or feature_reduction_type == 'enet':
             selected_features_enet = feature_selection_elastic_net(x_train, y_train, all_features)
+
+            # Grab relevant feature columns from x_train and x_test
+            feature_index = np.where(all_features == selected_features_enet)
+            x_train = x_train[:,feature_index]
+            x_test = x_test[:,feature_index]
+
+            # Assess performance for all classifiers
+            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+                                                                   y_test, selected_features_enet, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'ridge':
             selected_features_ridge = feature_selection_ridge(x_train, y_train, all_features)
 
+            # Grab relevant feature columns from x_train and x_test
+            feature_index = np.where(all_features == selected_features_ridge)
+            x_train = x_train[:,feature_index]
+            x_test = x_test[:,feature_index]
+
+            # Assess performance for all classifiers
+            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+                                                                   y_test, selected_features_ridge, train_class, class_weight_imb))
+
         if feature_reduction_type == 'all' or feature_reduction_type == 'mrmr':
             selected_features_mrmr = feature_selection_mrmr(x_train, y_train, all_features)
+
+            # Grab relevant feature columns from x_train and x_test
+            feature_index = np.where(all_features == selected_features_mrmr)
+            x_train = x_train[:,feature_index]
+            x_test = x_test[:,feature_index]
+
+            # Assess performance for all classifiers
+            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+                                                                   y_test, selected_features_mrmr, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'pca':
             selected_features_pca = feature_selection_pca(x_train, y_train, all_features)
 
+            # Grab relevant feature columns from x_train and x_test
+            feature_index = np.where(all_features == selected_features_pca)
+            x_train = x_train[:,feature_index]
+            x_test = x_test[:,feature_index]
+
+            # Assess performance for all classifiers
+            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+                                                                   y_test, selected_features_pca, train_class, class_weight_imb))
+
         if feature_reduction_type == 'all' or feature_reduction_type == 'target_mean':
             selected_features_target_mean = feature_selection_target_mean(x_train, y_train, all_features)
+
+            # Grab relevant feature columns from x_train and x_test
+            feature_index = np.where(all_features == selected_features_target_mean)
+            x_train = x_train[:,feature_index]
+            x_test = x_test[:,feature_index]
+
+            # Assess performance for all classifiers
+            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+                                                                   y_test, selected_features_target_mean, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'performance':
             selected_features_performance = feature_selection_performance(x_train, y_train, all_features)
 
+            # Grab relevant feature columns from x_train and x_test
+            feature_index = np.where(all_features == selected_features_performance)
+            x_train = x_train[:,feature_index]
+            x_test = x_test[:,feature_index]
+
+            # Assess performance for all classifiers
+            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+                                                                   y_test, selected_features_performance, train_class, class_weight_imb))
+
         if feature_reduction_type == 'all' or feature_reduction_type == 'shuffle':
             selected_features_shuffle = feature_selection_shuffle(x_train, y_train, all_features)
+
+            # Grab relevant feature columns from x_train and x_test
+            feature_index = np.where(all_features == selected_features_shuffle)
+            x_train = x_train[:,feature_index]
+            x_test = x_test[:,feature_index]
+
+            # Assess performance for all classifiers
+            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+                                                                   y_test, selected_features_shuffle, train_class, class_weight_imb))
 
 
     # Feature Selection

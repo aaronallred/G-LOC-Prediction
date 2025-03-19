@@ -37,11 +37,11 @@ def baseline_data(baseline_methods_to_use, trial_column, time_column, event_vali
         'v4': lambda: create_v4_baseline(baseline_window, trial_column, time_column, event_validated_column, features_phys, all_features_phys),
         'v5': lambda: create_v5_baseline(baseline_window, trial_column, time_column, subject_column, features_ecg, participant_seated_rhr, all_features_ecg),
         'v6': lambda: create_v6_baseline(baseline_window, trial_column, time_column, subject_column, features_ecg, participant_seated_rhr, all_features_ecg),
-        'v7': lambda: create_v7_baseline(baseline_window, trial_column, time_column, features_eeg,
+        'v7': lambda: create_v7_baseline(baseline_window, trial_column, time_column, subject_column, features_eeg,
                                          eeg_baseline_data['delta'], eeg_baseline_data['theta'],
                                          eeg_baseline_data['alpha'], eeg_baseline_data['beta'], all_features_eeg)
                 if 'noAFE' in model_type else warnings.warn('EEG baseline methods not implemented for AFE conditions yet.'),
-        'v8': lambda: create_v8_baseline(baseline_window, trial_column, time_column, features_eeg,
+        'v8': lambda: create_v8_baseline(baseline_window, trial_column, time_column, subject_column, features_eeg,
                                          eeg_baseline_data['delta'], eeg_baseline_data['theta'],
                                          eeg_baseline_data['alpha'], eeg_baseline_data['beta'], all_features_eeg)
                 if 'noAFE' in model_type else warnings.warn('EEG baseline methods not implemented for AFE conditions yet.')
@@ -410,7 +410,7 @@ def create_v6_baseline(baseline_window, trial_column, time_column, subject_colum
 
     return baseline_v6, baseline_v6_derivative, baseline_v6_second_derivative, all_features_ecg_updated
 
-def create_v7_baseline(baseline_window, trial_column, time_column, features_eeg, eeg_baseline_delta,
+def create_v7_baseline(baseline_window, trial_column, time_column, subject_column, features_eeg, eeg_baseline_delta,
                        eeg_baseline_theta, eeg_baseline_alpha, eeg_baseline_beta, all_features_eeg):
     """
     This function baselines the features with baseline method v7 (divide by processed EEG baseline)
@@ -488,7 +488,7 @@ def create_v7_baseline(baseline_window, trial_column, time_column, features_eeg,
 
     return baseline_v7, baseline_v7_derivative, baseline_v7_second_derivative, all_features_eeg_updated
 
-def create_v8_baseline(baseline_window, trial_column, time_column, features_eeg, eeg_baseline_delta,
+def create_v8_baseline(baseline_window, trial_column, time_column, subject_column, features_eeg, eeg_baseline_delta,
                        eeg_baseline_theta, eeg_baseline_alpha, eeg_baseline_beta, all_features_eeg):
     """
     This function baselines the features with baseline method v8 (subtract EEG baseline)

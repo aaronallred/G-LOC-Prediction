@@ -51,8 +51,8 @@ def feature_selection_lasso(x_train, y_train, all_features):
     plt.ylim(0, 0.15)
     plt.show()
 
-    # Subset of the features which have more than 0.001 importance
-    feature_subset = np.array(all_features)[lasso_optimal_coef > 0.001]
+    # Subset of the features with nonzero coefficient
+    feature_subset = np.array(all_features)[lasso_optimal_coef != 0]
 
     return feature_subset
 
