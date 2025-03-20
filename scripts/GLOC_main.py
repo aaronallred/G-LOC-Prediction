@@ -35,7 +35,9 @@ if __name__ == "__main__":
     model_type = ['noAFE', 'explicit']
     feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
-    baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
+    # baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
+    baseline_methods_to_use = ['v0','v1']
+
     analysis_type = 2
 
     baseline_window = 10  # seconds
@@ -214,7 +216,6 @@ if __name__ == "__main__":
     x_train, x_test, y_train, y_test = pre_classification_training_test_split(y_gloc_labels_noNaN,
                                                                               x_feature_matrix_noNaN,training_ratio)
 
-    x = 1
 
     ################################################  CLASS IMBALANCE  ################################################
     """ 

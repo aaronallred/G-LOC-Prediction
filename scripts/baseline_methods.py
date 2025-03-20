@@ -575,17 +575,29 @@ def combine_all_baseline(trial_column, baseline, baseline_derivative, baseline_s
     trial_id_in_data = trial_column.unique()
 
     # Preallocate the dictionary with NumPy arrays
-    combined_baseline = {id: np.empty((baseline[list(baseline.keys())[0]][id].shape[0], 0)) for id in trial_id_in_data}
+    num_cols = 0
+    for method in baseline.keys():
+        num_cols += baseline[method][trial_id_in_data[0]].shape[1]*3
+    combined_baseline = {trial: np.empty((baseline[list(baseline.keys())[0]][trial].shape[0], num_cols)) for trial in trial_id_in_data}
+    # combined_baseline2 = {trial: np.empty((baseline[list(baseline.keys())[0]][trial].shape[0], 0)) for trial in
+    #                      trial_id_in_data}
 
     # Iterate through all unique trial_id & combine the baseline, baseline derivative, and baseline second derivative
-    for id in trial_id_in_data:
-        all_baseline_data = []
-        for method in baseline.keys():
-            all_baseline_data.append(baseline[method][id])
-            all_baseline_data.append(baseline_derivative[method][id])
-            all_baseline_data.append(baseline_second_derivative[method][id])
+    for trial in trial_id_in_data:
+        # all_baseline_data = []
+        for i, method in enumerate(baseline.keys()):
+            m,n = baseline[method][trial].shape
+            start = i * n
+            end = start + n
+            combined_baseline[trial][:,start:end] = baseline[method][trial]
+            combined_baseline[trial][:,start+n:end+n] = baseline_derivative[method][trial]
+            combined_baseline[trial][:,start+2*n:end+2*n] = baseline_second_derivative[method][trial]
+            # all_baseline_data.append(baseline[method][trial])
+            # all_baseline_data.append(baseline_derivative[method][trial])
+            # all_baseline_data.append(baseline_second_derivative[method][trial])
 
-        combined_baseline[id] = np.column_stack(tuple(all_baseline_data))
+        # combined_baseline2[trial] = np.column_stack(tuple(all_baseline_data))
+
 
     combined_baseline_names = sum([baseline_names[method] + [s + '_derivative' for s in baseline_names[method]] +
                                        [s + '_2derivative' for s in baseline_names[method]] for method in baseline_names.keys()], [])
