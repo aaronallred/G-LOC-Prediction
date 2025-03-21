@@ -598,7 +598,6 @@ def combine_all_baseline(trial_column, baseline, baseline_derivative, baseline_s
 
         # combined_baseline2[trial] = np.column_stack(tuple(all_baseline_data))
 
-
     combined_baseline_names = sum([baseline_names[method] + [s + '_derivative' for s in baseline_names[method]] +
                                        [s + '_2derivative' for s in baseline_names[method]] for method in baseline_names.keys()], [])
 

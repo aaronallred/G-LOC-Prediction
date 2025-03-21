@@ -14,15 +14,21 @@ if __name__ == "__main__":
     datafolder = '../../'
     # datafolder = '../data/'
 
+    # Import Feature Matrix | 0 = No, Proceed with Baseline and Feature Extraction , 1 = Yes, Use Existing Pkl
+    import_feature_matrix = 1
+    feature_matrix_name = 'x_feature_matrix.pkl'
+    y_label_name = 'y_gloc_labels.pkl'
+    all_features_name = 'all_features.pkl'
+
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
     classifier_type = 'all'
     train_class = True
 
     ## Sequential Optimization Mode | Pick 'none' 'imbalance' 'nan' 'sliding_window' or 'feature_reduction'
-    sequential_optimization_mode = 'none'
+    sequential_optimization_mode = 'imbalance'
 
     ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
-    imbalance_technique = 'all'
+    imbalance_technique = 'smote_cf'
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' or 'all'
     feature_reduction_type = 'all'
@@ -112,100 +118,106 @@ if __name__ == "__main__":
         # analysis_type = 2: analyze cohort data (all subjects, all trials)
             # if analysis_type = 2, then no extra parameters need to be set
 
+    if import_feature_matrix == 0:
+        ############################################# LOAD AND PROCESS DATA #############################################
+        """ 
+           Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze'
+        """
 
-    ############################################# LOAD AND PROCESS DATA #############################################
-    """ 
-       Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze'
-    """
+        # Grab Data File Locations
+        (filename, baseline_data_filename, demographic_data_filename,
+         list_of_eeg_data_files, list_of_baseline_eeg_processed_files) = data_locations(datafolder)
 
-    # Grab Data File Locations
-    (filename, baseline_data_filename, demographic_data_filename,
-     list_of_eeg_data_files, list_of_baseline_eeg_processed_files) = data_locations(datafolder)
+        # Load Data
+        (gloc_data_reduced, features, features_phys, features_ecg, features_eeg, all_features, all_features_phys,
+         all_features_ecg, all_features_eeg) = (
+            analysis_driven_csv_processing(analysis_type, filename, feature_groups_to_analyze, demographic_data_filename,
+                                           model_type,list_of_eeg_data_files,trial_to_analyze,subject_to_analyze))
 
-    # Load Data
-    (gloc_data_reduced, features, features_phys, features_ecg, features_eeg, all_features, all_features_phys,
-     all_features_ecg, all_features_eeg) = (
-        analysis_driven_csv_processing(analysis_type, filename, feature_groups_to_analyze, demographic_data_filename,
-                                       model_type,list_of_eeg_data_files,trial_to_analyze,subject_to_analyze))
+        # Create GLOC Categorical Vector
+        gloc = label_gloc_events(gloc_data_reduced)
 
-    # Create GLOC Categorical Vector
-    gloc = label_gloc_events(gloc_data_reduced)
+        # Reduce Dataset based on AFE / nonAFE condition
+        gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
+            afe_subset(model_type, gloc_data_reduced,all_features,
+                       features,features_phys, features_ecg, features_eeg, gloc))
 
-    # Reduce Dataset based on AFE / nonAFE condition
-    gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
-        afe_subset(model_type, gloc_data_reduced,all_features,
-                   features,features_phys, features_ecg, features_eeg, gloc))
-
-    # Find time window after acceleration before GLOC (to compare our data to LOCINDTI)
-    # find_prediction_window(gloc_data_reduced, gloc, time_variable)
-
-
-    ############################################### DATA CLEAN AND PREP ###############################################
-    """ 
-       Optional handling of raw NaN data, depending on 'remove_NaN_trials' 'impute_type' <= 1
-    """
-
-    ### Remove full trials with NaN
-    if remove_NaN_trials:
-        gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc, nan_proportion_df = (
-            remove_all_nan_trials(gloc_data_reduced, all_features,
-                                  features,features_phys, features_ecg, features_eeg, gloc))
-
-    ### Impute missing row data
-    if impute_type == 0:
-        # Remove rows with NaN (temporary solution-should replace with other method eventually)
-        gloc, features, gloc_data_reduced = process_NaN_raw(gloc, features, gloc_data_reduced)
-    elif impute_type == 1:
-        features, indicator_matrix = knn_impute(features, n_neighbors=5)
-
-    ################################################## REDUCE MEMORY ##################################################
-
-    # Grab columns from gloc_data_reduced and remove gloc_data_reduced variable from memory
-    trial_column = gloc_data_reduced['trial_id']
-    time_column = gloc_data_reduced['Time (s)']
-    event_validated_column = gloc_data_reduced['event_validated']
-    subject_column = gloc_data_reduced['subject']
-
-    del gloc_data_reduced
-
-    ################################################## BASELINE DATA ##################################################
-    """ 
-        Baselines pre-feature data based on 'baseline_methods_to_use'
-    """
-
-    combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0= (
-        baseline_data(baseline_methods_to_use, trial_column, time_column, event_validated_column, subject_column, features, all_features,
-                      gloc,baseline_window, features_phys, all_features_phys, features_ecg, all_features_ecg,
-                      features_eeg, all_features_eeg, baseline_data_filename, list_of_baseline_eeg_processed_files,
-                      model_type))
+        # Find time window after acceleration before GLOC (to compare our data to LOCINDTI)
+        # find_prediction_window(gloc_data_reduced, gloc, time_variable)
 
 
-    ################################################ GENERATE FEATURES ################################################
-    """
-        Generates features from baseline data
-    """
+        ############################################### DATA CLEAN AND PREP ###############################################
+        """ 
+           Optional handling of raw NaN data, depending on 'remove_NaN_trials' 'impute_type' <= 1
+        """
 
-    y_gloc_labels, x_feature_matrix, all_features = (
-        feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column,
-                           combined_baseline_names,baseline_names_v0, baseline_v0, feature_groups_to_analyze))
+        ### Remove full trials with NaN
+        if remove_NaN_trials:
+            gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc, nan_proportion_df = (
+                remove_all_nan_trials(gloc_data_reduced, all_features,
+                                      features,features_phys, features_ecg, features_eeg, gloc))
 
-    ############################################# FEATURE CLEAN AND PREP ##############################################
-    """ 
-          Optional handling of raw NaN data, depending on 'impute_type' >= 2
-    """
+        ### Impute missing row data
+        if impute_type == 0:
+            # Remove rows with NaN (temporary solution-should replace with other method eventually)
+            gloc, features, gloc_data_reduced = process_NaN_raw(gloc, features, gloc_data_reduced)
+        elif impute_type == 1:
+            features, indicator_matrix = knn_impute(features, n_neighbors=5)
 
-    # Remove constant columns
-    x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
+        ################################################## REDUCE MEMORY ##################################################
 
-    if impute_type == 2:
-        # Remove rows with NaN (temporary solution-should replace with other method eventually)
-        y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features = process_NaN(y_gloc_labels, x_feature_matrix,
-                                                                                all_features)
-    elif impute_type == 3:
-        y_gloc_labels_noNaN = y_gloc_labels
-        x_feature_matrix_noNaN, indicator_matrix = knn_impute(x_feature_matrix, n_neighbors=5)
+        # Grab columns from gloc_data_reduced and remove gloc_data_reduced variable from memory
+        trial_column = gloc_data_reduced['trial_id']
+        time_column = gloc_data_reduced['Time (s)']
+        event_validated_column = gloc_data_reduced['event_validated']
+        subject_column = gloc_data_reduced['subject']
+
+        del gloc_data_reduced
+
+        ################################################## BASELINE DATA ##################################################
+        """ 
+            Baselines pre-feature data based on 'baseline_methods_to_use'
+        """
+
+        combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0= (
+            baseline_data(baseline_methods_to_use, trial_column, time_column, event_validated_column, subject_column, features, all_features,
+                          gloc,baseline_window, features_phys, all_features_phys, features_ecg, all_features_ecg,
+                          features_eeg, all_features_eeg, baseline_data_filename, list_of_baseline_eeg_processed_files,
+                          model_type))
+
+
+        ################################################ GENERATE FEATURES ################################################
+        """
+            Generates features from baseline data
+        """
+
+        y_gloc_labels, x_feature_matrix, all_features = (
+            feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column,
+                               combined_baseline_names,baseline_names_v0, baseline_v0, feature_groups_to_analyze))
+
+        ############################################# FEATURE CLEAN AND PREP ##############################################
+        """ 
+              Optional handling of raw NaN data, depending on 'impute_type' >= 2
+        """
+
+        # Remove constant columns
+        x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
+
+        if impute_type == 2:
+            # Remove rows with NaN (temporary solution-should replace with other method eventually)
+            y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features = process_NaN(y_gloc_labels, x_feature_matrix,
+                                                                                    all_features)
+        elif impute_type == 3:
+            y_gloc_labels_noNaN = y_gloc_labels
+            x_feature_matrix_noNaN, indicator_matrix = knn_impute(x_feature_matrix, n_neighbors=5)
+        else:
+            y_gloc_labels_noNaN, x_feature_matrix_noNaN = y_gloc_labels, x_feature_matrix
+
+    # Import pkl
     else:
-        y_gloc_labels_noNaN, x_feature_matrix_noNaN = y_gloc_labels, x_feature_matrix
+        y_gloc_labels_noNaN = pd.read_pickle(y_label_name)
+        x_feature_matrix_noNaN = pd.read_pickle(feature_matrix_name)
+        all_features = pd.read_pickle(all_features_name)
 
     ################################################ TRAIN/TEST SPLIT  ################################################
     """ 
@@ -224,57 +236,54 @@ if __name__ == "__main__":
 
     if sequential_optimization_mode == 'imbalance':
         ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
-        if classifier_type == 'all' or classifier_type == 'rus':
+        if imbalance_technique == 'all' or imbalance_technique == 'rus':
             rus_x_train, rus_y_train = resample_rus(x_train, y_train)
             class_weight_imb = 'None'
 
             performance_metric_summary_rus = (call_all_classifiers(classifier_type, rus_x_train, x_test, rus_y_train,
                                                                    y_test, all_features, train_class, class_weight_imb))
 
-        if classifier_type == 'all' or classifier_type == 'ros':
+        if imbalance_technique == 'all' or imbalance_technique == 'ros':
             ros_x_train, ros_y_train = resample_ros(x_train, y_train)
             class_weight_imb = 'None'
 
             performance_metric_summary_ros = (call_all_classifiers(classifier_type, ros_x_train, x_test, ros_y_train,
                                                                    y_test, all_features, train_class, class_weight_imb))
 
-        if classifier_type == 'all' or classifier_type == 'smote':
+        if imbalance_technique == 'all' or imbalance_technique == 'smote':
             smote_x_train, smote_y_train = resample_smote(x_train, y_train)
             class_weight_imb = 'None'
 
             performance_metric_summary_smote = (call_all_classifiers(classifier_type, smote_x_train, x_test, smote_y_train,
                                                                    y_test, all_features, train_class, class_weight_imb))
 
-        if classifier_type == 'all' or classifier_type == 'cost_function':
+        if imbalance_technique == 'all' or imbalance_technique == 'cost_function':
             class_weight_imb = 'balanced'
             performance_metric_summary_cf = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
                                                                    y_test, all_features, train_class, class_weight_imb))
 
-        if classifier_type == 'all' or classifier_type == 'rus_cf':
+        if imbalance_technique == 'all' or imbalance_technique == 'rus_cf':
             class_weight_imb = 'balanced'
-            if rus_x_train not in globals():
-                rus_x_train, rus_y_train = resample_rus(x_train, y_train)
+            rus_x_train, rus_y_train = resample_rus(x_train, y_train)
 
             performance_metric_summary_rus_cf = (call_all_classifiers(classifier_type, rus_x_train, x_test, rus_y_train,
                                                                    y_test, all_features, train_class, class_weight_imb))
 
-        if classifier_type == 'all' or classifier_type == 'ros_cf':
+        if imbalance_technique == 'all' or imbalance_technique == 'ros_cf':
             class_weight_imb = 'balanced'
-            if ros_x_train not in globals():
-                ros_x_train, ros_y_train = resample_ros(x_train, y_train)
+            ros_x_train, ros_y_train = resample_ros(x_train, y_train)
 
             performance_metric_summary_ros_cf = (call_all_classifiers(classifier_type, ros_x_train, x_test, ros_y_train,
                                                                        y_test, all_features, train_class, class_weight_imb))
 
-        if classifier_type == 'all' or classifier_type == 'smote_cf':
+        if imbalance_technique == 'all' or imbalance_technique == 'smote_cf':
             class_weight_imb = 'balanced'
-            if smote_x_train not in globals():
-                smote_x_train, smote_y_train = resample_smote(x_train, y_train)
+            smote_x_train, smote_y_train = resample_smote(x_train, y_train)
 
             performance_metric_summary_smote_cf = (call_all_classifiers(classifier_type, smote_x_train, x_test, smote_y_train,
                                                                        y_test, all_features, train_class, class_weight_imb))
 
-        if classifier_type == 'all' or classifier_type == 'none':
+        if imbalance_technique == 'all' or imbalance_technique == 'none':
             class_weight_imb = 'None'
 
             performance_metric_summary_none = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
