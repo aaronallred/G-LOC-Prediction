@@ -161,7 +161,7 @@ def classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb,
     # plt.show()
 
     # Create Confusion Matrix
-    # create_confusion_matrix(y_testing, label_predictions, 'Random Forest')
+    create_confusion_matrix(y_test, label_predictions, 'Random Forest')
 
     # Save model
     if retrain:

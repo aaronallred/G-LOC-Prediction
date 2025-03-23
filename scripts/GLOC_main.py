@@ -34,8 +34,8 @@ if __name__ == "__main__":
     ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
     imbalance_technique = 'smote_cf'
 
-    ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' or 'all'
-    feature_reduction_type = 'target_mean'
+    ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
+    feature_reduction_type = 'lasso'
 
     # Data Handling Options
     remove_NaN_trials = True
@@ -249,6 +249,7 @@ if __name__ == "__main__":
     if trouble_shoot_mode == 1:
         x_train = x_train[:, 0:100]
         x_test = x_test[:, 0:100]
+        all_features = all_features[0:100]
 
     ################################################  CLASS IMBALANCE  ################################################
     """ 
@@ -317,6 +318,7 @@ if __name__ == "__main__":
     """
 
     if sequential_optimization_mode == 'feature_reduction':
+        # REMOVE THIS BEFORE RUNNING
         class_weight_imb = 'balanced'
 
         ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' or 'all'
@@ -324,7 +326,7 @@ if __name__ == "__main__":
             selected_features_lasso = feature_selection_lasso(x_train, y_train, all_features)
 
             # Grab relevant feature columns from x_train and x_test
-            feature_index = np.where(all_features == selected_features_lasso)
+            feature_index = [index for index, element in enumerate(all_features) if element in selected_features_lasso]
             x_train = x_train[:,feature_index]
             x_test = x_test[:,feature_index]
 
@@ -426,6 +428,11 @@ if __name__ == "__main__":
             # Assess performance for all classifiers
             performance_metric_summary_shuffle = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
                                                                    y_test, selected_features_shuffle, train_class, class_weight_imb))
+
+        if feature_reduction_type == 'all' or feature_reduction_type == 'none':
+            # Assess performance for all classifiers
+            performance_metric_summary_no_feature_selection = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+                                                                   y_test, all_features, train_class, class_weight_imb))
 
     ################################################ MACHINE LEARNING ################################################
     if sequential_optimization_mode == 'none':
