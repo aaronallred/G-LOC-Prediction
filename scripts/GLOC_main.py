@@ -35,7 +35,7 @@ if __name__ == "__main__":
     imbalance_technique = 'smote_cf'
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
-    feature_reduction_type = 'lasso'
+    feature_reduction_type = 'ridge'
 
     # Data Handling Options
     remove_NaN_trials = True
@@ -338,9 +338,9 @@ if __name__ == "__main__":
             selected_features_enet = feature_selection_elastic_net(x_train, y_train, all_features)
 
             # Grab relevant feature columns from x_train and x_test
-            feature_index = np.where(all_features == selected_features_enet)
-            x_train = x_train[:,feature_index]
-            x_test = x_test[:,feature_index]
+            feature_index = [index for index, element in enumerate(all_features) if element in selected_features_enet]
+            x_train = x_train[:, feature_index]
+            x_test = x_test[:, feature_index]
 
             # Assess performance for all classifiers
             performance_metric_summary_enet = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
@@ -350,9 +350,9 @@ if __name__ == "__main__":
             selected_features_ridge = feature_selection_ridge(x_train, y_train, all_features)
 
             # Grab relevant feature columns from x_train and x_test
-            feature_index = np.where(all_features == selected_features_ridge)
-            x_train = x_train[:,feature_index]
-            x_test = x_test[:,feature_index]
+            feature_index = [index for index, element in enumerate(all_features) if element in selected_features_ridge]
+            x_train = x_train[:, feature_index]
+            x_test = x_test[:, feature_index]
 
             # Assess performance for all classifiers
             performance_metric_summary_ridge = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
