@@ -241,7 +241,7 @@ def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, dem
         if 'AFE' in model_type:
             raw_EEG_condition_specific = ['F4 - EEG', 'T7 - EEG', 'O1 - EEG', 'O2 - EEG']
         elif 'noAFE' in model_type:
-            raw_EEG_condition_specific = ['AFz - EEG', 'AF4 - EEG', 'F1 - EEG', 'FT9 - EEG', 'FT10 - EEG', 'FC5 - EEG',
+            raw_EEG_condition_specific = ['AFz - EEG', 'AF4 - EEG', 'FT9 - EEG', 'FT10 - EEG', 'FC5 - EEG',
                                       'FC3 - EEG', 'FC1 - EEG', 'FC2 - EEG', 'FC4 - EEG', 'FC6 - EEG', 'C5 - EEG',
                                       'Cz - EEG', 'CP5 - EEG', 'CP6 - EEG', 'P5 - EEG', 'P3 - EEG', 'P1 - EEG',
                                       'Pz - EEG', 'P4 - EEG', 'P6 - EEG']
@@ -270,7 +270,6 @@ def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, dem
         elif 'noAFE' in model_type:
             processed_eeg_condition_specific = ['AFz_delta - EEG', 'AFz_theta - EEG', 'AFz_alpha - EEG', 'AFz_beta - EEG',
                                                 'AF4_delta - EEG', 'AF4_theta - EEG', 'AF4_alpha - EEG', 'AF4_beta - EEG',
-                                                'F1_delta - EEG', 'F1_theta - EEG', 'F1_alpha - EEG', 'F1_beta - EEG',
                                                 'FT9_delta - EEG', 'FT9_theta - EEG', 'FT9_alpha - EEG', 'FT9_beta - EEG',
                                                 'FT10_delta - EEG', 'FT10_theta - EEG', 'FT10_alpha - EEG', 'FT10_beta - EEG',
                                                 'FC5_delta - EEG', 'FC5_theta - EEG', 'FC5_alpha - EEG', 'FC5_beta - EEG',

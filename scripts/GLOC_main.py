@@ -6,6 +6,7 @@ from feature_selection import *
 from GLOC_classifier import *
 from GLOC_visualization import *
 from imbalance_techniques import *
+import pickle
 
 if __name__ == "__main__":
 
@@ -13,6 +14,9 @@ if __name__ == "__main__":
     ## Data Folder Location
     datafolder = '../../'
     # datafolder = '../data/'
+
+    # troubleshoot mode | 0 = No, Proceed with full feature set , 1 = Yes, reduce feature set for testing/troubleshooting
+    trouble_shoot_mode = 1
 
     # Import Feature Matrix | 0 = No, Proceed with Baseline and Feature Extraction , 1 = Yes, Use Existing Pkl
     import_feature_matrix = 1
@@ -25,13 +29,13 @@ if __name__ == "__main__":
     train_class = True
 
     ## Sequential Optimization Mode | Pick 'none' 'imbalance' 'nan' 'sliding_window' or 'feature_reduction'
-    sequential_optimization_mode = 'imbalance'
+    sequential_optimization_mode = 'feature_reduction'
 
     ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
     imbalance_technique = 'smote_cf'
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' or 'all'
-    feature_reduction_type = 'all'
+    feature_reduction_type = 'target_mean'
 
     # Data Handling Options
     remove_NaN_trials = True
@@ -213,6 +217,18 @@ if __name__ == "__main__":
         else:
             y_gloc_labels_noNaN, x_feature_matrix_noNaN = y_gloc_labels, x_feature_matrix
 
+
+        # Save pkl
+        with open (y_label_name, 'wb') as file:
+            pickle.dump(y_gloc_labels_noNaN, file)
+
+        with open (feature_matrix_name, 'wb') as file:
+            pickle.dump(x_feature_matrix_noNaN, file)
+
+        with open (all_features_name, 'wb') as file:
+            pickle.dump(all_features, file)
+
+
     # Import pkl
     else:
         y_gloc_labels_noNaN = pd.read_pickle(y_label_name)
@@ -228,6 +244,11 @@ if __name__ == "__main__":
     x_train, x_test, y_train, y_test = pre_classification_training_test_split(y_gloc_labels_noNaN,
                                                                               x_feature_matrix_noNaN,training_ratio)
 
+
+    # Reduce feature set to reduce run time if trouble_shoot_mode = 1
+    if trouble_shoot_mode == 1:
+        x_train = x_train[:, 0:100]
+        x_test = x_test[:, 0:100]
 
     ################################################  CLASS IMBALANCE  ################################################
     """ 
@@ -296,6 +317,8 @@ if __name__ == "__main__":
     """
 
     if sequential_optimization_mode == 'feature_reduction':
+        class_weight_imb = 'balanced'
+
         ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' or 'all'
         if feature_reduction_type == 'all' or feature_reduction_type == 'lasso':
             selected_features_lasso = feature_selection_lasso(x_train, y_train, all_features)
@@ -318,7 +341,7 @@ if __name__ == "__main__":
             x_test = x_test[:,feature_index]
 
             # Assess performance for all classifiers
-            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+            performance_metric_summary_enet = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
                                                                    y_test, selected_features_enet, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'ridge':
@@ -330,7 +353,7 @@ if __name__ == "__main__":
             x_test = x_test[:,feature_index]
 
             # Assess performance for all classifiers
-            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+            performance_metric_summary_ridge = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
                                                                    y_test, selected_features_ridge, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'mrmr':
@@ -342,68 +365,67 @@ if __name__ == "__main__":
             x_test = x_test[:,feature_index]
 
             # Assess performance for all classifiers
-            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+            performance_metric_summary_mrmr = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
                                                                    y_test, selected_features_mrmr, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'pca':
-            selected_features_pca = feature_selection_pca(x_train, y_train, all_features)
-
-            # Grab relevant feature columns from x_train and x_test
-            feature_index = np.where(all_features == selected_features_pca)
-            x_train = x_train[:,feature_index]
-            x_test = x_test[:,feature_index]
+            x_train_pca, x_test_pca = dimensionality_reduction_PCA(x_train, x_test)
+            selected_features_pca = ['PC1', 'PC2', 'PC3', 'PC4', 'PC5']
 
             # Assess performance for all classifiers
-            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+            performance_metric_summary_pca = (call_all_classifiers(classifier_type, x_train_pca, x_test_pca, y_train,
                                                                    y_test, selected_features_pca, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'target_mean':
-            selected_features_target_mean = feature_selection_target_mean(x_train, y_train, all_features)
+            selected_features_target_mean = target_mean_selection(x_train, y_train, all_features)
+
+            # Convert feature output from selected_features_target_mean to index array and list of features
+            selected_features_index = [element[1:] for element in selected_features_target_mean]
+            selected_features_index = np.array([int(x) for x in selected_features_index])
+
+            selected_features_target_mean_list = [all_features[index] for index in selected_features_index]
 
             # Grab relevant feature columns from x_train and x_test
-            feature_index = np.where(all_features == selected_features_target_mean)
-            x_train = x_train[:,feature_index]
-            x_test = x_test[:,feature_index]
+            x_train = x_train[:,selected_features_index]
+            x_test = x_test[:,selected_features_index]
 
             # Assess performance for all classifiers
-            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+            performance_metric_summary_target_mean = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
                                                                    y_test, selected_features_target_mean, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'performance':
             selected_features_performance = feature_selection_performance(x_train, y_train, all_features)
 
+            # Convert feature output from selected_features_performance to index array and list of features
+            selected_features_index = [element[1:] for element in selected_features_performance]
+            selected_features_index = np.array([int(x) for x in selected_features_index])
+
+            selected_features_performance_list = [all_features[index] for index in selected_features_index]
+
             # Grab relevant feature columns from x_train and x_test
-            feature_index = np.where(all_features == selected_features_performance)
-            x_train = x_train[:,feature_index]
-            x_test = x_test[:,feature_index]
+            x_train = x_train[:,selected_features_index]
+            x_test = x_test[:,selected_features_index]
 
             # Assess performance for all classifiers
-            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+            performance_metric_summary_single_performance = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
                                                                    y_test, selected_features_performance, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'shuffle':
             selected_features_shuffle = feature_selection_shuffle(x_train, y_train, all_features)
 
+            # Convert feature output from selected_features_shuffle to index array and list of features
+            selected_features_index = [element[1:] for element in selected_features_shuffle]
+            selected_features_index = np.array([int(x) for x in selected_features_index])
+
+            selected_features_performance_list = [all_features[index] for index in selected_features_index]
+
             # Grab relevant feature columns from x_train and x_test
-            feature_index = np.where(all_features == selected_features_shuffle)
-            x_train = x_train[:,feature_index]
-            x_test = x_test[:,feature_index]
+            x_train = x_train[:,selected_features_index]
+            x_test = x_test[:,selected_features_index]
 
             # Assess performance for all classifiers
-            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+            performance_metric_summary_shuffle = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
                                                                    y_test, selected_features_shuffle, train_class, class_weight_imb))
-
-
-    # Feature Selection
-    # selected_features_lasso = feature_selection_lasso(x_train, y_train, all_features)
-    # selected_features_enet = feature_selection_elastic_net(x_train, y_train, all_features)
-    # selected_features_ridge = feature_selection_ridge(x_train, y_train, all_features)
-    # selected_features_mrmr = feature_selection_mrmr(x_train, y_train, all_features)
-    # selected_features_pca = feature_selection_pca(x_train, y_train, all_features)
-    # selected_features_target_mean = feature_selection_target_mean(x_train, y_train, all_features)
-    # selected_features_performance = feature_selection_performance(x_train, y_train, all_features)
-    # selected_features_shuffle = feature_selection_shuffle(x_train, y_train, all_features)
-
 
     ################################################ MACHINE LEARNING ################################################
     if sequential_optimization_mode == 'none':
