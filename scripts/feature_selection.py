@@ -5,7 +5,7 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import Lasso
 from sklearn.model_selection import GridSearchCV, KFold
-from mrmr import mrmr_classif
+from feature_engine.selection import MRMR
 from sklearn.linear_model import ElasticNet
 from sklearn.linear_model import Ridge
 from sklearn.decomposition import PCA
@@ -57,15 +57,35 @@ def feature_selection_lasso(x_train, y_train, all_features):
 
     return feature_subset
 
-def feature_selection_mrmr(x_training, y_training, all_features):
+# def feature_selection_mrmr(x_training, y_training, all_features):
+#     """
+#     This function takes the training data and labels to complete mrmr.
+#     """
+#     x_train = pd.DataFrame(x_training, columns = all_features)
+#     y_train = pd.Series(np.ravel(y_training))
+#     selected_features = mrmr_classif(X=x_train, y=y_train, K=5)
+#
+#     return selected_features
+
+def feature_selection_mrmr(x_train, y_train, x_test, all_features):
     """
     This function takes the training data and labels to complete mrmr.
     """
-    x_train = pd.DataFrame(x_training, columns = all_features)
-    y_train = pd.Series(np.ravel(y_training))
-    selected_features = mrmr_classif(X=x_train, y=y_train, K=5)
+    # Build & Fit mRMR model
+    mrmr_model = MRMR(method = "MIQ", regression = False) # max_features
+    mrmr_model.fit(x_train, y_train)
 
-    return selected_features
+    # Reduce train and test matrix
+    x_train = mrmr_model.transform(x_train)
+    x_test = mrmr_model.transform(x_test)
+
+    # Use features to drop to determine features to keep
+    features_to_drop = mrmr_model.features_to_drop_
+    features_to_drop_index = [element[1:] for element in features_to_drop]
+    features_to_drop_index = np.array([int(x) for x in features_to_drop_index])
+    selected_features = [all_features[index] for index in range(len(all_features)) if index not in features_to_drop_index]
+
+    return x_train, x_test, selected_features
 
 def feature_selection_elastic_net(x_train, y_train, all_features):
     """
@@ -161,10 +181,13 @@ def dimensionality_reduction_PCA(x_train, x_test):
     """
     This function completes PCA for the training data.
     """
-    pca = PCA(n_components=5)
+    number_pca = 5
+    pca = PCA(n_components=number_pca)
     pca.fit(x_train)
     x_train_pca = pca.transform(x_train)
     x_test_pca = pca.transform(x_test)
+
+    selected_features = [str(i) for i in range(0, number_pca)]
 
     # # Train a model on the transformed data
     # model = RandomForestClassifier()
@@ -180,7 +203,7 @@ def dimensionality_reduction_PCA(x_train, x_test):
     # f1 = metrics.f1_score(y_test, y_pred)
     # specificity = metrics.recall_score(y_test, y_pred, pos_label=0)
 
-    return x_train_pca, x_test_pca
+    return x_train_pca, x_test_pca, selected_features
 
 
 def feature_shuffle_selection(x_train, y_train, all_features):
@@ -211,7 +234,7 @@ def feature_shuffle_selection(x_train, y_train, all_features):
 
     return selected_features
 
-def feature_performance(x_train, y_train, all_features, classifier):
+def feature_selection_performance(x_train, y_train, all_features, classifier):
     sfp = SelectBySingleFeaturePerformance(RandomForestClassifier(random_state=42),cv=2)
     sfp.fit_transform(x_train, y_train)
 
@@ -238,11 +261,21 @@ def feature_performance(x_train, y_train, all_features, classifier):
 
     return selected_features
 
-def target_mean_selection(x_train, y_train, all_features):
+def target_mean_selection(x_train, x_test, y_train, all_features):
     tmp = SelectByTargetMeanPerformance(scoring="f1", threshold = 0.01, cv=10, regression=False)
     tmp.fit_transform(x_train, y_train)
 
-    selected_features = tmp.get_feature_names_out()
+    features_to_keep = tmp.get_feature_names_out()
+
+    # Convert feature output from selected_features_target_mean to index array and list of features
+    selected_features_index = [element[1:] for element in features_to_keep]
+    selected_features_index = np.array([int(x) for x in selected_features_index])
+
+    selected_features = [all_features[index] for index in selected_features_index]
+
+    # Grab relevant feature columns from x_train and x_test
+    x_train = tmp.transform(x_train)
+    x_test = tmp.transform(x_test)
 
     # Example feature code
     # tmp_variables = tmp.variables_
@@ -265,4 +298,4 @@ def target_mean_selection(x_train, y_train, all_features):
     #     plt.xlabel('Features')
     #     plt.show()
 
-    return selected_features
+    return x_train, x_test, selected_features

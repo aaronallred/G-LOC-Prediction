@@ -35,7 +35,7 @@ if __name__ == "__main__":
     imbalance_technique = 'smote_cf'
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
-    feature_reduction_type = 'ridge'
+    feature_reduction_type = 'target_mean'
 
     # Data Handling Options
     remove_NaN_trials = True
@@ -359,37 +359,21 @@ if __name__ == "__main__":
                                                                    y_test, selected_features_ridge, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'mrmr':
-            selected_features_mrmr = feature_selection_mrmr(x_train, y_train, all_features)
-
-            # Grab relevant feature columns from x_train and x_test
-            feature_index = np.where(all_features == selected_features_mrmr)
-            x_train = x_train[:,feature_index]
-            x_test = x_test[:,feature_index]
+            x_train, x_test, selected_features_mrmr = feature_selection_mrmr(x_train, y_train, x_test, all_features)
 
             # Assess performance for all classifiers
             performance_metric_summary_mrmr = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
                                                                    y_test, selected_features_mrmr, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'pca':
-            x_train_pca, x_test_pca = dimensionality_reduction_PCA(x_train, x_test)
-            selected_features_pca = ['PC1', 'PC2', 'PC3', 'PC4', 'PC5']
+            x_train_pca, x_test_pca, selected_features_pca = dimensionality_reduction_PCA(x_train, x_test)
 
             # Assess performance for all classifiers
             performance_metric_summary_pca = (call_all_classifiers(classifier_type, x_train_pca, x_test_pca, y_train,
                                                                    y_test, selected_features_pca, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'target_mean':
-            selected_features_target_mean = target_mean_selection(x_train, y_train, all_features)
-
-            # Convert feature output from selected_features_target_mean to index array and list of features
-            selected_features_index = [element[1:] for element in selected_features_target_mean]
-            selected_features_index = np.array([int(x) for x in selected_features_index])
-
-            selected_features_target_mean_list = [all_features[index] for index in selected_features_index]
-
-            # Grab relevant feature columns from x_train and x_test
-            x_train = x_train[:,selected_features_index]
-            x_test = x_test[:,selected_features_index]
+            x_train, x_test, selected_features_target_mean = target_mean_selection(x_train, x_test, y_train, all_features)
 
             # Assess performance for all classifiers
             performance_metric_summary_target_mean = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
