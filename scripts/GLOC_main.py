@@ -18,10 +18,10 @@ if __name__ == "__main__":
     # datafolder = '../data/'
 
     # troubleshoot mode | 0 = No, Proceed with full feature set , 1 = Yes, reduce feature set for testing/troubleshooting
-    trouble_shoot_mode = 1
+    trouble_shoot_mode = 0
 
     # Import Feature Matrix | 0 = No, Proceed with Baseline and Feature Extraction , 1 = Yes, Use Existing Pkl
-    import_feature_matrix = 1
+    import_feature_matrix = 0
     feature_matrix_name = 'x_feature_matrix.pkl'
     y_label_name = 'y_gloc_labels.pkl'
     all_features_name = 'all_features.pkl'
@@ -31,7 +31,7 @@ if __name__ == "__main__":
     train_class = True
 
     ## Sequential Optimization Mode | Pick 'none' 'imbalance' 'nan' 'sliding_window' or 'feature_reduction'
-    sequential_optimization_mode = 'imbalance'
+    sequential_optimization_mode = 'none'
 
     ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
     imbalance_technique = 'none'
@@ -383,7 +383,7 @@ if __name__ == "__main__":
                 x_train_performance, x_test_performance, selected_features_performance = feature_selection_performance(x_train, x_test, y_train, all_features, classifier_method[i])
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'shuffle':
-            classifier_method = ['logreg', 'rf', 'lda', 'knn', 'svm', 'gb']
+            classifier_method = ['logreg', 'rf', 'svm', 'gb']
             for i in range(len(classifier_method)):
                 x_train_shuffle, x_test_shuffle, selected_features_shuffle = feature_selection_shuffle(x_train, x_test, y_train, all_features, classifier_method[i])
 
@@ -415,18 +415,18 @@ if __name__ == "__main__":
                         classify_ensemble_with_gradboost(x_train_shuffle, x_test_shuffle, y_train, y_test, retrain=train_class))
 
             # Assess performance for all classifiers
-            performance_metric_summary_shuffle = (
-                summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda,
-                                              accuracy_knn, accuracy_svm, accuracy_gb,
-                                              precision_logreg, precision_rf, precision_lda,
-                                              precision_knn, precision_svm, precision_gb,
-                                              recall_logreg, recall_rf, recall_lda, recall_knn,
-                                              recall_svm, recall_gb, f1_logreg, f1_rf, f1_lda,
-                                              f1_knn, f1_svm, f1_gb, specificity_logreg,
-                                              specificity_rf, specificity_lda, specificity_knn,
-                                              specificity_svm, specificity_gb, g_mean_logreg,
-                                              g_mean_rf, g_mean_lda, g_mean_knn,
-                                              g_mean_svm, g_mean_gb))
+            # performance_metric_summary_shuffle = (
+                # summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda,
+                #                               accuracy_knn, accuracy_svm, accuracy_gb,
+                #                               precision_logreg, precision_rf, precision_lda,
+                #                               precision_knn, precision_svm, precision_gb,
+                #                               recall_logreg, recall_rf, recall_lda, recall_knn,
+                #                               recall_svm, recall_gb, f1_logreg, f1_rf, f1_lda,
+                #                               f1_knn, f1_svm, f1_gb, specificity_logreg,
+                #                               specificity_rf, specificity_lda, specificity_knn,
+                #                               specificity_svm, specificity_gb, g_mean_logreg,
+                #                               g_mean_rf, g_mean_lda, g_mean_knn,
+                #                               g_mean_svm, g_mean_gb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'none':
             # Assess performance for all classifiers

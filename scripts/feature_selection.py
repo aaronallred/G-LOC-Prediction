@@ -14,6 +14,7 @@ from feature_engine.selection import SelectByShuffling
 from feature_engine.selection import SelectByTargetMeanPerformance
 from feature_engine.selection import SelectBySingleFeaturePerformance
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn import svm
 
 
 # Feature Selection
