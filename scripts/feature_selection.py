@@ -14,7 +14,7 @@ from feature_engine.selection import SelectByTargetMeanPerformance
 from feature_engine.selection import SelectBySingleFeaturePerformance
 
 # Feature Selection
-def feature_selection_lasso(x_train, y_train, all_features):
+def feature_selection_lasso(x_train, x_test, y_train, all_features):
     """
     This function finds optimal lasso alpha parameter and fits a lasso model to determine
     most important features. This should only see the 'training' data.
@@ -53,9 +53,14 @@ def feature_selection_lasso(x_train, y_train, all_features):
     plt.show()
 
     # Subset of the features with nonzero coefficient
-    feature_subset = np.array(all_features)[lasso_optimal_coef != 0]
+    selected_features = np.array(all_features)[lasso_optimal_coef != 0]
 
-    return feature_subset
+    # Grab relevant feature columns from x_train and x_test
+    feature_index = [index for index, element in enumerate(all_features) if element in selected_features]
+    x_train = x_train[:, feature_index]
+    x_test = x_test[:, feature_index]
+
+    return x_train, x_test, selected_features
 
 # def feature_selection_mrmr(x_training, y_training, all_features):
 #     """
@@ -87,7 +92,7 @@ def feature_selection_mrmr(x_train, y_train, x_test, all_features):
 
     return x_train, x_test, selected_features
 
-def feature_selection_elastic_net(x_train, y_train, all_features):
+def feature_selection_elastic_net(x_train, x_test, y_train, all_features):
     """
     This function finds optimal elastic net parameters and fits an elastic net model to determine
     most important features. This should only see the 'training' data.
@@ -130,9 +135,14 @@ def feature_selection_elastic_net(x_train, y_train, all_features):
     # Subset of the features which have more than 0.001 importance.
     selected_features = np.array(all_features)[enet1_coef != 0]
 
-    return selected_features
+    # Grab relevant feature columns from x_train and x_test
+    feature_index = [index for index, element in enumerate(all_features) if element in selected_features]
+    x_train = x_train[:, feature_index]
+    x_test = x_test[:, feature_index]
 
-def feature_selection_ridge(x_train, y_train, all_features):
+    return x_train, x_test, selected_features
+
+def feature_selection_ridge(x_train, x_test, y_train, all_features):
     """
     This function finds optimal ridge parameters and fits a ridge model to determine
     most important features. This should only see the 'training' data.
@@ -175,7 +185,12 @@ def feature_selection_ridge(x_train, y_train, all_features):
     # Subset of the features which have more than 0.001 importance.
     selected_features = np.array(all_features)[ridge1_coef > 0.001]
 
-    return selected_features
+    # Grab relevant feature columns from x_train and x_test
+    feature_index = [index for index, element in enumerate(all_features) if element in selected_features]
+    x_train = x_train[:, feature_index]
+    x_test = x_test[:, feature_index]
+
+    return x_train, x_test, selected_features
 
 def dimensionality_reduction_PCA(x_train, x_test):
     """
