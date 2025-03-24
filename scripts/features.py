@@ -28,13 +28,13 @@ def feature_generation(time_start, offset, stride, window_size, combined_baselin
      sliding_window_consecutive_elements_mean_left_pupil_s1, sliding_window_consecutive_elements_mean_right_pupil_s1,
      sliding_window_consecutive_elements_max_left_pupil_s1, sliding_window_consecutive_elements_max_right_pupil_s1,
      sliding_window_consecutive_elements_sum_left_pupil_s1, sliding_window_consecutive_elements_sum_right_pupil_s1,
-     sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_hrv_pnn50_s1,
+     sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1,
      sliding_window_cognitive_IES_s1,
      all_features_additional_s2, sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
      sliding_window_consecutive_elements_mean_left_pupil_s2, sliding_window_consecutive_elements_mean_right_pupil_s2,
      sliding_window_consecutive_elements_max_left_pupil_s2, sliding_window_consecutive_elements_max_right_pupil_s2,
      sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
-     sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2, sliding_window_hrv_pnn50_s2,
+     sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
      sliding_window_cognitive_IES_s2) = \
         (sliding_window_other_features(time_start, stride, window_size, trial_column, time_column,
                                        number_windows,
@@ -53,7 +53,7 @@ def feature_generation(time_start, offset, stride, window_size, combined_baselin
                                                   sliding_window_consecutive_elements_sum_left_pupil_s1,
                                                   sliding_window_consecutive_elements_sum_right_pupil_s1,
                                                   sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1,
-                                                  sliding_window_hrv_pnn50_s1, sliding_window_cognitive_IES_s1,
+                                                  sliding_window_cognitive_IES_s1,
                                                   sliding_window_mean_s2, sliding_window_stddev_s2,
                                                   sliding_window_max_s2, sliding_window_range_s2,
                                                   sliding_window_integral_left_pupil_s2,
@@ -65,7 +65,7 @@ def feature_generation(time_start, offset, stride, window_size, combined_baselin
                                                   sliding_window_consecutive_elements_sum_left_pupil_s2,
                                                   sliding_window_consecutive_elements_sum_right_pupil_s2,
                                                   sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
-                                                  sliding_window_hrv_pnn50_s2, sliding_window_cognitive_IES_s2)
+                                                  sliding_window_cognitive_IES_s2)
 
     # Combine all features into array
     all_features = (all_features_mean_s1 + all_features_stddev_s1 + all_features_max_s1 + all_features_range_s1 +
@@ -402,7 +402,7 @@ def sliding_window_other_features(time_start, stride, window_size, trial_column,
         index_HR = baseline_names_v0.index('HR (bpm) - Equivital_v0')
 
         # Define ECG feature names
-        ecg_features = ['HRV (SDNN)', 'HRV (RMSSD)', 'HRV (PNN50)']
+        ecg_features = ['HRV (SDNN)', 'HRV (RMSSD)']# , 'HRV (PNN50)']. Removed PNN50 due to interpolation
     else:
         ecg_features = []
 
@@ -428,7 +428,7 @@ def sliding_window_other_features(time_start, stride, window_size, trial_column,
     sliding_window_consecutive_elements_sum_right_pupil = dict()
     sliding_window_hrv_sdnn = dict()
     sliding_window_hrv_rmssd = dict()
-    sliding_window_hrv_pnn50 = dict()
+    # sliding_window_hrv_pnn50 = dict()
     sliding_window_cognitive_IES = dict()
 
     # Intra-trial standardization (s1)
@@ -442,7 +442,7 @@ def sliding_window_other_features(time_start, stride, window_size, trial_column,
     sliding_window_consecutive_elements_sum_right_pupil_s1 = dict()
     sliding_window_hrv_sdnn_s1 = dict()
     sliding_window_hrv_rmssd_s1 = dict()
-    sliding_window_hrv_pnn50_s1 = dict()
+    # sliding_window_hrv_pnn50_s1 = dict()
     sliding_window_cognitive_IES_s1 = dict()
 
     # Inter-trial standardization (s2)
@@ -456,7 +456,7 @@ def sliding_window_other_features(time_start, stride, window_size, trial_column,
     sliding_window_consecutive_elements_sum_right_pupil_s2 = dict()
     sliding_window_hrv_sdnn_s2 = dict()
     sliding_window_hrv_rmssd_s2 = dict()
-    sliding_window_hrv_pnn50_s2 = dict()
+    # sliding_window_hrv_pnn50_s2 = dict()
     sliding_window_cognitive_IES_s2 = dict()
 
     # Iterate through all unique trial_id
@@ -485,7 +485,7 @@ def sliding_window_other_features(time_start, stride, window_size, trial_column,
         if 'ECG' in feature_groups_to_analyze:
             sliding_window_hrv_sdnn_current = np.zeros((number_windows_current, 1))
             sliding_window_hrv_rmssd_current = np.zeros((number_windows_current, 1))
-            sliding_window_hrv_pnn50_current = np.zeros((number_windows_current, 1))
+            # sliding_window_hrv_pnn50_current = np.zeros((number_windows_current, 1))
         if 'cognitive' in feature_groups_to_analyze:
             sliding_window_cognitive_IES_current = np.zeros((number_windows_current, 1))
 
@@ -510,8 +510,8 @@ def sliding_window_other_features(time_start, stride, window_size, trial_column,
                 sliding_window_hrv_rmssd_current[j] = np.sqrt(np.nanmean(successive_difference**2))
 
                 # Compute PNN50
-                count_50ms_diff_current = np.sum(np.abs(successive_difference) > 50 * 0.04) # 50 times (1/sampling freqeuncy)
-                sliding_window_hrv_pnn50_current[j] = (count_50ms_diff_current / len(successive_difference)) * 100
+                # count_50ms_diff_current = np.sum(np.abs(successive_difference) > 50 * 0.04) # 50 times (1/sampling freqeuncy)
+                # sliding_window_hrv_pnn50_current[j] = (count_50ms_diff_current / len(successive_difference)) * 100
 
             if 'cognitive' in feature_groups_to_analyze:
                 # Compute IES (Inverse Efficiency Score)
@@ -719,22 +719,22 @@ def sliding_window_other_features(time_start, stride, window_size, trial_column,
                 sliding_window_hrv_rmssd_current_z_score = ((sliding_window_hrv_rmssd_current - np.nanmean(sliding_window_hrv_rmssd_current, axis = 0, keepdims=True))
                                                    / np.nanstd(sliding_window_hrv_rmssd_current, axis = 0, keepdims=True))
 
-            # Compute z-score to standardize hrv pnn50
-            # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-            # should be removed in separate code or during feature selection
-            sliding_window_hrv_pnn50_current_z_score = np.zeros(np.shape(sliding_window_hrv_pnn50_current))
-            if np.any(np.nanstd(sliding_window_hrv_pnn50_current, axis=0, keepdims=True) == 0):
-                # Find columns with zero standard deviation
-                for col in range(np.shape(sliding_window_hrv_pnn50_current)[1]):
-                    if np.nanstd(sliding_window_hrv_pnn50_current[:, col]) != 0:
-                        sliding_window_hrv_pnn50_current_z_score[:, col] = ((sliding_window_hrv_pnn50_current[:, col] - np.nanmean(
-                                        sliding_window_hrv_pnn50_current[:, col])) / np.nanstd(sliding_window_hrv_pnn50_current[:, col]))
-                    else:
-                        sliding_window_hrv_pnn50_current_z_score[:, col] = np.zeros(
-                            np.shape(sliding_window_hrv_pnn50_current)[0])
-            else:
-                sliding_window_hrv_pnn50_current_z_score = ((sliding_window_hrv_pnn50_current - np.nanmean(sliding_window_hrv_pnn50_current, axis=0, keepdims=True))
-                                                   / np.nanstd(sliding_window_hrv_pnn50_current, axis=0, keepdims=True))
+            # # Compute z-score to standardize hrv pnn50
+            # # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
+            # # should be removed in separate code or during feature selection
+            # sliding_window_hrv_pnn50_current_z_score = np.zeros(np.shape(sliding_window_hrv_pnn50_current))
+            # if np.any(np.nanstd(sliding_window_hrv_pnn50_current, axis=0, keepdims=True) == 0):
+            #     # Find columns with zero standard deviation
+            #     for col in range(np.shape(sliding_window_hrv_pnn50_current)[1]):
+            #         if np.nanstd(sliding_window_hrv_pnn50_current[:, col]) != 0:
+            #             sliding_window_hrv_pnn50_current_z_score[:, col] = ((sliding_window_hrv_pnn50_current[:, col] - np.nanmean(
+            #                             sliding_window_hrv_pnn50_current[:, col])) / np.nanstd(sliding_window_hrv_pnn50_current[:, col]))
+            #         else:
+            #             sliding_window_hrv_pnn50_current_z_score[:, col] = np.zeros(
+            #                 np.shape(sliding_window_hrv_pnn50_current)[0])
+            # else:
+            #     sliding_window_hrv_pnn50_current_z_score = ((sliding_window_hrv_pnn50_current - np.nanmean(sliding_window_hrv_pnn50_current, axis=0, keepdims=True))
+            #                                        / np.nanstd(sliding_window_hrv_pnn50_current, axis=0, keepdims=True))
 
         if 'cognitive' in feature_groups_to_analyze:
             # Compute z-score to standardize cognitive IES
@@ -779,12 +779,12 @@ def sliding_window_other_features(time_start, stride, window_size, trial_column,
             # No standardization
             sliding_window_hrv_sdnn[trial_id_in_data[i]] = sliding_window_hrv_sdnn_current
             sliding_window_hrv_rmssd[trial_id_in_data[i]] = sliding_window_hrv_rmssd_current
-            sliding_window_hrv_pnn50[trial_id_in_data[i]] = sliding_window_hrv_pnn50_current
+            # sliding_window_hrv_pnn50[trial_id_in_data[i]] = sliding_window_hrv_pnn50_current
 
             # Intra-Trial Standardization (s1)
             sliding_window_hrv_sdnn_s1[trial_id_in_data[i]] = sliding_window_hrv_sdnn_current_z_score
             sliding_window_hrv_rmssd_s1[trial_id_in_data[i]] = sliding_window_hrv_rmssd_current_z_score
-            sliding_window_hrv_pnn50_s1[trial_id_in_data[i]] = sliding_window_hrv_pnn50_current_z_score
+            # sliding_window_hrv_pnn50_s1[trial_id_in_data[i]] = sliding_window_hrv_pnn50_current_z_score
         if 'cognitive' in feature_groups_to_analyze:
             # No standardization
             sliding_window_cognitive_IES[trial_id_in_data[i]] = sliding_window_cognitive_IES_current
@@ -809,7 +809,7 @@ def sliding_window_other_features(time_start, stride, window_size, trial_column,
     if 'ECG' in feature_groups_to_analyze:
         sliding_window_hrv_sdnn_s2 = inter_trial_standardization(sliding_window_hrv_sdnn)
         sliding_window_hrv_rmssd_s2 = inter_trial_standardization(sliding_window_hrv_rmssd)
-        sliding_window_hrv_pnn50_s2 = inter_trial_standardization(sliding_window_hrv_pnn50)
+        # sliding_window_hrv_pnn50_s2 = inter_trial_standardization(sliding_window_hrv_pnn50)
     if 'cognitive' in feature_groups_to_analyze:
         sliding_window_cognitive_IES_s2 = inter_trial_standardization(sliding_window_cognitive_IES)
 
@@ -819,10 +819,10 @@ def sliding_window_other_features(time_start, stride, window_size, trial_column,
      sliding_window_consecutive_elements_mean_left_pupil_s1, sliding_window_consecutive_elements_mean_right_pupil_s1,
      sliding_window_consecutive_elements_max_left_pupil_s1, sliding_window_consecutive_elements_max_right_pupil_s1,
      sliding_window_consecutive_elements_sum_left_pupil_s1, sliding_window_consecutive_elements_sum_right_pupil_s1,
-     sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_hrv_pnn50_s1, sliding_window_cognitive_IES_s1,
+     sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_cognitive_IES_s1,
      all_features_additional_s2, sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
      sliding_window_consecutive_elements_mean_left_pupil_s2, sliding_window_consecutive_elements_mean_right_pupil_s2,
      sliding_window_consecutive_elements_max_left_pupil_s2, sliding_window_consecutive_elements_max_right_pupil_s2,
      sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
-     sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2, sliding_window_hrv_pnn50_s2,
+     sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
      sliding_window_cognitive_IES_s2)
