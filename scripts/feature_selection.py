@@ -142,7 +142,7 @@ def feature_selection_elastic_net(x_train, x_test, y_train, all_features):
 
     return x_train, x_test, selected_features
 
-def feature_selection_ridge(x_train, x_test, y_train, all_features):
+def feature_selection_ridge(x_train, x_test, y_train, all_features, n):
     """
     This function finds optimal ridge parameters and fits a ridge model to determine
     most important features. This should only see the 'training' data.
@@ -182,8 +182,9 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features):
     plt.ylim(0, 0.7)
     plt.show()
 
-    # Subset of the features which have more than 0.001 importance.
-    selected_features = np.array(all_features)[ridge1_coef > 0.001]
+    # Determine threshold for top n% features
+    threshold = np.percentile(ridge1_coef, 100 - n)
+    selected_features = np.array(all_features)[ridge1_coef >= threshold]
 
     # Grab relevant feature columns from x_train and x_test
     feature_index = [index for index, element in enumerate(all_features) if element in selected_features]
@@ -192,16 +193,18 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features):
 
     return x_train, x_test, selected_features
 
-def dimensionality_reduction_PCA(x_train, x_test, n):
+def dimensionality_reduction_PCA(x_train, x_test):
     """
     This function completes PCA for the training data.
     """
-    pca = PCA(n_components=n)
+    pca = PCA(n_components=0.99, svd_solver = 'full')
     pca.fit(x_train)
     x_train_pca = pca.transform(x_train)
     x_test_pca = pca.transform(x_test)
 
-    selected_features = [str(i) for i in range(0, n)]
+    explained_variance = pca.explained_variance_ratio_
+
+    selected_features = [str(i) for i in range(0, np.shape(x_train_pca)[1])]
 
     # # Train a model on the transformed data
     # model = RandomForestClassifier()
@@ -293,10 +296,30 @@ def feature_selection_performance(x_train, x_test, y_train, all_features):
 
 
 def target_mean_selection(x_train, x_test, y_train, all_features):
-    tmp = SelectByTargetMeanPerformance(scoring="f1", threshold = 0.01, cv=10, regression=False)
-    tmp.fit_transform(x_train, y_train)
 
-    features_to_keep = tmp.get_feature_names_out()
+    # parameters to be tested on GridSearchCV
+    params = {"threshold": np.arange(0.001, 1, 100)}
+
+    # Number of Folds and adding the random state for replication
+    kf = KFold(n_splits=10, shuffle=True, random_state=42)
+
+    # Initializing the Model
+    tmp = SelectByTargetMeanPerformance()
+
+    # GridSearchCV with model, params and folds.
+    tmp_cv = GridSearchCV(tmp, param_grid=params, cv=kf)
+    tmp_cv.fit(x_train, y_train)
+
+    threshold_optimal = tmp_cv.best_params_['threshold']
+
+    # calling the model with the best parameter
+    tmp1 = SelectByTargetMeanPerformance(scoring="f1", threshold = threshold_optimal, cv=10, regression=False)
+    tmp1.fit(x_train, y_train)
+
+    # tmp = SelectByTargetMeanPerformance(scoring="f1", threshold = 0.01, cv=10, regression=False)
+    # tmp.fit_transform(x_train, y_train)
+
+    features_to_keep = tmp1.get_feature_names_out()
 
     # Convert feature output from selected_features_target_mean to index array and list of features
     selected_features_index = [element[1:] for element in features_to_keep]
@@ -305,8 +328,8 @@ def target_mean_selection(x_train, x_test, y_train, all_features):
     selected_features = [all_features[index] for index in selected_features_index]
 
     # Grab relevant feature columns from x_train and x_test
-    x_train = tmp.transform(x_train)
-    x_test = tmp.transform(x_test)
+    x_train = tmp1.transform(x_train)
+    x_test = tmp1.transform(x_test)
 
     # Example feature code
     # tmp_variables = tmp.variables_

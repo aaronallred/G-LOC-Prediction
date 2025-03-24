@@ -37,7 +37,7 @@ if __name__ == "__main__":
     imbalance_technique = 'smote_cf'
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
-    feature_reduction_type = 'mrmr'
+    feature_reduction_type = 'pca'
 
     # Data Handling Options
     remove_NaN_trials = True
@@ -339,11 +339,17 @@ if __name__ == "__main__":
                                                                    y_test, selected_features_enet, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'ridge':
-            x_train_ridge, x_test_ridge, selected_features_ridge = feature_selection_ridge(x_train, x_test, y_train, all_features)
+            all_performance_ridge = dict()
+            percentile_threshold = np.linspace(10, 100, 10)
 
-            # Assess performance for all classifiers
-            performance_metric_summary_ridge = (call_all_classifiers(classifier_type, x_train_ridge, x_test_ridge, y_train,
-                                                                   y_test, selected_features_ridge, train_class, class_weight_imb))
+            for n in range(len(percentile_threshold)):
+                x_train_ridge, x_test_ridge, selected_features_ridge = feature_selection_ridge(x_train, x_test, y_train, all_features, percentile_threshold[n])
+
+                # Assess performance for all classifiers
+                performance_metric_summary_ridge = (call_all_classifiers(classifier_type, x_train_ridge, x_test_ridge, y_train,
+                                                                       y_test, selected_features_ridge, train_class, class_weight_imb))
+
+                all_performance_ridge[percentile_threshold[n]] = performance_metric_summary_ridge
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'mrmr':
             all_performance_mrmr = dict()
@@ -359,16 +365,16 @@ if __name__ == "__main__":
                 all_performance_mrmr[number_features[n]] = performance_metric_summary_mrmr
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'pca':
-            all_performance_pca = dict()
-            number_features = np.linspace(round(0.1 * len(all_features)), len(all_features), 10)
-            for n in range(len(number_features)):
-                x_train_pca, x_test_pca, selected_features_pca = dimensionality_reduction_PCA(x_train, x_test, n_features)
+            # all_performance_pca = dict()
+            # number_features = np.linspace(round(0.1 * len(all_features)), len(all_features), 10)
+            # for n in range(len(number_features)):
+            x_train_pca, x_test_pca, selected_features_pca = dimensionality_reduction_PCA(x_train, x_test)
 
-                # Assess performance for all classifiers
-                performance_metric_summary_pca = (call_all_classifiers(classifier_type, x_train_pca, x_test_pca, y_train,
-                                                                       y_test, selected_features_pca, train_class, class_weight_imb))
+            # Assess performance for all classifiers
+            performance_metric_summary_pca = (call_all_classifiers(classifier_type, x_train_pca, x_test_pca, y_train,
+                                                                   y_test, selected_features_pca, train_class, class_weight_imb))
 
-                all_performance_pca[number_features[n]] = performance_metric_summary_pca
+                # all_performance_pca[number_features[n]] = performance_metric_summary_pca
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'target_mean':
             x_train_target_mean, x_test_target_mean, selected_features_target_mean = target_mean_selection(x_train, x_test, y_train, all_features)
