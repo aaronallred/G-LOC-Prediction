@@ -8,6 +8,8 @@ from GLOC_visualization import *
 from imbalance_techniques import *
 import pickle
 
+from numpy import number
+
 if __name__ == "__main__":
 
     ################################################### USER INPUTS  ###################################################
@@ -35,7 +37,7 @@ if __name__ == "__main__":
     imbalance_technique = 'smote_cf'
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
-    feature_reduction_type = 'enet'
+    feature_reduction_type = 'mrmr'
 
     # Data Handling Options
     remove_NaN_trials = True
@@ -323,59 +325,70 @@ if __name__ == "__main__":
 
         ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' or 'all'
         if feature_reduction_type == 'all' or feature_reduction_type == 'lasso':
-            x_train, x_test, selected_features_lasso = feature_selection_lasso(x_train, x_test, y_train, all_features)
+            x_train_lasso, x_test_lasso, selected_features_lasso = feature_selection_lasso(x_train, x_test, y_train, all_features)
 
             # Assess performance for all classifiers
-            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+            performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train_lasso, x_test_lasso, y_train,
                                                                    y_test, selected_features_lasso, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'enet':
-            x_train, x_test, selected_features_enet = feature_selection_elastic_net(x_train, x_test, y_train, all_features)
+            x_train_enet, x_test_enet, selected_features_enet = feature_selection_elastic_net(x_train, x_test, y_train, all_features)
 
             # Assess performance for all classifiers
-            performance_metric_summary_enet = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+            performance_metric_summary_enet = (call_all_classifiers(classifier_type, x_train_enet, x_test_enet, y_train,
                                                                    y_test, selected_features_enet, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'ridge':
-            x_train, x_test, selected_features_ridge = feature_selection_ridge(x_train, x_test, y_train, all_features)
+            x_train_ridge, x_test_ridge, selected_features_ridge = feature_selection_ridge(x_train, x_test, y_train, all_features)
 
             # Assess performance for all classifiers
-            performance_metric_summary_ridge = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+            performance_metric_summary_ridge = (call_all_classifiers(classifier_type, x_train_ridge, x_test_ridge, y_train,
                                                                    y_test, selected_features_ridge, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'mrmr':
-            x_train, x_test, selected_features_mrmr = feature_selection_mrmr(x_train, y_train, x_test, all_features)
+            all_performance_mrmr = dict()
+            number_features = np.linspace(round(0.1 * len(all_features)), len(all_features), 10)
 
-            # Assess performance for all classifiers
-            performance_metric_summary_mrmr = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
-                                                                   y_test, selected_features_mrmr, train_class, class_weight_imb))
+            for n in range(len(number_features)):
+                x_train_mrmr, x_test_mrmr, selected_features_mrmr = feature_selection_mrmr(x_train, y_train, x_test, all_features, number_features[n])
+
+                # Assess performance for all classifiers
+                performance_metric_summary_mrmr = (call_all_classifiers(classifier_type, x_train_mrmr, x_test_mrmr, y_train,
+                                                                       y_test, selected_features_mrmr, train_class, class_weight_imb))
+
+                all_performance_mrmr[number_features[n]] = performance_metric_summary_mrmr
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'pca':
-            x_train_pca, x_test_pca, selected_features_pca = dimensionality_reduction_PCA(x_train, x_test)
+            all_performance_pca = dict()
+            number_features = np.linspace(round(0.1 * len(all_features)), len(all_features), 10)
+            for n in range(len(number_features)):
+                x_train_pca, x_test_pca, selected_features_pca = dimensionality_reduction_PCA(x_train, x_test, n_features)
 
-            # Assess performance for all classifiers
-            performance_metric_summary_pca = (call_all_classifiers(classifier_type, x_train_pca, x_test_pca, y_train,
-                                                                   y_test, selected_features_pca, train_class, class_weight_imb))
+                # Assess performance for all classifiers
+                performance_metric_summary_pca = (call_all_classifiers(classifier_type, x_train_pca, x_test_pca, y_train,
+                                                                       y_test, selected_features_pca, train_class, class_weight_imb))
+
+                all_performance_pca[number_features[n]] = performance_metric_summary_pca
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'target_mean':
-            x_train, x_test, selected_features_target_mean = target_mean_selection(x_train, x_test, y_train, all_features)
+            x_train_target_mean, x_test_target_mean, selected_features_target_mean = target_mean_selection(x_train, x_test, y_train, all_features)
 
             # Assess performance for all classifiers
-            performance_metric_summary_target_mean = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+            performance_metric_summary_target_mean = (call_all_classifiers(classifier_type, x_train_target_mean, x_test_target_mean, y_train,
                                                                    y_test, selected_features_target_mean, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'performance':
-            x_train, x_test, selected_features_performance = feature_selection_performance(x_train, x_test, y_train, all_features)
+            x_train_performance, x_test_performance, selected_features_performance = feature_selection_performance(x_train, x_test, y_train, all_features)
 
             # Assess performance for all classifiers
-            performance_metric_summary_single_performance = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+            performance_metric_summary_single_performance = (call_all_classifiers(classifier_type, x_train_performance, x_test_performance, y_train,
                                                                    y_test, selected_features_performance, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'shuffle':
-            x_train, x_test, selected_features_shuffle = feature_selection_shuffle(x_train, x_test, y_train, all_features)
+            x_train_shuffle, x_test_shuffle, selected_features_shuffle = feature_selection_shuffle(x_train, x_test, y_train, all_features)
 
             # Assess performance for all classifiers
-            performance_metric_summary_shuffle = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
+            performance_metric_summary_shuffle = (call_all_classifiers(classifier_type, x_train_shuffle, x_test_shuffle, y_train,
                                                                    y_test, selected_features_shuffle, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'none':

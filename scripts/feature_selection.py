@@ -72,12 +72,12 @@ def feature_selection_lasso(x_train, x_test, y_train, all_features):
 #
 #     return selected_features
 
-def feature_selection_mrmr(x_train, y_train, x_test, all_features):
+def feature_selection_mrmr(x_train, y_train, x_test, all_features, n):
     """
     This function takes the training data and labels to complete mrmr.
     """
     # Build & Fit mRMR model
-    mrmr_model = MRMR(method = "MIQ", regression = False) # max_features
+    mrmr_model = MRMR(method = "MIQ", regression = False, max_features = int(n))
     mrmr_model.fit(x_train, y_train)
 
     # Reduce train and test matrix
@@ -192,17 +192,16 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features):
 
     return x_train, x_test, selected_features
 
-def dimensionality_reduction_PCA(x_train, x_test):
+def dimensionality_reduction_PCA(x_train, x_test, n):
     """
     This function completes PCA for the training data.
     """
-    number_pca = 5
-    pca = PCA(n_components=number_pca)
+    pca = PCA(n_components=n)
     pca.fit(x_train)
     x_train_pca = pca.transform(x_train)
     x_test_pca = pca.transform(x_test)
 
-    selected_features = [str(i) for i in range(0, number_pca)]
+    selected_features = [str(i) for i in range(0, n)]
 
     # # Train a model on the transformed data
     # model = RandomForestClassifier()
