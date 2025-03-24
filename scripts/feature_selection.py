@@ -206,11 +206,19 @@ def dimensionality_reduction_PCA(x_train, x_test):
     return x_train_pca, x_test_pca, selected_features
 
 
-def feature_shuffle_selection(x_train, y_train, all_features):
+def feature_selection_shuffle(x_train, x_test, y_train, all_features):
     sbs = SelectByShuffling(RandomForestClassifier(random_state=42),cv=2,random_state=42)
     sbs.fit_transform(x_train, y_train)
 
-    selected_features = all_features(all_features != sbs.features_to_drop_)
+    # Reduce train and test matrix
+    x_train = sbs.transform(x_train)
+    x_test = sbs.transform(x_test)
+
+    # Use features to drop to determine features to keep
+    features_to_drop = sbs.features_to_drop_
+    features_to_drop_index = [element[1:] for element in features_to_drop]
+    features_to_drop_index = np.array([int(x) for x in features_to_drop_index])
+    selected_features = [all_features[index] for index in range(len(all_features)) if index not in features_to_drop_index]
 
     # Example feature metrics
     # original_model_performance = sbs.initial_model_performance_
@@ -232,13 +240,21 @@ def feature_shuffle_selection(x_train, y_train, all_features):
         # plt.xlabel('Features')
         # plt.show()
 
-    return selected_features
+    return x_train, x_test, selected_features
 
-def feature_selection_performance(x_train, y_train, all_features, classifier):
+def feature_selection_performance(x_train, x_test, y_train, all_features):
     sfp = SelectBySingleFeaturePerformance(RandomForestClassifier(random_state=42),cv=2)
-    sfp.fit_transform(x_train, y_train)
+    sfp.fit(x_train, y_train)
 
-    selected_features = all_features(all_features != sfp.features_to_drop_)
+    # Reduce train and test matrix
+    x_train = sfp.transform(x_train)
+    x_test = sfp.transform(x_test)
+
+    # Use features to drop to determine features to keep
+    features_to_drop = sfp.features_to_drop_
+    features_to_drop_index = [element[1:] for element in features_to_drop]
+    features_to_drop_index = np.array([int(x) for x in features_to_drop_index])
+    selected_features = [all_features[index] for index in range(len(all_features)) if index not in features_to_drop_index]
 
     # Example feature parameters
     # sfp_feature_performance = sfp.feature_performance_
@@ -259,7 +275,8 @@ def feature_selection_performance(x_train, y_train, all_features, classifier):
         # plt.xlabel('Features')
         # plt.show()
 
-    return selected_features
+    return x_train, x_test, selected_features
+
 
 def target_mean_selection(x_train, x_test, y_train, all_features):
     tmp = SelectByTargetMeanPerformance(scoring="f1", threshold = 0.01, cv=10, regression=False)

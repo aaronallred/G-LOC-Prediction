@@ -35,7 +35,7 @@ if __name__ == "__main__":
     imbalance_technique = 'smote_cf'
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
-    feature_reduction_type = 'target_mean'
+    feature_reduction_type = 'shuffle'
 
     # Data Handling Options
     remove_NaN_trials = True
@@ -380,34 +380,14 @@ if __name__ == "__main__":
                                                                    y_test, selected_features_target_mean, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'performance':
-            selected_features_performance = feature_selection_performance(x_train, y_train, all_features)
-
-            # Convert feature output from selected_features_performance to index array and list of features
-            selected_features_index = [element[1:] for element in selected_features_performance]
-            selected_features_index = np.array([int(x) for x in selected_features_index])
-
-            selected_features_performance_list = [all_features[index] for index in selected_features_index]
-
-            # Grab relevant feature columns from x_train and x_test
-            x_train = x_train[:,selected_features_index]
-            x_test = x_test[:,selected_features_index]
+            x_train, x_test, selected_features_performance = feature_selection_performance(x_train, x_test, y_train, all_features)
 
             # Assess performance for all classifiers
             performance_metric_summary_single_performance = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
                                                                    y_test, selected_features_performance, train_class, class_weight_imb))
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'shuffle':
-            selected_features_shuffle = feature_selection_shuffle(x_train, y_train, all_features)
-
-            # Convert feature output from selected_features_shuffle to index array and list of features
-            selected_features_index = [element[1:] for element in selected_features_shuffle]
-            selected_features_index = np.array([int(x) for x in selected_features_index])
-
-            selected_features_performance_list = [all_features[index] for index in selected_features_index]
-
-            # Grab relevant feature columns from x_train and x_test
-            x_train = x_train[:,selected_features_index]
-            x_test = x_test[:,selected_features_index]
+            x_train, x_test, selected_features_shuffle = feature_selection_shuffle(x_train, x_test, y_train, all_features)
 
             # Assess performance for all classifiers
             performance_metric_summary_shuffle = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
