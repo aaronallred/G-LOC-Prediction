@@ -18,10 +18,10 @@ if __name__ == "__main__":
     # datafolder = '../data/'
 
     # troubleshoot mode | 0 = No, Proceed with full feature set , 1 = Yes, reduce feature set for testing/troubleshooting
-    trouble_shoot_mode = 0
+    trouble_shoot_mode = 1
 
     # Import Feature Matrix | 0 = No, Proceed with Baseline and Feature Extraction , 1 = Yes, Use Existing Pkl
-    import_feature_matrix = 0
+    import_feature_matrix = 1
     feature_matrix_name = 'x_feature_matrix.pkl'
     y_label_name = 'y_gloc_labels.pkl'
     all_features_name = 'all_features.pkl'
@@ -31,10 +31,10 @@ if __name__ == "__main__":
     train_class = True
 
     ## Sequential Optimization Mode | Pick 'none' 'imbalance' 'nan' 'sliding_window' or 'feature_reduction'
-    sequential_optimization_mode = 'none'
+    sequential_optimization_mode = 'imbalance'
 
     ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
-    imbalance_technique = 'smote_cf'
+    imbalance_technique = 'none'
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
     feature_reduction_type = 'shuffle'
@@ -261,21 +261,21 @@ if __name__ == "__main__":
         ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
         if imbalance_technique == 'all' or imbalance_technique == 'rus':
             rus_x_train, rus_y_train = resample_rus(x_train, y_train)
-            class_weight_imb = 'None'
+            class_weight_imb = None
 
             performance_metric_summary_rus = (call_all_classifiers(classifier_type, rus_x_train, x_test, rus_y_train,
                                                                    y_test, all_features, train_class, class_weight_imb))
 
         if imbalance_technique == 'all' or imbalance_technique == 'ros':
             ros_x_train, ros_y_train = resample_ros(x_train, y_train)
-            class_weight_imb = 'None'
+            class_weight_imb = None
 
             performance_metric_summary_ros = (call_all_classifiers(classifier_type, ros_x_train, x_test, ros_y_train,
                                                                    y_test, all_features, train_class, class_weight_imb))
 
         if imbalance_technique == 'all' or imbalance_technique == 'smote':
             smote_x_train, smote_y_train = resample_smote(x_train, y_train)
-            class_weight_imb = 'None'
+            class_weight_imb = None
 
             performance_metric_summary_smote = (call_all_classifiers(classifier_type, smote_x_train, x_test, smote_y_train,
                                                                    y_test, all_features, train_class, class_weight_imb))
@@ -307,7 +307,7 @@ if __name__ == "__main__":
                                                                        y_test, all_features, train_class, class_weight_imb))
 
         if imbalance_technique == 'all' or imbalance_technique == 'none':
-            class_weight_imb = 'None'
+            class_weight_imb = None
 
             performance_metric_summary_none = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
                                      y_test, all_features, train_class, class_weight_imb))
@@ -320,7 +320,7 @@ if __name__ == "__main__":
 
     if sequential_optimization_mode == 'feature_reduction':
         # REMOVE THIS BEFORE RUNNING
-        class_weight_imb = 'None'
+        class_weight_imb = None
 
         ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' or 'all'
         if feature_reduction_type == 'all' or feature_reduction_type == 'lasso':
@@ -390,17 +390,17 @@ if __name__ == "__main__":
                 # Call current classifier
                 if classifier_method == 'logreg':
                     accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
-                        classify_logistic_regression(x_train_shuffle, x_test_shuffle, y_train, y_test, class_weight_imb, selected_features_shuffle,
+                        classify_logistic_regression(x_train_shuffle, x_test_shuffle, y_train, y_test, class_weight_imb,
                                                      retrain=train_class))
 
                 elif classifier_method == 'rf':
                     accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
-                        classify_random_forest(x_train_shuffle, x_test_shuffle, y_train, y_test, class_weight_imb, selected_features_shuffle,
+                        classify_random_forest(x_train_shuffle, x_test_shuffle, y_train, y_test, class_weight_imb,
                                                retrain=train_class))
 
                 elif classifier_method == 'lda':
                     accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
-                        classify_lda(x_train_shuffle, x_test_shuffle, y_train, y_test, selected_features_shuffle, retrain=train_class))
+                        classify_lda(x_train_shuffle, x_test_shuffle, y_train, y_test, retrain=train_class))
 
                 elif classifier_method == 'knn':
                     accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
@@ -436,22 +436,22 @@ if __name__ == "__main__":
     ################################################ MACHINE LEARNING ################################################
     if sequential_optimization_mode == 'none':
 
-        class_weight_imb = 'None'
+        class_weight_imb = None
 
         # Logistic Regression | logreg
         if classifier_type == 'all' or classifier_type == 'logreg':
             accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
-                classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb, all_features,retrain=train_class))
+                classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb ,retrain=train_class))
 
         # Random Forrest | rf
         if classifier_type == 'all' or classifier_type == 'rf':
             accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
-                classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, all_features,retrain=train_class))
+                classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb,retrain=train_class))
 
         # Linear discriminant analysis | LDA
         if classifier_type == 'all' or classifier_type == 'LDA':
             accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
-                classify_lda(x_train, x_test, y_train, y_test, all_features,retrain=train_class))
+                classify_lda(x_train, x_test, y_train, y_test, retrain=train_class))
 
         # KNN
         if classifier_type == 'all' or classifier_type == 'KNN':

@@ -2,8 +2,9 @@ import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import Lasso
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.linear_model import Lasso, LogisticRegression
 from sklearn.model_selection import GridSearchCV, KFold
 from feature_engine.selection import MRMR
 from sklearn.linear_model import ElasticNet
@@ -12,6 +13,8 @@ from sklearn.decomposition import PCA
 from feature_engine.selection import SelectByShuffling
 from feature_engine.selection import SelectByTargetMeanPerformance
 from feature_engine.selection import SelectBySingleFeaturePerformance
+from sklearn.neighbors import KNeighborsClassifier
+
 
 # Feature Selection
 def feature_selection_lasso(x_train, x_test, y_train, all_features):
@@ -223,9 +226,20 @@ def dimensionality_reduction_PCA(x_train, x_test):
     return x_train_pca, x_test_pca, selected_features
 
 
-def feature_selection_shuffle(x_train, x_test, y_train, all_features):
-    sbs = SelectByShuffling(RandomForestClassifier(random_state=42),cv=2,random_state=42)
-    sbs.fit_transform(x_train, y_train)
+def feature_selection_shuffle(x_train, x_test, y_train, all_features, classifier_method):
+    if classifier_method == 'logreg':
+        sbs = SelectByShuffling(LogisticRegression(random_state=42),cv=5,random_state=42)
+    elif classifier_method == 'rf':
+        sbs = SelectByShuffling(RandomForestClassifier(random_state=42), cv=5, random_state=42)
+    elif classifier_method == 'lda':
+        sbs = SelectByShuffling(LinearDiscriminantAnalysis(), cv=5, random_state=42)
+    elif classifier_method == 'knn':
+        sbs = SelectByShuffling(KNeighborsClassifier(), cv=5, random_state=42)
+    elif classifier_method == 'svm':
+        sbs = SelectByShuffling(svm.SVC(random_state=42), cv=5, random_state=42)
+    elif classifier_method == 'gb':
+        sbs = SelectByShuffling(GradientBoostingClassifier(random_state=42), cv=5, random_state=42)
+    sbs.fit(x_train, y_train)
 
     # Reduce train and test matrix
     x_train = sbs.transform(x_train)
@@ -259,8 +273,20 @@ def feature_selection_shuffle(x_train, x_test, y_train, all_features):
 
     return x_train, x_test, selected_features
 
-def feature_selection_performance(x_train, x_test, y_train, all_features):
-    sfp = SelectBySingleFeaturePerformance(RandomForestClassifier(random_state=42),cv=2)
+def feature_selection_performance(x_train, x_test, y_train, all_features, classifier_method):
+    if classifier_method == 'logreg':
+        sfp = SelectBySingleFeaturePerformance(LogisticRegression(random_state=42),cv=5,random_state=42)
+    elif classifier_method == 'rf':
+        sfp = SelectBySingleFeaturePerformance(RandomForestClassifier(random_state=42), cv=5, random_state=42)
+    elif classifier_method == 'lda':
+        sfp = SelectBySingleFeaturePerformance(LinearDiscriminantAnalysis(), cv=5, random_state=42)
+    elif classifier_method == 'knn':
+        sfp = SelectBySingleFeaturePerformance(KNeighborsClassifier(), cv=5, random_state=42)
+    elif classifier_method == 'svm':
+        sfp = SelectBySingleFeaturePerformance(svm.SVC(random_state=42), cv=5, random_state=42)
+    elif classifier_method == 'gb':
+        sfp = SelectBySingleFeaturePerformance(GradientBoostingClassifier(random_state=42), cv=5, random_state=42)
+
     sfp.fit(x_train, y_train)
 
     # Reduce train and test matrix

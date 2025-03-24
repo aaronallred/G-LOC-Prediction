@@ -990,13 +990,13 @@ def unpack_dict(gloc_window, sliding_window_mean_s1, number_windows, sliding_win
                 sliding_window_consecutive_elements_mean_left_pupil_s1, sliding_window_consecutive_elements_mean_right_pupil_s1,
                 sliding_window_consecutive_elements_max_left_pupil_s1, sliding_window_consecutive_elements_max_right_pupil_s1,
                 sliding_window_consecutive_elements_sum_left_pupil_s1, sliding_window_consecutive_elements_sum_right_pupil_s1,
-                sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_hrv_pnn50_s1, sliding_window_cognitive_IES_s1,
+                sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_cognitive_IES_s1,
                 sliding_window_mean_s2, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2,
                 sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
                 sliding_window_consecutive_elements_mean_left_pupil_s2, sliding_window_consecutive_elements_mean_right_pupil_s2,
                 sliding_window_consecutive_elements_max_left_pupil_s2, sliding_window_consecutive_elements_max_right_pupil_s2,
                 sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
-                sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2, sliding_window_hrv_pnn50_s2, sliding_window_cognitive_IES_s2):
+                sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2, sliding_window_cognitive_IES_s2):
     """
     This function unpacks the dictionary structure to create a large features matrix (X matrix) and
     labels matrix (y matrix) for all trials being analyzed. This function will become unnecessary if
@@ -1017,13 +1017,13 @@ def unpack_dict(gloc_window, sliding_window_mean_s1, number_windows, sliding_win
                                 sliding_window_consecutive_elements_mean_left_pupil_s1, sliding_window_consecutive_elements_mean_right_pupil_s1,
                                 sliding_window_consecutive_elements_max_left_pupil_s1, sliding_window_consecutive_elements_max_right_pupil_s1,
                                 sliding_window_consecutive_elements_sum_left_pupil_s1, sliding_window_consecutive_elements_sum_right_pupil_s1,
-                                sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_hrv_pnn50_s1, sliding_window_cognitive_IES_s1,
+                                sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_cognitive_IES_s1,
                                 sliding_window_mean_s2, sliding_window_stddev_s2, sliding_window_max_s2,sliding_window_range_s2,
                                 sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
                                 sliding_window_consecutive_elements_mean_left_pupil_s2,sliding_window_consecutive_elements_mean_right_pupil_s2,
                                 sliding_window_consecutive_elements_max_left_pupil_s2, sliding_window_consecutive_elements_max_right_pupil_s2,
                                 sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
-                                sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2, sliding_window_hrv_pnn50_s2, sliding_window_cognitive_IES_s2]
+                                sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2, sliding_window_cognitive_IES_s2]
 
     # Find all non-empty dictionaries
     non_empty_feature_dictionaries = []
