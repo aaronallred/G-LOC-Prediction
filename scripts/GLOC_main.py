@@ -18,10 +18,10 @@ if __name__ == "__main__":
     # datafolder = '../data/'
 
     # troubleshoot mode | 0 = No, Proceed with full feature set , 1 = Yes, reduce feature set for testing/troubleshooting
-    trouble_shoot_mode = 0
+    trouble_shoot_mode = 1
 
     # Import Feature Matrix | 0 = No, Proceed with Baseline and Feature Extraction , 1 = Yes, Use Existing Pkl
-    import_feature_matrix = 0
+    import_feature_matrix = 1
     feature_matrix_name = 'x_feature_matrix.pkl'
     y_label_name = 'y_gloc_labels.pkl'
     all_features_name = 'all_features.pkl'
@@ -31,13 +31,13 @@ if __name__ == "__main__":
     train_class = True
 
     ## Sequential Optimization Mode | Pick 'none' 'imbalance' 'nan' 'sliding_window' or 'feature_reduction'
-    sequential_optimization_mode = 'none'
+    sequential_optimization_mode = 'feature_reduction'
 
     ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
     imbalance_technique = 'none'
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
-    feature_reduction_type = 'shuffle'
+    feature_reduction_type = 'performance'
 
     # Data Handling Options
     remove_NaN_trials = True
@@ -379,54 +379,101 @@ if __name__ == "__main__":
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'performance':
             classifier_method = ['logreg', 'rf', 'lda', 'knn', 'svm', 'gb']
+
             for i in range(len(classifier_method)):
                 x_train_performance, x_test_performance, selected_features_performance = feature_selection_performance(x_train, x_test, y_train, all_features, classifier_method[i])
 
+                # Call current classifier
+                if classifier_method[i] == 'logreg':
+                    accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
+                        classify_logistic_regression(x_train_performance, x_test_performance, y_train, y_test, class_weight_imb,
+                                                     retrain=train_class))
+
+                elif classifier_method[i] == 'rf':
+                    accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
+                        classify_random_forest(x_train_performance, x_test_performance, y_train, y_test, class_weight_imb,
+                                               retrain=train_class))
+
+                elif classifier_method[i] == 'lda':
+                    accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
+                        classify_lda(x_train_performance, x_test_performance, y_train, y_test, retrain=train_class))
+
+                elif classifier_method[i] == 'knn':
+                    accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
+                        classify_knn(x_train_performance, x_test_performance, y_train, y_test, retrain=train_class))
+
+                elif classifier_method[i] == 'svm':
+                    accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
+                        classify_svm(x_train_performance, x_test_performance, y_train, y_test, class_weight_imb, retrain=train_class))
+
+                elif classifier_method[i] == 'gb':
+                    accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
+                        classify_ensemble_with_gradboost(x_train_performance, x_test_performance, y_train, y_test, retrain=train_class))
+
+            performance_metric_summary_sfp = (summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda,
+                                                                        accuracy_knn, accuracy_svm, accuracy_gb,
+                                                                        precision_logreg, precision_rf, precision_lda,
+                                                                        precision_knn, precision_svm, precision_gb,
+                                                                        recall_logreg, recall_rf, recall_lda, recall_knn,
+                                                                        recall_svm, recall_gb, f1_logreg, f1_rf, f1_lda,
+                                                                        f1_knn, f1_svm, f1_gb,specificity_logreg,
+                                                                        specificity_rf, specificity_lda, specificity_knn,
+                                                                        specificity_svm, specificity_gb, g_mean_logreg,
+                                                                        g_mean_rf, g_mean_lda, g_mean_knn,
+                                                                        g_mean_svm, g_mean_gb))
+
         if feature_reduction_type == 'all' or feature_reduction_type == 'shuffle':
+            # Select by shuffling does not work for KNN or LDA
             classifier_method = ['logreg', 'rf', 'svm', 'gb']
+
             for i in range(len(classifier_method)):
                 x_train_shuffle, x_test_shuffle, selected_features_shuffle = feature_selection_shuffle(x_train, x_test, y_train, all_features, classifier_method[i])
 
                 # Call current classifier
-                if classifier_method == 'logreg':
+                if classifier_method[i] == 'logreg':
                     accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
                         classify_logistic_regression(x_train_shuffle, x_test_shuffle, y_train, y_test, class_weight_imb,
                                                      retrain=train_class))
 
-                elif classifier_method == 'rf':
+                elif classifier_method[i] == 'rf':
                     accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
                         classify_random_forest(x_train_shuffle, x_test_shuffle, y_train, y_test, class_weight_imb,
                                                retrain=train_class))
 
-                elif classifier_method == 'lda':
+                elif classifier_method[i] == 'lda':
                     accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
                         classify_lda(x_train_shuffle, x_test_shuffle, y_train, y_test, retrain=train_class))
 
-                elif classifier_method == 'knn':
+                elif classifier_method[i] == 'knn':
                     accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
                         classify_knn(x_train_shuffle, x_test_shuffle, y_train, y_test, retrain=train_class))
 
-                elif classifier_method == 'svm':
+                elif classifier_method[i] == 'svm':
                     accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
                         classify_svm(x_train_shuffle, x_test_shuffle, y_train, y_test, class_weight_imb, retrain=train_class))
 
-                elif classifier_method == 'gb':
+                elif classifier_method[i] == 'gb':
                     accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
                         classify_ensemble_with_gradboost(x_train_shuffle, x_test_shuffle, y_train, y_test, retrain=train_class))
 
-            # Assess performance for all classifiers
-            # performance_metric_summary_shuffle = (
-                # summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda,
-                #                               accuracy_knn, accuracy_svm, accuracy_gb,
-                #                               precision_logreg, precision_rf, precision_lda,
-                #                               precision_knn, precision_svm, precision_gb,
-                #                               recall_logreg, recall_rf, recall_lda, recall_knn,
-                #                               recall_svm, recall_gb, f1_logreg, f1_rf, f1_lda,
-                #                               f1_knn, f1_svm, f1_gb, specificity_logreg,
-                #                               specificity_rf, specificity_lda, specificity_knn,
-                #                               specificity_svm, specificity_gb, g_mean_logreg,
-                #                               g_mean_rf, g_mean_lda, g_mean_knn,
-                #                               g_mean_svm, g_mean_gb))
+            # Define classifiers being used and summary performance meetrics to use
+            performance_metrics = ['accuracy', 'precision', 'recall', 'f1-score', 'specificity', 'g mean']
+
+            # For each performance metric, combine each machine learning method into np array
+            accuracy = np.array([accuracy_logreg, accuracy_rf, accuracy_svm, accuracy_gb])
+            precision = np.array(
+                [precision_logreg, precision_rf, precision_svm, precision_gb])
+            recall = np.array([recall_logreg, recall_rf, recall_svm, recall_gb])
+            f1 = np.array([f1_logreg, f1_rf, f1_svm, f1_gb])
+            specificity = np.array(
+                [specificity_logreg, specificity_rf, specificity_svm, specificity_gb])
+            g_mean = np.array([g_mean_logreg, g_mean_rf, g_mean_svm, g_mean_gb])
+
+            # create combined stack of all performance metrics
+            combined_metrics = np.column_stack((accuracy, precision, recall, f1, specificity, g_mean))
+
+            # label combined metrics by classifier name and performance metric name
+            performance_metric_summary_shuffle = pd.DataFrame(combined_metrics, index=classifier_method, columns=performance_metrics)
 
         if feature_reduction_type == 'all' or feature_reduction_type == 'none':
             # Assess performance for all classifiers

@@ -276,17 +276,17 @@ def feature_selection_shuffle(x_train, x_test, y_train, all_features, classifier
 
 def feature_selection_performance(x_train, x_test, y_train, all_features, classifier_method):
     if classifier_method == 'logreg':
-        sfp = SelectBySingleFeaturePerformance(LogisticRegression(random_state=42),cv=5,random_state=42)
+        sfp = SelectBySingleFeaturePerformance(LogisticRegression(random_state=42),cv=5)
     elif classifier_method == 'rf':
-        sfp = SelectBySingleFeaturePerformance(RandomForestClassifier(random_state=42), cv=5, random_state=42)
+        sfp = SelectBySingleFeaturePerformance(RandomForestClassifier(random_state=42), cv=5)
     elif classifier_method == 'lda':
-        sfp = SelectBySingleFeaturePerformance(LinearDiscriminantAnalysis(), cv=5, random_state=42)
+        sfp = SelectBySingleFeaturePerformance(LinearDiscriminantAnalysis(), cv=5)
     elif classifier_method == 'knn':
-        sfp = SelectBySingleFeaturePerformance(KNeighborsClassifier(), cv=5, random_state=42)
+        sfp = SelectBySingleFeaturePerformance(KNeighborsClassifier(), cv=5)
     elif classifier_method == 'svm':
-        sfp = SelectBySingleFeaturePerformance(svm.SVC(random_state=42), cv=5, random_state=42)
+        sfp = SelectBySingleFeaturePerformance(svm.SVC(random_state=42), cv=5)
     elif classifier_method == 'gb':
-        sfp = SelectBySingleFeaturePerformance(GradientBoostingClassifier(random_state=42), cv=5, random_state=42)
+        sfp = SelectBySingleFeaturePerformance(GradientBoostingClassifier(random_state=42), cv=5)
 
     sfp.fit(x_train, y_train)
 
