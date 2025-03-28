@@ -37,6 +37,7 @@ def feature_selection_lasso(x_train, x_test, y_train, all_features):
     lasso_cv = GridSearchCV(lasso, param_grid=params, cv=kf)
     lasso_cv.fit(x_train, y_train)
 
+    # Use optimal alpha value from grid search CV
     alpha_optimal = lasso_cv.best_params_['alpha']
 
     # calling the model with the best parameter
@@ -116,6 +117,7 @@ def feature_selection_elastic_net(x_train, x_test, y_train, all_features):
     enet_cv = GridSearchCV(enet, param_grid=params, cv=kf)
     enet_cv.fit(x_train, y_train)
 
+    # Use optimal alpha value and l1 ratio from grid search CV
     alpha_optimal = enet_cv.best_params_['alpha']
     l1ratio_optimal = enet_cv.best_params_['l1_ratio']
 
@@ -166,6 +168,7 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features, n):
     ridge_cv = GridSearchCV(ridge0, param_grid=params, cv=kf)
     ridge_cv.fit(x_train, y_train)
 
+    # Use optimal alpha value from grid search CV
     alpha_optimal = ridge_cv.best_params_['alpha']
 
     # calling the model with the best parameter
@@ -200,15 +203,21 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features, n):
 
 def dimensionality_reduction_PCA(x_train, x_test):
     """
-    This function completes PCA for the training data.
+    This function completes PCA for the training data. The number of components are determined
+    based on achieving n_components*100 percent explained variance.
     """
+    # Complete PCA
     pca = PCA(n_components=0.99, svd_solver = 'full')
     pca.fit(x_train)
+
+    # Transform training & test matrices
     x_train_pca = pca.transform(x_train)
     x_test_pca = pca.transform(x_test)
 
+    # Evaluate explained variance
     explained_variance = pca.explained_variance_ratio_
 
+    # Create string name for PCA features
     selected_features = [str(i) for i in range(0, np.shape(x_train_pca)[1])]
 
     # # Train a model on the transformed data
@@ -229,6 +238,7 @@ def dimensionality_reduction_PCA(x_train, x_test):
 
 
 def feature_selection_shuffle(x_train, x_test, y_train, all_features, classifier_method):
+    # Complete feature selection by shuffling for each classifier
     if classifier_method == 'logreg':
         sbs = SelectByShuffling(LogisticRegression(random_state=42),cv=5,random_state=42)
     elif classifier_method == 'rf':
@@ -241,6 +251,8 @@ def feature_selection_shuffle(x_train, x_test, y_train, all_features, classifier
         sbs = SelectByShuffling(svm.SVC(random_state=42), cv=5, random_state=42)
     elif classifier_method == 'gb':
         sbs = SelectByShuffling(GradientBoostingClassifier(random_state=42), cv=5, random_state=42)
+
+    # fit select by shuffling on the training data
     sbs.fit(x_train, y_train)
 
     # Reduce train and test matrix
@@ -276,6 +288,7 @@ def feature_selection_shuffle(x_train, x_test, y_train, all_features, classifier
     return x_train, x_test, selected_features
 
 def feature_selection_performance(x_train, x_test, y_train, all_features, classifier_method):
+    # Complete feature selection by single feature performance for each classifier
     if classifier_method == 'logreg':
         sfp = SelectBySingleFeaturePerformance(LogisticRegression(random_state=42),cv=5)
     elif classifier_method == 'rf':
@@ -289,6 +302,7 @@ def feature_selection_performance(x_train, x_test, y_train, all_features, classi
     elif classifier_method == 'gb':
         sfp = SelectBySingleFeaturePerformance(GradientBoostingClassifier(random_state=42), cv=5)
 
+    # fit single feature performance model on the training data
     sfp.fit(x_train, y_train)
 
     # Reduce train and test matrix
@@ -338,6 +352,7 @@ def target_mean_selection(x_train, x_test, y_train, all_features):
     tmp_cv = GridSearchCV(tmp, param_grid=params, cv=kf)
     tmp_cv.fit(x_train, y_train)
 
+    # Use optimal value for threshold found in GridSearchCV
     threshold_optimal = tmp_cv.best_params_['threshold']
 
     # calling the model with the best parameter
@@ -347,12 +362,12 @@ def target_mean_selection(x_train, x_test, y_train, all_features):
     # tmp = SelectByTargetMeanPerformance(scoring="f1", threshold = 0.01, cv=10, regression=False)
     # tmp.fit_transform(x_train, y_train)
 
+    # find features to keep
     features_to_keep = tmp1.get_feature_names_out()
 
     # Convert feature output from selected_features_target_mean to index array and list of features
     selected_features_index = [element[1:] for element in features_to_keep]
     selected_features_index = np.array([int(x) for x in selected_features_index])
-
     selected_features = [all_features[index] for index in selected_features_index]
 
     # Grab relevant feature columns from x_train and x_test
@@ -421,6 +436,7 @@ def mrmr_methods(x_train, x_test, y_train, y_test, all_features, classifier_type
 
     # Loop through n features
     for n in range(len(number_features)):
+        # Determine reduced feature set & transform x_train and x_test
         x_train_mrmr[n], x_test_mrmr[n], selected_features_mrmr[n] = feature_selection_mrmr(x_train, y_train, x_test,
                                                                                             all_features,
                                                                                             number_features[n])
@@ -443,6 +459,7 @@ def sfp_methods(x_train, x_test, y_train, y_test, all_features, train_class, cla
     classifier_method = ['logreg', 'rf', 'lda', 'knn', 'svm', 'gb']
 
     for i in range(len(classifier_method)):
+        # Determine reduced feature set & transform x_train and x_test
         x_train_performance[i], x_test_performance[i], selected_features_performance[i] = feature_selection_performance(x_train,
                                                                                                                x_test,
                                                                                                                y_train,
@@ -450,35 +467,42 @@ def sfp_methods(x_train, x_test, y_train, y_test, all_features, train_class, cla
                                                                                                                classifier_method[
                                                                                                                    i])
 
-        # Call current classifier
+        ## Assess performance for all classifiers
+        # Logistic Regression | logreg
         if classifier_method[i] == 'logreg':
             accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
                 classify_logistic_regression(x_train_performance[i], x_test_performance[i], y_train, y_test, class_weight_imb,
                                              retrain=train_class))
 
+        # Random Forrest | rf
         elif classifier_method[i] == 'rf':
             accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
                 classify_random_forest(x_train_performance[i], x_test_performance[i], y_train, y_test, class_weight_imb,
                                        retrain=train_class))
 
+        # Linear discriminant analysis | LDA
         elif classifier_method[i] == 'lda':
             accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
                 classify_lda(x_train_performance[i], x_test_performance[i], y_train, y_test, retrain=train_class))
 
+        # K Nearest Neighbors | KNN
         elif classifier_method[i] == 'knn':
             accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
                 classify_knn(x_train_performance[i], x_test_performance[i], y_train, y_test, retrain=train_class))
 
+        # Support Vector Machine | SVM
         elif classifier_method[i] == 'svm':
             accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
                 classify_svm(x_train_performance[i], x_test_performance[i], y_train, y_test, class_weight_imb,
                              retrain=train_class))
 
+        # Ensemble with Gradient Boosting | EGB
         elif classifier_method[i] == 'gb':
             accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
                 classify_ensemble_with_gradboost(x_train_performance[i], x_test_performance[i], y_train, y_test,
                                                  retrain=train_class))
 
+    # Combine performance metrics
     performance_metric_summary_sfp = (summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda,
                                                                     accuracy_knn, accuracy_svm, accuracy_gb,
                                                                     precision_logreg, precision_rf, precision_lda,
@@ -504,36 +528,43 @@ def shuffle_methods(x_train, x_test, y_train, y_test, all_features, train_class,
 
     # Loop through classifier methods
     for i in range(len(classifier_method)):
+        # Determine reduced feature set & transform x_train and x_test
         x_train_shuffle[i], x_test_shuffle[i], selected_features_shuffle[i] = feature_selection_shuffle(x_train, x_test,
                                                                                                         y_train,
                                                                                                         all_features,
                                                                                                         classifier_method[
                                                                                                             i])
 
-        # Call current classifier
+        ## Assess performance for all classifiers
+        # Logistic Regression | logreg
         if classifier_method[i] == 'logreg':
             accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
                 classify_logistic_regression(x_train_shuffle[i], x_test_shuffle[i], y_train, y_test, class_weight_imb,
                                              retrain=train_class))
 
+        # Random Forrest | rf
         elif classifier_method[i] == 'rf':
             accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
                 classify_random_forest(x_train_shuffle[i], x_test_shuffle[i], y_train, y_test, class_weight_imb,
                                        retrain=train_class))
 
+        # Linear discriminant analysis | LDA
         elif classifier_method[i] == 'lda':
             accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
                 classify_lda(x_train_shuffle[i], x_test_shuffle[i], y_train, y_test, retrain=train_class))
 
+        # K Nearest Neighbors | KNN
         elif classifier_method[i] == 'knn':
             accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
                 classify_knn(x_train_shuffle[i], x_test_shuffle[i], y_train, y_test, retrain=train_class))
 
+        # Support Vector Machine | SVM
         elif classifier_method[i] == 'svm':
             accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
                 classify_svm(x_train_shuffle[i], x_test_shuffle[i], y_train, y_test, class_weight_imb,
                              retrain=train_class))
 
+        # Ensemble with Gradient Boosting | EGB
         elif classifier_method[i] == 'gb':
             accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
                 classify_ensemble_with_gradboost(x_train_shuffle[i], x_test_shuffle[i], y_train, y_test,

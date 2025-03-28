@@ -40,7 +40,7 @@ if __name__ == "__main__":
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
     # Note: 'shuffle' does not work for KNN or LDA
-    feature_reduction_type = 'performance'
+    feature_reduction_type = 'shuffle'
 
     # Data Handling Options
     remove_NaN_trials = True
@@ -429,17 +429,17 @@ if __name__ == "__main__":
             accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
                 classify_lda(x_train, x_test, y_train, y_test, retrain=train_class))
 
-        # KNN
+        # K Nearest Neighbors | KNN
         if classifier_type == 'all' or classifier_type == 'KNN':
             accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
                 classify_knn(x_train, x_test, y_train, y_test,retrain=train_class))
 
-        # SVM
+        # Support Vector Machine | SVM
         if classifier_type == 'all' or classifier_type == 'SVM':
             accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
                 classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, retrain=train_class))
 
-        # Ensemble with Gradient Boosting
+        # Ensemble with Gradient Boosting | EGB
         if classifier_type == 'all' or classifier_type == 'EGB':
             accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
                 classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,retrain=train_class))
