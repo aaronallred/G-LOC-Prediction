@@ -34,9 +34,12 @@ if __name__ == "__main__":
     sequential_optimization_mode = 'feature_reduction'
 
     ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
+    # Note: Cost Function techniques ('cost_function' 'rus_cf' 'ros_cf' 'smote_cf') do not work for LDA, KNN, or Ens. Learner
     imbalance_technique = 'none'
+    class_weight_imb = None
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
+    # Note: 'shuffle' does not work for KNN or LDA
     feature_reduction_type = 'performance'
 
     # Data Handling Options
@@ -259,56 +262,76 @@ if __name__ == "__main__":
 
     if sequential_optimization_mode == 'imbalance':
         ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
+        # Random Under Sampling | rus
         if imbalance_technique == 'all' or imbalance_technique == 'rus':
+            # Implement Imbalance Sampling Technique
             rus_x_train, rus_y_train = resample_rus(x_train, y_train)
-            class_weight_imb = None
 
+            # Summarize Performance
             performance_metric_summary_rus = (call_all_classifiers(classifier_type, rus_x_train, x_test, rus_y_train,
                                                                    y_test, all_features, train_class, class_weight_imb))
 
+        # Random Over Sampling | ros
         if imbalance_technique == 'all' or imbalance_technique == 'ros':
+            # Implement Imbalance Sampling Technique
             ros_x_train, ros_y_train = resample_ros(x_train, y_train)
-            class_weight_imb = None
 
+            # Summarize Performance
             performance_metric_summary_ros = (call_all_classifiers(classifier_type, ros_x_train, x_test, ros_y_train,
                                                                    y_test, all_features, train_class, class_weight_imb))
 
+        # Synthetic Minority Over Sampling Technique | smote
         if imbalance_technique == 'all' or imbalance_technique == 'smote':
+            # Implement Imbalance Sampling Technique
             smote_x_train, smote_y_train = resample_smote(x_train, y_train)
-            class_weight_imb = None
 
+            # Summarize Performance
             performance_metric_summary_smote = (call_all_classifiers(classifier_type, smote_x_train, x_test, smote_y_train,
                                                                    y_test, all_features, train_class, class_weight_imb))
 
+        # Modify Cost Function | cost_function
         if imbalance_technique == 'all' or imbalance_technique == 'cost_function':
+            # Implement Imbalance Cost Function Technique
             class_weight_imb = 'balanced'
+
+            # Summarize Performance
             performance_metric_summary_cf = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
                                                                    y_test, all_features, train_class, class_weight_imb))
 
+        # Random Under Sampling & Modify Cost Function | rus_cf
         if imbalance_technique == 'all' or imbalance_technique == 'rus_cf':
+            # Implement Imbalance Hybrid Technique
             class_weight_imb = 'balanced'
             rus_x_train, rus_y_train = resample_rus(x_train, y_train)
 
+            # Summarize Performance
             performance_metric_summary_rus_cf = (call_all_classifiers(classifier_type, rus_x_train, x_test, rus_y_train,
                                                                    y_test, all_features, train_class, class_weight_imb))
 
+        # Random Over Sampling & Modify Cost Function | rus_cf
         if imbalance_technique == 'all' or imbalance_technique == 'ros_cf':
+            # Implement Imbalance Hybrid Technique
             class_weight_imb = 'balanced'
             ros_x_train, ros_y_train = resample_ros(x_train, y_train)
 
+            # Summarize Performance
             performance_metric_summary_ros_cf = (call_all_classifiers(classifier_type, ros_x_train, x_test, ros_y_train,
                                                                        y_test, all_features, train_class, class_weight_imb))
 
+        # Synthetic Minority Over Sampling Technique & Modify Cost Function | smote_cf
         if imbalance_technique == 'all' or imbalance_technique == 'smote_cf':
+            # Implement Imbalance Hybrid Technique
             class_weight_imb = 'balanced'
             smote_x_train, smote_y_train = resample_smote(x_train, y_train)
 
+            # Summarize Performance
             performance_metric_summary_smote_cf = (call_all_classifiers(classifier_type, smote_x_train, x_test, smote_y_train,
                                                                        y_test, all_features, train_class, class_weight_imb))
 
+        # No imbalance technique | none
         if imbalance_technique == 'all' or imbalance_technique == 'none':
-            class_weight_imb = None
 
+            # Summarize Performance
             performance_metric_summary_none = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
                                      y_test, all_features, train_class, class_weight_imb))
 
@@ -319,162 +342,70 @@ if __name__ == "__main__":
     """
 
     if sequential_optimization_mode == 'feature_reduction':
-        # REMOVE THIS BEFORE RUNNING
-        class_weight_imb = None
-
-        ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' or 'all'
+        ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
+        # Least Absolute Shrinkage and Selection Operator | lasso
         if feature_reduction_type == 'all' or feature_reduction_type == 'lasso':
+            # Implement feature reduction
             x_train_lasso, x_test_lasso, selected_features_lasso = feature_selection_lasso(x_train, x_test, y_train, all_features)
 
             # Assess performance for all classifiers
             performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train_lasso, x_test_lasso, y_train,
                                                                    y_test, selected_features_lasso, train_class, class_weight_imb))
 
+        # Elastic Net Regression | enet
         if feature_reduction_type == 'all' or feature_reduction_type == 'enet':
+            # Implement feature reduction
             x_train_enet, x_test_enet, selected_features_enet = feature_selection_elastic_net(x_train, x_test, y_train, all_features)
 
             # Assess performance for all classifiers
             performance_metric_summary_enet = (call_all_classifiers(classifier_type, x_train_enet, x_test_enet, y_train,
                                                                    y_test, selected_features_enet, train_class, class_weight_imb))
 
+        # Ridge Regression | ridge
         if feature_reduction_type == 'all' or feature_reduction_type == 'ridge':
-            all_performance_ridge = dict()
-            percentile_threshold = np.linspace(10, 100, 10)
+            # Implement feature reduction & assess performance of classifiers
+            x_train_ridge, x_test_ridge, selected_features_ridge, performance_metric_summary_ridge = (
+                ridge_methods(x_train, x_test, y_train, y_test, all_features, classifier_type, train_class, class_weight_imb))
 
-            for n in range(len(percentile_threshold)):
-                x_train_ridge, x_test_ridge, selected_features_ridge = feature_selection_ridge(x_train, x_test, y_train, all_features, percentile_threshold[n])
-
-                # Assess performance for all classifiers
-                performance_metric_summary_ridge = (call_all_classifiers(classifier_type, x_train_ridge, x_test_ridge, y_train,
-                                                                       y_test, selected_features_ridge, train_class, class_weight_imb))
-
-                all_performance_ridge[percentile_threshold[n]] = performance_metric_summary_ridge
-
+        # Minimum Redundancy Maximum Relevance | mrmr
         if feature_reduction_type == 'all' or feature_reduction_type == 'mrmr':
-            all_performance_mrmr = dict()
-            number_features = np.linspace(round(0.1 * len(all_features)), len(all_features), 10)
+            # Implement feature reduction & assess performance of classifiers
+            x_train_mrmr, x_test_mrmr, selected_features_mrmr, performance_metric_summary_mrmr = (
+                mrmr_methods(x_train, x_test, y_train, y_test, all_features, classifier_type, train_class,
+                                   class_weight_imb))
 
-            for n in range(len(number_features)):
-                x_train_mrmr, x_test_mrmr, selected_features_mrmr = feature_selection_mrmr(x_train, y_train, x_test, all_features, number_features[n])
-
-                # Assess performance for all classifiers
-                performance_metric_summary_mrmr = (call_all_classifiers(classifier_type, x_train_mrmr, x_test_mrmr, y_train,
-                                                                       y_test, selected_features_mrmr, train_class, class_weight_imb))
-
-                all_performance_mrmr[number_features[n]] = performance_metric_summary_mrmr
-
+        # Principle Component Analysis | pca
         if feature_reduction_type == 'all' or feature_reduction_type == 'pca':
+            # Implement feature reduction
             x_train_pca, x_test_pca, selected_features_pca = dimensionality_reduction_PCA(x_train, x_test)
 
             # Assess performance for all classifiers
             performance_metric_summary_pca = (call_all_classifiers(classifier_type, x_train_pca, x_test_pca, y_train,
                                                                    y_test, selected_features_pca, train_class, class_weight_imb))
 
+        # Select by Target Mean Performance | target_mean
         if feature_reduction_type == 'all' or feature_reduction_type == 'target_mean':
+            # Implement feature reduction
             x_train_target_mean, x_test_target_mean, selected_features_target_mean = target_mean_selection(x_train, x_test, y_train, all_features)
 
             # Assess performance for all classifiers
             performance_metric_summary_target_mean = (call_all_classifiers(classifier_type, x_train_target_mean, x_test_target_mean, y_train,
                                                                    y_test, selected_features_target_mean, train_class, class_weight_imb))
 
+        # Select by Single Feature Performance | performance
         if feature_reduction_type == 'all' or feature_reduction_type == 'performance':
-            classifier_method = ['logreg', 'rf', 'lda', 'knn', 'svm', 'gb']
+            # Implement feature reduction & assess performance of classifiers
+            x_train_performance, x_test_performance, selected_features_performance, performance_metric_summary_sfp = (
+                sfp_methods(x_train, x_test, y_train, y_test, all_features, train_class, class_weight_imb))
 
-            for i in range(len(classifier_method)):
-                x_train_performance, x_test_performance, selected_features_performance = feature_selection_performance(x_train, x_test, y_train, all_features, classifier_method[i])
-
-                # Call current classifier
-                if classifier_method[i] == 'logreg':
-                    accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
-                        classify_logistic_regression(x_train_performance, x_test_performance, y_train, y_test, class_weight_imb,
-                                                     retrain=train_class))
-
-                elif classifier_method[i] == 'rf':
-                    accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
-                        classify_random_forest(x_train_performance, x_test_performance, y_train, y_test, class_weight_imb,
-                                               retrain=train_class))
-
-                elif classifier_method[i] == 'lda':
-                    accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
-                        classify_lda(x_train_performance, x_test_performance, y_train, y_test, retrain=train_class))
-
-                elif classifier_method[i] == 'knn':
-                    accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
-                        classify_knn(x_train_performance, x_test_performance, y_train, y_test, retrain=train_class))
-
-                elif classifier_method[i] == 'svm':
-                    accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
-                        classify_svm(x_train_performance, x_test_performance, y_train, y_test, class_weight_imb, retrain=train_class))
-
-                elif classifier_method[i] == 'gb':
-                    accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
-                        classify_ensemble_with_gradboost(x_train_performance, x_test_performance, y_train, y_test, retrain=train_class))
-
-            performance_metric_summary_sfp = (summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda,
-                                                                        accuracy_knn, accuracy_svm, accuracy_gb,
-                                                                        precision_logreg, precision_rf, precision_lda,
-                                                                        precision_knn, precision_svm, precision_gb,
-                                                                        recall_logreg, recall_rf, recall_lda, recall_knn,
-                                                                        recall_svm, recall_gb, f1_logreg, f1_rf, f1_lda,
-                                                                        f1_knn, f1_svm, f1_gb,specificity_logreg,
-                                                                        specificity_rf, specificity_lda, specificity_knn,
-                                                                        specificity_svm, specificity_gb, g_mean_logreg,
-                                                                        g_mean_rf, g_mean_lda, g_mean_knn,
-                                                                        g_mean_svm, g_mean_gb))
-
+        # Select by Shuffling | shuffle
         if feature_reduction_type == 'all' or feature_reduction_type == 'shuffle':
-            # Select by shuffling does not work for KNN or LDA
-            classifier_method = ['logreg', 'rf', 'svm', 'gb']
+            # Implement feature reduction & assess performance of classifiers
+            # Note: Select by shuffling does not work for KNN or LDA
+            x_train_shuffle, x_test_shuffle, selected_features_shuffle, performance_metric_summary_shuffle = (
+                shuffle_methods(x_train, x_test, y_train, y_test, all_features, train_class, class_weight_imb))
 
-            for i in range(len(classifier_method)):
-                x_train_shuffle, x_test_shuffle, selected_features_shuffle = feature_selection_shuffle(x_train, x_test, y_train, all_features, classifier_method[i])
-
-                # Call current classifier
-                if classifier_method[i] == 'logreg':
-                    accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
-                        classify_logistic_regression(x_train_shuffle, x_test_shuffle, y_train, y_test, class_weight_imb,
-                                                     retrain=train_class))
-
-                elif classifier_method[i] == 'rf':
-                    accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
-                        classify_random_forest(x_train_shuffle, x_test_shuffle, y_train, y_test, class_weight_imb,
-                                               retrain=train_class))
-
-                elif classifier_method[i] == 'lda':
-                    accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
-                        classify_lda(x_train_shuffle, x_test_shuffle, y_train, y_test, retrain=train_class))
-
-                elif classifier_method[i] == 'knn':
-                    accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
-                        classify_knn(x_train_shuffle, x_test_shuffle, y_train, y_test, retrain=train_class))
-
-                elif classifier_method[i] == 'svm':
-                    accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
-                        classify_svm(x_train_shuffle, x_test_shuffle, y_train, y_test, class_weight_imb, retrain=train_class))
-
-                elif classifier_method[i] == 'gb':
-                    accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
-                        classify_ensemble_with_gradboost(x_train_shuffle, x_test_shuffle, y_train, y_test, retrain=train_class))
-
-            # Define classifiers being used and summary performance meetrics to use
-            performance_metrics = ['accuracy', 'precision', 'recall', 'f1-score', 'specificity', 'g mean']
-
-            # For each performance metric, combine each machine learning method into np array
-            accuracy = np.array([accuracy_logreg, accuracy_rf, accuracy_svm, accuracy_gb])
-            precision = np.array(
-                [precision_logreg, precision_rf, precision_svm, precision_gb])
-            recall = np.array([recall_logreg, recall_rf, recall_svm, recall_gb])
-            f1 = np.array([f1_logreg, f1_rf, f1_svm, f1_gb])
-            specificity = np.array(
-                [specificity_logreg, specificity_rf, specificity_svm, specificity_gb])
-            g_mean = np.array([g_mean_logreg, g_mean_rf, g_mean_svm, g_mean_gb])
-
-            # create combined stack of all performance metrics
-            combined_metrics = np.column_stack((accuracy, precision, recall, f1, specificity, g_mean))
-
-            # label combined metrics by classifier name and performance metric name
-            performance_metric_summary_shuffle = pd.DataFrame(combined_metrics, index=classifier_method, columns=performance_metrics)
-
+        # No feature reduction methods | none
         if feature_reduction_type == 'all' or feature_reduction_type == 'none':
             # Assess performance for all classifiers
             performance_metric_summary_no_feature_selection = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
@@ -482,8 +413,6 @@ if __name__ == "__main__":
 
     ################################################ MACHINE LEARNING ################################################
     if sequential_optimization_mode == 'none':
-
-        class_weight_imb = None
 
         # Logistic Regression | logreg
         if classifier_type == 'all' or classifier_type == 'logreg':

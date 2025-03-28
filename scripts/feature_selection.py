@@ -15,6 +15,7 @@ from feature_engine.selection import SelectByTargetMeanPerformance
 from feature_engine.selection import SelectBySingleFeaturePerformance
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn import svm
+from GLOC_classifier import *
 
 
 # Feature Selection
@@ -380,3 +381,180 @@ def target_mean_selection(x_train, x_test, y_train, all_features):
     #     plt.show()
 
     return x_train, x_test, selected_features
+
+
+def ridge_methods(x_train, x_test, y_train, y_test, all_features, classifier_type, train_class, class_weight_imb):
+    # Initialize Dictionaries
+    performance_metric_summary_ridge = dict()
+    x_train_ridge = dict()
+    x_test_ridge = dict()
+    selected_features_ridge = dict()
+
+    # Set threshold range
+    percentile_threshold = np.linspace(10, 100, 10)
+
+    # Loop through threshold values
+    for n in range(len(percentile_threshold)):
+        # Determine reduced feature set & transform x_train and x_test
+        x_train_ridge[n], x_test_ridge[n], selected_features_ridge[n] = feature_selection_ridge(x_train, x_test, y_train,
+                                                                                       all_features,
+                                                                                       percentile_threshold[n])
+
+        # Assess performance for all classifiers
+        performance_metric_summary_ridge[percentile_threshold[n]] = (call_all_classifiers(classifier_type, x_train_ridge[n], x_test_ridge[n], y_train,
+                                                                 y_test, selected_features_ridge[n], train_class,
+                                                                 class_weight_imb))
+
+    return x_train_ridge, x_test_ridge, selected_features_ridge, performance_metric_summary_ridge
+
+
+def mrmr_methods(x_train, x_test, y_train, y_test, all_features, classifier_type, train_class,
+                                   class_weight_imb):
+    # Initialize Dictionaries
+    performance_metric_summary_mrmr = dict()
+    x_train_mrmr = dict()
+    x_test_mrmr = dict()
+    selected_features_mrmr = dict()
+
+    # Set number of features range
+    number_features = np.linspace(round(0.1 * len(all_features)), len(all_features), 10)
+
+    # Loop through n features
+    for n in range(len(number_features)):
+        x_train_mrmr[n], x_test_mrmr[n], selected_features_mrmr[n] = feature_selection_mrmr(x_train, y_train, x_test,
+                                                                                            all_features,
+                                                                                            number_features[n])
+
+        # Assess performance for all classifiers
+        performance_metric_summary_mrmr[n] = (call_all_classifiers(classifier_type, x_train_mrmr[n], x_test_mrmr[n], y_train,
+                                                                   y_test, selected_features_mrmr[n], train_class,
+                                                                   class_weight_imb))
+
+    return x_train_mrmr, x_test_mrmr, selected_features_mrmr, performance_metric_summary_mrmr
+
+def sfp_methods(x_train, x_test, y_train, y_test, all_features, train_class, class_weight_imb):
+
+    # Initialize Dictionaries
+    x_train_performance = dict()
+    x_test_performance = dict()
+    selected_features_performance = dict()
+
+    # Define Classifier Methods
+    classifier_method = ['logreg', 'rf', 'lda', 'knn', 'svm', 'gb']
+
+    for i in range(len(classifier_method)):
+        x_train_performance[i], x_test_performance[i], selected_features_performance[i] = feature_selection_performance(x_train,
+                                                                                                               x_test,
+                                                                                                               y_train,
+                                                                                                               all_features,
+                                                                                                               classifier_method[
+                                                                                                                   i])
+
+        # Call current classifier
+        if classifier_method[i] == 'logreg':
+            accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
+                classify_logistic_regression(x_train_performance[i], x_test_performance[i], y_train, y_test, class_weight_imb,
+                                             retrain=train_class))
+
+        elif classifier_method[i] == 'rf':
+            accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
+                classify_random_forest(x_train_performance[i], x_test_performance[i], y_train, y_test, class_weight_imb,
+                                       retrain=train_class))
+
+        elif classifier_method[i] == 'lda':
+            accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
+                classify_lda(x_train_performance[i], x_test_performance[i], y_train, y_test, retrain=train_class))
+
+        elif classifier_method[i] == 'knn':
+            accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
+                classify_knn(x_train_performance[i], x_test_performance[i], y_train, y_test, retrain=train_class))
+
+        elif classifier_method[i] == 'svm':
+            accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
+                classify_svm(x_train_performance[i], x_test_performance[i], y_train, y_test, class_weight_imb,
+                             retrain=train_class))
+
+        elif classifier_method[i] == 'gb':
+            accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
+                classify_ensemble_with_gradboost(x_train_performance[i], x_test_performance[i], y_train, y_test,
+                                                 retrain=train_class))
+
+    performance_metric_summary_sfp = (summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda,
+                                                                    accuracy_knn, accuracy_svm, accuracy_gb,
+                                                                    precision_logreg, precision_rf, precision_lda,
+                                                                    precision_knn, precision_svm, precision_gb,
+                                                                    recall_logreg, recall_rf, recall_lda, recall_knn,
+                                                                    recall_svm, recall_gb, f1_logreg, f1_rf, f1_lda,
+                                                                    f1_knn, f1_svm, f1_gb, specificity_logreg,
+                                                                    specificity_rf, specificity_lda, specificity_knn,
+                                                                    specificity_svm, specificity_gb, g_mean_logreg,
+                                                                    g_mean_rf, g_mean_lda, g_mean_knn,
+                                                                    g_mean_svm, g_mean_gb))
+
+    return x_train_performance, x_test_performance, selected_features_performance, performance_metric_summary_sfp
+
+def shuffle_methods(x_train, x_test, y_train, y_test, all_features, train_class, class_weight_imb):
+    # Initialize Dictionaries
+    x_train_shuffle = dict()
+    x_test_shuffle = dict()
+    selected_features_shuffle = dict()
+
+    # Define Classifier Methods
+    classifier_method = ['logreg', 'rf', 'svm', 'gb']
+
+    # Loop through classifier methods
+    for i in range(len(classifier_method)):
+        x_train_shuffle[i], x_test_shuffle[i], selected_features_shuffle[i] = feature_selection_shuffle(x_train, x_test,
+                                                                                                        y_train,
+                                                                                                        all_features,
+                                                                                                        classifier_method[
+                                                                                                            i])
+
+        # Call current classifier
+        if classifier_method[i] == 'logreg':
+            accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
+                classify_logistic_regression(x_train_shuffle[i], x_test_shuffle[i], y_train, y_test, class_weight_imb,
+                                             retrain=train_class))
+
+        elif classifier_method[i] == 'rf':
+            accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
+                classify_random_forest(x_train_shuffle[i], x_test_shuffle[i], y_train, y_test, class_weight_imb,
+                                       retrain=train_class))
+
+        elif classifier_method[i] == 'lda':
+            accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
+                classify_lda(x_train_shuffle[i], x_test_shuffle[i], y_train, y_test, retrain=train_class))
+
+        elif classifier_method[i] == 'knn':
+            accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
+                classify_knn(x_train_shuffle[i], x_test_shuffle[i], y_train, y_test, retrain=train_class))
+
+        elif classifier_method[i] == 'svm':
+            accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
+                classify_svm(x_train_shuffle[i], x_test_shuffle[i], y_train, y_test, class_weight_imb,
+                             retrain=train_class))
+
+        elif classifier_method[i] == 'gb':
+            accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
+                classify_ensemble_with_gradboost(x_train_shuffle[i], x_test_shuffle[i], y_train, y_test,
+                                                 retrain=train_class))
+
+    # Define classifiers being used and summary performance meetrics to use
+    performance_metrics = ['accuracy', 'precision', 'recall', 'f1-score', 'specificity', 'g mean']
+
+    # For each performance metric, combine each machine learning method into np array
+    accuracy = np.array([accuracy_logreg, accuracy_rf, accuracy_svm, accuracy_gb])
+    precision = np.array([precision_logreg, precision_rf, precision_svm, precision_gb])
+    recall = np.array([recall_logreg, recall_rf, recall_svm, recall_gb])
+    f1 = np.array([f1_logreg, f1_rf, f1_svm, f1_gb])
+    specificity = np.array([specificity_logreg, specificity_rf, specificity_svm, specificity_gb])
+    g_mean = np.array([g_mean_logreg, g_mean_rf, g_mean_svm, g_mean_gb])
+
+    # create combined stack of all performance metrics
+    combined_metrics = np.column_stack((accuracy, precision, recall, f1, specificity, g_mean))
+
+    # label combined metrics by classifier name and performance metric name
+    performance_metric_summary_shuffle = pd.DataFrame(combined_metrics, index=classifier_method,
+                                                      columns=performance_metrics)
+
+    return x_train_shuffle, x_test_shuffle, selected_features_shuffle, performance_metric_summary_shuffle
