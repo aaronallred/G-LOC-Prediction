@@ -462,7 +462,7 @@ def classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_wei
 
     # Save model
     if retrain:
-        save_model_weights(logreg, save_folder, model_name)
+        save_model_weights(clf, save_folder, model_name)
 
     return accuracy, precision, recall, f1, specificity, g_mean
 
@@ -532,7 +532,7 @@ def classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_im
 
     # Save model
     if retrain:
-        save_model_weights(rf, save_folder, model_name)
+        save_model_weights(clf, save_folder, model_name)
 
     return accuracy, precision, recall, f1, tree_depth, specificity, g_mean
 
@@ -562,7 +562,7 @@ def classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
         clf = joblib.load(model_path)
 
     # Predict
-    label_predictions = lda.predict(x_test)
+    label_predictions = clf.predict(x_test)
 
     # Assess Performance
     accuracy = metrics.accuracy_score(y_test, label_predictions)
@@ -586,6 +586,171 @@ def classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
 
     # Save model
     if retrain:
-        save_model_weights(lda, save_folder, model_name)
+        save_model_weights(clf, save_folder, model_name)
+
+    return accuracy, precision, recall, f1, specificity, g_mean
+
+# k Nearest Neighbors
+def classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
+                 save_folder="../ModelSave",model_name="KNN_model.pkl",retrain=True):
+    """
+    This function fits and assesses performance of a K Nearest Neighbors ML classifier for
+    the data specified. Within this function, a separate confusion matrix function is called.
+    """
+
+    if retrain:
+
+        # Determine optimal hyperparameters of the model
+        param_grid = {'n_neighbors' : [3,5,7,9,11,13,15],
+                      'weights' : ['uniform','distance'],
+                      'algorithm': ['ball_tree', 'kd_tree', 'brute', 'auto'],
+                      'metric' : ['minkowski','euclidean','manhattan']}
+
+        neigh = KNeighborsClassifier()
+
+        clf = GridSearchCV(neigh, param_grid = param_grid, cv = 7)
+
+        clf.fit(x_train, np.ravel(y_train))
+
+    else:
+        model_path = os.path.join(save_folder, model_name)
+        clf = joblib.load(model_path)
+
+    # Predict
+    label_predictions = clf.predict(x_test)
+
+    # Assess Performance
+    accuracy = metrics.accuracy_score(y_test, label_predictions)
+    precision = metrics.precision_score(y_test, label_predictions)
+    recall = metrics.recall_score(y_test, label_predictions)
+    f1 = metrics.f1_score(y_test, label_predictions)
+    specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
+    g_mean = geometric_mean_score(y_test, label_predictions)
+
+    # Print performance metrics
+    print("\nKNN Performance Metrics:")
+    print("Accuracy: ", accuracy)
+    print("Precision: ", precision)
+    print("Recall: ", recall)
+    print("F1 Score: ", f1)
+    print("Specificity: ", specificity)
+    print("G-Mean: ", g_mean)
+
+    # Create Confusion Matrix
+    create_confusion_matrix(y_test, label_predictions, 'kNN')
+
+    # Save model
+    if retrain:
+        save_model_weights(clf, save_folder, model_name)
+
+    return accuracy, precision, recall, f1, specificity, g_mean
+
+
+# Support Vector Machine
+def classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                 save_folder="../ModelSave",model_name="svm_model.pkl", retrain = True):
+    """
+    This function fits and assesses performance of a Support Vector Machine ML classifier for
+    the data specified. Within this function, a separate confusion matrix function is called.
+    """
+
+    if retrain:
+        # Determine optimal hyperparameters of the model
+        param_grid = {'C': [0.1, 1, 10, 100, 1000],
+                      'gamma': [1, 0.1, 0.01, 0.001, 0.0001],
+                      'kernel': ['rbf','linear', 'poly', 'sigmoid'],
+                      'degree': [3, 4, 5],
+                      'tol': [1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13, 1e-14, 1e-15]
+                      }
+
+        svm_class = svm.SVC(class_weight=class_weight_imb)
+
+        clf = GridSearchCV(svm_class, param_grid = param_grid, cv = 7)
+
+        clf.fit(x_train, np.ravel(y_train))
+    else:
+        model_path = os.path.join(save_folder, model_name)
+        clf = joblib.load(model_path)
+
+    # Predict
+    label_predictions = clf.predict(x_test)
+
+    # Assess Performance
+    accuracy = metrics.accuracy_score(y_test, label_predictions)
+    precision = metrics.precision_score(y_test, label_predictions)
+    recall = metrics.recall_score(y_test, label_predictions)
+    f1 = metrics.f1_score(y_test, label_predictions)
+    specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
+    g_mean = geometric_mean_score(y_test, label_predictions)
+
+    # Print performance metrics
+    print("\nSVM Performance Metrics:")
+    print("Accuracy: ", accuracy)
+    print("Precision: ", precision)
+    print("Recall: ", recall)
+    print("F1 Score: ", f1)
+    print("Specificity: ", specificity)
+    print("G-Mean: ", g_mean)
+
+    # Create Confusion Matrix
+    create_confusion_matrix(y_test, label_predictions, 'Support Vector Machine')
+
+    # Save model
+    if retrain:
+        save_model_weights(clf, save_folder, model_name)
+
+    return accuracy, precision, recall, f1, specificity, g_mean
+
+
+# Ensemble Learner with Gradient Boost
+def classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, random_state,
+                                     save_folder="../ModelSave",model_name="ensemble_model.pkl", retrain = True):
+    """
+    This function fits and assesses performance of an Ensemble Learner w/ Grad Boost ML classifier for
+    the data specified. Within this function, a separate confusion matrix function is called.
+    """
+
+    if retrain:
+        # Determine optimal hyperparameters of the model
+        param_grid = {'n_estimators': [50, 100, 200, 300, 400],
+                      'learning_rate': [0.01, 0.1, 0.2],
+                      'max_depth': [3, 5, 7],
+                      }
+
+        gb = GradientBoostingClassifier(random_state = random_state)
+
+        clf = GridSearchCV(gb, param_grid = param_grid, cv = 7)
+
+        clf.fit(x_train, np.ravel(y_train))
+    else:
+        model_path = os.path.join(save_folder, model_name)
+        clf = joblib.load(model_path)
+
+    # Predict
+    label_predictions = clf.predict(x_test)
+
+    # Assess Performance
+    accuracy = metrics.accuracy_score(y_test, label_predictions)
+    precision = metrics.precision_score(y_test, label_predictions)
+    recall = metrics.recall_score(y_test, label_predictions)
+    f1 = metrics.f1_score(y_test, label_predictions)
+    specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
+    g_mean = geometric_mean_score(y_test, label_predictions)
+
+    # Print performance metrics
+    print("\nEnsemble Learner with Gradient Boosting Performance Metrics:")
+    print("Accuracy: ", accuracy)
+    print("Precision: ", precision)
+    print("Recall: ", recall)
+    print("F1 Score: ", f1)
+    print("Specificity: ", specificity)
+    print("G-Mean: ", g_mean)
+
+    # Create Confusion Matrix
+    create_confusion_matrix(y_test, label_predictions, 'Gradient Boosting')
+
+    # Save model
+    if retrain:
+        save_model_weights(clf, save_folder, model_name)
 
     return accuracy, precision, recall, f1, specificity, g_mean
