@@ -419,8 +419,13 @@ if __name__ == "__main__":
 
         # Logistic Regression | logreg
         if classifier_type == 'all' or classifier_type == 'logreg':
-            accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
+            accuracy_logreg_hpo, precision_logreg_hpo, recall_logreg_hpo, f1_logreg_hpo, specificity_logreg_hpo, g_mean_logreg_hpo = (
                 classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state, retrain=train_class))
+
+        # Logistic Regression | logreg
+        if classifier_type == 'all' or classifier_type == 'logreg':
+            accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
+                classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb, retrain=train_class))
 
         # Random Forrest | rf
         if classifier_type == 'all' or classifier_type == 'rf':

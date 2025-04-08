@@ -427,8 +427,7 @@ def classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_wei
                       'solver': ['lbfgs', 'liblinear', 'newton-cg', 'newton-cholesky', 'sag', 'saga'],
                       'max_iter': [100, 1000, 2500, 5000]
                       }
-        param_grid = {'penalty': ['l1', 'l2']}
-        logreg = LogisticRegression(class_weight = class_weight_imb)
+        logreg = LogisticRegression(class_weight = class_weight_imb, random_state = random_state)
 
         clf = GridSearchCV(logreg, param_grid = param_grid, cv = 7)
 
@@ -479,14 +478,16 @@ def classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_im
 
     if retrain:
         # Determine optimal hyperparameters of the model
-        param_grid = {'penalty': ['l1', 'l2', 'elasticnet', 'none'],
-                      'C': np.logspace(-4,4,20),
-                      'solver': ['lbfgs', 'liblinear', 'newton-cg', 'newton-cholesky', 'sag', 'saga'],
-                      'max_iter': [100, 1000, 2500, 5000]
+        param_grid = {'n_estimators': [10, 50, 100, 150, 250, 500, 1000],
+                      'criterion': ['gini', 'entropy', 'log_loss'],
+                      'max_depth': [3, 5, 10, 30, 50, 70, 100],
+                      'max_features': ['sqrt', 'log2'],
+                      'min_samples_leaf': [1, 2, 3],
+                      'min_samples_split': [1, 2, 3]
                       }
         rf = RandomForestClassifier(class_weight = class_weight_imb, random_state = random_state)
 
-        clf = GridSearchCV(logreg, param_grid = param_grid, cv = 7)
+        clf = GridSearchCV(rf, param_grid = param_grid, cv = 7)
 
         clf.fit(x_train, np.ravel(y_train))
     else:
@@ -534,3 +535,57 @@ def classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_im
         save_model_weights(rf, save_folder, model_name)
 
     return accuracy, precision, recall, f1, tree_depth, specificity, g_mean
+
+# Linear Discriminant Analysis
+def classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
+                 save_folder="../ModelSave",model_name="LDA_model.pkl",retrain=True):
+    """
+    This function fits and assesses performance of a linear discriminant analysis ML classifier for
+    the data specified. Within this function, a separate confusion matrix function is called.
+    """
+
+    if retrain:
+        # Determine optimal hyperparameters of the model
+        param_grid = {'solver': ['svd', 'lsqr', 'eigen'],
+                      'shrinkage': [None, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 'auto'],
+                      'n_components': [None, 1, 2, 5, 8, 13, 21, 34, 55],
+                      'tol': [1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13, 1e-14, 1e-15]
+                      }
+        lda = LinearDiscriminantAnalysis()
+
+        clf = GridSearchCV(lda, param_grid = param_grid, cv = 7)
+
+        clf.fit(x_train, np.ravel(y_train))
+
+    else:
+        model_path = os.path.join(save_folder, model_name)
+        clf = joblib.load(model_path)
+
+    # Predict
+    label_predictions = lda.predict(x_test)
+
+    # Assess Performance
+    accuracy = metrics.accuracy_score(y_test, label_predictions)
+    precision = metrics.precision_score(y_test, label_predictions)
+    recall = metrics.recall_score(y_test, label_predictions)
+    f1 = metrics.f1_score(y_test, label_predictions)
+    specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
+    g_mean = geometric_mean_score(y_test, label_predictions)
+
+    # Print performance metrics
+    print("\nLinear Discriminant Analysis Performance Metrics:")
+    print("Accuracy: ", accuracy)
+    print("Precision: ", precision)
+    print("Recall: ", recall)
+    print("F1 Score: ", f1)
+    print("Specificity: ", specificity)
+    print("G-Mean: ", g_mean)
+
+    # Create Confusion Matrix
+    create_confusion_matrix(y_test, label_predictions, 'Linear Discriminant Analysis')
+
+    # Save model
+    if retrain:
+        save_model_weights(lda, save_folder, model_name)
+
+    return accuracy, precision, recall, f1, specificity, g_mean
