@@ -370,6 +370,9 @@ def label_gloc_events(gloc_data_reduced):
     # Grab event validated column & convert to numpy array
     event_validated = gloc_data_reduced['event_validated'].to_numpy()
 
+    # Grab trial_id column & convert to numpy array
+    trial_id = gloc_data_reduced['trial_id'].to_numpy()
+
     # Find indices where 'GLOC' and 'return to consciousness' occur
     gloc_indices = np.argwhere(event_validated == 'GLOC')
     rtc_indices = np.argwhere(event_validated == 'return to consciousness')
@@ -377,7 +380,9 @@ def label_gloc_events(gloc_data_reduced):
     # Create GLOC Classifier Vector
     gloc_classifier = np.zeros(event_validated.shape)
     for i in range(gloc_indices.shape[0]):
-        gloc_classifier[gloc_indices[i, 0]:rtc_indices[i, 0]] = 1
+        # Check the index for gloc and return to consciousness occurs on the same trial
+        if trial_id[gloc_indices[i]] == trial_id[rtc_indices[i]]:
+            gloc_classifier[gloc_indices[i, 0]:rtc_indices[i, 0]] = 1
 
     return gloc_classifier
 

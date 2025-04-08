@@ -409,3 +409,128 @@ def save_model_weights(model,save_folder,model_name):
     model_path = os.path.join(save_folder, model_name)
     joblib.dump(model, model_path)
     print(f"\nModel saved to: {model_path}")
+
+
+# Logistic Regression Classifier
+def classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                                     save_folder="../ModelSave",model_name="logistic_regression_model.pkl",retrain=True):
+    """
+    This function fits and assesses performance of a logistic regression ML classifier for the data
+    specified after finding the optimal hyperparameters. Within this function, a separate confusion matrix
+    function is called. Additional plotting capabilities include logistic regression visualization.
+    """
+
+    if retrain:
+        # Determine optimal hyperparameters of the model
+        param_grid = {'penalty': ['l1', 'l2', 'elasticnet', 'none'],
+                      'C': np.logspace(-4,4,20),
+                      'solver': ['lbfgs', 'liblinear', 'newton-cg', 'newton-cholesky', 'sag', 'saga'],
+                      'max_iter': [100, 1000, 2500, 5000]
+                      }
+        param_grid = {'penalty': ['l1', 'l2']}
+        logreg = LogisticRegression(class_weight = class_weight_imb)
+
+        clf = GridSearchCV(logreg, param_grid = param_grid, cv = 7)
+
+        clf.fit(x_train, np.ravel(y_train))
+
+    else:
+        model_path = os.path.join(save_folder, model_name)
+        clf = joblib.load(model_path)
+
+    # Predict
+    label_predictions = clf.predict(x_test)
+
+    # Assess Performance
+    accuracy = metrics.accuracy_score(y_test, label_predictions)
+    precision = metrics.precision_score(y_test, label_predictions)
+    recall = metrics.recall_score(y_test, label_predictions)
+    f1 = metrics.f1_score(y_test, label_predictions)
+    specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
+    g_mean = geometric_mean_score(y_test, label_predictions)
+
+    # Print performance metrics
+    print("\nLogistic Regression Performance Metrics:")
+    print("Accuracy: ", accuracy)
+    print("Precision: ", precision)
+    print("Recall: ", recall)
+    print("F1 Score: ", f1)
+    print("Specificity: ", specificity)
+    print("G-Mean: ", g_mean)
+
+    # Create Confusion Matrix
+    create_confusion_matrix(y_test, label_predictions, 'Log. Reg.')
+
+    # Save model
+    if retrain:
+        save_model_weights(logreg, save_folder, model_name)
+
+    return accuracy, precision, recall, f1, specificity, g_mean
+
+
+# Random Forest Classifier
+def classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                           save_folder="../ModelSave",model_name="random_forest_model.pkl",retrain=True):
+    """
+    This function fits and assesses performance of a random forest ML classifier for the data
+    specified. Within this function, a separate confusion matrix function is called. Additional
+    visualization capabilities include random forest visualization.
+    """
+
+    if retrain:
+        # Determine optimal hyperparameters of the model
+        param_grid = {'penalty': ['l1', 'l2', 'elasticnet', 'none'],
+                      'C': np.logspace(-4,4,20),
+                      'solver': ['lbfgs', 'liblinear', 'newton-cg', 'newton-cholesky', 'sag', 'saga'],
+                      'max_iter': [100, 1000, 2500, 5000]
+                      }
+        rf = RandomForestClassifier(class_weight = class_weight_imb, random_state = random_state)
+
+        clf = GridSearchCV(logreg, param_grid = param_grid, cv = 7)
+
+        clf.fit(x_train, np.ravel(y_train))
+    else:
+        model_path = os.path.join(save_folder, model_name)
+        clf = joblib.load(model_path)
+
+    # Predict
+    label_predictions = clf.predict(x_test)
+
+    # Assess Performance
+    accuracy = metrics.accuracy_score(y_test, label_predictions)
+    precision = metrics.precision_score(y_test, label_predictions)
+    recall = metrics.recall_score(y_test, label_predictions)
+    f1 = metrics.f1_score(y_test, label_predictions)
+    specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
+    g_mean = geometric_mean_score(y_test, label_predictions)
+
+    # Print performance metrics
+    print("\nRandom Forest Performance Metrics:")
+    print("Accuracy: ", accuracy)
+    print("Precision: ", precision)
+    print("Recall: ", recall)
+    print("F1 Score: ", f1)
+    print("Specificity: ", specificity)
+    print("G-Mean: ", g_mean)
+
+    # Find Tree Depth
+    tree_depth = [estimator.get_depth() for estimator in rf.estimators_]
+
+    # Visualize Decision Tree
+    # fn = all_features
+    # cn = ['No GLOC', 'GLOC']
+    # fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(4, 4), dpi=800)
+    # plot_tree(rf.estimators_[0],
+    #               feature_names=fn,
+    #               class_names=cn,
+    #               filled=True)
+    # plt.show()
+
+    # Create Confusion Matrix
+    create_confusion_matrix(y_test, label_predictions, 'Random Forest')
+
+    # Save model
+    if retrain:
+        save_model_weights(rf, save_folder, model_name)
+
+    return accuracy, precision, recall, f1, tree_depth, specificity, g_mean

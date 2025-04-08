@@ -17,6 +17,9 @@ if __name__ == "__main__":
     datafolder = '../../'
     # datafolder = '../data/'
 
+    # Random State | 42 - Debug mode
+    random_state = 42
+
     # troubleshoot mode | 0 = No, Proceed with full feature set , 1 = Yes, reduce feature set for testing/troubleshooting
     trouble_shoot_mode = 1
 
@@ -27,11 +30,11 @@ if __name__ == "__main__":
     all_features_name = 'all_features.pkl'
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
-    classifier_type = 'all'
+    classifier_type = 'logreg'
     train_class = True
 
     ## Sequential Optimization Mode | Pick 'none' 'imbalance' 'nan' 'sliding_window' or 'feature_reduction'
-    sequential_optimization_mode = 'feature_reduction'
+    sequential_optimization_mode = 'none'
 
     ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
     # Note: Cost Function techniques ('cost_function' 'rus_cf' 'ros_cf' 'smote_cf') do not work for LDA, KNN, or Ens. Learner
@@ -417,32 +420,32 @@ if __name__ == "__main__":
         # Logistic Regression | logreg
         if classifier_type == 'all' or classifier_type == 'logreg':
             accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
-                classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb ,retrain=train_class))
+                classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state, retrain=train_class))
 
         # Random Forrest | rf
         if classifier_type == 'all' or classifier_type == 'rf':
             accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
-                classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb,retrain=train_class))
+                classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state, retrain=train_class))
 
         # Linear discriminant analysis | LDA
         if classifier_type == 'all' or classifier_type == 'LDA':
             accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
-                classify_lda(x_train, x_test, y_train, y_test, retrain=train_class))
+                classify_lda_hpo(x_train, x_test, y_train, y_test, random_state, retrain=train_class))
 
         # K Nearest Neighbors | KNN
         if classifier_type == 'all' or classifier_type == 'KNN':
             accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
-                classify_knn(x_train, x_test, y_train, y_test,retrain=train_class))
+                classify_knn_hpo(x_train, x_test, y_train, y_test, random_state, retrain=train_class))
 
         # Support Vector Machine | SVM
         if classifier_type == 'all' or classifier_type == 'SVM':
             accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
-                classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, retrain=train_class))
+                classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state, retrain=train_class))
 
         # Ensemble with Gradient Boosting | EGB
         if classifier_type == 'all' or classifier_type == 'EGB':
             accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
-                classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,retrain=train_class))
+                classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, random_state, retrain=train_class))
 
         # Build Performance Metric Summary Tables
         if classifier_type == 'all':
