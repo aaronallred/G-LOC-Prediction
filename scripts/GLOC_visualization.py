@@ -318,7 +318,7 @@ def plot_strain():
     for i in range(np.size(trial_id_in_data)):
         fig, ax = plt.subplots()
         current_index = (gloc_data_reduced['trial_id'] == trial_id_in_data[i])
-        current_time = np.array(gloc_data_reduced[time_variable])
+        current_time = np.array(gloc_data_reduced['Time (s)'])
         time = current_time[current_index]
         current_strain = np.array(gloc_data_reduced['Strain [0/1]'])
         strain_plot = current_strain[current_index]
@@ -327,7 +327,7 @@ def plot_strain():
 
         ax.plot(time, gloc_data_reduced['magnitude - Centrifuge'][current_index], label='centrifuge g')
 
-        plt.xlabel(time_variable)
+        plt.xlabel('Time (s)')
         plt.ylabel('Strain Data')
         plt.legend()
         plt.title(f'Strain Data for Subject: {trial_id_in_data[i][0:2]} & Trial: {trial_id_in_data[i][3:]}')

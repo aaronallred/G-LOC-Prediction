@@ -32,20 +32,20 @@ def check_event_columns(gloc_data):
 
 # Training Test Split
 # USING RANDOM STATE = 42
-def pre_classification_training_test_split(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio):
+def pre_classification_training_test_split(y_gloc_labels_noNaN, x_feature_matrix_noNaN, training_ratio, random_state):
     """
     This function splits the X and y matrix into training and test matrix.
     """
 
     # Train/Test Split
     x_train, x_test, y_train, y_test = train_test_split(x_feature_matrix_noNaN, y_gloc_labels_noNaN,
-                                                                    test_size=(1 - training_ratio), random_state=42, stratify = y_gloc_labels_noNaN)
+                                                                    test_size=(1 - training_ratio), random_state=random_state, stratify = y_gloc_labels_noNaN)
 
     return x_train, x_test, y_train, y_test
 
 
 # Logistic Regression Classifier
-def classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb,
+def classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
                                  save_folder="../ModelSave",model_name="logistic_regression_model.pkl",retrain=True):
     """
     This function fits and assesses performance of a logistic regression ML classifier for the data
@@ -57,7 +57,7 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_
     if retrain:
         # Use Default Parameters & Fit Model
         #weights = {0: 1.0, 1: 10.0}
-        logreg = LogisticRegression(class_weight = class_weight_imb, random_state=42, max_iter=1000).fit(x_train, np.ravel(y_train))
+        logreg = LogisticRegression(class_weight = class_weight_imb, random_state=random_state, max_iter=1000).fit(x_train, np.ravel(y_train))
     else:
         model_path = os.path.join(save_folder, model_name)
         logreg = joblib.load(model_path)
@@ -112,7 +112,7 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_
     return accuracy, precision, recall, f1, specificity, g_mean
 
 # Random Forest Classifier
-def classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb,
+def classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
                            save_folder="../ModelSave",model_name="random_forest_model.pkl",retrain=True):
     """
     This function fits and assesses performance of a random forest ML classifier for the data
@@ -122,7 +122,7 @@ def classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb,
 
     if retrain:
         # Use Default Parameters & Fit Model
-        rf = RandomForestClassifier(class_weight= class_weight_imb, random_state=42).fit(x_train, np.ravel(y_train))
+        rf = RandomForestClassifier(class_weight= class_weight_imb, random_state=random_state).fit(x_train, np.ravel(y_train))
     else:
         model_path = os.path.join(save_folder, model_name)
         rf = joblib.load(model_path)
@@ -170,7 +170,7 @@ def classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb,
     return accuracy, precision, recall, f1, tree_depth, specificity, g_mean
 
 # Linear Discriminant Analysis
-def classify_lda(x_train, x_test, y_train, y_test,
+def classify_lda(x_train, x_test, y_train, y_test, random_state,
                  save_folder="../ModelSave",model_name="LDA_model.pkl",retrain=True):
     """
     This function fits and assesses performance of a linear discriminant analysis ML classifier for
@@ -214,7 +214,7 @@ def classify_lda(x_train, x_test, y_train, y_test,
     return accuracy, precision, recall, f1, specificity, g_mean
 
 # k Nearest Neighbors
-def classify_knn(x_train, x_test, y_train, y_test,
+def classify_knn(x_train, x_test, y_train, y_test, random_state,
                  save_folder="../ModelSave",model_name="KNN_model.pkl",retrain=True):
     """
     This function fits and assesses performance of a K Nearest Neighbors ML classifier for
@@ -258,7 +258,7 @@ def classify_knn(x_train, x_test, y_train, y_test,
     return accuracy, precision, recall, f1, specificity, g_mean
 
 # Support Vector Machine
-def classify_svm(x_train, x_test, y_train, y_test, class_weight_imb,
+def classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
                  save_folder="../ModelSave",model_name="svm_model.pkl", retrain = True):
     """
     This function fits and assesses performance of a Support Vector Machine ML classifier for
@@ -302,7 +302,7 @@ def classify_svm(x_train, x_test, y_train, y_test, class_weight_imb,
     return accuracy, precision, recall, f1, specificity, g_mean
 
 # Ensemble Learner with Gradient Boost
-def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,
+def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, random_state,
                                      save_folder="../ModelSave",model_name="ensemble_model.pkl", retrain = True):
     """
     This function fits and assesses performance of an Ensemble Learner w/ Grad Boost ML classifier for
@@ -311,7 +311,7 @@ def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,
 
     # Use Default Parameters & Fit Model
     if retrain:
-        gb = GradientBoostingClassifier(random_state=42).fit(x_train, np.ravel(y_train))
+        gb = GradientBoostingClassifier(random_state=random_state).fit(x_train, np.ravel(y_train))
     else:
         model_path = os.path.join(save_folder, model_name)
         gb = joblib.load(model_path)
@@ -345,39 +345,40 @@ def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,
 
     return accuracy, precision, recall, f1, specificity, g_mean
 
-def call_all_classifiers(classifier_type, x_train, x_test, y_train, y_test, all_features,train_class, class_weight_imb):
+def call_all_classifiers(classifier_type, x_train, x_test, y_train, y_test, all_features,train_class, class_weight_imb,
+                         random_state):
     # Logistic Regression | logreg
     if classifier_type == 'all' or classifier_type == 'logreg':
         accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
-            classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb,
+            classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb,random_state,
                                          retrain=train_class))
 
     # Random Forrest | rf
     if classifier_type == 'all' or classifier_type == 'rf':
         accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
-            classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb,
+            classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb,random_state,
                                    retrain=train_class))
 
     # Linear discriminant analysis | LDA
     if classifier_type == 'all' or classifier_type == 'LDA':
         accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
-            classify_lda(x_train, x_test, y_train, y_test,
+            classify_lda(x_train, x_test, y_train, y_test,random_state,
                          retrain=train_class))
 
     # KNN
     if classifier_type == 'all' or classifier_type == 'KNN':
         accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
-            classify_knn(x_train, x_test, y_train, y_test, retrain=train_class))
+            classify_knn(x_train, x_test, y_train, y_test, random_state, retrain=train_class))
 
     # SVM
     if classifier_type == 'all' or classifier_type == 'SVM':
         accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
-            classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, retrain=train_class))
+            classify_svm(x_train, x_test, y_train, y_test, class_weight_imb,random_state, retrain=train_class))
 
     # Ensemble with Gradient Boosting
     if classifier_type == 'all' or classifier_type == 'EGB':
         accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
-            classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,
+            classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,random_state,
                                              retrain=train_class))
 
     performance_metric_summary = (summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda,

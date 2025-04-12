@@ -21,10 +21,10 @@ if __name__ == "__main__":
     random_state = 42
 
     # troubleshoot mode | 0 = No, Proceed with full feature set , 1 = Yes, reduce feature set for testing/troubleshooting
-    trouble_shoot_mode = 1
+    trouble_shoot_mode = 0
 
     # Import Feature Matrix | 0 = No, Proceed with Baseline and Feature Extraction , 1 = Yes, Use Existing Pkl
-    import_feature_matrix = 1
+    import_feature_matrix = 0
     feature_matrix_name = 'x_feature_matrix.pkl'
     y_label_name = 'y_gloc_labels.pkl'
     all_features_name = 'all_features.pkl'
@@ -250,7 +250,7 @@ if __name__ == "__main__":
 
     # Training/Test Split
     x_train, x_test, y_train, y_test = pre_classification_training_test_split(y_gloc_labels_noNaN,
-                                                                              x_feature_matrix_noNaN,training_ratio)
+                                                                              x_feature_matrix_noNaN,training_ratio, random_state)
 
     # Reduce feature set to reduce run time if trouble_shoot_mode = 1
     if trouble_shoot_mode == 1:
@@ -268,29 +268,32 @@ if __name__ == "__main__":
         # Random Under Sampling | rus
         if imbalance_technique == 'all' or imbalance_technique == 'rus':
             # Implement Imbalance Sampling Technique
-            rus_x_train, rus_y_train = resample_rus(x_train, y_train)
+            rus_x_train, rus_y_train = resample_rus(x_train, y_train, random_state)
 
             # Summarize Performance
             performance_metric_summary_rus = (call_all_classifiers(classifier_type, rus_x_train, x_test, rus_y_train,
-                                                                   y_test, all_features, train_class, class_weight_imb))
+                                                                   y_test, all_features, train_class, class_weight_imb,
+                                                                   random_state))
 
         # Random Over Sampling | ros
         if imbalance_technique == 'all' or imbalance_technique == 'ros':
             # Implement Imbalance Sampling Technique
-            ros_x_train, ros_y_train = resample_ros(x_train, y_train)
+            ros_x_train, ros_y_train = resample_ros(x_train, y_train, random_state)
 
             # Summarize Performance
             performance_metric_summary_ros = (call_all_classifiers(classifier_type, ros_x_train, x_test, ros_y_train,
-                                                                   y_test, all_features, train_class, class_weight_imb))
+                                                                   y_test, all_features, train_class, class_weight_imb,
+                                                                   random_state))
 
         # Synthetic Minority Over Sampling Technique | smote
         if imbalance_technique == 'all' or imbalance_technique == 'smote':
             # Implement Imbalance Sampling Technique
-            smote_x_train, smote_y_train = resample_smote(x_train, y_train)
+            smote_x_train, smote_y_train = resample_smote(x_train, y_train, random_state)
 
             # Summarize Performance
             performance_metric_summary_smote = (call_all_classifiers(classifier_type, smote_x_train, x_test, smote_y_train,
-                                                                   y_test, all_features, train_class, class_weight_imb))
+                                                                     y_test, all_features, train_class, class_weight_imb,
+                                                                     random_state))
 
         # Modify Cost Function | cost_function
         if imbalance_technique == 'all' or imbalance_technique == 'cost_function':
@@ -299,44 +302,48 @@ if __name__ == "__main__":
 
             # Summarize Performance
             performance_metric_summary_cf = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
-                                                                   y_test, all_features, train_class, class_weight_imb))
+                                                                  y_test, all_features, train_class, class_weight_imb,
+                                                                  random_state))
 
         # Random Under Sampling & Modify Cost Function | rus_cf
         if imbalance_technique == 'all' or imbalance_technique == 'rus_cf':
             # Implement Imbalance Hybrid Technique
             class_weight_imb = 'balanced'
-            rus_x_train, rus_y_train = resample_rus(x_train, y_train)
+            rus_x_train, rus_y_train = resample_rus(x_train, y_train, random_state)
 
             # Summarize Performance
             performance_metric_summary_rus_cf = (call_all_classifiers(classifier_type, rus_x_train, x_test, rus_y_train,
-                                                                   y_test, all_features, train_class, class_weight_imb))
+                                                                      y_test, all_features, train_class, class_weight_imb,
+                                                                      random_state))
 
         # Random Over Sampling & Modify Cost Function | rus_cf
         if imbalance_technique == 'all' or imbalance_technique == 'ros_cf':
             # Implement Imbalance Hybrid Technique
             class_weight_imb = 'balanced'
-            ros_x_train, ros_y_train = resample_ros(x_train, y_train)
+            ros_x_train, ros_y_train = resample_ros(x_train, y_train, random_state)
 
             # Summarize Performance
             performance_metric_summary_ros_cf = (call_all_classifiers(classifier_type, ros_x_train, x_test, ros_y_train,
-                                                                       y_test, all_features, train_class, class_weight_imb))
+                                                                      y_test, all_features, train_class, class_weight_imb,
+                                                                      random_state))
 
         # Synthetic Minority Over Sampling Technique & Modify Cost Function | smote_cf
         if imbalance_technique == 'all' or imbalance_technique == 'smote_cf':
             # Implement Imbalance Hybrid Technique
             class_weight_imb = 'balanced'
-            smote_x_train, smote_y_train = resample_smote(x_train, y_train)
+            smote_x_train, smote_y_train = resample_smote(x_train, y_train, random_state)
 
             # Summarize Performance
             performance_metric_summary_smote_cf = (call_all_classifiers(classifier_type, smote_x_train, x_test, smote_y_train,
-                                                                       y_test, all_features, train_class, class_weight_imb))
+                                                                        y_test, all_features, train_class, class_weight_imb,
+                                                                        random_state))
 
         # No imbalance technique | none
         if imbalance_technique == 'all' or imbalance_technique == 'none':
 
             # Summarize Performance
             performance_metric_summary_none = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
-                                     y_test, all_features, train_class, class_weight_imb))
+                                     y_test, all_features, train_class, class_weight_imb, random_state))
 
 
     ################################################ FEATURE REDUCTION ################################################
@@ -349,26 +356,28 @@ if __name__ == "__main__":
         # Least Absolute Shrinkage and Selection Operator | lasso
         if feature_reduction_type == 'all' or feature_reduction_type == 'lasso':
             # Implement feature reduction
-            x_train_lasso, x_test_lasso, selected_features_lasso = feature_selection_lasso(x_train, x_test, y_train, all_features)
+            x_train_lasso, x_test_lasso, selected_features_lasso = feature_selection_lasso(x_train, x_test, y_train, all_features, random_state)
 
             # Assess performance for all classifiers
             performance_metric_summary_lasso = (call_all_classifiers(classifier_type, x_train_lasso, x_test_lasso, y_train,
-                                                                   y_test, selected_features_lasso, train_class, class_weight_imb))
+                                                                     y_test, selected_features_lasso, train_class, class_weight_imb,
+                                                                     random_state))
 
         # Elastic Net Regression | enet
         if feature_reduction_type == 'all' or feature_reduction_type == 'enet':
             # Implement feature reduction
-            x_train_enet, x_test_enet, selected_features_enet = feature_selection_elastic_net(x_train, x_test, y_train, all_features)
+            x_train_enet, x_test_enet, selected_features_enet = feature_selection_elastic_net(x_train, x_test, y_train, all_features, random_state)
 
             # Assess performance for all classifiers
             performance_metric_summary_enet = (call_all_classifiers(classifier_type, x_train_enet, x_test_enet, y_train,
-                                                                   y_test, selected_features_enet, train_class, class_weight_imb))
+                                                                    y_test, selected_features_enet, train_class, class_weight_imb,
+                                                                    random_state))
 
         # Ridge Regression | ridge
         if feature_reduction_type == 'all' or feature_reduction_type == 'ridge':
             # Implement feature reduction & assess performance of classifiers
             x_train_ridge, x_test_ridge, selected_features_ridge, performance_metric_summary_ridge = (
-                ridge_methods(x_train, x_test, y_train, y_test, all_features, classifier_type, train_class, class_weight_imb))
+                ridge_methods(x_train, x_test, y_train, y_test, all_features, classifier_type, train_class, class_weight_imb, random_state))
 
         # Minimum Redundancy Maximum Relevance | mrmr
         if feature_reduction_type == 'all' or feature_reduction_type == 'mrmr':
@@ -384,48 +393,50 @@ if __name__ == "__main__":
 
             # Assess performance for all classifiers
             performance_metric_summary_pca = (call_all_classifiers(classifier_type, x_train_pca, x_test_pca, y_train,
-                                                                   y_test, selected_features_pca, train_class, class_weight_imb))
+                                                                   y_test, selected_features_pca, train_class, class_weight_imb,
+                                                                   random_state))
 
         # Select by Target Mean Performance | target_mean
         if feature_reduction_type == 'all' or feature_reduction_type == 'target_mean':
             # Implement feature reduction
-            x_train_target_mean, x_test_target_mean, selected_features_target_mean = target_mean_selection(x_train, x_test, y_train, all_features)
+            x_train_target_mean, x_test_target_mean, selected_features_target_mean = target_mean_selection(x_train, x_test, y_train, all_features,random_state)
 
             # Assess performance for all classifiers
             performance_metric_summary_target_mean = (call_all_classifiers(classifier_type, x_train_target_mean, x_test_target_mean, y_train,
-                                                                   y_test, selected_features_target_mean, train_class, class_weight_imb))
+                                                                   y_test, selected_features_target_mean, train_class, class_weight_imb, random_state))
 
         # Select by Single Feature Performance | performance
         if feature_reduction_type == 'all' or feature_reduction_type == 'performance':
             # Implement feature reduction & assess performance of classifiers
             x_train_performance, x_test_performance, selected_features_performance, performance_metric_summary_sfp = (
-                sfp_methods(x_train, x_test, y_train, y_test, all_features, train_class, class_weight_imb))
+                sfp_methods(x_train, x_test, y_train, y_test, all_features, train_class, class_weight_imb, random_state))
 
         # Select by Shuffling | shuffle
         if feature_reduction_type == 'all' or feature_reduction_type == 'shuffle':
             # Implement feature reduction & assess performance of classifiers
             # Note: Select by shuffling does not work for KNN or LDA
             x_train_shuffle, x_test_shuffle, selected_features_shuffle, performance_metric_summary_shuffle = (
-                shuffle_methods(x_train, x_test, y_train, y_test, all_features, train_class, class_weight_imb))
+                shuffle_methods(x_train, x_test, y_train, y_test, all_features, train_class, class_weight_imb, random_state))
 
         # No feature reduction methods | none
         if feature_reduction_type == 'all' or feature_reduction_type == 'none':
             # Assess performance for all classifiers
             performance_metric_summary_no_feature_selection = (call_all_classifiers(classifier_type, x_train, x_test, y_train,
-                                                                   y_test, all_features, train_class, class_weight_imb))
+                                                               y_test, all_features, train_class, class_weight_imb,
+                                                               random_state))
 
     ################################################ MACHINE LEARNING ################################################
     if sequential_optimization_mode == 'none':
 
         # Logistic Regression | logreg
-        if classifier_type == 'all' or classifier_type == 'logreg':
-            accuracy_logreg_hpo, precision_logreg_hpo, recall_logreg_hpo, f1_logreg_hpo, specificity_logreg_hpo, g_mean_logreg_hpo = (
-                classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state, retrain=train_class))
+        # if classifier_type == 'all' or classifier_type == 'logreg':
+        #     accuracy_logreg_hpo, precision_logreg_hpo, recall_logreg_hpo, f1_logreg_hpo, specificity_logreg_hpo, g_mean_logreg_hpo = (
+        #         classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state, retrain=train_class))
 
         # Logistic Regression | logreg
         if classifier_type == 'all' or classifier_type == 'logreg':
             accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
-                classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb, retrain=train_class))
+                classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb,random_state, retrain=train_class))
 
         # Random Forrest | rf
         if classifier_type == 'all' or classifier_type == 'rf':

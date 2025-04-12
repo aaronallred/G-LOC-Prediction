@@ -27,8 +27,17 @@ def knn_impute(predictors, n_neighbors=5, scale_data=False):
         scaled_data = predictors
 
     # Create and fit the KNN imputer
-    imputer = KNNImputer(n_neighbors=n_neighbors, weights='uniform')
-    imputed_predictors = imputer.fit_transform(scaled_data)
+    param_grid = {'n_neighbors': [3, 5, 7, 9, 11, 13, 15],
+                  'weights' : ['uniform','distance'],
+                  'algorithm': ['ball_tree', 'kd_tree', 'brute', 'auto'],
+                  'metric': ['minkowski', 'euclidean', 'manhattan']
+                  }
+    imputer = KNNImputer()
+
+    optimized_imputer = GridSearchCV(imputer, param_grid=param_grid, cv=5)
+
+    # imputer = KNNImputer(n_neighbors=n_neighbors, weights='uniform')
+    imputed_predictors = optimized_imputer.fit_transform(scaled_data)
 
     # Inverse transform to get back to original scale if scaling was applied
     if scale_data:

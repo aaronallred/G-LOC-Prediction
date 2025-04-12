@@ -19,7 +19,7 @@ from GLOC_classifier import *
 
 
 # Feature Selection
-def feature_selection_lasso(x_train, x_test, y_train, all_features):
+def feature_selection_lasso(x_train, x_test, y_train, all_features, random_state):
     """
     This function finds optimal lasso alpha parameter and fits a lasso model to determine
     most important features. This should only see the 'training' data.
@@ -28,7 +28,7 @@ def feature_selection_lasso(x_train, x_test, y_train, all_features):
     params = {"alpha": np.arange(0.00001, 10, 500)}
 
     # Number of Folds and adding the random state for replication
-    kf = KFold(n_splits=10, shuffle=True, random_state=42)
+    kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
 
     # Initializing the Model
     lasso = Lasso()
@@ -98,7 +98,7 @@ def feature_selection_mrmr(x_train, y_train, x_test, all_features, n):
 
     return x_train, x_test, selected_features
 
-def feature_selection_elastic_net(x_train, x_test, y_train, all_features):
+def feature_selection_elastic_net(x_train, x_test, y_train, all_features, random_state):
     """
     This function finds optimal elastic net parameters and fits an elastic net model to determine
     most important features. This should only see the 'training' data.
@@ -108,7 +108,7 @@ def feature_selection_elastic_net(x_train, x_test, y_train, all_features):
     params = {"alpha": np.arange(0.00001, 10, 500), "l1_ratio": np.arange(0, 1, 500)}
 
     # Number of Folds and adding the random state for replication
-    kf = KFold(n_splits=10, shuffle=True, random_state=42)
+    kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
 
     # Initializing the Model
     enet = ElasticNet()
@@ -149,7 +149,7 @@ def feature_selection_elastic_net(x_train, x_test, y_train, all_features):
 
     return x_train, x_test, selected_features
 
-def feature_selection_ridge(x_train, x_test, y_train, all_features, n):
+def feature_selection_ridge(x_train, x_test, y_train, all_features, n, random_state):
     """
     This function finds optimal ridge parameters and fits a ridge model to determine
     most important features. This should only see the 'training' data.
@@ -159,7 +159,7 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features, n):
     params = {"alpha": np.arange(0.00001, 10, 500)}
 
     # Number of Folds and adding the random state for replication
-    kf = KFold(n_splits=10, shuffle=True, random_state=42)
+    kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
 
     # Initializing the Model
     ridge0 = Ridge()
@@ -207,7 +207,11 @@ def dimensionality_reduction_PCA(x_train, x_test):
     based on achieving n_components*100 percent explained variance.
     """
     # Complete PCA
-    pca = PCA(n_components=0.99, svd_solver = 'full')
+    params = {"n_components": [0.99, 0.995, 0.999]}
+    pca_no_hpo = PCA()
+
+    pca = GridSearchCV(pca_no_hpo, param_grid=param_grid, cv=10)
+
     pca.fit(x_train)
 
     # Transform training & test matrices
@@ -237,20 +241,20 @@ def dimensionality_reduction_PCA(x_train, x_test):
     return x_train_pca, x_test_pca, selected_features
 
 
-def feature_selection_shuffle(x_train, x_test, y_train, all_features, classifier_method):
+def feature_selection_shuffle(x_train, x_test, y_train, all_features, classifier_method, random_state):
     # Complete feature selection by shuffling for each classifier
     if classifier_method == 'logreg':
-        sbs = SelectByShuffling(LogisticRegression(random_state=42),cv=5,random_state=42)
+        sbs = SelectByShuffling(LogisticRegression(random_state=random_state),cv=5,random_state=random_state)
     elif classifier_method == 'rf':
-        sbs = SelectByShuffling(RandomForestClassifier(random_state=42), cv=5, random_state=42)
+        sbs = SelectByShuffling(RandomForestClassifier(random_state=random_state), cv=5, random_state=random_state)
     elif classifier_method == 'lda':
-        sbs = SelectByShuffling(LinearDiscriminantAnalysis(), cv=5, random_state=42)
+        sbs = SelectByShuffling(LinearDiscriminantAnalysis(), cv=5, random_state=random_state)
     elif classifier_method == 'knn':
-        sbs = SelectByShuffling(KNeighborsClassifier(), cv=5, random_state=42)
+        sbs = SelectByShuffling(KNeighborsClassifier(), cv=5, random_state=random_state)
     elif classifier_method == 'svm':
-        sbs = SelectByShuffling(svm.SVC(random_state=42), cv=5, random_state=42)
+        sbs = SelectByShuffling(svm.SVC(random_state=random_state), cv=5, random_state=random_state)
     elif classifier_method == 'gb':
-        sbs = SelectByShuffling(GradientBoostingClassifier(random_state=42), cv=5, random_state=42)
+        sbs = SelectByShuffling(GradientBoostingClassifier(random_state=random_state), cv=5, random_state=random_state)
 
     # fit select by shuffling on the training data
     sbs.fit(x_train, y_train)
@@ -287,20 +291,20 @@ def feature_selection_shuffle(x_train, x_test, y_train, all_features, classifier
 
     return x_train, x_test, selected_features
 
-def feature_selection_performance(x_train, x_test, y_train, all_features, classifier_method):
+def feature_selection_performance(x_train, x_test, y_train, all_features, classifier_method, random_state):
     # Complete feature selection by single feature performance for each classifier
     if classifier_method == 'logreg':
-        sfp = SelectBySingleFeaturePerformance(LogisticRegression(random_state=42),cv=5)
+        sfp = SelectBySingleFeaturePerformance(LogisticRegression(random_state=random_state),cv=5)
     elif classifier_method == 'rf':
-        sfp = SelectBySingleFeaturePerformance(RandomForestClassifier(random_state=42), cv=5)
+        sfp = SelectBySingleFeaturePerformance(RandomForestClassifier(random_state=random_state), cv=5)
     elif classifier_method == 'lda':
         sfp = SelectBySingleFeaturePerformance(LinearDiscriminantAnalysis(), cv=5)
     elif classifier_method == 'knn':
         sfp = SelectBySingleFeaturePerformance(KNeighborsClassifier(), cv=5)
     elif classifier_method == 'svm':
-        sfp = SelectBySingleFeaturePerformance(svm.SVC(random_state=42), cv=5)
+        sfp = SelectBySingleFeaturePerformance(svm.SVC(random_state=random_state), cv=5)
     elif classifier_method == 'gb':
-        sfp = SelectBySingleFeaturePerformance(GradientBoostingClassifier(random_state=42), cv=5)
+        sfp = SelectBySingleFeaturePerformance(GradientBoostingClassifier(random_state=random_state), cv=5)
 
     # fit single feature performance model on the training data
     sfp.fit(x_train, y_train)
@@ -337,13 +341,13 @@ def feature_selection_performance(x_train, x_test, y_train, all_features, classi
     return x_train, x_test, selected_features
 
 
-def target_mean_selection(x_train, x_test, y_train, all_features):
+def target_mean_selection(x_train, x_test, y_train, all_features, random_state):
 
     # parameters to be tested on GridSearchCV
     params = {"threshold": np.arange(0.001, 1, 100)}
 
     # Number of Folds and adding the random state for replication
-    kf = KFold(n_splits=10, shuffle=True, random_state=42)
+    kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
 
     # Initializing the Model
     tmp = SelectByTargetMeanPerformance()
