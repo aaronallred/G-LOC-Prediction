@@ -51,8 +51,12 @@ if __name__ == "__main__":
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
-    feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
+    if model_type == 'noAFE' and model_type == 'explicit':
+        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
+    if model_type == 'noAFE' and model_type == 'implicit':
+        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
+
     # baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
     baseline_methods_to_use = ['v0','v1']
 
