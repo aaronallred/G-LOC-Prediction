@@ -43,7 +43,7 @@ if __name__ == "__main__":
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
     # Note: 'shuffle' does not work for KNN or LDA
-    feature_reduction_type = 'shuffle'
+    feature_reduction_type = 'none'
 
     # Data Handling Options
     remove_NaN_trials = True
@@ -51,10 +51,10 @@ if __name__ == "__main__":
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
-    if model_type == 'noAFE' and model_type == 'explicit':
+    if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
-    if model_type == 'noAFE' and model_type == 'implicit':
+    if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
 
     # baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
