@@ -15,7 +15,6 @@ from sklearn.ensemble import GradientBoostingClassifier
 from GLOC_visualization import create_confusion_matrix
 from sklearn.linear_model import Lasso
 from sklearn.model_selection import GridSearchCV, KFold
-from mrmr import mrmr_classif
 from imblearn.metrics import geometric_mean_score
 from GLOC_data_processing import *
 
@@ -430,7 +429,7 @@ def classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_wei
                       }
         logreg = LogisticRegression(class_weight = class_weight_imb, random_state = random_state)
 
-        clf = GridSearchCV(logreg, param_grid = param_grid, cv = 7)
+        clf = GridSearchCV(logreg, param_grid = param_grid, cv = 10)
 
         clf.fit(x_train, np.ravel(y_train))
 
@@ -488,7 +487,7 @@ def classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_im
                       }
         rf = RandomForestClassifier(class_weight = class_weight_imb, random_state = random_state)
 
-        clf = GridSearchCV(rf, param_grid = param_grid, cv = 7)
+        clf = GridSearchCV(rf, param_grid = param_grid, cv = 10)
 
         clf.fit(x_train, np.ravel(y_train))
     else:
@@ -554,7 +553,7 @@ def classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
                       }
         lda = LinearDiscriminantAnalysis()
 
-        clf = GridSearchCV(lda, param_grid = param_grid, cv = 7)
+        clf = GridSearchCV(lda, param_grid = param_grid, cv = 10)
 
         clf.fit(x_train, np.ravel(y_train))
 
@@ -609,7 +608,7 @@ def classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
 
         neigh = KNeighborsClassifier()
 
-        clf = GridSearchCV(neigh, param_grid = param_grid, cv = 7)
+        clf = GridSearchCV(neigh, param_grid = param_grid, cv = 10)
 
         clf.fit(x_train, np.ravel(y_train))
 
@@ -666,7 +665,7 @@ def classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_
 
         svm_class = svm.SVC(class_weight=class_weight_imb)
 
-        clf = GridSearchCV(svm_class, param_grid = param_grid, cv = 7)
+        clf = GridSearchCV(svm_class, param_grid = param_grid, cv = 10)
 
         clf.fit(x_train, np.ravel(y_train))
     else:
@@ -720,7 +719,7 @@ def classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, rando
 
         gb = GradientBoostingClassifier(random_state = random_state)
 
-        clf = GridSearchCV(gb, param_grid = param_grid, cv = 7)
+        clf = GridSearchCV(gb, param_grid = param_grid, cv = 10)
 
         clf.fit(x_train, np.ravel(y_train))
     else:

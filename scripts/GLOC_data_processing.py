@@ -191,8 +191,10 @@ def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, dem
         eyetracking_features = []
 
     # Adjust columns of data frame for feature always
-    gloc_data_reduced['condition'].replace('N', 0, inplace=True)
-    gloc_data_reduced['condition'].replace('AFE', 1, inplace=True)
+    # gloc_data_reduced['condition'].replace('N', 0, inplace=True)
+    gloc_data_reduced.replace({'condition': 'N',}, 0, inplace=True)
+    # gloc_data_reduced['condition'].replace('AFE', 1, inplace=True)
+    gloc_data_reduced.replace({'condition': 'AFE'}, 1, inplace=True)
     if 'AFE' in feature_groups_to_analyze:
         afe_features = ['condition']
 
@@ -201,7 +203,8 @@ def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, dem
 
     if 'G' in feature_groups_to_analyze and 'explicit' in model_type:
         # Process magnitude Centrifuge column to include 1.2g instead of NaN
-        gloc_data_reduced['magnitude - Centrifuge'].fillna(1.2, inplace=True)
+        # gloc_data_reduced['magnitude - Centrifuge'].fillna(1.2, inplace=True)
+        gloc_data_reduced.fillna({'magnitude - Centrifuge': 1.2}, inplace=True)
 
         # Grab g feature column
         g_features = ['magnitude - Centrifuge']
@@ -454,10 +457,17 @@ def process_EEG_GOR(list_of_eeg_data_files, gloc_data):
             modified_name_beta = column_name + '_beta' + ' - EEG'
 
             # For each dictionary column, insert GOR EEG data in current_trial_data
-            current_trial_data[modified_name_delta][index_begin_GOR[0]:index_end_GOR_eeg[0]] = eeg_dict_delta[current_key][column_name]
-            current_trial_data[modified_name_theta][index_begin_GOR[0]:index_end_GOR_eeg[0]] = eeg_dict_theta[current_key][column_name]
-            current_trial_data[modified_name_alpha][index_begin_GOR[0]:index_end_GOR_eeg[0]] = eeg_dict_alpha[current_key][column_name]
-            current_trial_data[modified_name_beta][index_begin_GOR[0]:index_end_GOR_eeg[0]] = eeg_dict_beta[current_key][column_name]
+            # current_trial_data[modified_name_delta][index_begin_GOR[0]:index_end_GOR_eeg[0]] = eeg_dict_delta[current_key][column_name]
+            current_trial_data.loc[index_begin_GOR[0]:index_end_GOR_eeg[0], modified_name_delta] =  eeg_dict_delta[current_key][column_name]
+
+            # current_trial_data[modified_name_theta][index_begin_GOR[0]:index_end_GOR_eeg[0]] = eeg_dict_theta[current_key][column_name]
+            current_trial_data.loc[index_begin_GOR[0]:index_end_GOR_eeg[0], modified_name_theta] = eeg_dict_theta[current_key][column_name]
+
+            # current_trial_data[modified_name_alpha][index_begin_GOR[0]:index_end_GOR_eeg[0]] = eeg_dict_alpha[current_key][column_name]
+            current_trial_data.loc[index_begin_GOR[0]:index_end_GOR_eeg[0], modified_name_alpha] = eeg_dict_alpha[current_key][column_name]
+
+            # current_trial_data[modified_name_beta][index_begin_GOR[0]:index_end_GOR_eeg[0]] = eeg_dict_beta[current_key][column_name]
+            current_trial_data.loc[index_begin_GOR[0]:index_end_GOR_eeg[0], modified_name_beta] = eeg_dict_beta[current_key][column_name]
 
         # Replace previously empty processed EEG data with current_trial_data
         gloc_data[gloc_data['trial_id'] == current_key] = current_trial_data
@@ -488,7 +498,9 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new strain label in full length csv
     strain_label_index = trial_index.idxmax() + closest_value_strain_index
 
-    gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    # gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    gloc_data_reduced.loc[strain_label_index, 'event'] = 'strain during GOR'
+
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
@@ -497,7 +509,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new end GOR label in full length csv
     end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
-    gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    # gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    gloc_data_reduced.loc[end_GOR_label_index, 'event'] = 'end GOR'
 
     ######## Trial 06-02 (GLOC_Effectiveness stain value of 8.1g) ########
     trial_individual_coding = '06-02'
@@ -515,7 +528,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new strain label in full length csv
     strain_label_index = trial_index.idxmax() + closest_value_strain_index
 
-    gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    # gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    gloc_data_reduced.loc[strain_label_index, 'event'] = 'strain during GOR'
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
@@ -524,7 +538,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new end GOR label in full length csv
     end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
-    gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    # gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    gloc_data_reduced.loc[end_GOR_label_index, 'event'] = 'end GOR'
 
     ######## Trial 07-06 (GLOC_Effectiveness stain value of 4.6g) ########
     trial_individual_coding = '07-06'
@@ -542,7 +557,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new strain label in full length csv
     strain_label_index = trial_index.idxmax() + closest_value_strain_index
 
-    gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    # gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    gloc_data_reduced.loc[strain_label_index, 'event'] = 'strain during GOR'
 
     ######## Trial 08-02 (GLOC_Effectiveness stain value of 8.3g) ########
     trial_individual_coding = '08-02'
@@ -560,7 +576,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new strain label in full length csv
     strain_label_index = trial_index.idxmax() + closest_value_strain_index
 
-    gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    # gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    gloc_data_reduced.loc[strain_label_index, 'event'] = 'strain during GOR'
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
@@ -569,7 +586,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new end GOR label in full length csv
     end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
-    gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    # gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    gloc_data_reduced.loc[end_GOR_label_index, 'event'] = 'end GOR'
 
     ######## Trial 08-05 (GLOC_Effectiveness stain value of 4.3g) ########
     trial_individual_coding = '08-05'
@@ -587,7 +605,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new strain label in full length csv
     strain_label_index = trial_index.idxmax() + closest_value_strain_index
 
-    gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    # gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    gloc_data_reduced.loc[strain_label_index, 'event'] = 'strain during GOR'
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
@@ -596,7 +615,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new end GOR label in full length csv
     end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
-    gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    # gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    gloc_data_reduced.loc[end_GOR_label_index, 'event'] = 'end GOR'
 
     ######## Trial 08-06 (GLOC_Effectiveness stain value of 8.2g) ########
     trial_individual_coding = '08-06'
@@ -614,7 +634,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new strain label in full length csv
     strain_label_index = trial_index.idxmax() + closest_value_strain_index
 
-    gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    # gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    gloc_data_reduced.loc[strain_label_index, 'event'] = 'strain during GOR'
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
@@ -623,7 +644,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new end GOR label in full length csv
     end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
-    gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    # gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    gloc_data_reduced.loc[end_GOR_label_index, 'event'] = 'end GOR'
 
     ######## Trial 09-03 (GLOC_Effectiveness stain value of 8.7g) ########
     trial_individual_coding = '09-03'
@@ -641,7 +663,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new strain label in full length csv
     strain_label_index = trial_index.idxmax() + closest_value_strain_index
 
-    gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    # gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    gloc_data_reduced.loc[strain_label_index, 'event'] = 'strain during GOR'
 
     ######## Trial 09-05 (GLOC_Effectiveness stain value of 4.8g) ########
     trial_individual_coding = '09-05'
@@ -659,7 +682,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new strain label in full length csv
     strain_label_index = trial_index.idxmax() + closest_value_strain_index
 
-    gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    # gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    gloc_data_reduced.loc[strain_label_index, 'event'] = 'strain during GOR'
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
@@ -668,7 +692,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new end GOR label in full length csv
     end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
-    gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    # gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    gloc_data_reduced.loc[end_GOR_label_index, 'event'] = 'end GOR'
 
     # fig, ax = plt.subplots()
     # current_time = np.array(gloc_data_reduced['Time (s)'])
@@ -693,7 +718,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new strain label in full length csv
     strain_label_index = trial_index.idxmax() + closest_value_strain_index
 
-    gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    # gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    gloc_data_reduced.loc[strain_label_index, 'event'] = 'strain during GOR'
 
     ######## Trial 10-06 (GLOC_Effectiveness stain value of 5.5g) ########
     trial_individual_coding = '10-06'
@@ -717,8 +743,10 @@ def process_strain_data(gloc_data_reduced):
     strain_relabel_index = mislabel_index_strain
     end_GOR_relabel_index = mislabel_index_end_GOR
 
-    gloc_data_reduced['event'][strain_relabel_index] = None
-    gloc_data_reduced['event'][end_GOR_relabel_index] = None
+    # gloc_data_reduced['event'][strain_relabel_index] = None
+    gloc_data_reduced.loc[strain_relabel_index, 'event'] = None
+    # gloc_data_reduced['event'][end_GOR_relabel_index] = None
+    gloc_data_reduced.loc[end_GOR_relabel_index, 'event'] = None
 
     # Find index of closest magnitude value (using 5000 times steps (200s) as GOR duration)
     gor_peak = np.nanargmax(magnitude_g_trial[0:5000])
@@ -728,7 +756,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new strain label in full length csv
     strain_label_index = trial_index.idxmax() + closest_value_strain_index
 
-    gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    # gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    gloc_data_reduced.loc[strain_label_index, 'event'] = 'strain during GOR'
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
@@ -737,7 +766,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new end GOR label in full length csv
     end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
-    gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    # gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    gloc_data_reduced.loc[end_GOR_label_index, 'event'] = 'end GOR'
 
     ######## Trial 11-02 (GLOC_Effectiveness stain value of 5.5g) ########
     trial_individual_coding = '11-02'
@@ -755,7 +785,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new strain label in full length csv
     strain_label_index = trial_index.idxmax() + closest_value_strain_index
 
-    gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    # gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    gloc_data_reduced.loc[strain_label_index, 'event'] = 'strain during GOR'
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
@@ -764,7 +795,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new end GOR label in full length csv
     end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
-    gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    # gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    gloc_data_reduced.loc[end_GOR_label_index, 'event'] = 'end GOR'
 
     ######## Trial 12-03 (GLOC_Effectiveness stain value of 3.7g) ########
     trial_individual_coding = '12-03'
@@ -782,7 +814,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new strain label in full length csv
     strain_label_index = trial_index.idxmax() + closest_value_strain_index
 
-    gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    # gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    gloc_data_reduced.loc[strain_label_index, 'event'] = 'strain during GOR'
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
@@ -791,7 +824,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new end GOR label in full length csv
     end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
-    gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    # gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    gloc_data_reduced.loc[end_GOR_label_index, 'event'] = 'end GOR'
 
     ######## Trial 13-02 (GLOC_Effectiveness stain value of 7.3g) ########
     trial_individual_coding = '13-02'
@@ -809,7 +843,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new strain label in full length csv
     strain_label_index = trial_index.idxmax() + closest_value_strain_index
 
-    gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    # gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    gloc_data_reduced.loc[strain_label_index, 'event'] = 'strain during GOR'
 
     ######## Trial 13-04 (GLOC_Effectiveness stain value of 7.4g) ########
     trial_individual_coding = '13-04'
@@ -827,7 +862,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new strain label in full length csv
     strain_label_index = trial_index.idxmax() + closest_value_strain_index
 
-    gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    # gloc_data_reduced['event'][strain_label_index] = 'strain during GOR'
+    gloc_data_reduced.loc[strain_label_index, 'event'] = 'strain during GOR'
 
     ## Add missing 'end GOR' label
     # Find first nan in g magnitude post GOR peak
@@ -836,7 +872,8 @@ def process_strain_data(gloc_data_reduced):
     # Find the index of new end GOR label in full length csv
     end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
-    gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    # gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+    gloc_data_reduced.loc[end_GOR_label_index, 'event'] = 'end GOR'
 
     return gloc_data_reduced, gloc_trial
 

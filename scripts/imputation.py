@@ -4,7 +4,7 @@ from sklearn.preprocessing import StandardScaler
 from scipy.stats import chi2_contingency
 from statsmodels.stats.multitest import multipletests
 
-def knn_impute(predictors, n_neighbors=5, scale_data=False):
+def knn_impute(predictors, scale_data=False):
     """
     Imputes missing values in the predictor array using k-Nearest Neighbors (kNN).
 
@@ -34,7 +34,7 @@ def knn_impute(predictors, n_neighbors=5, scale_data=False):
                   }
     imputer = KNNImputer()
 
-    optimized_imputer = GridSearchCV(imputer, param_grid=param_grid, cv=5)
+    optimized_imputer = GridSearchCV(imputer, param_grid=param_grid, cv=10)
 
     # imputer = KNNImputer(n_neighbors=n_neighbors, weights='uniform')
     imputed_predictors = optimized_imputer.fit_transform(scaled_data)
@@ -102,9 +102,19 @@ def knn_impute_with_smim(labels, predictors, n_neighbors=5, scale_data=False, fd
     else:
         Data_scaled = Data_with_indicators
 
-    # Perform kNN imputation
-    imputer = KNNImputer(n_neighbors=n_neighbors, weights='uniform')
-    imputed_data = imputer.fit_transform(Data_scaled)
+    # Create and fit the KNN imputer
+    param_grid = {'n_neighbors': [3, 5, 7, 9, 11, 13, 15],
+                  'weights' : ['uniform','distance'],
+                  'algorithm': ['ball_tree', 'kd_tree', 'brute', 'auto'],
+                  'metric': ['minkowski', 'euclidean', 'manhattan']
+                  }
+    imputer = KNNImputer()
+
+    optimized_imputer = GridSearchCV(imputer, param_grid=param_grid, cv=10)
+
+    imputed_predictors = optimized_imputer.fit_transform(scaled_data)
+
+    imputed_data = optimized_imputer.fit_transform(Data_scaled)
 
     # Inverse transform if scaling was applied
     if scale_data:

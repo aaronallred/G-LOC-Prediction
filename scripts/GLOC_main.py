@@ -7,10 +7,13 @@ from GLOC_classifier import *
 from GLOC_visualization import *
 from imbalance_techniques import *
 import pickle
+import time
 
 from numpy import number
 
 if __name__ == "__main__":
+
+    start_time = time.time()
 
     ################################################### USER INPUTS  ###################################################
     ## Data Folder Location
@@ -47,7 +50,7 @@ if __name__ == "__main__":
 
     # Data Handling Options
     remove_NaN_trials = True
-    impute_type = 2
+    impute_type = 0
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
@@ -178,7 +181,7 @@ if __name__ == "__main__":
             # Remove rows with NaN (temporary solution-should replace with other method eventually)
             gloc, features, gloc_data_reduced = process_NaN_raw(gloc, features, gloc_data_reduced)
         elif impute_type == 1:
-            features, indicator_matrix = knn_impute(features, n_neighbors=5)
+            features, indicator_matrix = knn_impute(features)
 
         ################################################## REDUCE MEMORY ##################################################
 
@@ -225,7 +228,7 @@ if __name__ == "__main__":
                                                                                     all_features)
         elif impute_type == 3:
             y_gloc_labels_noNaN = y_gloc_labels
-            x_feature_matrix_noNaN, indicator_matrix = knn_impute(x_feature_matrix, n_neighbors=5)
+            x_feature_matrix_noNaN, indicator_matrix = knn_impute(x_feature_matrix)
         else:
             y_gloc_labels_noNaN, x_feature_matrix_noNaN = y_gloc_labels, x_feature_matrix
 
@@ -445,27 +448,27 @@ if __name__ == "__main__":
         # Random Forrest | rf
         if classifier_type == 'all' or classifier_type == 'rf':
             accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
-                classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state, retrain=train_class))
+                classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, random_state, retrain=train_class))
 
         # Linear discriminant analysis | LDA
         if classifier_type == 'all' or classifier_type == 'LDA':
             accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
-                classify_lda_hpo(x_train, x_test, y_train, y_test, random_state, retrain=train_class))
+                classify_lda(x_train, x_test, y_train, y_test, random_state, retrain=train_class))
 
         # K Nearest Neighbors | KNN
         if classifier_type == 'all' or classifier_type == 'KNN':
             accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
-                classify_knn_hpo(x_train, x_test, y_train, y_test, random_state, retrain=train_class))
+                classify_knn(x_train, x_test, y_train, y_test, random_state, retrain=train_class))
 
         # Support Vector Machine | SVM
         if classifier_type == 'all' or classifier_type == 'SVM':
             accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
-                classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state, retrain=train_class))
+                classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_state, retrain=train_class))
 
         # Ensemble with Gradient Boosting | EGB
         if classifier_type == 'all' or classifier_type == 'EGB':
             accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
-                classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, random_state, retrain=train_class))
+                classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, random_state, retrain=train_class))
 
         # Build Performance Metric Summary Tables
         if classifier_type == 'all':
@@ -484,3 +487,6 @@ if __name__ == "__main__":
 
     # Breakpoint for troubleshooting
     x = 1
+
+    duration = time.time() - start_time
+    print(duration)
