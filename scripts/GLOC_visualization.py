@@ -30,6 +30,29 @@ def initial_visualization(gloc_data_reduced, gloc, feature_baseline, all_feature
             plt.title(f'Baselined Feature over Time for Subject: {trial_id_in_data[i][0:2]} & Trial: {trial_id_in_data[i][3:]}')
             plt.show()
 
+            # Find unique trial ids in the data being analyzed
+            trial_id_in_data = gloc_data_reduced.trial_id.unique()
+            # Iterate through all unique trial_id
+            fig, ax = plt.subplots()
+            current_index = (gloc_data_reduced['trial_id'] == '09-02')
+            current_time = np.array(gloc_data_reduced['Time (s)'])
+            current_g = np.array(gloc_data_reduced['magnitude - Centrifuge'])
+            current_gloc = np.array(gloc)
+            time = np.array(current_time[current_index])
+            g_mag = np.array(current_g[current_index])
+            gloc_trial = np.array(current_gloc[current_index])
+            reduced_time_index = time > 0
+            time_reduced = time[reduced_time_index]
+            g_mag_reduced = g_mag[reduced_time_index]
+            gloc_reduced = gloc_trial[reduced_time_index]
+            ax.plot(time_reduced, gloc_reduced, label='g-loc')
+            ax.plot(time_reduced, g_mag_reduced, label='centrifuge g')
+            plt.xlabel('Time (s)')
+            plt.ylabel('g')
+            plt.title('Trial 09-02')
+            plt.legend()
+            plt.show()
+
 def sliding_window_visualization(gloc_window, sliding_window_mean, number_windows, all_features, gloc_data_reduced):
     """
     This function makes individual plots for all sliding window mean engineered features. Plots

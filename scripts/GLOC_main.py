@@ -61,7 +61,7 @@ if __name__ == "__main__":
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
 
     # baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
-    baseline_methods_to_use = ['v0','v1']
+    baseline_methods_to_use = ['v0','v8']
 
     analysis_type = 2
 

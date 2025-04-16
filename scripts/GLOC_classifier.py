@@ -422,10 +422,9 @@ def classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_wei
 
     if retrain:
         # Determine optimal hyperparameters of the model
-        param_grid = {'penalty': ['l1', 'l2', 'elasticnet', 'none'],
-                      'C': np.logspace(-4,4,20),
+        param_grid = {'penalty': ['l1', 'l2', 'elasticnet', None],
+                      'C': [0.01, 0.1, 0.5, 1, 5, 10, 100],
                       'solver': ['lbfgs', 'liblinear', 'newton-cg', 'newton-cholesky', 'sag', 'saga'],
-                      'max_iter': [100, 1000, 2500, 5000]
                       }
         logreg = LogisticRegression(class_weight = class_weight_imb, random_state = random_state)
 
@@ -466,7 +465,6 @@ def classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_wei
 
     return accuracy, precision, recall, f1, specificity, g_mean
 
-
 # Random Forest Classifier
 def classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
                            save_folder="../ModelSave",model_name="random_forest_model.pkl",retrain=True):
@@ -478,7 +476,7 @@ def classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_im
 
     if retrain:
         # Determine optimal hyperparameters of the model
-        param_grid = {'n_estimators': [10, 50, 100, 150, 250, 500, 1000],
+        param_grid = {'n_estimators': [10, 50, 100, 300,  500, 1000],
                       'criterion': ['gini', 'entropy', 'log_loss'],
                       'max_depth': [3, 5, 10, 30, 50, 70, 100],
                       'max_features': ['sqrt', 'log2'],

@@ -442,7 +442,7 @@ def create_v7_baseline(baseline_window, trial_column, time_column, subject_colum
         baseline_feature_beta = eeg_baseline_beta.loc[current_participant]
 
         # Set current trial
-        current_trial_data = features_eeg[(trial_column == trial_id_in_data[i])]
+        current_trial_data = features_eeg[time_index]
 
         # Initialize np array to fill with each trial's data
         baselined_trial_data = np.zeros_like(current_trial_data)
@@ -462,16 +462,16 @@ def create_v7_baseline(baseline_window, trial_column, time_column, subject_colum
 
             if name_split[1] == 'delta - EEG':
                 # Divide features for that trial by baselined data
-                baselined_trial_data[:,col] = current_trial_data[:,col] / baseline_feature_delta[channel_index]
+                baselined_trial_data[:,col] = current_trial_data[:,col] / baseline_feature_delta.iloc[channel_index]
             elif name_split[1] == 'theta - EEG':
                 # Divide features for that trial by baselined data
-                baselined_trial_data[:, col] = current_trial_data[:, col] / baseline_feature_theta[channel_index]
+                baselined_trial_data[:, col] = current_trial_data[:, col] / baseline_feature_theta.iloc[channel_index]
             elif name_split[1] == 'alpha - EEG':
                 # Divide features for that trial by baselined data
-                baselined_trial_data[:, col] = current_trial_data[:, col] / baseline_feature_alpha[channel_index]
+                baselined_trial_data[:, col] = current_trial_data[:, col] / baseline_feature_alpha.iloc[channel_index]
             elif name_split[1] == 'beta - EEG':
                 # Divide features for that trial by baselined data
-                baselined_trial_data[:, col] = current_trial_data[:, col] / baseline_feature_beta[channel_index]
+                baselined_trial_data[:, col] = current_trial_data[:, col] / baseline_feature_beta.iloc[channel_index]
 
         # Once all columns have been iterated through, define baseline_v7
         baseline_v7[trial_id_in_data[i]] = baselined_trial_data
@@ -520,7 +520,7 @@ def create_v8_baseline(baseline_window, trial_column, time_column, subject_colum
         baseline_feature_beta = eeg_baseline_beta.loc[current_participant]
 
         # Set current trial
-        current_trial_data = features_eeg[(trial_column == trial_id_in_data[i])]
+        current_trial_data = features_eeg[time_index]
 
         # Initialize np array to fill with each trial's data
         baselined_trial_data = np.zeros_like(current_trial_data)
@@ -540,16 +540,16 @@ def create_v8_baseline(baseline_window, trial_column, time_column, subject_colum
 
             if name_split[1] == 'delta - EEG':
                 # Divide features for that trial by baselined data
-                baselined_trial_data[:,col] = current_trial_data[:,col] - baseline_feature_delta[channel_index]
+                baselined_trial_data[:,col] = current_trial_data[:,col] - baseline_feature_delta.iloc[channel_index]
             elif name_split[1] == 'theta - EEG':
                 # Divide features for that trial by baselined data
-                baselined_trial_data[:, col] = current_trial_data[:, col] - baseline_feature_theta[channel_index]
+                baselined_trial_data[:, col] = current_trial_data[:, col] - baseline_feature_theta.iloc[channel_index]
             elif name_split[1] == 'alpha - EEG':
                 # Divide features for that trial by baselined data
-                baselined_trial_data[:, col] = current_trial_data[:, col] - baseline_feature_alpha[channel_index]
+                baselined_trial_data[:, col] = current_trial_data[:, col] - baseline_feature_alpha.iloc[channel_index]
             elif name_split[1] == 'beta - EEG':
                 # Divide features for that trial by baselined data
-                baselined_trial_data[:, col] = current_trial_data[:, col] - baseline_feature_beta[channel_index]
+                baselined_trial_data[:, col] = current_trial_data[:, col] - baseline_feature_beta.iloc[channel_index]
 
         # Once all columns have been iterated through, define baseline_v7
         baseline_v8[trial_id_in_data[i]] = baselined_trial_data
