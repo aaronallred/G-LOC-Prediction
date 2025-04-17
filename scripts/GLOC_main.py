@@ -8,7 +8,6 @@ from GLOC_visualization import *
 from imbalance_techniques import *
 import pickle
 import time
-
 from numpy import number
 
 if __name__ == "__main__":
@@ -33,7 +32,8 @@ if __name__ == "__main__":
     all_features_name = 'all_features.pkl'
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
-    classifier_type = 'logreg'
+    #                    'logreg_hpo' 'rf_hpo' 'LDA_hpo' 'KNN_hpo' 'SVM_hpo' 'EGB_hpo' or 'all_hpo'
+    classifier_type = 'all_hpo'
     train_class = True
 
     ## Sequential Optimization Mode | Pick 'none' 'imbalance' 'nan' 'sliding_window' or 'feature_reduction'
@@ -50,7 +50,7 @@ if __name__ == "__main__":
 
     # Data Handling Options
     remove_NaN_trials = True
-    impute_type = 0
+    impute_type = 2
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
@@ -60,8 +60,8 @@ if __name__ == "__main__":
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
 
-    # baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
-    baseline_methods_to_use = ['v0','v8']
+    # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
+    baseline_methods_to_use = ['v0','v1']
 
     analysis_type = 2
 
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     ## remove_NaN_trials: Remove Trials that are missing a chosen data stream that has all NaN during the trial
 
     ## impute_type: Type of Imputation to perform
-        # 0: Remove raw NaN rows | 1: KNN impute raw data | 2: remove feature NaN rows | 3: KNN impute features
+        # 1: KNN impute raw data | 2: remove feature NaN rows | 3: KNN impute features
 
     ## training_ratio: ML Splits (Training/Test Split, specify proportion of training data 0-1)
 
@@ -178,10 +178,10 @@ if __name__ == "__main__":
 
         ### Impute missing row data
         if impute_type == 0:
-            # Remove rows with NaN (temporary solution-should replace with other method eventually)
+            # Remove rows with NaN
             gloc, features, gloc_data_reduced = process_NaN_raw(gloc, features, gloc_data_reduced)
         elif impute_type == 1:
-            features, indicator_matrix = knn_impute(features)
+            features, indicator_matrix = knn_impute(features, n_neighbors)
 
         ################################################## REDUCE MEMORY ##################################################
 
@@ -228,7 +228,7 @@ if __name__ == "__main__":
                                                                                     all_features)
         elif impute_type == 3:
             y_gloc_labels_noNaN = y_gloc_labels
-            x_feature_matrix_noNaN, indicator_matrix = knn_impute(x_feature_matrix)
+            x_feature_matrix_noNaN, indicator_matrix = knn_impute(x_feature_matrix, n_neighbors)
         else:
             y_gloc_labels_noNaN, x_feature_matrix_noNaN = y_gloc_labels, x_feature_matrix
 
@@ -435,35 +435,60 @@ if __name__ == "__main__":
     ################################################ MACHINE LEARNING ################################################
     if sequential_optimization_mode == 'none':
 
-        # Logistic Regression | logreg
-        # if classifier_type == 'all' or classifier_type == 'logreg':
-        #     accuracy_logreg_hpo, precision_logreg_hpo, recall_logreg_hpo, f1_logreg_hpo, specificity_logreg_hpo, g_mean_logreg_hpo = (
-        #         classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state, retrain=train_class))
+        # Logistic Regression HPO | logreg_hpo
+        if classifier_type == 'all_hpo' or classifier_type == 'logreg_hpo':
+            accuracy_logreg_hpo, precision_logreg_hpo, recall_logreg_hpo, f1_logreg_hpo, specificity_logreg_hpo, g_mean_logreg_hpo = (
+                classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state, retrain=train_class))
 
         # Logistic Regression | logreg
         if classifier_type == 'all' or classifier_type == 'logreg':
             accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
                 classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb,random_state, retrain=train_class))
 
+        # Random Forest HPO | rf_hpo
+        if classifier_type == 'all_hpo' or classifier_type == 'rf_hpo':
+            accuracy_rf_hpo, precision_rf_hpo, recall_rf_hpo, f1_rf_hpo, tree_depth_hpo, specificity_rf_hpo, g_mean_rf_hpo  = (
+                classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state, retrain=train_class))
+
         # Random Forrest | rf
         if classifier_type == 'all' or classifier_type == 'rf':
             accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
                 classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, random_state, retrain=train_class))
+
+        # Linear discriminant analysis HPO | LDA_hpo
+        if classifier_type == 'all_hpo' or classifier_type == 'LDA_hpo':
+            accuracy_lda_hpo, precision_lda_hpo, recall_lda_hpo, f1_lda_hpo, specificity_lda_hpo, g_mean_lda_hpo = (
+                classify_lda_hpo(x_train, x_test, y_train, y_test, random_state, retrain=train_class))
 
         # Linear discriminant analysis | LDA
         if classifier_type == 'all' or classifier_type == 'LDA':
             accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
                 classify_lda(x_train, x_test, y_train, y_test, random_state, retrain=train_class))
 
+        # K Nearest Neighbors HPO | KNN_hpo
+        if classifier_type == 'all_hpo' or classifier_type == 'KNN_hpo':
+            accuracy_knn_hpo, precision_knn_hpo, recall_knn_hpo, f1_knn_hpo, specificity_knn_hpo, g_mean_knn_hpo = (
+                classify_knn_hpo(x_train, x_test, y_train, y_test, random_state, retrain=train_class))
+
         # K Nearest Neighbors | KNN
         if classifier_type == 'all' or classifier_type == 'KNN':
             accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
                 classify_knn(x_train, x_test, y_train, y_test, random_state, retrain=train_class))
 
+        # Support Vector Machine HPO | SVM_hpo
+        if classifier_type == 'all_hpo' or classifier_type == 'SVM_hpo':
+            accuracy_svm_hpo, precision_svm_hpo, recall_svm_hpo, f1_svm_hpo, specificity_svm_hpo, g_mean_svm_hpo = (
+                classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state, retrain=train_class))
+
         # Support Vector Machine | SVM
         if classifier_type == 'all' or classifier_type == 'SVM':
             accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
                 classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_state, retrain=train_class))
+
+        # Ensemble with Gradient Boosting HPO | EGB_hpo
+        if classifier_type == 'all_hpo' or classifier_type == 'EGB_hpo':
+            accuracy_gb_hpo, precision_gb_hpo, recall_gb_hpo, f1_gb_hpo, specificity_gb_hpo, g_mean_gb_hpo = (
+                classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, random_state, retrain=train_class))
 
         # Ensemble with Gradient Boosting | EGB
         if classifier_type == 'all' or classifier_type == 'EGB':
@@ -484,7 +509,18 @@ if __name__ == "__main__":
                                                                         g_mean_rf, g_mean_lda, g_mean_knn,
                                                                         g_mean_svm, g_mean_gb))
 
-
+        if classifier_type == 'all_hpo':
+            performance_metric_summary_hpo = (summarize_performance_metrics(accuracy_logreg_hpo, accuracy_rf_hpo, accuracy_lda_hpo,
+                                                                        accuracy_knn_hpo, accuracy_svm_hpo, accuracy_gb_hpo,
+                                                                        precision_logreg_hpo, precision_rf_hpo, precision_lda_hpo,
+                                                                        precision_knn_hpo, precision_svm_hpo, precision_gb_hpo,
+                                                                        recall_logreg_hpo, recall_rf_hpo, recall_lda_hpo, recall_knn_hpo,
+                                                                        recall_svm_hpo, recall_gb_hpo, f1_logreg_hpo, f1_rf_hpo, f1_lda_hpo,
+                                                                        f1_knn_hpo, f1_svm_hpo, f1_gb_hpo,specificity_logreg_hpo,
+                                                                        specificity_rf_hpo, specificity_lda_hpo, specificity_knn_hpo,
+                                                                        specificity_svm_hpo, specificity_gb_hpo, g_mean_logreg_hpo,
+                                                                        g_mean_rf_hpo, g_mean_lda_hpo, g_mean_knn_hpo,
+                                                                        g_mean_svm_hpo, g_mean_gb_hpo))
     # Breakpoint for troubleshooting
     x = 1
 

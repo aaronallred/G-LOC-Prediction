@@ -3,8 +3,9 @@ from sklearn.impute import KNNImputer
 from sklearn.preprocessing import StandardScaler
 from scipy.stats import chi2_contingency
 from statsmodels.stats.multitest import multipletests
+from sklearn.model_selection import GridSearchCV, KFold
 
-def knn_impute(predictors, scale_data=False):
+def knn_impute(predictors, n_neighbors, scale_data=False):
     """
     Imputes missing values in the predictor array using k-Nearest Neighbors (kNN).
 
@@ -26,18 +27,9 @@ def knn_impute(predictors, scale_data=False):
     else:
         scaled_data = predictors
 
-    # Create and fit the KNN imputer
-    param_grid = {'n_neighbors': [3, 5, 7, 9, 11, 13, 15],
-                  'weights' : ['uniform','distance'],
-                  'algorithm': ['ball_tree', 'kd_tree', 'brute', 'auto'],
-                  'metric': ['minkowski', 'euclidean', 'manhattan']
-                  }
-    imputer = KNNImputer()
+    imputer = KNNImputer(n_neighbors=n_neighbors, weights='uniform')
 
-    optimized_imputer = GridSearchCV(imputer, param_grid=param_grid, cv=10)
-
-    # imputer = KNNImputer(n_neighbors=n_neighbors, weights='uniform')
-    imputed_predictors = optimized_imputer.fit_transform(scaled_data)
+    imputed_predictors = imputer.fit_transform(scaled_data)
 
     # Inverse transform to get back to original scale if scaling was applied
     if scale_data:
@@ -102,19 +94,9 @@ def knn_impute_with_smim(labels, predictors, n_neighbors=5, scale_data=False, fd
     else:
         Data_scaled = Data_with_indicators
 
-    # Create and fit the KNN imputer
-    param_grid = {'n_neighbors': [3, 5, 7, 9, 11, 13, 15],
-                  'weights' : ['uniform','distance'],
-                  'algorithm': ['ball_tree', 'kd_tree', 'brute', 'auto'],
-                  'metric': ['minkowski', 'euclidean', 'manhattan']
-                  }
-    imputer = KNNImputer()
+    imputer = KNNImputer(n_neighbors=n_neighbors, weights='uniform')
 
-    optimized_imputer = GridSearchCV(imputer, param_grid=param_grid, cv=10)
-
-    imputed_predictors = optimized_imputer.fit_transform(scaled_data)
-
-    imputed_data = optimized_imputer.fit_transform(Data_scaled)
+    imputed_data = imputer.fit_transform(Data_scaled)
 
     # Inverse transform if scaling was applied
     if scale_data:

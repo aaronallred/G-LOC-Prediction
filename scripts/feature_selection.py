@@ -28,13 +28,13 @@ def feature_selection_lasso(x_train, x_test, y_train, all_features, random_state
     params = {"alpha": np.arange(0.00001, 10, 500)}
 
     # Number of Folds and adding the random state for replication
-    kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
+    # kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
 
     # Initializing the Model
     lasso = Lasso()
 
-    # GridSearchCV with model, params and folds.
-    lasso_cv = GridSearchCV(lasso, param_grid=params, cv=kf)
+    # GridSearchCV with model, params and 10 stratified folds.
+    lasso_cv = GridSearchCV(lasso, param_grid=params, cv=10)
     lasso_cv.fit(x_train, y_train)
 
     # Use optimal alpha value from grid search CV
@@ -108,13 +108,13 @@ def feature_selection_elastic_net(x_train, x_test, y_train, all_features, random
     params = {"alpha": np.arange(0.00001, 10, 500), "l1_ratio": np.arange(0, 1, 500)}
 
     # Number of Folds and adding the random state for replication
-    kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
+    # kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
 
     # Initializing the Model
     enet = ElasticNet()
 
-    # GridSearchCV with model, params and folds.
-    enet_cv = GridSearchCV(enet, param_grid=params, cv=kf)
+    # GridSearchCV with model, params and 10 stratified folds.
+    enet_cv = GridSearchCV(enet, param_grid=params, cv=10)
     enet_cv.fit(x_train, y_train)
 
     # Use optimal alpha value and l1 ratio from grid search CV
@@ -159,13 +159,13 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features, n, random_st
     params = {"alpha": np.arange(0.00001, 10, 500)}
 
     # Number of Folds and adding the random state for replication
-    kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
+    # kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
 
     # Initializing the Model
     ridge0 = Ridge()
 
-    # GridSearchCV with model, params and folds.
-    ridge_cv = GridSearchCV(ridge0, param_grid=params, cv=kf)
+    # GridSearchCV with model, params, and stratified 10fold CV
+    ridge_cv = GridSearchCV(ridge0, param_grid=params, cv=10)
     ridge_cv.fit(x_train, y_train)
 
     # Use optimal alpha value from grid search CV
@@ -347,13 +347,13 @@ def target_mean_selection(x_train, x_test, y_train, all_features, random_state):
     params = {"threshold": np.arange(0.001, 1, 100)}
 
     # Number of Folds and adding the random state for replication
-    kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
+    # kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
 
     # Initializing the Model
     tmp = SelectByTargetMeanPerformance()
 
-    # GridSearchCV with model, params and folds.
-    tmp_cv = GridSearchCV(tmp, param_grid=params, cv=kf)
+    # GridSearchCV with model, params and 10 stratified folds.
+    tmp_cv = GridSearchCV(tmp, param_grid=params, cv=10)
     tmp_cv.fit(x_train, y_train)
 
     # Use optimal value for threshold found in GridSearchCV

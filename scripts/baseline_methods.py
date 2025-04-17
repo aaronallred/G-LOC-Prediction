@@ -462,16 +462,28 @@ def create_v7_baseline(baseline_window, trial_column, time_column, subject_colum
 
             if name_split[1] == 'delta - EEG':
                 # Divide features for that trial by baselined data
-                baselined_trial_data[:,col] = current_trial_data[:,col] / baseline_feature_delta.iloc[channel_index]
+                if baseline_feature_delta.iloc[channel_index] == 0:
+                    baselined_trial_data[:, col] = np.zeros(np.shape(baselined_trial_data)[0])
+                else:
+                    baselined_trial_data[:,col] = current_trial_data[:,col] / baseline_feature_delta.iloc[channel_index]
             elif name_split[1] == 'theta - EEG':
                 # Divide features for that trial by baselined data
-                baselined_trial_data[:, col] = current_trial_data[:, col] / baseline_feature_theta.iloc[channel_index]
+                if baseline_feature_theta.iloc[channel_index] == 0:
+                    baselined_trial_data[:, col] = np.zeros(np.shape(baselined_trial_data)[0])
+                else:
+                    baselined_trial_data[:, col] = current_trial_data[:, col] / baseline_feature_theta.iloc[channel_index]
             elif name_split[1] == 'alpha - EEG':
                 # Divide features for that trial by baselined data
-                baselined_trial_data[:, col] = current_trial_data[:, col] / baseline_feature_alpha.iloc[channel_index]
+                if baseline_feature_alpha.iloc[channel_index] == 0:
+                    baselined_trial_data[:, col] = np.zeros(np.shape(baselined_trial_data)[0])
+                else:
+                    baselined_trial_data[:, col] = current_trial_data[:, col] / baseline_feature_alpha.iloc[channel_index]
             elif name_split[1] == 'beta - EEG':
                 # Divide features for that trial by baselined data
-                baselined_trial_data[:, col] = current_trial_data[:, col] / baseline_feature_beta.iloc[channel_index]
+                if baseline_feature_beta.iloc[channel_index] == 0:
+                    baselined_trial_data[:, col] = np.zeros(np.shape(baselined_trial_data)[0])
+                else:
+                    baselined_trial_data[:, col] = current_trial_data[:, col] / baseline_feature_beta.iloc[channel_index]
 
         # Once all columns have been iterated through, define baseline_v7
         baseline_v7[trial_id_in_data[i]] = baselined_trial_data
@@ -539,17 +551,29 @@ def create_v8_baseline(baseline_window, trial_column, time_column, subject_colum
             channel_index = baseline_feature_delta.index.get_loc(channel_name)
 
             if name_split[1] == 'delta - EEG':
-                # Divide features for that trial by baselined data
-                baselined_trial_data[:,col] = current_trial_data[:,col] - baseline_feature_delta.iloc[channel_index]
+                # Subtract features for that trial by baselined data
+                if baseline_feature_delta.iloc[channel_index] == 0:
+                    baselined_trial_data[:, col] = np.zeros(np.shape(baselined_trial_data)[0])
+                else:
+                    baselined_trial_data[:,col] = current_trial_data[:,col] - baseline_feature_delta.iloc[channel_index]
             elif name_split[1] == 'theta - EEG':
-                # Divide features for that trial by baselined data
-                baselined_trial_data[:, col] = current_trial_data[:, col] - baseline_feature_theta.iloc[channel_index]
+                # Subtract features for that trial by baselined data
+                if baseline_feature_theta.iloc[channel_index] == 0:
+                    baselined_trial_data[:, col] = np.zeros(np.shape(baselined_trial_data)[0])
+                else:
+                    baselined_trial_data[:, col] = current_trial_data[:, col] - baseline_feature_theta.iloc[channel_index]
             elif name_split[1] == 'alpha - EEG':
-                # Divide features for that trial by baselined data
-                baselined_trial_data[:, col] = current_trial_data[:, col] - baseline_feature_alpha.iloc[channel_index]
+                # Subtract features for that trial by baselined data
+                if baseline_feature_alpha.iloc[channel_index] == 0:
+                    baselined_trial_data[:, col] = np.zeros(np.shape(baselined_trial_data)[0])
+                else:
+                    baselined_trial_data[:, col] = current_trial_data[:, col] - baseline_feature_alpha.iloc[channel_index]
             elif name_split[1] == 'beta - EEG':
-                # Divide features for that trial by baselined data
-                baselined_trial_data[:, col] = current_trial_data[:, col] - baseline_feature_beta.iloc[channel_index]
+                # Subtract features for that trial by baselined data
+                if baseline_feature_beta.iloc[channel_index] == 0:
+                    baselined_trial_data[:, col] = np.zeros(np.shape(baselined_trial_data)[0])
+                else:
+                    baselined_trial_data[:, col] = current_trial_data[:, col] - baseline_feature_beta.iloc[channel_index]
 
         # Once all columns have been iterated through, define baseline_v7
         baseline_v8[trial_id_in_data[i]] = baselined_trial_data

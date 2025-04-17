@@ -82,7 +82,7 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_
     print("G-Mean: ", g_mean)
 
     # Create Confusion Matrix
-    create_confusion_matrix(y_test, label_predictions, 'Log. Reg.')
+    create_confusion_matrix(np.ravel(y_test), label_predictions, 'Log. Reg.')
 
     # Plot 0/1 Classification
     # for i in range(np.size(sliding_window_mean,1)):
@@ -428,7 +428,7 @@ def classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_wei
                       }
         logreg = LogisticRegression(class_weight = class_weight_imb, random_state = random_state)
 
-        clf = GridSearchCV(logreg, param_grid = param_grid, cv = 10)
+        clf = GridSearchCV(logreg, param_grid = param_grid, cv = 10, scoring='f1')
 
         clf.fit(x_train, np.ravel(y_train))
 
@@ -448,7 +448,7 @@ def classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_wei
     g_mean = geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
-    print("\nLogistic Regression Performance Metrics:")
+    print("\nLogistic Regression HPO Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
     print("Recall: ", recall)
@@ -478,14 +478,16 @@ def classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_im
         # Determine optimal hyperparameters of the model
         param_grid = {'n_estimators': [10, 50, 100, 300,  500, 1000],
                       'criterion': ['gini', 'entropy', 'log_loss'],
-                      'max_depth': [3, 5, 10, 30, 50, 70, 100],
+                      'max_depth': [3, 5, 10, 30, 50, 70, 100, None],
                       'max_features': ['sqrt', 'log2'],
-                      'min_samples_leaf': [1, 2, 3],
-                      'min_samples_split': [1, 2, 3]
+                      'min_samples_leaf': [1, 2, 4],
+                      'min_samples_split': [1, 2, 4],
+                      'min_weight_fraction_leaf': [0.0, 0.1, 0.2, 0.3, 0.5]
                       }
+
         rf = RandomForestClassifier(class_weight = class_weight_imb, random_state = random_state)
 
-        clf = GridSearchCV(rf, param_grid = param_grid, cv = 10)
+        clf = GridSearchCV(rf, param_grid = param_grid, cv = 10, scoring='f1')
 
         clf.fit(x_train, np.ravel(y_train))
     else:
@@ -504,7 +506,7 @@ def classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_im
     g_mean = geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
-    print("\nRandom Forest Performance Metrics:")
+    print("\nRandom Forest HPO Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
     print("Recall: ", recall)
@@ -545,13 +547,12 @@ def classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
     if retrain:
         # Determine optimal hyperparameters of the model
         param_grid = {'solver': ['svd', 'lsqr', 'eigen'],
-                      'shrinkage': [None, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 'auto'],
-                      'n_components': [None, 1, 2, 5, 8, 13, 21, 34, 55],
-                      'tol': [1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13, 1e-14, 1e-15]
+                      'shrinkage': [None, 0.1, 0.2, 0.4, 0.6, 0.8, 1, 'auto'],
+                      'tol': [1e-2, 1e-4, 1e-6, 1e-8, 1e-10]
                       }
         lda = LinearDiscriminantAnalysis()
 
-        clf = GridSearchCV(lda, param_grid = param_grid, cv = 10)
+        clf = GridSearchCV(lda, param_grid = param_grid, cv = 10, scoring='f1')
 
         clf.fit(x_train, np.ravel(y_train))
 
@@ -571,7 +572,7 @@ def classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
     g_mean = geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
-    print("\nLinear Discriminant Analysis Performance Metrics:")
+    print("\nLinear Discriminant Analysis HPO Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
     print("Recall: ", recall)
@@ -599,14 +600,14 @@ def classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
     if retrain:
 
         # Determine optimal hyperparameters of the model
-        param_grid = {'n_neighbors' : [3,5,7,9,11,13,15],
+        param_grid = {'n_neighbors' : [3,5,7,9,11,13,15,20,25,30],
                       'weights' : ['uniform','distance'],
                       'algorithm': ['ball_tree', 'kd_tree', 'brute', 'auto'],
                       'metric' : ['minkowski','euclidean','manhattan']}
 
         neigh = KNeighborsClassifier()
 
-        clf = GridSearchCV(neigh, param_grid = param_grid, cv = 10)
+        clf = GridSearchCV(neigh, param_grid = param_grid, cv = 10, scoring='f1')
 
         clf.fit(x_train, np.ravel(y_train))
 
@@ -626,7 +627,7 @@ def classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
     g_mean = geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
-    print("\nKNN Performance Metrics:")
+    print("\nKNN HPO Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
     print("Recall: ", recall)
@@ -655,15 +656,15 @@ def classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_
     if retrain:
         # Determine optimal hyperparameters of the model
         param_grid = {'C': [0.1, 1, 10, 100, 1000],
-                      'gamma': [1, 0.1, 0.01, 0.001, 0.0001],
+                      'gamma': [1, 0.1, 0.01, 0.001, 0.0001, 'auto'],
                       'kernel': ['rbf','linear', 'poly', 'sigmoid'],
                       'degree': [3, 4, 5],
-                      'tol': [1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13, 1e-14, 1e-15]
+                      'tol': [1e-2, 1e-4, 1e-6, 1e-8, 1e-10]
                       }
 
         svm_class = svm.SVC(class_weight=class_weight_imb)
 
-        clf = GridSearchCV(svm_class, param_grid = param_grid, cv = 10)
+        clf = GridSearchCV(svm_class, param_grid = param_grid, cv = 10, scoring='f1')
 
         clf.fit(x_train, np.ravel(y_train))
     else:
@@ -682,7 +683,7 @@ def classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_
     g_mean = geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
-    print("\nSVM Performance Metrics:")
+    print("\nSVM HPO Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
     print("Recall: ", recall)
@@ -710,14 +711,20 @@ def classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, rando
 
     if retrain:
         # Determine optimal hyperparameters of the model
-        param_grid = {'n_estimators': [50, 100, 200, 300, 400],
-                      'learning_rate': [0.01, 0.1, 0.2],
-                      'max_depth': [3, 5, 7],
+        param_grid = {'n_estimators': [10, 50, 100, 300,  500, 1000],
+                      'learning_rate': [0.01, 0.1, 0.2, 1, 5],
+                      'max_depth': [3, 5, 10, 30, 50, 70, 100, None],
+                      'max_features': ['sqrt', 'log2', None],
+                      'min_samples_leaf': [1, 2, 4],
+                      'min_samples_split': [1, 2, 4],
+                      'loss': ['log_loss', 'exponential'],
+                      'criterion': ['friedman_mse', 'squared_error'],
+                      'min_weight_fraction_leaf': [0.0, 0.1, 0.2, 0.3, 0.5]
                       }
 
         gb = GradientBoostingClassifier(random_state = random_state)
 
-        clf = GridSearchCV(gb, param_grid = param_grid, cv = 10)
+        clf = GridSearchCV(gb, param_grid = param_grid, cv = 10, scoring='f1')
 
         clf.fit(x_train, np.ravel(y_train))
     else:
@@ -736,7 +743,7 @@ def classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, rando
     g_mean = geometric_mean_score(y_test, label_predictions)
 
     # Print performance metrics
-    print("\nEnsemble Learner with Gradient Boosting Performance Metrics:")
+    print("\nEnsemble Learner with Gradient Boosting HPO Performance Metrics:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
     print("Recall: ", recall)
