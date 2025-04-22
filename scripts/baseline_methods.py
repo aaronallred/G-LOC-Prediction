@@ -236,8 +236,8 @@ def create_v3_baseline(baseline_window, trial_column, time_column, event_validat
             second_baseline_period = (time_array >= (time_ROR - baseline_window)) & (trial_column == trial_id_in_data[i])
 
             # Stack data from two windows of baselined data together
-            baseline_v3[trial_id_in_data[i]] = np.array(features_phys[(first_baseline_period)] / baseline_period1_feature)
-            baseline_v3[trial_id_in_data[i]] = np.vstack((baseline_v3[trial_id_in_data[i]], np.array(features_phys[(second_baseline_period)] / baseline_period2_feature)))
+            baseline_v3[trial_id_in_data[i]] = np.array(features_phys[first_baseline_period] / baseline_period1_feature)
+            baseline_v3[trial_id_in_data[i]] = np.vstack((baseline_v3[trial_id_in_data[i]], np.array(features_phys[second_baseline_period] / baseline_period2_feature)))
 
         # if no labeled begin of ROR, then just use the intial baseline period
         else:

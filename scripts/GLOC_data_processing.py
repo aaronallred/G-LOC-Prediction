@@ -53,6 +53,7 @@ def data_locations(datafolder):
                               os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC3_25Hz_EEG_power_wMAR.xlsx'),
                               os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC6_25Hz_EEG_power_wMAR.xlsx')]
 
+    # Input baseline EEG data from separate files
     list_of_baseline_eeg_processed_files = [os.path.join(datafolder,'GLOC_EEG_baseline_delta_noAFE1.csv'),
                                             os.path.join(datafolder,'GLOC_EEG_baseline_theta_noAFE1.csv'),
                                             os.path.join(datafolder,'GLOC_EEG_baseline_alpha_noAFE1.csv'),

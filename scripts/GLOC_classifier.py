@@ -266,7 +266,7 @@ def classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_stat
 
     if retrain:
         # Use Default Parameters & Fit Model
-        svm_class = svm.SVC(kernel="linear", class_weight=class_weight_imb).fit(x_train, np.ravel(y_train))
+        svm_class = svm.SVC(class_weight=class_weight_imb).fit(x_train, np.ravel(y_train))
     else:
         model_path = os.path.join(save_folder, model_name)
         svm_class = joblib.load(model_path)
@@ -426,7 +426,7 @@ def classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_wei
                       'C': [0.01, 0.1, 0.5, 1, 5, 10, 100],
                       'solver': ['lbfgs', 'liblinear', 'newton-cg', 'newton-cholesky', 'sag', 'saga'],
                       }
-        logreg = LogisticRegression(class_weight = class_weight_imb, random_state = random_state)
+        logreg = LogisticRegression(max_iter = 1000, class_weight = class_weight_imb, random_state = random_state)
 
         clf = GridSearchCV(logreg, param_grid = param_grid, cv = 10, scoring='f1')
 

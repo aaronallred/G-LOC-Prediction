@@ -27,10 +27,11 @@ def main_loop(impute_type, n_neighbors, timestamp):
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
     classifier_type = 'all'
     train_class = True
+    class_weight_imb = None
 
     # Data Handling Options
     remove_NaN_trials = True
-    impute_type = impute_type[i]
+    impute_type = impute_type
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
@@ -137,7 +138,7 @@ def main_loop(impute_type, n_neighbors, timestamp):
     # Remove constant columns
     x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
 
-    if impute_type == 2:
+    if impute_type == 2 or impute_type == 1:
         # Remove rows with NaN (temporary solution-should replace with other method eventually)
         y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features = process_NaN(y_gloc_labels, x_feature_matrix,
                                                                                 all_features)
@@ -169,8 +170,8 @@ def main_loop(impute_type, n_neighbors, timestamp):
                                                                               training_ratio, random_state)
  ################################################ MACHINE LEARNING ################################################
 
-    # Logistic Regression | logreg
-    if classifier_type == 'all' or classifier_type == 'logreg_hpo':
+    # Logistic Regression HPO | logreg_hpo
+    if classifier_type == 'all_hpo' or classifier_type == 'logreg_hpo':
         accuracy_logreg_hpo, precision_logreg_hpo, recall_logreg_hpo, f1_logreg_hpo, specificity_logreg_hpo, g_mean_logreg_hpo = (
             classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
                                              save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
@@ -181,11 +182,23 @@ def main_loop(impute_type, n_neighbors, timestamp):
             classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb,random_state,
                                          save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
 
+    # Random Forest HPO | rf_hpo
+    if classifier_type == 'all_hpo' or classifier_type == 'rf_hpo':
+        accuracy_rf_hpo, precision_rf_hpo, recall_rf_hpo, f1_rf_hpo, tree_depth_hpo, specificity_rf_hpo, g_mean_rf_hpo  = (
+            classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                                       save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+
     # Random Forrest | rf
     if classifier_type == 'all' or classifier_type == 'rf':
         accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
             classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
                                    save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+
+    # Linear discriminant analysis HPO | LDA_hpo
+    if classifier_type == 'all_hpo' or classifier_type == 'LDA_hpo':
+        accuracy_lda_hpo, precision_lda_hpo, recall_lda_hpo, f1_lda_hpo, specificity_lda_hpo, g_mean_lda_hpo = (
+            classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
+                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
 
     # Linear discriminant analysis | LDA
     if classifier_type == 'all' or classifier_type == 'LDA':
@@ -193,17 +206,35 @@ def main_loop(impute_type, n_neighbors, timestamp):
             classify_lda(x_train, x_test, y_train, y_test, random_state,
                          save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
 
+    # K Nearest Neighbors HPO | KNN_hpo
+    if classifier_type == 'all_hpo' or classifier_type == 'KNN_hpo':
+        accuracy_knn_hpo, precision_knn_hpo, recall_knn_hpo, f1_knn_hpo, specificity_knn_hpo, g_mean_knn_hpo = (
+            classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
+                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+
     # K Nearest Neighbors | KNN
     if classifier_type == 'all' or classifier_type == 'KNN':
         accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
             classify_knn(x_train, x_test, y_train, y_test, random_state,
                          save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
 
+    # Support Vector Machine HPO | SVM_hpo
+    if classifier_type == 'all_hpo' or classifier_type == 'SVM_hpo':
+        accuracy_svm_hpo, precision_svm_hpo, recall_svm_hpo, f1_svm_hpo, specificity_svm_hpo, g_mean_svm_hpo = (
+            classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+
     # Support Vector Machine | SVM
     if classifier_type == 'all' or classifier_type == 'SVM':
         accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
             classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
                          save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+
+    # Ensemble with Gradient Boosting HPO | EGB_hpo
+    if classifier_type == 'all_hpo' or classifier_type == 'EGB_hpo':
+        accuracy_gb_hpo, precision_gb_hpo, recall_gb_hpo, f1_gb_hpo, specificity_gb_hpo, g_mean_gb_hpo = (
+            classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, random_state,
+                                                 save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
 
     # Ensemble with Gradient Boosting | EGB
     if classifier_type == 'all' or classifier_type == 'EGB':
@@ -225,12 +256,28 @@ def main_loop(impute_type, n_neighbors, timestamp):
                                                                     g_mean_rf, g_mean_lda, g_mean_knn,
                                                                     g_mean_svm, g_mean_gb))
 
+    if classifier_type == 'all_hpo':
+        performance_metric_summary_hpo = (summarize_performance_metrics(accuracy_logreg_hpo, accuracy_rf_hpo, accuracy_lda_hpo,
+                                                                    accuracy_knn_hpo, accuracy_svm_hpo, accuracy_gb_hpo,
+                                                                    precision_logreg_hpo, precision_rf_hpo, precision_lda_hpo,
+                                                                    precision_knn_hpo, precision_svm_hpo, precision_gb_hpo,
+                                                                    recall_logreg_hpo, recall_rf_hpo, recall_lda_hpo, recall_knn_hpo,
+                                                                    recall_svm_hpo, recall_gb_hpo, f1_logreg_hpo, f1_rf_hpo, f1_lda_hpo,
+                                                                    f1_knn_hpo, f1_svm_hpo, f1_gb_hpo,specificity_logreg_hpo,
+                                                                    specificity_rf_hpo, specificity_lda_hpo, specificity_knn_hpo,
+                                                                    specificity_svm_hpo, specificity_gb_hpo, g_mean_logreg_hpo,
+                                                                    g_mean_rf_hpo, g_mean_lda_hpo, g_mean_knn_hpo,
+                                                                    g_mean_svm_hpo, g_mean_gb_hpo))
+
 
 
     duration = time.time() - start_time
     print(duration)
 
-    return performance_metric_summary
+    if classifier_type == 'all':
+        return performance_metric_summary
+    if classifier_type == 'all_hpo':
+        return performance_metric_summary_hpo
 
 if __name__ == "__main__":
 
@@ -238,7 +285,7 @@ if __name__ == "__main__":
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     # Imputation Methods to Test
-    impute_type = [1, 2, 3]
+    impute_type = [1]
 
     # N-Neighbors Definition for Imputation Methods 1 & 3
     n_neighbors = [3, 5, 7, 10]
@@ -266,6 +313,10 @@ if __name__ == "__main__":
     save_folder = os.path.join("../PerformanceSave/SequentialOptimizationNaN", timestamp)
     save_file = 'Sequential_Optimization_NaN_dictionary.pkl'
     save_path = os.path.join(save_folder, save_file)
+
+    # Ensure the save folder exists
+    if not os.path.exists(save_folder):
+        os.makedirs(save_folder)
 
     with open(save_path, 'wb') as file:
         pickle.dump(imputation_performance_summary, file)

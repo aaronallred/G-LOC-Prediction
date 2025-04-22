@@ -26,14 +26,14 @@ if __name__ == "__main__":
     trouble_shoot_mode = 0
 
     # Import Feature Matrix | 0 = No, Proceed with Baseline and Feature Extraction , 1 = Yes, Use Existing Pkl
-    import_feature_matrix = 0
+    import_feature_matrix = 1
     feature_matrix_name = 'x_feature_matrix.pkl'
     y_label_name = 'y_gloc_labels.pkl'
     all_features_name = 'all_features.pkl'
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
     #                    'logreg_hpo' 'rf_hpo' 'LDA_hpo' 'KNN_hpo' 'SVM_hpo' 'EGB_hpo' or 'all_hpo'
-    classifier_type = 'all_hpo'
+    classifier_type = 'all'
     train_class = True
 
     ## Sequential Optimization Mode | Pick 'none' 'imbalance' 'nan' 'sliding_window' or 'feature_reduction'
@@ -61,7 +61,8 @@ if __name__ == "__main__":
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
-    baseline_methods_to_use = ['v0','v1']
+    baseline_methods_to_use = ['v0','v1', 'v2', 'v5', 'v6', 'v7', 'v8']
+    baseline_methods_to_use = ['v0']
 
     analysis_type = 2
 
@@ -80,8 +81,10 @@ if __name__ == "__main__":
     ## datafolder: Location of structured data files
 
     ## classifier_type: Type of Classifier
-        # options are 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB'
-        # select 'all' to run all of the above
+        # options without hyperparameter tuning: 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB'
+            # select 'all' to run all of the above
+        # options with hyperparameter tuning: 'logreg_hpo' 'rf_hpo' 'LDA_hpo' 'KNN_hpo' 'SVM_hpo' 'EGB_hpo'
+            # select 'all_hpo' to run all of the above
 
     ## train_class: Retrain or load pre-existing weights
 
@@ -117,8 +120,6 @@ if __name__ == "__main__":
             # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']
             # NOTES:
             # ALWAYS use v0- it is needed for several additional features that get computed
-            # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']
-            # baseline_methods_to_use = ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6']
 
     ## remove_NaN_trials: Remove Trials that are missing a chosen data stream that has all NaN during the trial
 
@@ -181,6 +182,7 @@ if __name__ == "__main__":
             # Remove rows with NaN
             gloc, features, gloc_data_reduced = process_NaN_raw(gloc, features, gloc_data_reduced)
         elif impute_type == 1:
+            n_neighbors = 5
             features, indicator_matrix = knn_impute(features, n_neighbors)
 
         ################################################## REDUCE MEMORY ##################################################
