@@ -13,7 +13,7 @@ from openpyxl.styles.builtins import percent
 import os
 from datetime import datetime
 
-def main_loop(impute_type, n_neighbors, timestamp):
+def main_loop(impute_type, n_neighbors, timestamp, model_type):
     start_time = time.time()
 
     ################################################### USER INPUTS  ###################################################
@@ -34,7 +34,7 @@ def main_loop(impute_type, n_neighbors, timestamp):
     impute_type = impute_type
 
     ## Model Parameters
-    model_type = ['noAFE', 'explicit']
+    model_type = model_type
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
@@ -57,9 +57,9 @@ def main_loop(impute_type, n_neighbors, timestamp):
     trial_to_analyze = '02'
 
     # File names to save data .pkl as
-    feature_matrix_name = 'x_feature_matrix_imputation_method' + str(impute_type) +'.pkl'
-    y_label_name = 'y_gloc_labels_imputation_method' + str(impute_type) +'.pkl'
-    all_features_name = 'all_features_imputation_method' + str(impute_type) +'.pkl'
+    feature_matrix_name = 'x_feature_matrix_imputation_method' + str(impute_type) + '_model_type_' + str(model_type[1]) +'.pkl'
+    y_label_name = 'y_gloc_labels_imputation_method' + str(impute_type) + '_model_type_' + str(model_type[1]) + '.pkl'
+    all_features_name = 'all_features_imputation_method' + str(impute_type) + '_model_type_' + str(model_type[1]) + '.pkl'
 
 ############################################# LOAD AND PROCESS DATA #############################################
     """ 
@@ -285,10 +285,13 @@ if __name__ == "__main__":
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     # Imputation Methods to Test
-    impute_type = [1]
+    impute_type = [1,2,3]
 
     # N-Neighbors Definition for Imputation Methods 1 & 3
     n_neighbors = [3, 5, 7, 10]
+
+    # Specify Model Type
+    model_type = ['noAFE', 'explicit']
 
     # Pre-Allocate Performance Summary Dictionary
     imputation_performance_summary = dict()
@@ -303,15 +306,15 @@ if __name__ == "__main__":
                     method_key = 'knn_raw_n_neighbors_' + str(n_neighbors[j])
                 elif impute_type[i] == 3:
                     method_key = 'knn_features_n_neighbors_' + str(n_neighbors[j])
-                imputation_performance_summary[method_key] = main_loop(impute_type[i], n_neighbors[j], timestamp)
+                imputation_performance_summary[method_key] = main_loop(impute_type[i], n_neighbors[j], timestamp, model_type)
 
         elif impute_type[i] == 2:
             method_key = 'listwise_deletion'
-            imputation_performance_summary[method_key] = main_loop(impute_type[i], 0, timestamp)
+            imputation_performance_summary[method_key] = main_loop(impute_type[i], 0, timestamp, model_type)
 
     # Save pkl summary
     save_folder = os.path.join("../PerformanceSave/SequentialOptimizationNaN", timestamp)
-    save_file = 'Sequential_Optimization_NaN_dictionary.pkl'
+    save_file = 'Sequential_Optimization_NaN_dictionary_model_type_' + str(model_type[1]) + '.pkl'
     save_path = os.path.join(save_folder, save_file)
 
     # Ensure the save folder exists
