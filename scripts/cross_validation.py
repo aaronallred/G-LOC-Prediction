@@ -13,7 +13,7 @@ from openpyxl.styles.builtins import percent
 import os
 from datetime import datetime
 
-def main_loop(kfold_ID, n_neighbors, timestamp):
+def main_loop(kfold_ID, num_splits, timestamp):
     start_time = time.time()
 
     ################################################### USER INPUTS  ###################################################
@@ -31,7 +31,8 @@ def main_loop(kfold_ID, n_neighbors, timestamp):
 
     # Data Handling Options
     remove_NaN_trials = True
-    impute_type = 1
+    impute_type = 2
+    n_neighbors = 3
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
@@ -166,9 +167,8 @@ def main_loop(kfold_ID, n_neighbors, timestamp):
     """
 
     # Training/Test Split
-    x_train, x_test, y_train, y_test = pre_classification_training_test_split(y_gloc_labels_noNaN,
-                                                                              x_feature_matrix_noNaN,
-                                                                              training_ratio, random_state)
+    x_train, x_test, y_train, y_test = stratified_kfold_split(y_gloc_labels_noNaN,x_feature_matrix_noNaN,
+                                                             random_state, num_splits, kfold_ID)
  ################################################ MACHINE LEARNING ################################################
 
     # Logistic Regression HPO | logreg_hpo
@@ -285,14 +285,9 @@ if __name__ == "__main__":
     # Get time stamp for saving models
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    # Imputation Methods to Test
-    impute_type = [1]
-
-    # N-Neighbors Definition for Imputation Methods 1 & 3
-    n_neighbors = [3]
-
     # Test set identifierfor 10-fold Model Validation
-    kfold_ID = [1 2 3 4 5 6 7 8 9 10]
+    num_splits = 10
+    kfold_ID = [0 1 2 3 4 5 6 7 8 9]
 
     # Pre-Allocate Performance Summary Dictionary
     kfold_performance_summary = dict()
@@ -301,7 +296,7 @@ if __name__ == "__main__":
     for i in range(len(kfold_ID)):
         # Loop through all train-test splits
             method_key = str(kfold_ID[i])    
-            kfold_performance_summary[method_key] = main_loop(kfold_ID[i], n_neighbors[j], timestamp)
+            kfold_performance_summary[method_key] = main_loop(kfold_ID[i], num_splits, timestamp)
 
 
     # Save pkl summary
