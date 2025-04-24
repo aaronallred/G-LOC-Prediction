@@ -14,7 +14,8 @@ from sklearn import svm
 from sklearn.ensemble import GradientBoostingClassifier
 from GLOC_visualization import create_confusion_matrix
 from sklearn.linear_model import Lasso
-from sklearn.model_selection import GridSearchCV, KFold
+from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold
+from itertools import islice
 from imblearn.metrics import geometric_mean_score
 from GLOC_data_processing import *
 
@@ -39,6 +40,30 @@ def pre_classification_training_test_split(y_gloc_labels_noNaN, x_feature_matrix
     # Train/Test Split
     x_train, x_test, y_train, y_test = train_test_split(x_feature_matrix_noNaN, y_gloc_labels_noNaN,
                                                                     test_size=(1 - training_ratio), random_state=random_state, stratify = y_gloc_labels_noNaN)
+
+    return x_train, x_test, y_train, y_test
+
+# Training Test Split Using Stratified K-Fold
+# USING RANDOM STATE = 42
+def stratified_kfold_split(y_gloc_labels_noNaN, x_feature_matrix_noNaN, random_state, num_splits, kfold_ID):
+    """
+    This function splits the X and y matrix into training and test matrix.
+    """
+
+    # Stratified K-Fold setup
+    skf = StratifiedKFold(n_splits=num_splits)
+
+    # Safety check
+    n_folds = skf.get_n_splits()
+    if kfold_ID < 0 or kfold_ID >= n_folds:
+        raise ValueError(f"Fold index {X_fold} out of range (must be between 0 and {n_folds - 1})")
+
+    train_index, test_index = next(islice(skf.split(x_feature_matrix_noNaN, y_gloc_labels_noNaN), kfold_ID, kfold_ID + 1))
+
+    # Extract the corresponding data
+    x_train, y_train = X[train_index], y[train_index]
+    x_test, y_test = X[test_index], y[test_index]
+
 
     return x_train, x_test, y_train, y_test
 
