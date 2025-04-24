@@ -122,6 +122,49 @@ def create_confusion_matrix(y_testing, label_predictions, model_type):
     plt.xlabel('Predicted label')
     plt.show(block=False)
 
+def plot_all_features():
+
+    windows = np.arange(len(x_feature_matrix))
+    for i in range(np.size(all_features)):
+        fig, ax = plt.subplots()
+        ax.plot(windows, x_feature_matrix[:,i], label=all_features[i])
+        ax.autoscale()
+        plt.xlabel('Window')
+        plt.ylabel('Feature')
+        plt.title(all_features[i])
+        plt.show()
+
+    for col in range(np.size(sliding_window_mean_current, axis = 1)):
+        fig, ax = plt.subplots()
+        ax.plot(np.linspace(0,number_windows_current, num=number_windows_current), sliding_window_mean_current[:,col])
+        plt.xlabel('Time (s)')
+        plt.ylabel('Feature')
+        plt.title(combined_baseline_names[col])
+        plt.show()
+
+    current_index = (gloc_data_reduced['trial_id'] == trial_id_in_data[trial])
+    current_time = np.array(gloc_data_reduced[time_variable])
+    time = current_time[current_index]
+    current_lead1 = np.array(gloc_data_reduced['ECG Lead 1 - Equivital'])
+    lead_1 = current_lead1[current_index]
+
+    current_lead2 = np.array(gloc_data_reduced['ECG Lead 2 - Equivital'])
+    lead_2 = current_lead2[current_index]
+
+    ax.plot(time[0:x], lead_1[0:x], label = 'Lead 1')
+    ax.plot(time[0:x], lead_2[0:x], label = 'Lead 2')
+
+    gloc_plot = gloc[current_index]
+    ax.plot(time[0:x], gloc_plot[0:x], label='g-loc')
+    # ax.plot(time, gloc_data_reduced['magnitude - Centrifuge'][current_index], label='centrifuge g')
+
+    plt.xlabel(time_variable)
+    plt.ylabel('ECG Lead Data')
+    plt.legend()
+    plt.title(f'ECG Lead Raw Data for Subject: {trial_id_in_data[trial][0:2]} & Trial: {trial_id_in_data[trial][3:]}')
+
+    plt.show()
+
 def plot_HR_data():
     x = 250
     trial = 0

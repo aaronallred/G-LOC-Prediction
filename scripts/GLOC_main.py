@@ -26,7 +26,7 @@ if __name__ == "__main__":
     trouble_shoot_mode = 0
 
     # Import Feature Matrix | 0 = No, Proceed with Baseline and Feature Extraction , 1 = Yes, Use Existing Pkl
-    import_feature_matrix = 1
+    import_feature_matrix = 0
     feature_matrix_name = 'x_feature_matrix.pkl'
     y_label_name = 'y_gloc_labels.pkl'
     all_features_name = 'all_features.pkl'
@@ -62,7 +62,7 @@ if __name__ == "__main__":
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
     baseline_methods_to_use = ['v0','v1', 'v2', 'v5', 'v6', 'v7', 'v8']
-    baseline_methods_to_use = ['v0']
+    baseline_methods_to_use = ['v0', 'v3']
 
     analysis_type = 2
 
