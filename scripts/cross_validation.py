@@ -40,12 +40,13 @@ def main_loop(kfold_ID, num_splits, timestamp):
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
     if 'noAFE' in model_type and 'implicit' in model_type:
-        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
+        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
+        feature_groups_to_analyze = ['ECG']
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
     baseline_methods_to_use = ['v0']
 
-    analysis_type = 1
+    analysis_type = 2
 
     baseline_window = 10  # seconds
     window_size = 10  # seconds
@@ -175,73 +176,73 @@ def main_loop(kfold_ID, num_splits, timestamp):
     if classifier_type == 'all_hpo' or classifier_type == 'logreg_hpo':
         accuracy_logreg_hpo, precision_logreg_hpo, recall_logreg_hpo, f1_logreg_hpo, specificity_logreg_hpo, g_mean_logreg_hpo = (
             classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                                             save_folder=os.path.join("../ModelSave/CV", timestamp), retrain=train_class))
 
     # Logistic Regression | logreg
     if classifier_type == 'all' or classifier_type == 'logreg':
         accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
             classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb,random_state,
-                                         save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                                         save_folder=os.path.join("../ModelSave/CV", timestamp), retrain=train_class))
 
     # Random Forest HPO | rf_hpo
     if classifier_type == 'all_hpo' or classifier_type == 'rf_hpo':
         accuracy_rf_hpo, precision_rf_hpo, recall_rf_hpo, f1_rf_hpo, tree_depth_hpo, specificity_rf_hpo, g_mean_rf_hpo  = (
             classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                                       save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                                       save_folder=os.path.join("../ModelSave/CV", timestamp), retrain=train_class))
 
     # Random Forrest | rf
     if classifier_type == 'all' or classifier_type == 'rf':
         accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
             classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                                   save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                                   save_folder=os.path.join("../ModelSave/CV", timestamp), retrain=train_class))
 
     # Linear discriminant analysis HPO | LDA_hpo
     if classifier_type == 'all_hpo' or classifier_type == 'LDA_hpo':
         accuracy_lda_hpo, precision_lda_hpo, recall_lda_hpo, f1_lda_hpo, specificity_lda_hpo, g_mean_lda_hpo = (
             classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
-                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                             save_folder=os.path.join("../ModelSave/CV", timestamp), retrain=train_class))
 
     # Linear discriminant analysis | LDA
     if classifier_type == 'all' or classifier_type == 'LDA':
         accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
             classify_lda(x_train, x_test, y_train, y_test, random_state,
-                         save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                         save_folder=os.path.join("../ModelSave/CV", timestamp), retrain=train_class))
 
     # K Nearest Neighbors HPO | KNN_hpo
     if classifier_type == 'all_hpo' or classifier_type == 'KNN_hpo':
         accuracy_knn_hpo, precision_knn_hpo, recall_knn_hpo, f1_knn_hpo, specificity_knn_hpo, g_mean_knn_hpo = (
             classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
-                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                             save_folder=os.path.join("../ModelSave/CV", timestamp), retrain=train_class))
 
     # K Nearest Neighbors | KNN
     if classifier_type == 'all' or classifier_type == 'KNN':
         accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
             classify_knn(x_train, x_test, y_train, y_test, random_state,
-                         save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                         save_folder=os.path.join("../ModelSave/CV", timestamp), retrain=train_class))
 
     # Support Vector Machine HPO | SVM_hpo
     if classifier_type == 'all_hpo' or classifier_type == 'SVM_hpo':
         accuracy_svm_hpo, precision_svm_hpo, recall_svm_hpo, f1_svm_hpo, specificity_svm_hpo, g_mean_svm_hpo = (
             classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                             save_folder=os.path.join("../ModelSave/CV", timestamp), retrain=train_class))
 
     # Support Vector Machine | SVM
     if classifier_type == 'all' or classifier_type == 'SVM':
         accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
             classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                         save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                         save_folder=os.path.join("../ModelSave/CV", timestamp), retrain=train_class))
 
     # Ensemble with Gradient Boosting HPO | EGB_hpo
     if classifier_type == 'all_hpo' or classifier_type == 'EGB_hpo':
         accuracy_gb_hpo, precision_gb_hpo, recall_gb_hpo, f1_gb_hpo, specificity_gb_hpo, g_mean_gb_hpo = (
             classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, random_state,
-                                                 save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                                                 save_folder=os.path.join("../ModelSave/CV", timestamp), retrain=train_class))
 
     # Ensemble with Gradient Boosting | EGB
     if classifier_type == 'all' or classifier_type == 'EGB':
         accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
             classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, random_state,
-                                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                                             save_folder=os.path.join("../ModelSave/CV", timestamp), retrain=train_class))
 
     # Build Performance Metric Summary Tables
     if classifier_type == 'all':
