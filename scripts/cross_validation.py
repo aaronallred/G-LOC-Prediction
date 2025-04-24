@@ -18,8 +18,8 @@ def main_loop(kfold_ID, num_splits, timestamp):
 
     ################################################### USER INPUTS  ###################################################
     ## Data Folder Location
-    datafolder = '../../'
-    # datafolder = '../data/'
+    # datafolder = '../../'
+    datafolder = '../data/'
 
     # Random State | 42 - Debug mode
     random_state = 42
@@ -35,7 +35,7 @@ def main_loop(kfold_ID, num_splits, timestamp):
     n_neighbors = 3
 
     ## Model Parameters
-    model_type = ['noAFE', 'explicit']
+    model_type = ['noAFE', 'implicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
@@ -168,7 +168,7 @@ def main_loop(kfold_ID, num_splits, timestamp):
 
     # Training/Test Split
     x_train, x_test, y_train, y_test = stratified_kfold_split(y_gloc_labels_noNaN,x_feature_matrix_noNaN,
-                                                             random_state, num_splits, kfold_ID)
+                                                              num_splits, kfold_ID)
  ################################################ MACHINE LEARNING ################################################
 
     # Logistic Regression HPO | logreg_hpo
@@ -287,7 +287,7 @@ if __name__ == "__main__":
 
     # Test set identifierfor 10-fold Model Validation
     num_splits = 10
-    kfold_ID = [0 1 2 3 4 5 6 7 8 9]
+    kfold_ID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
     # Pre-Allocate Performance Summary Dictionary
     kfold_performance_summary = dict()
@@ -309,4 +309,4 @@ if __name__ == "__main__":
         os.makedirs(save_folder)
 
     with open(save_path, 'wb') as file:
-        pickle.dump(imputation_performance_summary, file)
+        pickle.dump(kfold_performance_summary, file)
