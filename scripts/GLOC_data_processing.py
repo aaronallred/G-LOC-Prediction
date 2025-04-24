@@ -1241,6 +1241,17 @@ def summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda, ac
 
     return performance_metric_summary
 
+def single_classifier_performance_summary(accuracy, precision, recall,  f1, specificity, g_mean):
+    metrics = ['accuracy', 'precision', 'recall', 'f1-score', 'specificity', 'g mean']
+
+    # create combined stack of all performance metrics
+    performance_metrics = np.column_stack((accuracy, precision, recall, f1, specificity, g_mean))
+
+    # label combined metrics by classifier name and performance metric name
+    performance_metric_summary = pd.DataFrame(performance_metrics, columns=metrics)
+
+    return performance_metric_summary
+
 def find_prediction_window(gloc_data_reduced, gloc, time_variable):
     """
     This function that finds the Loss of Consciousness Induction Time (LOCINDTI). This function

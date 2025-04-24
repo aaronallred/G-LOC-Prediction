@@ -13,7 +13,7 @@ from openpyxl.styles.builtins import percent
 import os
 from datetime import datetime
 
-def main_loop(impute_type, n_neighbors, timestamp, model_type):
+def main_loop(impute_type, n_neighbors, timestamp, model_type, method_key):
     start_time = time.time()
 
     ################################################### USER INPUTS  ###################################################
@@ -42,6 +42,7 @@ def main_loop(impute_type, n_neighbors, timestamp, model_type):
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
 
     baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
+    baseline_methods_to_use = ['v0']
 
     analysis_type = 2
 
@@ -97,7 +98,7 @@ def main_loop(impute_type, n_neighbors, timestamp, model_type):
                                   features,features_phys, features_ecg, features_eeg, gloc))
 
     ### Impute missing row data
-    elif impute_type == 1:
+    if impute_type == 1:
         features, indicator_matrix = knn_impute(features, n_neighbors)
 
     ################################################## REDUCE MEMORY ##################################################
@@ -130,31 +131,15 @@ def main_loop(impute_type, n_neighbors, timestamp, model_type):
         feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column,
                            combined_baseline_names,baseline_names_v0, baseline_v0, feature_groups_to_analyze))
 
-    ############################################# FEATURE CLEAN AND PREP ##############################################
-    """ 
-          Optional handling of raw NaN data, depending on 'impute_type' >= 2
-    """
-
     # Remove constant columns
     x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
 
-    if impute_type == 2 or impute_type == 1:
-        # Remove rows with NaN (temporary solution-should replace with other method eventually)
-        y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features = process_NaN(y_gloc_labels, x_feature_matrix,
-                                                                                all_features)
-    elif impute_type == 3:
-        y_gloc_labels_noNaN = y_gloc_labels
-        x_feature_matrix_noNaN, indicator_matrix = knn_impute(x_feature_matrix, n_neighbors)
-    else:
-        y_gloc_labels_noNaN, x_feature_matrix_noNaN = y_gloc_labels, x_feature_matrix
-
-
     # Save pkl
     with open (y_label_name, 'wb') as file:
-        pickle.dump(y_gloc_labels_noNaN, file)
+        pickle.dump(y_gloc_labels, file)
 
     with open (feature_matrix_name, 'wb') as file:
-        pickle.dump(x_feature_matrix_noNaN, file)
+        pickle.dump(x_feature_matrix, file)
 
     with open (all_features_name, 'wb') as file:
         pickle.dump(all_features, file)
@@ -165,82 +150,114 @@ def main_loop(impute_type, n_neighbors, timestamp, model_type):
     """
 
     # Training/Test Split
-    x_train, x_test, y_train, y_test = pre_classification_training_test_split(y_gloc_labels_noNaN,
-                                                                              x_feature_matrix_noNaN,
-                                                                              training_ratio, random_state)
+    x_train_NaN, x_test_NaN, y_train_NaN, y_test_NaN = pre_classification_training_test_split(y_gloc_labels,
+                                                                                              x_feature_matrix,
+                                                                                              training_ratio,
+                                                                                              random_state)
+
+   ################################################## IMPUTATION ####################################################
+    """ 
+          Remove NaNs from data if method 2, impute using kNN imputation if method 3. Remove all remaining rows with NaN
+          for method 1. Otherwise, do nothing.
+    """
+
+    # Impute Training/Test Set
+    if impute_type == 2 or impute_type == 1:
+        # Remove NaN rows from Training Set
+        y_train, x_train, all_features = process_NaN(y_train_NaN, x_train_NaN, all_features)
+
+        # Remove NaN rows from Test Set
+        y_test, x_test, all_features = process_NaN(y_test_NaN, x_test_NaN, all_features)
+
+    elif impute_type == 3:
+        # Leave y-labels as-is
+        y_train = y_train_NaN
+        y_test = y_test_NaN
+
+        # Impute Train Data Independently
+        x_train, indicator_matrix_train = knn_impute(x_train_NaN, n_neighbors)
+
+        # Impute Test Data
+        x_test, indicator_matrix_test = knn_impute(x_test_NaN, n_neighbors)
+
+    else:
+        # Leave train/test matrix as is
+        y_train, x_train = y_train_NaN, x_train_NaN
+        y_test, x_test = y_test_NaN, x_test_NaN
+
  ################################################ MACHINE LEARNING ################################################
 
     # Logistic Regression HPO | logreg_hpo
     if classifier_type == 'all_hpo' or classifier_type == 'logreg_hpo':
         accuracy_logreg_hpo, precision_logreg_hpo, recall_logreg_hpo, f1_logreg_hpo, specificity_logreg_hpo, g_mean_logreg_hpo = (
             classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp, method_key), retrain=train_class))
 
     # Logistic Regression | logreg
     if classifier_type == 'all' or classifier_type == 'logreg':
         accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
             classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb,random_state,
-                                         save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                                         save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp, method_key), retrain=train_class))
 
     # Random Forest HPO | rf_hpo
     if classifier_type == 'all_hpo' or classifier_type == 'rf_hpo':
         accuracy_rf_hpo, precision_rf_hpo, recall_rf_hpo, f1_rf_hpo, tree_depth_hpo, specificity_rf_hpo, g_mean_rf_hpo  = (
             classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                                       save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                                       save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp, method_key), retrain=train_class))
 
     # Random Forrest | rf
     if classifier_type == 'all' or classifier_type == 'rf':
         accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
             classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                                   save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                                   save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp, method_key), retrain=train_class))
 
     # Linear discriminant analysis HPO | LDA_hpo
     if classifier_type == 'all_hpo' or classifier_type == 'LDA_hpo':
         accuracy_lda_hpo, precision_lda_hpo, recall_lda_hpo, f1_lda_hpo, specificity_lda_hpo, g_mean_lda_hpo = (
             classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
-                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp, method_key), retrain=train_class))
 
     # Linear discriminant analysis | LDA
     if classifier_type == 'all' or classifier_type == 'LDA':
         accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
             classify_lda(x_train, x_test, y_train, y_test, random_state,
-                         save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                         save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp, method_key), retrain=train_class))
 
     # K Nearest Neighbors HPO | KNN_hpo
     if classifier_type == 'all_hpo' or classifier_type == 'KNN_hpo':
         accuracy_knn_hpo, precision_knn_hpo, recall_knn_hpo, f1_knn_hpo, specificity_knn_hpo, g_mean_knn_hpo = (
             classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
-                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp, method_key), retrain=train_class))
 
     # K Nearest Neighbors | KNN
     if classifier_type == 'all' or classifier_type == 'KNN':
         accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
             classify_knn(x_train, x_test, y_train, y_test, random_state,
-                         save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                         save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp, method_key), retrain=train_class))
 
     # Support Vector Machine HPO | SVM_hpo
     if classifier_type == 'all_hpo' or classifier_type == 'SVM_hpo':
         accuracy_svm_hpo, precision_svm_hpo, recall_svm_hpo, f1_svm_hpo, specificity_svm_hpo, g_mean_svm_hpo = (
             classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp, method_key), retrain=train_class))
 
     # Support Vector Machine | SVM
     if classifier_type == 'all' or classifier_type == 'SVM':
         accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
             classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                         save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                         save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp, method_key), retrain=train_class))
 
     # Ensemble with Gradient Boosting HPO | EGB_hpo
     if classifier_type == 'all_hpo' or classifier_type == 'EGB_hpo':
         accuracy_gb_hpo, precision_gb_hpo, recall_gb_hpo, f1_gb_hpo, specificity_gb_hpo, g_mean_gb_hpo = (
             classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, random_state,
-                                                 save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                                                 save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp, method_key), retrain=train_class))
 
     # Ensemble with Gradient Boosting | EGB
     if classifier_type == 'all' or classifier_type == 'EGB':
         accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
             classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, random_state,
-                                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp), retrain=train_class))
+                                             save_folder=os.path.join("../ModelSave/SequentialOptimizationNaN", timestamp, method_key), retrain=train_class))
 
     # Build Performance Metric Summary Tables
     if classifier_type == 'all':
@@ -282,39 +299,42 @@ def main_loop(impute_type, n_neighbors, timestamp, model_type):
 if __name__ == "__main__":
 
     # Get time stamp for saving models
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp_outerloop = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     # Imputation Methods to Test
-    impute_type = [1,2,3]
+    impute_type_all = [1,2,3]
+    impute_type_all = [3]
 
     # N-Neighbors Definition for Imputation Methods 1 & 3
-    n_neighbors = [3, 5, 7, 10]
+    n_neighbors_all = [3, 5, 7, 10]
+    n_neighbors_all = [3]
 
     # Specify Model Type
-    model_type = ['noAFE', 'explicit']
+    model_type_outerloop = ['noAFE', 'explicit']
 
     # Pre-Allocate Performance Summary Dictionary
     imputation_performance_summary = dict()
 
     # Loop through Imputation Methods
-    for i in range(len(impute_type)):
+    for i in range(len(impute_type_all)):
         # Loop through all n-neighbors for Imputation Methods 1 & 3
-        if impute_type[i] == 1 or impute_type[i] == 3:
-            for j in range(len(n_neighbors)):
+        if impute_type_all[i] == 1 or impute_type_all[i] == 3:
+            for j in range(len(n_neighbors_all)):
                 # Define Key for each Element in Dictionary
-                if impute_type[i] == 1:
-                    method_key = 'knn_raw_n_neighbors_' + str(n_neighbors[j])
-                elif impute_type[i] == 3:
-                    method_key = 'knn_features_n_neighbors_' + str(n_neighbors[j])
-                imputation_performance_summary[method_key] = main_loop(impute_type[i], n_neighbors[j], timestamp, model_type)
+                if impute_type_all[i] == 1:
+                    method_key_impute = 'knn_raw_n_neighbors_' + str(n_neighbors_all[j])
+                    imputation_performance_summary[method_key_impute] = main_loop(impute_type_all[i], n_neighbors_all[j], timestamp_outerloop, model_type_outerloop, method_key_impute)
+                elif impute_type_all[i] == 3:
+                    method_key_impute = 'knn_features_n_neighbors_' + str(n_neighbors_all[j])
+                    imputation_performance_summary[method_key_impute] = main_loop(impute_type_all[i], n_neighbors_all[j], timestamp_outerloop, model_type_outerloop, method_key_impute)
 
-        elif impute_type[i] == 2:
-            method_key = 'listwise_deletion'
-            imputation_performance_summary[method_key] = main_loop(impute_type[i], 0, timestamp, model_type)
+        elif impute_type_all[i] == 2:
+            method_key_impute = 'listwise_deletion'
+            imputation_performance_summary[method_key_impute] = main_loop(impute_type_all[i], 0, timestamp_outerloop, model_type_outerloop, method_key_impute)
 
     # Save pkl summary
-    save_folder = os.path.join("../PerformanceSave/SequentialOptimizationNaN", timestamp)
-    save_file = 'Sequential_Optimization_NaN_dictionary_model_type_' + str(model_type[1]) + '.pkl'
+    save_folder = os.path.join("../PerformanceSave/SequentialOptimizationNaN", timestamp_outerloop)
+    save_file = 'Sequential_Optimization_NaN_dictionary_model_type_' + str(model_type_outerloop[1]) + '.pkl'
     save_path = os.path.join(save_folder, save_file)
 
     # Ensure the save folder exists

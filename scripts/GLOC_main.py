@@ -26,7 +26,7 @@ if __name__ == "__main__":
     trouble_shoot_mode = 0
 
     # Import Feature Matrix | 0 = No, Proceed with Baseline and Feature Extraction , 1 = Yes, Use Existing Pkl
-    import_feature_matrix = 0
+    import_feature_matrix = 1
     feature_matrix_name = 'x_feature_matrix.pkl'
     y_label_name = 'y_gloc_labels.pkl'
     all_features_name = 'all_features.pkl'
@@ -50,7 +50,7 @@ if __name__ == "__main__":
 
     # Data Handling Options
     remove_NaN_trials = True
-    impute_type = 2
+    impute_type = 3
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
@@ -62,7 +62,7 @@ if __name__ == "__main__":
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
     baseline_methods_to_use = ['v0','v1', 'v2', 'v5', 'v6', 'v7', 'v8']
-    baseline_methods_to_use = ['v0', 'v3']
+    baseline_methods_to_use = ['v0', 'v1']
 
     analysis_type = 2
 
@@ -181,9 +181,8 @@ if __name__ == "__main__":
         if impute_type == 0:
             # Remove rows with NaN
             gloc, features, gloc_data_reduced = process_NaN_raw(gloc, features, gloc_data_reduced)
-        elif impute_type == 1:
-            n_neighbors = 5
-            features, indicator_matrix = knn_impute(features, n_neighbors)
+        if impute_type == 1:
+            features, indicator_matrix = knn_impute(features, n_neighbors=3)
 
         ################################################## REDUCE MEMORY ##################################################
 
@@ -224,23 +223,23 @@ if __name__ == "__main__":
         # Remove constant columns
         x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
 
-        if impute_type == 2:
-            # Remove rows with NaN (temporary solution-should replace with other method eventually)
-            y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features = process_NaN(y_gloc_labels, x_feature_matrix,
-                                                                                    all_features)
-        elif impute_type == 3:
-            y_gloc_labels_noNaN = y_gloc_labels
-            x_feature_matrix_noNaN, indicator_matrix = knn_impute(x_feature_matrix, n_neighbors)
-        else:
-            y_gloc_labels_noNaN, x_feature_matrix_noNaN = y_gloc_labels, x_feature_matrix
+        # if impute_type == 2 or impute_type == 1:
+        #     # Remove rows with NaN (temporary solution-should replace with other method eventually)
+        #     y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features = process_NaN(y_gloc_labels, x_feature_matrix,
+        #                                                                             all_features)
+        # elif impute_type == 3:
+        #     y_gloc_labels_noNaN = y_gloc_labels
+        #     x_feature_matrix_noNaN, indicator_matrix = knn_impute(x_feature_matrix, n_neighbors)
+        # else:
+        #     y_gloc_labels_noNaN, x_feature_matrix_noNaN = y_gloc_labels, x_feature_matrix
 
 
         # Save pkl
         with open (y_label_name, 'wb') as file:
-            pickle.dump(y_gloc_labels_noNaN, file)
+            pickle.dump(y_gloc_labels, file)
 
         with open (feature_matrix_name, 'wb') as file:
-            pickle.dump(x_feature_matrix_noNaN, file)
+            pickle.dump(x_feature_matrix, file)
 
         with open (all_features_name, 'wb') as file:
             pickle.dump(all_features, file)
@@ -248,8 +247,8 @@ if __name__ == "__main__":
 
     # Import pkl
     else:
-        y_gloc_labels_noNaN = pd.read_pickle(y_label_name)
-        x_feature_matrix_noNaN = pd.read_pickle(feature_matrix_name)
+        y_gloc_labels = pd.read_pickle(y_label_name)
+        x_feature_matrix = pd.read_pickle(feature_matrix_name)
         all_features = pd.read_pickle(all_features_name)
 
     ################################################ TRAIN/TEST SPLIT  ################################################
@@ -258,8 +257,38 @@ if __name__ == "__main__":
     """
 
     # Training/Test Split
-    x_train, x_test, y_train, y_test = pre_classification_training_test_split(y_gloc_labels_noNaN,
-                                                                              x_feature_matrix_noNaN,training_ratio, random_state)
+    x_train_NaN, x_test_NaN, y_train_NaN, y_test_NaN = pre_classification_training_test_split(y_gloc_labels,
+                                                                              x_feature_matrix, training_ratio, random_state)
+
+    ################################################## IMPUTATION ####################################################
+    """ 
+          Remove NaNs from data if method 2, impute using kNN imputation if method 3. Remove all remaining rows with NaN
+          for method 1. Otherwise, do nothing.
+    """
+
+    # Impute Training/Test Set
+    if impute_type == 2 or impute_type == 1:
+        # Remove NaN rows from Training Set
+        y_train, x_train, all_features = process_NaN(y_train_NaN, x_train_NaN, all_features)
+
+        # Remove NaN rows from Test Set
+        y_test, x_test, all_features = process_NaN(y_test_NaN, x_test_NaN, all_features)
+
+    elif impute_type == 3:
+        # Leave y-labels as-is
+        y_train = y_train_NaN
+        y_test = y_test_NaN
+
+        # Impute Train Data Independently
+        x_train, indicator_matrix_train = knn_impute(x_train_NaN, n_neighbors=3)
+
+        # Impute Test Data
+        x_test, indicator_matrix_test = knn_impute(x_test_NaN, n_neighbors=3)
+
+    else:
+        # Leave train/test matrix as is
+        y_train, x_train = y_train_NaN, x_train_NaN
+        y_test, x_test = y_test_NaN, x_test_NaN
 
     # Reduce feature set to reduce run time if trouble_shoot_mode = 1
     if trouble_shoot_mode == 1:
