@@ -478,7 +478,7 @@ def plot_cross_val_sp(data_dict):
             color='black', size=4, jitter=True, ax=ax
         )
 
-        ax.set_title(f"{metric.capitalize()} Distribution Across Runs for Each Model")
+        ax.set_title(f"{metric.capitalize()} Distribution Across Runs for Each Model ")
         ax.set_xlabel("")
         ax.set_ylabel(metric.capitalize())
         ax.tick_params(axis='x', rotation=45)
