@@ -289,6 +289,7 @@ if __name__ == "__main__":
     # Test set identifierfor 10-fold Model Validation
     num_splits = 10
     kfold_ID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    kfold_ID = [0, 1 ,2 ,3 ]
 
     # Pre-Allocate Performance Summary Dictionary
     kfold_performance_summary = dict()
@@ -311,3 +312,5 @@ if __name__ == "__main__":
 
     with open(save_path, 'wb') as file:
         pickle.dump(kfold_performance_summary, file)
+
+    plot_cross_val(kfold_performance_summary)

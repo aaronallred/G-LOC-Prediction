@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from sklearn import metrics
+import pickle
+
 
 def initial_visualization(gloc_data_reduced, gloc, feature_baseline, all_features, time_variable):
     """
@@ -120,7 +122,8 @@ def create_confusion_matrix(y_testing, label_predictions, model_type):
     plt.title(f'Confusion matrix: {model_type}', y=1.1)
     plt.ylabel('Actual label')
     plt.xlabel('Predicted label')
-    plt.show(block=False)
+    plt.show()
+    plt.pause(1)
 
 def plot_all_features():
 
@@ -400,11 +403,43 @@ def plot_strain():
 
         plt.show()
 
+def plot_cross_val(data_dict):
+    # List of model names
+    model_names = ['Model A', 'Model B', 'Model C', 'Model D', 'Model E', 'Model F']
+
+    # Combine data
+    all_data = []
+
+    for label, df in data_dict.items():
+        temp_df = df.copy()
+
+        # If model column doesn't exist, create it
+        if 'model' not in temp_df.columns:
+            temp_df['model'] = model_names[:len(temp_df)]
+
+        temp_df['label'] = label  # Add label info
+        all_data.append(temp_df)
+
+    combined_df = pd.concat(all_data)
+
+    # Metrics to plot (you can select one or loop through them)
+    metrics = [col for col in combined_df.columns if col not in ['model', 'label']]
+    for metric in metrics:
+        plt.figure(figsize=(10, 6))
+        sns.violinplot(x='model', y=metric, data=combined_df, inner='quartile', palette='Set2')
+        plt.title(f"{metric.capitalize()} Distribution Across Labels for Each Model")
+        plt.xlabel("Model")
+        plt.ylabel(metric.capitalize())
+        plt.tight_layout()
+        plt.show()
+        plt.pause(1)
+
 if __name__ == "__main__":
 
     # Plot Flags
     plot_data = 0       # flag to set whether plots should be generated (0 = no, 1 = yes)
     plot_pairwise = 0   # flag to set whether pairwise plots should be generated (0 = no, 1 = yes)
+    plot_cv = 1
 
     # Visualization of feature throughout trial
     if plot_data == 1:
@@ -417,3 +452,10 @@ if __name__ == "__main__":
     # Visualization of pairwise features
     if plot_pairwise == 1:
         pairwise_visualization(gloc_window, sliding_window_mean, all_features, gloc_data_reduced)
+
+    if plot_cv == 1:
+
+        with open('../PerformanceSave/CrossValidation/2025-04-24_17-12-38/CrossValidation.pkl', 'rb') as f:
+            data_dict = pickle.load(f)
+
+        plot_cross_val(data_dict)
