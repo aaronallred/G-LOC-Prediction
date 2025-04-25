@@ -1,3 +1,5 @@
+import time
+
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
@@ -413,11 +415,10 @@ def plot_cross_val(data_dict):
     for label, df in data_dict.items():
         temp_df = df.copy()
 
-        # If model column doesn't exist, create it
-        if 'model' not in temp_df.columns:
-            temp_df['model'] = model_names[:len(temp_df)]
+        # Use the index as a column for the model name
+        temp_df['model'] = temp_df.index
+        temp_df['label'] = label
 
-        temp_df['label'] = label  # Add label info
         all_data.append(temp_df)
 
     combined_df = pd.concat(all_data)
@@ -426,12 +427,12 @@ def plot_cross_val(data_dict):
     metrics = [col for col in combined_df.columns if col not in ['model', 'label']]
     for metric in metrics:
         plt.figure(figsize=(10, 6))
-        sns.violinplot(x='model', y=metric, data=combined_df, inner='quartile', palette='Set2')
+        sns.violinplot(x='model', y=metric, data=combined_df, inner='quartile', hue='model',palette='colorblind')
         plt.title(f"{metric.capitalize()} Distribution Across Labels for Each Model")
         plt.xlabel("Model")
         plt.ylabel(metric.capitalize())
         plt.tight_layout()
-        plt.show()
+        plt.show(block=False)
         plt.pause(1)
 
 if __name__ == "__main__":
