@@ -40,8 +40,8 @@ def main_loop(kfold_ID, num_splits, timestamp):
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
     if 'noAFE' in model_type and 'implicit' in model_type:
-        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
-        feature_groups_to_analyze = ['ECG']
+        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
+        #feature_groups_to_analyze = ['ECG']
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
     baseline_methods_to_use = ['v0']
@@ -289,7 +289,6 @@ if __name__ == "__main__":
     # Test set identifierfor 10-fold Model Validation
     num_splits = 10
     kfold_ID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-    kfold_ID = [0, 1 ,2 ,3 ]
 
     # Pre-Allocate Performance Summary Dictionary
     kfold_performance_summary = dict()

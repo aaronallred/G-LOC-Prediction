@@ -1,9 +1,12 @@
+import time
+
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from sklearn import metrics
 import pickle
+import math
 
 
 def initial_visualization(gloc_data_reduced, gloc, feature_baseline, all_features, time_variable):
@@ -122,7 +125,7 @@ def create_confusion_matrix(y_testing, label_predictions, model_type):
     plt.title(f'Confusion matrix: {model_type}', y=1.1)
     plt.ylabel('Actual label')
     plt.xlabel('Predicted label')
-    plt.show()
+    plt.show(block=False)
     plt.pause(1)
 
 def plot_all_features():
@@ -413,11 +416,10 @@ def plot_cross_val(data_dict):
     for label, df in data_dict.items():
         temp_df = df.copy()
 
-        # If model column doesn't exist, create it
-        if 'model' not in temp_df.columns:
-            temp_df['model'] = model_names[:len(temp_df)]
+        # Use the index as a column for the model name
+        temp_df['model'] = temp_df.index
+        temp_df['label'] = label
 
-        temp_df['label'] = label  # Add label info
         all_data.append(temp_df)
 
     combined_df = pd.concat(all_data)
@@ -426,13 +428,106 @@ def plot_cross_val(data_dict):
     metrics = [col for col in combined_df.columns if col not in ['model', 'label']]
     for metric in metrics:
         plt.figure(figsize=(10, 6))
-        sns.violinplot(x='model', y=metric, data=combined_df, inner='quartile', palette='Set2')
-        plt.title(f"{metric.capitalize()} Distribution Across Labels for Each Model")
+        sns.violinplot(x='model', y=metric, data=combined_df, inner='quartile', hue='model',palette='viridis', alpha=0.7)
+        # Scatter points overlaid (stripplot with jitter)
+        sns.stripplot(x='model', y=metric, data=combined_df, color='black', size=4, jitter=True)
+        plt.title(f"{metric.capitalize()} Distribution Across Runs for Each Model")
         plt.xlabel("Model")
         plt.ylabel(metric.capitalize())
         plt.tight_layout()
-        plt.show()
+        plt.show(block=False)
         plt.pause(1)
+
+    plt.show()
+
+def plot_cross_val_sp(data_dict):
+    # Combine all label data into one DataFrame
+    all_data = []
+    for label, df in data_dict.items():
+        temp_df = df.copy()
+        temp_df['model'] = temp_df.index
+        temp_df['label'] = label
+        all_data.append(temp_df)
+
+    combined_df = pd.concat(all_data)
+
+    # Get all metric columns (exclude non-metrics)
+    metrics = [col for col in combined_df.columns if col not in ['model', 'label']]
+    num_metrics = len(metrics)
+
+    # Subplot layout (auto-fit to rows of 2)
+    ncols = 2
+    nrows = math.ceil(num_metrics / ncols)
+
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(8 * ncols, 6 * nrows))
+    axes = axes.flatten() if num_metrics > 1 else [axes]
+
+    for i, metric in enumerate(metrics):
+        ax = axes[i]
+
+        # Violin plot with cubehelix palette
+        sns.violinplot(
+            x='model', y=metric, data=combined_df,
+            inner='quartile', palette='cubehelix', hue='model',
+            linewidth=1, alpha=0.6, ax=ax
+        )
+
+        # Overlay scatter points
+        sns.stripplot(
+            x='model', y=metric, data=combined_df,
+            color='black', size=4, jitter=True, ax=ax
+        )
+
+        ax.set_title(f"{metric.capitalize()} Distribution Across Runs for Each Model")
+        ax.set_xlabel("")
+        ax.set_ylabel(metric.capitalize())
+        ax.tick_params(axis='x', rotation=45)
+
+    # Hide any extra subplots if metrics < total axes
+    for j in range(len(metrics), len(axes)):
+        fig.delaxes(axes[j])
+
+    plt.tight_layout()
+    plt.show()
+
+def plot_cross_val_hist(data_dict):
+
+    # Combine data from all labels
+    all_data = []
+
+    for label, df in data_dict.items():
+        temp_df = df.copy()
+
+        # Use the index as a column for the model name
+        temp_df['model'] = temp_df.index
+        temp_df['label'] = label
+
+        all_data.append(temp_df)
+
+    # Combine all DataFrames
+    combined_df = pd.concat(all_data)
+
+    # Select metrics (excluding 'model' and 'label')
+    metrics = [col for col in combined_df.columns if col not in ['model', 'label']]
+    for metric in metrics:
+        plt.figure(figsize=(10, 6))
+
+        # Overlay the histogram on top of the violin plot
+        sns.histplot(data=combined_df, x=metric, hue='model', kde=True, multiple="stack", palette='colorblind', alpha=0.3,
+                     bins=15, ax=ax)
+
+        # Add titles and labels
+        plt.title(f"{metric.capitalize()} Distribution Across Labels for Each Model")
+        plt.xlabel("Model")
+        plt.ylabel(metric.capitalize())
+
+        # Tight layout to adjust spacing
+        plt.tight_layout()
+
+        # Show plot
+        plt.show(block=False)
+        plt.pause(1)
+    plt.show()
 
 if __name__ == "__main__":
 
@@ -455,7 +550,8 @@ if __name__ == "__main__":
 
     if plot_cv == 1:
 
-        with open('../PerformanceSave/CrossValidation/2025-04-24_17-12-38/CrossValidation.pkl', 'rb') as f:
+        with open('../PerformanceSave/CrossValidation/Implicit/CrossValidation.pkl', 'rb') as f:
             data_dict = pickle.load(f)
 
-        plot_cross_val(data_dict)
+        plot_cross_val_sp(data_dict)
+        #plot_cross_val_hist(data_dict)
