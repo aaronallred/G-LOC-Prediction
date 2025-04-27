@@ -25,7 +25,7 @@ def main_loop(kfold_ID, num_splits, timestamp):
     random_state = 42
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
-    classifier_type = 'all'
+    classifier_type = 'rf_hpo'
     train_class = True
     class_weight_imb = None
 
@@ -41,10 +41,9 @@ def main_loop(kfold_ID, num_splits, timestamp):
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
-        #feature_groups_to_analyze = ['ECG']
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
-    baseline_methods_to_use = ['v0']
+    baseline_methods_to_use = ['v0','v1']
 
     analysis_type = 2
 
@@ -190,6 +189,10 @@ def main_loop(kfold_ID, num_splits, timestamp):
             classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
                                        save_folder=os.path.join("../ModelSave/CV", timestamp), retrain=train_class))
 
+        performance_metric_summary_single = single_classifier_performance_summary(accuracy_rf_hpo, precision_rf_hpo,
+                                                                                  recall_rf_hpo,f1_rf_hpo,
+                                                                                  specificity_rf_hpo, g_mean_rf_hpo,['RF'])
+
     # Random Forrest | rf
     if classifier_type == 'all' or classifier_type == 'rf':
         accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
@@ -280,11 +283,10 @@ def main_loop(kfold_ID, num_splits, timestamp):
         return performance_metric_summary
     if classifier_type == 'all_hpo':
         return performance_metric_summary_hpo
+    else:
+        return performance_metric_summary_single
 
 if __name__ == "__main__":
-
-    # Get time stamp for saving models
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     # Test set identifierfor 10-fold Model Validation
     num_splits = 10
@@ -295,10 +297,12 @@ if __name__ == "__main__":
 
     # Loop through Imputation Methods
     for i in range(len(kfold_ID)):
-        # Loop through all train-test splits
-            method_key = str(kfold_ID[i])    
-            kfold_performance_summary[method_key] = main_loop(kfold_ID[i], num_splits, timestamp)
+        # Get time stamp for saving models
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
+        # Loop through all train-test splits
+        method_key = str(kfold_ID[i])
+        kfold_performance_summary[method_key] = main_loop(kfold_ID[i], num_splits, timestamp)
 
     # Save pkl summary
     save_folder = os.path.join("../PerformanceSave/CrossValidation", timestamp)

@@ -7,6 +7,7 @@ import seaborn as sns
 from sklearn import metrics
 import pickle
 import math
+import joblib
 
 
 def initial_visualization(gloc_data_reduced, gloc, feature_baseline, all_features, time_variable):
@@ -428,7 +429,7 @@ def plot_cross_val(data_dict):
     metrics = [col for col in combined_df.columns if col not in ['model', 'label']]
     for metric in metrics:
         plt.figure(figsize=(10, 6))
-        sns.violinplot(x='model', y=metric, data=combined_df, inner='quartile', hue='model',palette='viridis', alpha=0.7)
+        sns.violinplot(x='model', y=metric, data=combined_df, inner='quartile', hue='model',palette='viridis', alpha=0.8)
         # Scatter points overlaid (stripplot with jitter)
         sns.stripplot(x='model', y=metric, data=combined_df, color='black', size=4, jitter=True)
         plt.title(f"{metric.capitalize()} Distribution Across Runs for Each Model")
@@ -468,8 +469,8 @@ def plot_cross_val_sp(data_dict):
         # Violin plot with cubehelix palette
         sns.violinplot(
             x='model', y=metric, data=combined_df,
-            inner='quartile', palette='cubehelix', hue='model',
-            linewidth=1, alpha=0.6, ax=ax
+            inner='quartile', palette='viridis', hue='model',
+            linewidth=1, alpha=0.8, ax=ax
         )
 
         # Overlay scatter points
@@ -529,12 +530,39 @@ def plot_cross_val_hist(data_dict):
         plt.pause(1)
     plt.show()
 
+def plot_bayes_tuning(clf):
+    results = clf.cv_results_
+
+    # Extract mean test scores and per-fold scores
+    mean_test_scores = results['mean_test_score']
+    cv_scores = results['split0_test_score']  # example: you can access the scores of each fold (split)
+
+    # Get best score so far at each step
+    best_so_far = np.maximum.accumulate(mean_test_scores)
+
+    # Number of iterations
+    n_iter = len(mean_test_scores)
+
+    # Plot best scores so far
+    plt.figure(figsize=(12, 6))
+    plt.subplot(1, 1, 1)  # Left plot: Best scores so far
+    plt.plot(best_so_far, marker='o', linestyle='-', color='b')
+    plt.title("BayesSearchCV Best Score Over Iterations")
+    plt.xlabel("Iteration")
+    plt.ylabel("Best F1 Score so far")
+    plt.grid(True)
+
+
+    plt.tight_layout()
+    plt.show()
+
 if __name__ == "__main__":
 
     # Plot Flags
     plot_data = 0       # flag to set whether plots should be generated (0 = no, 1 = yes)
     plot_pairwise = 0   # flag to set whether pairwise plots should be generated (0 = no, 1 = yes)
     plot_cv = 1
+    plot_bayes = 1
 
     # Visualization of feature throughout trial
     if plot_data == 1:
@@ -548,10 +576,19 @@ if __name__ == "__main__":
     if plot_pairwise == 1:
         pairwise_visualization(gloc_window, sliding_window_mean, all_features, gloc_data_reduced)
 
+    # Visualization of k-fold cross validation
     if plot_cv == 1:
 
-        with open('../PerformanceSave/CrossValidation/Implicit/CrossValidation.pkl', 'rb') as f:
+        with open('../PerformanceSave/CrossValidation/ImplicitV0HPOnoFSnoNANall/CrossValidation.pkl', 'rb') as f:
             data_dict = pickle.load(f)
 
         plot_cross_val_sp(data_dict)
         #plot_cross_val_hist(data_dict)
+
+    # Visualization of bayes search convergence
+    if plot_bayes == 1:
+
+        with open('../ModelSave/CV/2025-04-26_17-05-41/random_forest_model.pkl', 'rb') as f:
+            clf = joblib.load(f)
+
+        plot_bayes_tuning(clf)

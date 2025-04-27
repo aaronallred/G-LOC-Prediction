@@ -12,6 +12,8 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.inspection import DecisionBoundaryDisplay
 from sklearn import svm
 from sklearn.ensemble import GradientBoostingClassifier
+from skopt import BayesSearchCV
+from skopt.space import Real, Integer, Categorical
 from GLOC_visualization import create_confusion_matrix
 from sklearn.linear_model import Lasso
 from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold
@@ -503,18 +505,44 @@ def classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_im
 
     if retrain:
         # Determine optimal hyperparameters of the model
-        param_grid = {'n_estimators': [10, 50, 100, 300,  500, 1000],
-                      'criterion': ['gini', 'entropy', 'log_loss'],
-                      'max_depth': [3, 5, 10, 30, 50, 70, 100, None],
-                      'max_features': ['sqrt', 'log2'],
-                      'min_samples_leaf': [1, 2, 4],
-                      'min_samples_split': [1, 2, 4],
-                      'min_weight_fraction_leaf': [0.0, 0.1, 0.2, 0.3, 0.5]
-                      }
+        # param_grid = {'n_estimators': [10, 50, 100, 300,  500, 1000],
+        #               'criterion': ['gini', 'entropy', 'log_loss'],
+        #               'max_depth': [3, 5, 10, 30, 50, 70, 100, None],
+        #               'max_features': ['sqrt', 'log2'],
+        #               'min_samples_leaf': [1, 2, 4],
+        #               'min_samples_split': [1, 2, 4],
+        #               'min_weight_fraction_leaf': [0.0, 0.1, 0.2, 0.3, 0.5]
+        #               }
+        #
+        # rf = RandomForestClassifier(class_weight = class_weight_imb, random_state = random_state)
+        #
+        # clf = GridSearchCV(rf, param_grid = param_grid, cv = 10, scoring='f1')
+        #
+        # clf.fit(x_train, np.ravel(y_train))
 
-        rf = RandomForestClassifier(class_weight = class_weight_imb, random_state = random_state)
+        search_space = {
+            'n_estimators': Integer(10, 1000),
+            'criterion': Categorical(['gini', 'entropy', 'log_loss']),
+            'max_depth': Integer(3, 100),
+            'max_features': Categorical(['sqrt', 'log2']),
+            'min_samples_leaf': Integer(1, 4),
+            'min_samples_split': Integer(2, 10),  # start from 2, not 1
+            'min_weight_fraction_leaf': Real(0.0, 0.5)
+        }
 
-        clf = GridSearchCV(rf, param_grid = param_grid, cv = 10, scoring='f1')
+        rf = RandomForestClassifier(class_weight=class_weight_imb, random_state=random_state)
+
+        # Use BayesSearchCV instead of GridSearchCV
+        clf = BayesSearchCV(
+            estimator=rf,
+            search_spaces=search_space,
+            n_iter=50,  # Number of parameter settings that are sampled
+            cv=5,
+            scoring='f1',
+            random_state=random_state,
+            n_jobs=-1,
+            verbose=1
+        )
 
         clf.fit(x_train, np.ravel(y_train))
     else:
@@ -541,8 +569,11 @@ def classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_im
     print("Specificity: ", specificity)
     print("G-Mean: ", g_mean)
 
+    # Get the best RandomForest model from the search
+    best_rf = clf.best_estimator_
+
     # Find Tree Depth
-    tree_depth = [estimator.get_depth() for estimator in rf.estimators_]
+    tree_depth = [estimator.get_depth() for estimator in best_rf.estimators_]
 
     # Visualize Decision Tree
     # fn = all_features

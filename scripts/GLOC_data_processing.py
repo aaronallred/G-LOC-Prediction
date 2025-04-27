@@ -1241,14 +1241,14 @@ def summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda, ac
 
     return performance_metric_summary
 
-def single_classifier_performance_summary(accuracy, precision, recall,  f1, specificity, g_mean):
+def single_classifier_performance_summary(accuracy, precision, recall,  f1, specificity, g_mean, classifier=['']):
     metrics = ['accuracy', 'precision', 'recall', 'f1-score', 'specificity', 'g mean']
 
     # create combined stack of all performance metrics
     performance_metrics = np.column_stack((accuracy, precision, recall, f1, specificity, g_mean))
 
     # label combined metrics by classifier name and performance metric name
-    performance_metric_summary = pd.DataFrame(performance_metrics, columns=metrics)
+    performance_metric_summary = pd.DataFrame(performance_metrics, index = classifier, columns=metrics)
 
     return performance_metric_summary
 
