@@ -25,7 +25,7 @@ def main_loop(kfold_ID, num_splits, runname):
     random_state = 42
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
-    classifier_type = 'rf_hpo'
+    classifier_type = 'all_hpo'
     train_class = True
     class_weight_imb = None
 
@@ -43,7 +43,7 @@ def main_loop(kfold_ID, num_splits, runname):
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
-    baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
+    baseline_methods_to_use = ['v0','v1','v2']
 
     analysis_type = 2
 
@@ -178,11 +178,19 @@ def main_loop(kfold_ID, num_splits, runname):
             classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
                                              save_folder=save_folder, retrain=train_class))
 
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy_logreg_hpo, precision_logreg_hpo, recall_logreg_hpo, f1_logreg_hpo,
+            specificity_logreg_hpo, g_mean_logreg_hpo,['Log Reg'])
+
     # Logistic Regression | logreg
     if classifier_type == 'all' or classifier_type == 'logreg':
         accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
             classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb,random_state,
                                          save_folder=save_folder, retrain=train_class))
+
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy_logreg, precision_logreg, recall_logreg, f1_logreg,
+            specificity_logreg, g_mean_logreg,['Log Reg'])
 
     # Random Forest HPO | rf_hpo
     if classifier_type == 'all_hpo' or classifier_type == 'rf_hpo':
@@ -190,9 +198,9 @@ def main_loop(kfold_ID, num_splits, runname):
             classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
                                        save_folder=save_folder, retrain=train_class))
 
-        performance_metric_summary_single = single_classifier_performance_summary(accuracy_rf_hpo, precision_rf_hpo,
-                                                                                  recall_rf_hpo,f1_rf_hpo,
-                                                                                  specificity_rf_hpo, g_mean_rf_hpo,['RF'])
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy_rf_hpo, precision_rf_hpo, recall_rf_hpo, f1_rf_hpo,
+            specificity_rf_hpo, g_mean_rf_hpo,['RF'])
 
     # Random Forrest | rf
     if classifier_type == 'all' or classifier_type == 'rf':
@@ -200,11 +208,18 @@ def main_loop(kfold_ID, num_splits, runname):
             classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
                                    save_folder=save_folder, retrain=train_class))
 
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy_rf, precision_rf, recall_rf, f1_rf, specificity_rf, g_mean_rf, ['RF'])
+
     # Linear discriminant analysis HPO | LDA_hpo
     if classifier_type == 'all_hpo' or classifier_type == 'LDA_hpo':
         accuracy_lda_hpo, precision_lda_hpo, recall_lda_hpo, f1_lda_hpo, specificity_lda_hpo, g_mean_lda_hpo = (
             classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
                              save_folder=save_folder, retrain=train_class))
+
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy_lda_hpo, precision_lda_hpo, recall_lda_hpo, f1_lda_hpo,
+            specificity_lda_hpo, g_mean_lda_hpo, ['LDA'])
 
     # Linear discriminant analysis | LDA
     if classifier_type == 'all' or classifier_type == 'LDA':
@@ -212,11 +227,18 @@ def main_loop(kfold_ID, num_splits, runname):
             classify_lda(x_train, x_test, y_train, y_test, random_state,
                          save_folder=save_folder, retrain=train_class))
 
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda, ['LDA'])
+
     # K Nearest Neighbors HPO | KNN_hpo
     if classifier_type == 'all_hpo' or classifier_type == 'KNN_hpo':
         accuracy_knn_hpo, precision_knn_hpo, recall_knn_hpo, f1_knn_hpo, specificity_knn_hpo, g_mean_knn_hpo = (
             classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
                              save_folder=save_folder, retrain=train_class))
+
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy_knn_hpo, precision_knn_hpo, recall_knn_hpo, f1_knn_hpo,
+            specificity_knn_hpo, g_mean_knn_hpo, ['KNN'])
 
     # K Nearest Neighbors | KNN
     if classifier_type == 'all' or classifier_type == 'KNN':
@@ -224,11 +246,18 @@ def main_loop(kfold_ID, num_splits, runname):
             classify_knn(x_train, x_test, y_train, y_test, random_state,
                          save_folder=save_folder, retrain=train_class))
 
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn, ['KNN'])
+
     # Support Vector Machine HPO | SVM_hpo
     if classifier_type == 'all_hpo' or classifier_type == 'SVM_hpo':
         accuracy_svm_hpo, precision_svm_hpo, recall_svm_hpo, f1_svm_hpo, specificity_svm_hpo, g_mean_svm_hpo = (
             classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
                              save_folder=save_folder, retrain=train_class))
+
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy_svm_hpo, precision_svm_hpo, recall_svm_hpo, f1_svm_hpo,
+            specificity_svm_hpo, g_mean_svm_hpo, ['SVM'])
 
     # Support Vector Machine | SVM
     if classifier_type == 'all' or classifier_type == 'SVM':
@@ -236,17 +265,27 @@ def main_loop(kfold_ID, num_splits, runname):
             classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
                          save_folder=save_folder, retrain=train_class))
 
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm, ['SVM'])
+
     # Ensemble with Gradient Boosting HPO | EGB_hpo
     if classifier_type == 'all_hpo' or classifier_type == 'EGB_hpo':
         accuracy_gb_hpo, precision_gb_hpo, recall_gb_hpo, f1_gb_hpo, specificity_gb_hpo, g_mean_gb_hpo = (
             classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, random_state,
                                                  save_folder=save_folder, retrain=train_class))
 
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy_gb_hpo, precision_gb_hpo, recall_gb_hpo, f1_gb_hpo,
+            specificity_gb_hpo, g_mean_gb_hpo, ['Ensemble w/GB'])
+
     # Ensemble with Gradient Boosting | EGB
     if classifier_type == 'all' or classifier_type == 'EGB':
         accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
             classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, random_state,
                                              save_folder=save_folder, retrain=train_class))
+
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb, ['Ensemble w/GB'])
 
     # Build Performance Metric Summary Tables
     if classifier_type == 'all':
@@ -276,7 +315,6 @@ def main_loop(kfold_ID, num_splits, runname):
                                                                     g_mean_svm_hpo, g_mean_gb_hpo))
 
 
-
     duration = time.time() - start_time
     print(duration)
 
@@ -291,7 +329,7 @@ if __name__ == "__main__":
 
     # Get time stamp for saving models
     # runname = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    runname = 'ImplicitV0-4HPOnoFSnoNANrf'
+    runname = 'ImplicitV0-2HPOnoFSnoNANall'
 
     # Test set identifierfor 10-fold Model Validation
     num_splits = 10

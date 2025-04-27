@@ -562,7 +562,7 @@ if __name__ == "__main__":
     plot_data = 0       # flag to set whether plots should be generated (0 = no, 1 = yes)
     plot_pairwise = 0   # flag to set whether pairwise plots should be generated (0 = no, 1 = yes)
     plot_cv = 1
-    plot_bayes = 1
+    plot_bayes = 0
 
     # Visualization of feature throughout trial
     if plot_data == 1:
@@ -579,7 +579,7 @@ if __name__ == "__main__":
     # Visualization of k-fold cross validation
     if plot_cv == 1:
 
-        with open('../PerformanceSave/CrossValidation/ImplicitV0HPOnoFSnoNANrf/CrossValidation.pkl', 'rb') as f:
+        with open('../PerformanceSave/CrossValidation/ImplicitV01HPOnoFSnoNANrf/CrossValidation.pkl', 'rb') as f:
             data_dict = pickle.load(f)
 
         plot_cross_val_sp(data_dict)
@@ -588,7 +588,7 @@ if __name__ == "__main__":
     # Visualization of bayes search convergence
     if plot_bayes == 1:
 
-        with open('../ModelSave/CV/ImplicitV0HPOnoFSnoNANrf/0/random_forest_model.pkl', 'rb') as f:
+        with open('../ModelSave/CV/ImplicitV01HPOnoFSnoNANrf/0/random_forest_model.pkl', 'rb') as f:
             clf = joblib.load(f)
 
         plot_bayes_tuning(clf)

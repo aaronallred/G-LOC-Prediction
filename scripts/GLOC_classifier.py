@@ -450,14 +450,37 @@ def classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_wei
     """
 
     if retrain:
-        # Determine optimal hyperparameters of the model
-        param_grid = {'penalty': ['l1', 'l2', 'elasticnet', None],
-                      'C': [0.01, 0.1, 0.5, 1, 5, 10, 100],
-                      'solver': ['lbfgs', 'liblinear', 'newton-cg', 'newton-cholesky', 'sag', 'saga'],
-                      }
-        logreg = LogisticRegression(max_iter = 1000, class_weight = class_weight_imb, random_state = random_state)
+        # # Determine optimal hyperparameters of the model
+        # param_grid = {'penalty': ['l1', 'l2', 'elasticnet', None],
+        #               'C': [0.01, 0.1, 0.5, 1, 5, 10, 100],
+        #               'solver': ['lbfgs', 'liblinear', 'newton-cg', 'newton-cholesky', 'sag', 'saga'],
+        #               }
+        # logreg = LogisticRegression(max_iter = 1000, class_weight = class_weight_imb, random_state = random_state)
+        #
+        # clf = GridSearchCV(logreg, param_grid = param_grid, cv = 10, scoring='f1')
+        #
+        # clf.fit(x_train, np.ravel(y_train))
 
-        clf = GridSearchCV(logreg, param_grid = param_grid, cv = 10, scoring='f1')
+        # Define the hyperparameter search space
+        search_spaces = {
+            'penalty': Categorical(['elasticnet']),
+            'C': Real(0.01, 100, prior='log-uniform'),
+            'solver': Categorical(['saga']),
+            'l1_ratio': Real(0.0, 1.0)  # Add l1_ratio for 'elasticnet'
+        }
+
+        logreg = LogisticRegression(max_iter=1000, class_weight=class_weight_imb, random_state=random_state)
+
+        # Set up BayesSearchCV
+        clf = BayesSearchCV(
+            estimator=logreg,
+            search_spaces=search_spaces,
+            n_iter=50,  # You can adjust this based on how long you're willing to search
+            scoring='f1',
+            cv=5,
+            random_state=random_state,
+            n_jobs=-1
+        )
 
         clf.fit(x_train, np.ravel(y_train))
 
@@ -545,6 +568,7 @@ def classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_im
         )
 
         clf.fit(x_train, np.ravel(y_train))
+
     else:
         model_path = os.path.join(save_folder, model_name)
         clf = joblib.load(model_path)
@@ -604,13 +628,35 @@ def classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
 
     if retrain:
         # Determine optimal hyperparameters of the model
-        param_grid = {'solver': ['svd', 'lsqr', 'eigen'],
-                      'shrinkage': [None, 0.1, 0.2, 0.4, 0.6, 0.8, 1, 'auto'],
-                      'tol': [1e-2, 1e-4, 1e-6, 1e-8, 1e-10]
-                      }
+        # param_grid = {'solver': ['svd', 'lsqr', 'eigen'],
+        #               'shrinkage': [None, 0.1, 0.2, 0.4, 0.6, 0.8, 1, 'auto'],
+        #               'tol': [1e-2, 1e-4, 1e-6, 1e-8, 1e-10]
+        #               }
+        # lda = LinearDiscriminantAnalysis()
+        #
+        # clf = GridSearchCV(lda, param_grid = param_grid, cv = 10, scoring='f1')
+        #
+        # clf.fit(x_train, np.ravel(y_train))
+
+        search_spaces = {
+            'solver': Categorical(['svd', 'lsqr', 'eigen']),
+            'shrinkage': Categorical([None, 0.1, 0.2, 0.4, 0.6, 0.8, 1, 'auto']),
+            'tol': Real(1e-10, 1e-2, prior='log-uniform')
+        }
+
+        # Define the model
         lda = LinearDiscriminantAnalysis()
 
-        clf = GridSearchCV(lda, param_grid = param_grid, cv = 10, scoring='f1')
+        # Set up BayesSearchCV
+        clf = BayesSearchCV(
+            estimator=lda,
+            search_spaces=search_spaces,
+            n_iter=50,  # You can increase this for a more thorough search
+            cv=5,
+            scoring='f1',
+            random_state=0,
+            n_jobs=-1
+        )
 
         clf.fit(x_train, np.ravel(y_train))
 
@@ -658,15 +704,39 @@ def classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
     if retrain:
 
         # Determine optimal hyperparameters of the model
-        param_grid = {'n_neighbors' : [3,5,7,9,11,13,15,20,25,30],
-                      'weights' : ['uniform','distance'],
-                      'algorithm': ['ball_tree', 'kd_tree', 'brute', 'auto'],
-                      'metric' : ['minkowski','euclidean','manhattan']}
+        # param_grid = {'n_neighbors' : [3,5,7,9,11,13,15,20,25,30],
+        #               'weights' : ['uniform','distance'],
+        #               'algorithm': ['ball_tree', 'kd_tree', 'brute', 'auto'],
+        #               'metric' : ['minkowski','euclidean','manhattan']}
+        #
+        # neigh = KNeighborsClassifier()
+        #
+        # clf = GridSearchCV(neigh, param_grid = param_grid, cv = 10, scoring='f1')
+        #
+        # clf.fit(x_train, np.ravel(y_train))
 
-        neigh = KNeighborsClassifier()
+        search_spaces = {
+            'n_neighbors': Integer(3, 30),
+            'weights': Categorical(['uniform', 'distance']),
+            'algorithm': Categorical(['ball_tree', 'kd_tree', 'brute', 'auto']),
+            'metric': Categorical(['minkowski', 'euclidean', 'manhattan'])
+        }
 
-        clf = GridSearchCV(neigh, param_grid = param_grid, cv = 10, scoring='f1')
+        # Define the model
+        knn = KNeighborsClassifier()
 
+        # Set up BayesSearchCV
+        clf = BayesSearchCV(
+            estimator=knn,
+            search_spaces=search_spaces,
+            n_iter=50,  # Customize as needed
+            cv=5,
+            scoring='f1',
+            random_state=0,
+            n_jobs=-1
+        )
+
+        # Fit the model
         clf.fit(x_train, np.ravel(y_train))
 
     else:
@@ -713,18 +783,43 @@ def classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_
 
     if retrain:
         # Determine optimal hyperparameters of the model
-        param_grid = {'C': [0.1, 1, 10, 100, 1000],
-                      'gamma': [1, 0.1, 0.01, 0.001, 0.0001, 'auto'],
-                      'kernel': ['rbf','linear', 'poly', 'sigmoid'],
-                      'degree': [3, 4, 5],
-                      'tol': [1e-2, 1e-4, 1e-6, 1e-8, 1e-10]
-                      }
+        # param_grid = {'C': [0.1, 1, 10, 100, 1000],
+        #               'gamma': [1, 0.1, 0.01, 0.001, 0.0001, 'auto'],
+        #               'kernel': ['rbf','linear', 'poly', 'sigmoid'],
+        #               'degree': [3, 4, 5],
+        #               'tol': [1e-2, 1e-4, 1e-6, 1e-8, 1e-10]
+        #               }
+        #
+        # svm_class = svm.SVC(class_weight=class_weight_imb)
+        #
+        # clf = GridSearchCV(svm_class, param_grid = param_grid, cv = 10, scoring='f1')
+        #
+        # clf.fit(x_train, np.ravel(y_train))
 
+        search_spaces = {
+            'C': Real(0.1, 1000, prior='log-uniform'),
+            'gamma': Categorical([1, 0.1, 0.01, 0.001, 0.0001, 'auto']),
+            'kernel': Categorical(['rbf', 'linear', 'poly', 'sigmoid']),
+            'degree': Integer(3, 5),
+            'tol': Real(1e-10, 1e-2, prior='log-uniform')
+        }
+
+        # Define the model
         svm_class = svm.SVC(class_weight=class_weight_imb)
 
-        clf = GridSearchCV(svm_class, param_grid = param_grid, cv = 10, scoring='f1')
+        # Set up BayesSearchCV
+        clf = BayesSearchCV(
+            estimator=svm_class,
+            search_spaces=search_spaces,
+            n_iter=50,  # You can tune this
+            cv=5,
+            scoring='f1',
+            random_state=0,
+            n_jobs=-1
+        )
 
         clf.fit(x_train, np.ravel(y_train))
+
     else:
         model_path = os.path.join(save_folder, model_name)
         clf = joblib.load(model_path)
@@ -769,22 +864,52 @@ def classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, rando
 
     if retrain:
         # Determine optimal hyperparameters of the model
-        param_grid = {'n_estimators': [10, 50, 100, 300,  500, 1000],
-                      'learning_rate': [0.01, 0.1, 0.2, 1, 5],
-                      'max_depth': [3, 5, 10, 30, 50, 70, 100, None],
-                      'max_features': ['sqrt', 'log2', None],
-                      'min_samples_leaf': [1, 2, 4],
-                      'min_samples_split': [1, 2, 4],
-                      'loss': ['log_loss', 'exponential'],
-                      'criterion': ['friedman_mse', 'squared_error'],
-                      'min_weight_fraction_leaf': [0.0, 0.1, 0.2, 0.3, 0.5]
-                      }
+        # param_grid = {'n_estimators': [10, 50, 100, 300,  500, 1000],
+        #               'learning_rate': [0.01, 0.1, 0.2, 1, 5],
+        #               'max_depth': [3, 5, 10, 30, 50, 70, 100, None],
+        #               'max_features': ['sqrt', 'log2', None],
+        #               'min_samples_leaf': [1, 2, 4],
+        #               'min_samples_split': [1, 2, 4],
+        #               'loss': ['log_loss', 'exponential'],
+        #               'criterion': ['friedman_mse', 'squared_error'],
+        #               'min_weight_fraction_leaf': [0.0, 0.1, 0.2, 0.3, 0.5]
+        #               }
+        #
+        # gb = GradientBoostingClassifier(random_state = random_state)
+        #
+        # clf = GridSearchCV(gb, param_grid = param_grid, cv = 10, scoring='f1')
+        #
+        # clf.fit(x_train, np.ravel(y_train))
 
-        gb = GradientBoostingClassifier(random_state = random_state)
+        search_spaces = {
+            'n_estimators': Integer(10, 1000),  # This parameter is continuous, so we use Integer.
+            'learning_rate': Real(0.01, 5, prior='log-uniform'),
+            'max_depth': Integer(3, 100),  # For max_depth, integer search space, and None will be handled separately.
+            'max_features': Categorical(['sqrt', 'log2', None]),
+            'min_samples_leaf': Integer(1, 4),  # Discrete values are acceptable, so we use Integer.
+            'min_samples_split': Integer(1, 4),  # Same here.
+            'loss': Categorical(['log_loss', 'exponential']),
+            'criterion': Categorical(['friedman_mse', 'squared_error']),
+            'min_weight_fraction_leaf': Real(0.0, 0.5)  # Continuous range for this parameter.
+        }
 
-        clf = GridSearchCV(gb, param_grid = param_grid, cv = 10, scoring='f1')
+        # Define the model
+        gb = GradientBoostingClassifier(random_state=random_state)
 
+        # Set up BayesSearchCV
+        clf = BayesSearchCV(
+            estimator=gb,
+            search_spaces=search_spaces,
+            n_iter=50,  # Number of iterations can be adjusted
+            cv=5,
+            scoring='f1',
+            random_state=random_state,
+            n_jobs=-1
+        )
+
+        # Fit the model
         clf.fit(x_train, np.ravel(y_train))
+
     else:
         model_path = os.path.join(save_folder, model_name)
         clf = joblib.load(model_path)
