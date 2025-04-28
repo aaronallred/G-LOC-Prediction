@@ -40,7 +40,8 @@ def main_loop(kfold_ID, num_splits, runname):
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
     if 'noAFE' in model_type and 'implicit' in model_type:
-        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
+        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
+        feature_groups_to_analyze = ['ECG']
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
     baseline_methods_to_use = ['v0','v1','v2']
@@ -276,7 +277,7 @@ def main_loop(kfold_ID, num_splits, runname):
 
         performance_metric_summary_single = single_classifier_performance_summary(
             accuracy_gb_hpo, precision_gb_hpo, recall_gb_hpo, f1_gb_hpo,
-            specificity_gb_hpo, g_mean_gb_hpo, ['Ensemble w/GB'])
+            specificity_gb_hpo, g_mean_gb_hpo, ['Ensemble w/ GB'])
 
     # Ensemble with Gradient Boosting | EGB
     if classifier_type == 'all' or classifier_type == 'EGB':
@@ -285,7 +286,7 @@ def main_loop(kfold_ID, num_splits, runname):
                                              save_folder=save_folder, retrain=train_class))
 
         performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb, ['Ensemble w/GB'])
+            accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb, ['Ensemble w/ GB'])
 
     # Build Performance Metric Summary Tables
     if classifier_type == 'all':
@@ -329,7 +330,7 @@ if __name__ == "__main__":
 
     # Get time stamp for saving models
     # runname = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    runname = 'ImplicitV0-2HPOnoFSnoNANall'
+    runname = 'EEGV0-2HPOnoFSnoNANall'
 
     # Test set identifierfor 10-fold Model Validation
     num_splits = 10

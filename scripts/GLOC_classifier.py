@@ -475,11 +475,12 @@ def classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_wei
         clf = BayesSearchCV(
             estimator=logreg,
             search_spaces=search_spaces,
-            n_iter=50,  # You can adjust this based on how long you're willing to search
+            n_iter=30,  # You can adjust this based on how long you're willing to search
             scoring='f1',
-            cv=5,
+            cv=3,
             random_state=random_state,
-            n_jobs=-1
+            n_jobs=-1,
+            verbose=1
         )
 
         clf.fit(x_train, np.ravel(y_train))
@@ -559,8 +560,8 @@ def classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_im
         clf = BayesSearchCV(
             estimator=rf,
             search_spaces=search_space,
-            n_iter=50,  # Number of parameter settings that are sampled
-            cv=5,
+            n_iter=30,  # Number of parameter settings that are sampled
+            cv=3,
             scoring='f1',
             random_state=random_state,
             n_jobs=-1,
@@ -638,11 +639,19 @@ def classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
         #
         # clf.fit(x_train, np.ravel(y_train))
 
-        search_spaces = {
-            'solver': Categorical(['svd', 'lsqr', 'eigen']),
-            'shrinkage': Categorical([None, 0.1, 0.2, 0.4, 0.6, 0.8, 1, 'auto']),
-            'tol': Real(1e-10, 1e-2, prior='log-uniform')
-        }
+        search_spaces = [
+            # Case 1: solver = 'svd' (shrinkage not allowed)
+            {
+                'solver': Categorical(['svd']),
+                'tol': Real(1e-10, 1e-2, prior='log-uniform')
+            },
+            # Case 2: solver = 'lsqr' or 'eigen' (shrinkage allowed)
+            {
+                'solver': Categorical(['lsqr', 'eigen']),
+                'shrinkage': Categorical([None, 0.1, 0.2, 0.4, 0.6, 0.8, 1, 'auto']),
+                'tol': Real(1e-10, 1e-2, prior='log-uniform')
+            }
+        ]
 
         # Define the model
         lda = LinearDiscriminantAnalysis()
@@ -651,11 +660,12 @@ def classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
         clf = BayesSearchCV(
             estimator=lda,
             search_spaces=search_spaces,
-            n_iter=50,  # You can increase this for a more thorough search
-            cv=5,
+            n_iter=30,  # You can increase this for a more thorough search
+            cv=3,
             scoring='f1',
             random_state=0,
-            n_jobs=-1
+            n_jobs=-1,
+            verbose=1
         )
 
         clf.fit(x_train, np.ravel(y_train))
@@ -718,8 +728,9 @@ def classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
         search_spaces = {
             'n_neighbors': Integer(3, 30),
             'weights': Categorical(['uniform', 'distance']),
-            'algorithm': Categorical(['ball_tree', 'kd_tree', 'brute', 'auto']),
-            'metric': Categorical(['minkowski', 'euclidean', 'manhattan'])
+            'algorithm': Categorical(['auto', 'brute']),  # avoids kd_tree/ball_tree issues
+            'metric': Categorical(['minkowski']),
+            'p': Integer(1, 2)  # p=1 (manhattan), p=2 (euclidean)
         }
 
         # Define the model
@@ -729,11 +740,12 @@ def classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
         clf = BayesSearchCV(
             estimator=knn,
             search_spaces=search_spaces,
-            n_iter=50,  # Customize as needed
-            cv=5,
+            n_iter=30,  # Customize as needed
+            cv=3,
             scoring='f1',
             random_state=0,
-            n_jobs=-1
+            n_jobs=-1,
+            verbose=1
         )
 
         # Fit the model
@@ -796,13 +808,21 @@ def classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_
         #
         # clf.fit(x_train, np.ravel(y_train))
 
-        search_spaces = {
-            'C': Real(0.1, 1000, prior='log-uniform'),
-            'gamma': Categorical([1, 0.1, 0.01, 0.001, 0.0001, 'auto']),
-            'kernel': Categorical(['rbf', 'linear', 'poly', 'sigmoid']),
-            'degree': Integer(3, 5),
-            'tol': Real(1e-10, 1e-2, prior='log-uniform')
-        }
+        search_spaces = [
+            {
+                'kernel': Categorical(['linear', 'rbf', 'sigmoid']),
+                'C': Real(0.1, 1000, prior='log-uniform'),
+                'gamma': Categorical(['scale', 0.1, 0.01, 0.001, 0.0001]),
+                'tol': Real(1e-6, 1e-2, prior='log-uniform')
+            },
+            {
+                'kernel': Categorical(['poly']),
+                'C': Real(0.1, 1000, prior='log-uniform'),
+                'gamma': Categorical(['scale', 0.1, 0.01, 0.001]),
+                'degree': Integer(2, 5),
+                'tol': Real(1e-6, 1e-2, prior='log-uniform')
+            }
+        ]
 
         # Define the model
         svm_class = svm.SVC(class_weight=class_weight_imb)
@@ -811,11 +831,12 @@ def classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_
         clf = BayesSearchCV(
             estimator=svm_class,
             search_spaces=search_spaces,
-            n_iter=50,  # You can tune this
-            cv=5,
+            n_iter=30,  # You can tune this
+            cv=3,
             scoring='f1',
             random_state=0,
-            n_jobs=-1
+            n_jobs=-1,
+            verbose=1
         )
 
         clf.fit(x_train, np.ravel(y_train))
@@ -882,15 +903,14 @@ def classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, rando
         # clf.fit(x_train, np.ravel(y_train))
 
         search_spaces = {
-            'n_estimators': Integer(10, 1000),  # This parameter is continuous, so we use Integer.
-            'learning_rate': Real(0.01, 5, prior='log-uniform'),
-            'max_depth': Integer(3, 100),  # For max_depth, integer search space, and None will be handled separately.
+            'n_estimators': Integer(50, 1000),
+            'learning_rate': Real(0.01, 1.0, prior='log-uniform'),
+            'max_depth': Integer(3, 20),
             'max_features': Categorical(['sqrt', 'log2', None]),
-            'min_samples_leaf': Integer(1, 4),  # Discrete values are acceptable, so we use Integer.
-            'min_samples_split': Integer(1, 4),  # Same here.
-            'loss': Categorical(['log_loss', 'exponential']),
-            'criterion': Categorical(['friedman_mse', 'squared_error']),
-            'min_weight_fraction_leaf': Real(0.0, 0.5)  # Continuous range for this parameter.
+            'min_samples_leaf': Integer(1, 4),
+            'min_samples_split': Integer(2, 4),
+            'loss': Categorical(['log_loss']),
+            'min_weight_fraction_leaf': Real(0.0, 0.5)
         }
 
         # Define the model
@@ -900,11 +920,12 @@ def classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, rando
         clf = BayesSearchCV(
             estimator=gb,
             search_spaces=search_spaces,
-            n_iter=50,  # Number of iterations can be adjusted
-            cv=5,
+            n_iter=30,  # Number of iterations can be adjusted
+            cv=3,
             scoring='f1',
             random_state=random_state,
-            n_jobs=-1
+            n_jobs=-1,
+            verbose=1
         )
 
         # Fit the model
