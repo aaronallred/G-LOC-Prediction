@@ -602,7 +602,7 @@ def combine_all_baseline(trial_column, baseline, baseline_derivative, baseline_s
     num_cols = 0
     for method in baseline.keys():
         num_cols += baseline[method][trial_id_in_data[0]].shape[1]*3
-    combined_baseline = {trial: np.empty((baseline[list(baseline.keys())[0]][trial].shape[0], num_cols)) for trial in trial_id_in_data}
+    combined_baseline = {trial: np.empty((baseline[list(baseline.keys())[0]][trial].shape[0], num_cols), dtype=np.float32) for trial in trial_id_in_data}
     # combined_baseline2 = {trial: np.empty((baseline[list(baseline.keys())[0]][trial].shape[0], 0)) for trial in
     #                      trial_id_in_data}
 
@@ -613,9 +613,9 @@ def combine_all_baseline(trial_column, baseline, baseline_derivative, baseline_s
             m,n = baseline[method][trial].shape
             start = i * n
             end = start + n
-            combined_baseline[trial][:,start:end] = baseline[method][trial]
-            combined_baseline[trial][:,start+n:end+n] = baseline_derivative[method][trial]
-            combined_baseline[trial][:,start+2*n:end+2*n] = baseline_second_derivative[method][trial]
+            combined_baseline[trial][:,start:end] = baseline[method][trial].astype(np.float32)
+            combined_baseline[trial][:,start+n:end+n] = baseline_derivative[method][trial].astype(np.float32)
+            combined_baseline[trial][:,start+2*n:end+2*n] = baseline_second_derivative[method][trial].astype(np.float32)
             # all_baseline_data.append(baseline[method][trial])
             # all_baseline_data.append(baseline_derivative[method][trial])
             # all_baseline_data.append(baseline_second_derivative[method][trial])

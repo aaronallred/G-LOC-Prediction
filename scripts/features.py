@@ -72,7 +72,7 @@ def feature_generation(time_start, offset, stride, window_size, combined_baselin
                     all_features_additional_s1 + all_features_mean_s2 + all_features_stddev_s2 + all_features_max_s2 +
                     all_features_range_s2 + all_features_additional_s2)
 
-    return y_gloc_labels, x_feature_matrix, all_features
+    return y_gloc_labels.astype(np.float32), x_feature_matrix.astype(np.float32), all_features
 
 def sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column, combined_baseline_names):
     """

@@ -35,16 +35,16 @@ def main_loop(kfold_ID, num_splits, runname):
     n_neighbors = 3
 
     ## Model Parameters
-    model_type = ['noAFE', 'implicit']
+    model_type = ['noAFE', 'explicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
     if 'noAFE' in model_type and 'implicit' in model_type:
-        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
-        feature_groups_to_analyze = ['ECG']
+        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
+        # feature_groups_to_analyze = ['ECG']
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
-    baseline_methods_to_use = ['v0','v1','v2']
+    baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
 
     analysis_type = 2
 
@@ -123,6 +123,8 @@ def main_loop(kfold_ID, num_splits, runname):
                       gloc,baseline_window, features_phys, all_features_phys, features_ecg, all_features_ecg,
                       features_eeg, all_features_eeg, baseline_data_filename, list_of_baseline_eeg_processed_files,
                       model_type))
+
+
 
     ################################################ GENERATE FEATURES ################################################
     """

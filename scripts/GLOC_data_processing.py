@@ -104,6 +104,7 @@ def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, dem
     if not os.path.isfile(pickle_filename):
         # Load CSV
         gloc_data = pd.read_csv(filename)
+        gloc_data = gloc_data.astype({col: 'float32' for col in gloc_data.select_dtypes(include='float64').columns})
 
         # Save pickle file
         gloc_data.to_pickle(pickle_filename)
@@ -114,6 +115,7 @@ def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, dem
 
     # Slot in GOR EEG data from other files
     gloc_data = process_EEG_GOR(list_of_eeg_data_files, gloc_data)
+    gloc_data = gloc_data.astype({col: 'float32' for col in gloc_data.select_dtypes(include='float64').columns})
 
     ############################################# Data Processing #############################################
     # Separate Subject/Trial Column
@@ -362,10 +364,10 @@ def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, dem
     all_features_eeg = processed_eeg_shared_features + processed_eeg_condition_specific
 
     # Create matrix of all features for data being analyzed
-    features = gloc_data_reduced[all_features].to_numpy()
-    features_phys = gloc_data_reduced[all_features_phys].to_numpy()
-    features_ecg = gloc_data_reduced[all_features_ecg].to_numpy()
-    features_eeg = gloc_data_reduced[all_features_eeg].to_numpy()
+    features = gloc_data_reduced[all_features].to_numpy(dtype=np.float32)
+    features_phys = gloc_data_reduced[all_features_phys].to_numpy(dtype=np.float32)
+    features_ecg = gloc_data_reduced[all_features_ecg].to_numpy(dtype=np.float32)
+    features_eeg = gloc_data_reduced[all_features_eeg].to_numpy(dtype=np.float32)
 
     return gloc_data_reduced, features, features_phys, features_ecg, features_eeg, all_features, all_features_phys, all_features_ecg, all_features_eeg
 
@@ -905,6 +907,7 @@ def read_and_process_demographics(demographic_data_filename, gloc_data_reduced):
 
     # Import demographics spreadsheet
     demographics = pd.read_csv(demographic_data_filename)
+    demographics = demographics.astype({col: 'float32' for col in demographics.select_dtypes(include='float64').columns})
 
     # Grab variables of interest
     participant_index = demographics['GLOC ID']                                                         # Corresponds to subject 1-13
@@ -1143,8 +1146,8 @@ def unpack_dict(gloc_window, sliding_window_mean_s1, number_windows, sliding_win
         num_cols = num_cols + np.shape(current_dictionary[trial_id_in_data[0]])[1]
 
     # Pre-allocate
-    x_feature_matrix = np.zeros((total_rows, num_cols))
-    y_gloc_labels = np.zeros((total_rows, 1))
+    x_feature_matrix = np.zeros((total_rows, num_cols), dtype=np.float32)
+    y_gloc_labels = np.zeros((total_rows, 1), dtype=np.float32)
 
     # Iterate through unique trial_id
     current_index = 0
@@ -1162,13 +1165,13 @@ def unpack_dict(gloc_window, sliding_window_mean_s1, number_windows, sliding_win
 
             # Set rows and columns in x_feature_matrix equal to current dictionary
             x_feature_matrix[current_index:num_rows + current_index,
-            column_index:np.shape(current_dictionary[trial_id_in_data[i]])[1] + column_index] = current_dictionary[trial_id_in_data[i]]
+            column_index:np.shape(current_dictionary[trial_id_in_data[i]])[1] + column_index] = current_dictionary[trial_id_in_data[i]].astype(np.float32)
 
             # Increment column index
             column_index += np.shape(current_dictionary[trial_id_in_data[i]])[1]
 
         # Set corresponding gloc labels from current trial
-        y_gloc_labels[current_index:num_rows+current_index, :] = gloc_window[trial_id_in_data[i]]
+        y_gloc_labels[current_index:num_rows+current_index, :] = gloc_window[trial_id_in_data[i]].astype(np.float32)
 
         # Increment row index
         current_index += num_rows
