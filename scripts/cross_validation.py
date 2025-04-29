@@ -25,7 +25,7 @@ def main_loop(kfold_ID, num_splits, runname):
     random_state = 42
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
-    classifier_type = 'all_hpo'
+    classifier_type = 'rf_hpo'
     train_class = True
     class_weight_imb = None
 
@@ -35,7 +35,7 @@ def main_loop(kfold_ID, num_splits, runname):
     n_neighbors = 3
 
     ## Model Parameters
-    model_type = ['noAFE', 'explicit']
+    model_type = ['noAFE', 'implicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
@@ -332,7 +332,7 @@ if __name__ == "__main__":
 
     # Get time stamp for saving models
     # runname = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    runname = 'EEGV0-2HPOnoFSnoNANall'
+    runname = 'ImplicitV0-8HPOnoFSnoNANrf'
 
     # Test set identifierfor 10-fold Model Validation
     num_splits = 10
@@ -346,6 +346,18 @@ if __name__ == "__main__":
         # Loop through all train-test splits
         method_key = str(kfold_ID[i])
         kfold_performance_summary[method_key] = main_loop(kfold_ID[i], num_splits, runname)
+
+        # Save pkl summary for this iteration
+        save_folder = os.path.join("../PerformanceSave/CrossValidation", runname, method_key)
+        save_file = 'FoldSummary.pkl'
+        save_path = os.path.join(save_folder, save_file)
+
+        # Ensure the save folder exists
+        if not os.path.exists(save_folder):
+            os.makedirs(save_folder)
+
+        with open(save_path, 'wb') as file:
+            pickle.dump(kfold_performance_summary, file)
 
     # Save pkl summary
     save_folder = os.path.join("../PerformanceSave/CrossValidation", runname)

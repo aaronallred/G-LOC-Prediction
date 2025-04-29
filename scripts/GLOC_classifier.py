@@ -47,19 +47,19 @@ def pre_classification_training_test_split(y_gloc_labels_noNaN, x_feature_matrix
 
 # Training Test Split Using Stratified K-Fold
 # USING RANDOM STATE = 42
-def stratified_kfold_split(Y, X, num_splits, kfold_ID):
+def stratified_kfold_split(Y, X, num_splits, kfold_ID, random_state=42):
     """
     This function splits the X and y matrix into training and test matrix.
     """
 
     # Stratified K-Fold setup
     # Use random state to ensure repeatability across runs and classifiers
-    skf = StratifiedKFold(n_splits=num_splits)
+    skf = StratifiedKFold(n_splits=num_splits, shuffle=True, random_state=random_state)
 
     # Safety check to ensure that kfold_ID is within the fold indices
     n_folds = skf.get_n_splits()
     if kfold_ID < 0 or kfold_ID >= n_folds:
-        raise ValueError(f"Fold index {X_fold} out of range (must be between 0 and {n_folds - 1})")
+        raise ValueError(f"Fold index {kfold_ID} out of range (must be between 0 and {n_folds - 1})")
 
     # Grab train and test indices given the skf generator format for a specific kfold_ID
     train_index, test_index = next(islice(skf.split(X, Y), kfold_ID, kfold_ID + 1))

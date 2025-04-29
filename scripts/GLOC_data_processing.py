@@ -105,6 +105,7 @@ def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, dem
         # Load CSV
         gloc_data = pd.read_csv(filename)
         gloc_data = gloc_data.astype({col: 'float32' for col in gloc_data.select_dtypes(include='float64').columns})
+        gloc_data = gloc_data.copy()
 
         # Save pickle file
         gloc_data.to_pickle(pickle_filename)
@@ -116,6 +117,7 @@ def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, dem
     # Slot in GOR EEG data from other files
     gloc_data = process_EEG_GOR(list_of_eeg_data_files, gloc_data)
     gloc_data = gloc_data.astype({col: 'float32' for col in gloc_data.select_dtypes(include='float64').columns})
+    gloc_data = gloc_data.copy()
 
     ############################################# Data Processing #############################################
     # Separate Subject/Trial Column
@@ -908,6 +910,7 @@ def read_and_process_demographics(demographic_data_filename, gloc_data_reduced):
     # Import demographics spreadsheet
     demographics = pd.read_csv(demographic_data_filename)
     demographics = demographics.astype({col: 'float32' for col in demographics.select_dtypes(include='float64').columns})
+    demographics = demographics.copy()
 
     # Grab variables of interest
     participant_index = demographics['GLOC ID']                                                         # Corresponds to subject 1-13
