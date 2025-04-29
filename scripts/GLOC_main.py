@@ -23,7 +23,7 @@ if __name__ == "__main__":
     random_state = 42
 
     # troubleshoot mode | 0 = No, Proceed with full feature set , 1 = Yes, reduce feature set for testing/troubleshooting
-    trouble_shoot_mode = 0
+    trouble_shoot_mode = 1
 
     # Import Feature Matrix | 0 = No, Proceed with Baseline and Feature Extraction , 1 = Yes, Use Existing Pkl
     import_feature_matrix = 1
@@ -46,11 +46,11 @@ if __name__ == "__main__":
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
     # Note: 'shuffle' does not work for KNN or LDA
-    feature_reduction_type = 'none'
+    feature_reduction_type = 'shuffle'
 
     # Data Handling Options
     remove_NaN_trials = True
-    impute_type = 3
+    impute_type = 2
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
@@ -60,9 +60,8 @@ if __name__ == "__main__":
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
 
-    # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
-    baseline_methods_to_use = ['v0','v1', 'v2', 'v5', 'v6', 'v7', 'v8']
-    baseline_methods_to_use = ['v0', 'v1']
+    baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
+    baseline_methods_to_use = ['v0']
 
     analysis_type = 2
 
@@ -256,6 +255,11 @@ if __name__ == "__main__":
           Split data into training/test for optimization loop of sequential optimization framework.
     """
 
+    # Remove all NaN rows from x matrix before train/test split for method 2 & method 1 if there are remaining NaNs
+    if impute_type == 2 or impute_type == 1:
+        y_gloc_labels, x_feature_matrix, all_features = process_NaN(y_gloc_labels, x_feature_matrix, all_features)
+
+
     # Training/Test Split
     x_train_NaN, x_test_NaN, y_train_NaN, y_test_NaN = pre_classification_training_test_split(y_gloc_labels,
                                                                               x_feature_matrix, training_ratio, random_state)
@@ -265,16 +269,8 @@ if __name__ == "__main__":
           Remove NaNs from data if method 2, impute using kNN imputation if method 3. Remove all remaining rows with NaN
           for method 1. Otherwise, do nothing.
     """
-
-    # Impute Training/Test Set
-    if impute_type == 2 or impute_type == 1:
-        # Remove NaN rows from Training Set
-        y_train, x_train, all_features = process_NaN(y_train_NaN, x_train_NaN, all_features)
-
-        # Remove NaN rows from Test Set
-        y_test, x_test, all_features = process_NaN(y_test_NaN, x_test_NaN, all_features)
-
-    elif impute_type == 3:
+    # If method 3, apply knn imputation to x matrix on train/test separately
+    if impute_type == 3:
         # Leave y-labels as-is
         y_train = y_train_NaN
         y_test = y_test_NaN
