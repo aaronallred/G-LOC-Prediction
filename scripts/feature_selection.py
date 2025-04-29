@@ -24,39 +24,60 @@ def feature_selection_lasso(x_train, x_test, y_train, all_features, random_state
     This function finds optimal lasso alpha parameter and fits a lasso model to determine
     most important features. This should only see the 'training' data.
     """
-    # parameters to be tested on GridSearchCV
-    params = {"alpha": np.arange(0.00001, 10, 500)}
+    # # parameters to be tested on GridSearchCV
+    # params = {"alpha": np.arange(0.00001, 10, 500)}
+    #
+    # # Number of Folds and adding the random state for replication
+    # # kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
+    #
+    # # Initializing the Model
+    # lasso = Lasso()
+    #
+    # # GridSearchCV with model, params and 10 stratified folds.
+    # lasso_cv = GridSearchCV(lasso, param_grid=params, cv=10)
+    # lasso_cv.fit(x_train, y_train)
+    #
+    # # Use optimal alpha value from grid search CV
+    # alpha_optimal = lasso_cv.best_params_['alpha']
+    #
+    # # calling the model with the best parameter
+    # lasso_optimal = Lasso(alpha=alpha_optimal)
+    # lasso_optimal.fit(x_train, y_train)
 
-    # Number of Folds and adding the random state for replication
-    # kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
+    # Define the hyperparameter search space
+    search_spaces = {
+        'alpha': Real(0.00001, 100)
+    }
 
     # Initializing the Model
     lasso = Lasso()
 
-    # GridSearchCV with model, params and 10 stratified folds.
-    lasso_cv = GridSearchCV(lasso, param_grid=params, cv=10)
-    lasso_cv.fit(x_train, y_train)
+    # Set up BayesSearchCV
+    lasso_cv = BayesSearchCV(
+        estimator=lasso,
+        search_spaces=search_spaces,
+        cv=3,
+        random_state=random_state,
+        n_jobs=-1,
+        verbose=1
+    )
 
-    # Use optimal alpha value from grid search CV
-    alpha_optimal = lasso_cv.best_params_['alpha']
-
-    # calling the model with the best parameter
-    lasso_optimal = Lasso(alpha=alpha_optimal)
-    lasso_optimal.fit(x_train, y_train)
+    # Fit model
+    lasso_cv.fit(x_train, np.ravel(y_train))
 
     # Using np.abs() to make coefficients positive.
-    lasso_optimal_coef = np.abs(lasso_optimal.coef_)
+    lasso_optimal_coef = np.abs(lasso_cv.coef_)
 
-    # plotting the Column Names and Importance of Columns.
-    fig,ax = plt.subplots(figsize=(10,10))
-    plt.bar(all_features, lasso_optimal_coef)
-    plt.xticks(rotation=90, fontsize=10)
-    plt.grid()
-    plt.title("Feature Selection Based on Lasso")
-    plt.xlabel("Features")
-    plt.ylabel("Importance")
-    plt.ylim(0, 0.15)
-    plt.show()
+    # # plotting the Column Names and Importance of Columns.
+    # fig,ax = plt.subplots(figsize=(10,10))
+    # plt.bar(all_features, lasso_optimal_coef)
+    # plt.xticks(rotation=90, fontsize=10)
+    # plt.grid()
+    # plt.title("Feature Selection Based on Lasso")
+    # plt.xlabel("Features")
+    # plt.ylabel("Importance")
+    # plt.ylim(0, 0.15)
+    # plt.show()
 
     # Subset of the features with nonzero coefficient
     selected_features = np.array(all_features)[lasso_optimal_coef != 0]
@@ -104,40 +125,62 @@ def feature_selection_elastic_net(x_train, x_test, y_train, all_features, random
     most important features. This should only see the 'training' data.
     """
 
-    # parameters to be tested on GridSearchCV
-    params = {"alpha": np.arange(0.00001, 10, 500), "l1_ratio": np.arange(0, 1, 500)}
+    # # parameters to be tested on GridSearchCV
+    # params = {"alpha": np.arange(0.00001, 10, 500), "l1_ratio": np.arange(0, 1, 500)}
+    #
+    # # Number of Folds and adding the random state for replication
+    # # kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
+    #
+    # # Initializing the Model
+    # enet = ElasticNet()
+    #
+    # # GridSearchCV with model, params and 10 stratified folds.
+    # enet_cv = GridSearchCV(enet, param_grid=params, cv=10)
+    # enet_cv.fit(x_train, y_train)
+    #
+    # # Use optimal alpha value and l1 ratio from grid search CV
+    # alpha_optimal = enet_cv.best_params_['alpha']
+    # l1ratio_optimal = enet_cv.best_params_['l1_ratio']
+    #
+    # # calling the model with the best parameter
+    # enet1 = ElasticNet(alpha=alpha_optimal, l1_ratio=l1ratio_optimal)
+    # enet1.fit(x_train, y_train)
 
-    # Number of Folds and adding the random state for replication
-    # kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
+    # Define the hyperparameter search space
+    search_spaces = {
+        'alpha': Real(0.00001, 100),
+        'l1_ratio': Real(0, 1)
+    }
 
     # Initializing the Model
     enet = ElasticNet()
 
-    # GridSearchCV with model, params and 10 stratified folds.
-    enet_cv = GridSearchCV(enet, param_grid=params, cv=10)
-    enet_cv.fit(x_train, y_train)
+    # Set up BayesSearchCV
+    enet_cv = BayesSearchCV(
+        estimator=enet,
+        search_spaces=search_spaces,
+        cv=3,
+        random_state=random_state,
+        n_jobs=-1,
+        verbose=1
+    )
 
-    # Use optimal alpha value and l1 ratio from grid search CV
-    alpha_optimal = enet_cv.best_params_['alpha']
-    l1ratio_optimal = enet_cv.best_params_['l1_ratio']
-
-    # calling the model with the best parameter
-    enet1 = ElasticNet(alpha=alpha_optimal, l1_ratio=l1ratio_optimal)
-    enet1.fit(x_train, y_train)
+    # Fit model
+    enet_cv.fit(x_train, np.ravel(y_train))
 
     # Using np.abs() to make coefficients positive.
-    enet1_coef = np.abs(enet1.coef_)
+    enet1_coef = np.abs(enet_cv.coef_)
 
-    # plotting the Column Names and Importance of Columns.
-    fig, ax = plt.subplots(figsize=(10, 10))
-    plt.bar(all_features, enet1_coef)
-    plt.xticks(rotation=90, fontsize=10)
-    plt.grid()
-    plt.title("Feature Selection Based on Elastic Net")
-    plt.xlabel("Features")
-    plt.ylabel("Importance")
-    plt.ylim(0, 0.15)
-    plt.show()
+    # # plotting the Column Names and Importance of Columns.
+    # fig, ax = plt.subplots(figsize=(10, 10))
+    # plt.bar(all_features, enet1_coef)
+    # plt.xticks(rotation=90, fontsize=10)
+    # plt.grid()
+    # plt.title("Feature Selection Based on Elastic Net")
+    # plt.xlabel("Features")
+    # plt.ylabel("Importance")
+    # plt.ylim(0, 0.15)
+    # plt.show()
 
     # Subset of the features which have more than 0.001 importance.
     selected_features = np.array(all_features)[enet1_coef != 0]
@@ -155,44 +198,65 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features, n, random_st
     most important features. This should only see the 'training' data.
     """
 
-    # parameters to be tested on GridSearchCV
-    params = {"alpha": np.arange(0.00001, 10, 500)}
+    # # parameters to be tested on GridSearchCV
+    # params = {"alpha": np.arange(0.00001, 10, 500)}
+    #
+    # # Number of Folds and adding the random state for replication
+    # # kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
+    #
+    # # Initializing the Model
+    # ridge0 = Ridge()
+    #
+    # # GridSearchCV with model, params, and stratified 10fold CV
+    # ridge_cv = GridSearchCV(ridge0, param_grid=params, cv=10)
+    # ridge_cv.fit(x_train, y_train)
+    #
+    # # Use optimal alpha value from grid search CV
+    # alpha_optimal = ridge_cv.best_params_['alpha']
+    #
+    # # calling the model with the best parameter
+    # ridge1 = Ridge(alpha=alpha_optimal)
+    # ridge1.fit(x_train, y_train)
 
-    # Number of Folds and adding the random state for replication
-    # kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
+    # Define the hyperparameter search space
+    search_spaces = {
+        'alpha': Real(0.00001, 100),
+    }
 
     # Initializing the Model
-    ridge0 = Ridge()
+    ridge = Ridge()
 
-    # GridSearchCV with model, params, and stratified 10fold CV
-    ridge_cv = GridSearchCV(ridge0, param_grid=params, cv=10)
-    ridge_cv.fit(x_train, y_train)
+    # Set up BayesSearchCV
+    ridge_cv = BayesSearchCV(
+        estimator=ridge,
+        search_spaces=search_spaces,
+        cv=3,
+        random_state=random_state,
+        n_jobs=-1,
+        verbose=1
+    )
 
-    # Use optimal alpha value from grid search CV
-    alpha_optimal = ridge_cv.best_params_['alpha']
-
-    # calling the model with the best parameter
-    ridge1 = Ridge(alpha=alpha_optimal)
-    ridge1.fit(x_train, y_train)
+    # Fit model
+    ridge_cv.fit(x_train, np.ravel(y_train))
 
     # Using np.abs() to make coefficients positive.
-    ridge1_coef = np.abs(ridge1.coef_)
-    ridge1_coef = np.ravel(ridge1_coef)
+    ridge1_coef = np.abs(ridge_cv.coef_)
+    ridge1_coef = np.ravel(ridge_cv)
 
-    # plotting the Column Names and Importance of Columns.
-    fig, ax = plt.subplots(figsize=(10, 10))
-    plt.bar(all_features, ridge1_coef)
-    plt.xticks(rotation=90, fontsize=10)
-    plt.grid()
-    plt.title("Feature Selection Based on Ridge")
-    plt.xlabel("Features")
-    plt.ylabel("Importance")
-    plt.ylim(0, 0.7)
-    plt.show()
+    # # plotting the Column Names and Importance of Columns.
+    # fig, ax = plt.subplots(figsize=(10, 10))
+    # plt.bar(all_features, ridge_cv)
+    # plt.xticks(rotation=90, fontsize=10)
+    # plt.grid()
+    # plt.title("Feature Selection Based on Ridge")
+    # plt.xlabel("Features")
+    # plt.ylabel("Importance")
+    # plt.ylim(0, 0.7)
+    # plt.show()
 
     # Determine threshold for top n% features
-    threshold = np.percentile(ridge1_coef, 100 - n)
-    selected_features = np.array(all_features)[ridge1_coef >= threshold]
+    threshold = np.percentile(ridge_cv, 100 - n)
+    selected_features = np.array(all_features)[ridge_cv >= threshold]
 
     # Grab relevant feature columns from x_train and x_test
     feature_index = [index for index, element in enumerate(all_features) if element in selected_features]
@@ -206,20 +270,41 @@ def dimensionality_reduction_PCA(x_train, x_test):
     This function completes PCA for the training data. The number of components are determined
     based on achieving n_components*100 percent explained variance.
     """
-    # Complete PCA
-    params = {"n_components": [0.99, 0.995, 0.999]}
-    pca_no_hpo = PCA()
+    # # Complete PCA
+    # params = {"n_components": [0.99, 0.995, 0.999]}
+    # pca_no_hpo = PCA()
+    #
+    # pca = GridSearchCV(pca_no_hpo, param_grid=param_grid, cv=10)
+    #
+    # pca.fit(x_train)
 
-    pca = GridSearchCV(pca_no_hpo, param_grid=param_grid, cv=10)
+    # Define the hyperparameter search space
+    search_spaces = {
+        'n_components': Real(0.95, 0.9999),
+    }
 
-    pca.fit(x_train)
+    # Initializing the Model
+    pca = PCA()
+
+    # Set up BayesSearchCV
+    pca_cv = BayesSearchCV(
+        estimator=pca,
+        search_spaces=search_spaces,
+        cv=3,
+        random_state=random_state,
+        n_jobs=-1,
+        verbose=1
+    )
+
+    # Fit model
+    pca_cv.fit(x_train)
 
     # Transform training & test matrices
-    x_train_pca = pca.transform(x_train)
-    x_test_pca = pca.transform(x_test)
+    x_train_pca = pca_cv.transform(x_train)
+    x_test_pca = pca_cv.transform(x_test)
 
     # Evaluate explained variance
-    explained_variance = pca.explained_variance_ratio_
+    explained_variance = pca_cv.explained_variance_ratio_
 
     # Create string name for PCA features
     selected_features = [str(i) for i in range(0, np.shape(x_train_pca)[1])]
@@ -244,17 +329,17 @@ def dimensionality_reduction_PCA(x_train, x_test):
 def feature_selection_shuffle(x_train, x_test, y_train, all_features, classifier_method, random_state):
     # Complete feature selection by shuffling for each classifier
     if classifier_method == 'logreg':
-        sbs = SelectByShuffling(LogisticRegression(random_state=random_state),cv=10,random_state=random_state)
+        sbs = SelectByShuffling(LogisticRegression(random_state=random_state),cv=3,random_state=random_state)
     elif classifier_method == 'rf':
-        sbs = SelectByShuffling(RandomForestClassifier(random_state=random_state), cv=10, random_state=random_state)
+        sbs = SelectByShuffling(RandomForestClassifier(random_state=random_state), cv=3, random_state=random_state)
     elif classifier_method == 'lda':
-        sbs = SelectByShuffling(LinearDiscriminantAnalysis(), cv=10, random_state=random_state)
+        sbs = SelectByShuffling(LinearDiscriminantAnalysis(), cv=3, random_state=random_state)
     elif classifier_method == 'knn':
-        sbs = SelectByShuffling(KNeighborsClassifier(), cv=10, random_state=random_state)
+        sbs = SelectByShuffling(KNeighborsClassifier(), cv=3, random_state=random_state)
     elif classifier_method == 'svm':
-        sbs = SelectByShuffling(svm.SVC(random_state=random_state), cv=10, random_state=random_state)
+        sbs = SelectByShuffling(svm.SVC(random_state=random_state), cv=3, random_state=random_state)
     elif classifier_method == 'gb':
-        sbs = SelectByShuffling(GradientBoostingClassifier(random_state=random_state), cv=10, random_state=random_state)
+        sbs = SelectByShuffling(GradientBoostingClassifier(random_state=random_state), cv=3, random_state=random_state)
 
     # fit select by shuffling on the training data
     sbs.fit(x_train, y_train)
@@ -294,17 +379,17 @@ def feature_selection_shuffle(x_train, x_test, y_train, all_features, classifier
 def feature_selection_performance(x_train, x_test, y_train, all_features, classifier_method, random_state):
     # Complete feature selection by single feature performance for each classifier
     if classifier_method == 'logreg':
-        sfp = SelectBySingleFeaturePerformance(LogisticRegression(random_state=random_state),cv=10)
+        sfp = SelectBySingleFeaturePerformance(LogisticRegression(random_state=random_state),cv=3)
     elif classifier_method == 'rf':
-        sfp = SelectBySingleFeaturePerformance(RandomForestClassifier(random_state=random_state), cv=10)
+        sfp = SelectBySingleFeaturePerformance(RandomForestClassifier(random_state=random_state), cv=3)
     elif classifier_method == 'lda':
-        sfp = SelectBySingleFeaturePerformance(LinearDiscriminantAnalysis(), cv=10)
+        sfp = SelectBySingleFeaturePerformance(LinearDiscriminantAnalysis(), cv=3)
     elif classifier_method == 'knn':
-        sfp = SelectBySingleFeaturePerformance(KNeighborsClassifier(), cv=10)
+        sfp = SelectBySingleFeaturePerformance(KNeighborsClassifier(), cv=3)
     elif classifier_method == 'svm':
-        sfp = SelectBySingleFeaturePerformance(svm.SVC(random_state=random_state), cv=10)
+        sfp = SelectBySingleFeaturePerformance(svm.SVC(random_state=random_state), cv=3)
     elif classifier_method == 'gb':
-        sfp = SelectBySingleFeaturePerformance(GradientBoostingClassifier(random_state=random_state), cv=10)
+        sfp = SelectBySingleFeaturePerformance(GradientBoostingClassifier(random_state=random_state), cv=3)
 
     # fit single feature performance model on the training data
     sfp.fit(x_train, y_train)
@@ -343,31 +428,52 @@ def feature_selection_performance(x_train, x_test, y_train, all_features, classi
 
 def target_mean_selection(x_train, x_test, y_train, all_features, random_state):
 
-    # parameters to be tested on GridSearchCV
-    params = {"threshold": np.arange(0.001, 1, 100)}
+    # # parameters to be tested on GridSearchCV
+    # params = {"threshold": np.arange(0.001, 1, 100)}
+    #
+    # # Number of Folds and adding the random state for replication
+    # # kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
+    #
+    # # Initializing the Model
+    # tmp = SelectByTargetMeanPerformance()
+    #
+    # # GridSearchCV with model, params and 10 stratified folds.
+    # tmp_cv = GridSearchCV(tmp, param_grid=params, cv=10)
+    # tmp_cv.fit(x_train, y_train)
 
-    # Number of Folds and adding the random state for replication
-    # kf = KFold(n_splits=10, shuffle=True, random_state=random_state)
+    # Define the hyperparameter search space
+    search_spaces = {
+        'threshold': Real(0.001, 1)
+    }
 
     # Initializing the Model
     tmp = SelectByTargetMeanPerformance()
 
-    # GridSearchCV with model, params and 10 stratified folds.
-    tmp_cv = GridSearchCV(tmp, param_grid=params, cv=10)
+    # Set up BayesSearchCV
+    tmp_cv = BayesSearchCV(
+        estimator=tmp,
+        search_spaces=search_spaces,
+        cv=3,
+        random_state=random_state,
+        n_jobs=-1,
+        verbose=1
+    )
+
+    # Fit model
     tmp_cv.fit(x_train, y_train)
 
     # Use optimal value for threshold found in GridSearchCV
     threshold_optimal = tmp_cv.best_params_['threshold']
 
-    # calling the model with the best parameter
-    tmp1 = SelectByTargetMeanPerformance(scoring="f1", threshold = threshold_optimal, cv=10, regression=False)
-    tmp1.fit(x_train, y_train)
+    # # calling the model with the best parameter
+    # tmp1 = SelectByTargetMeanPerformance(scoring="f1", threshold = threshold_optimal, cv=10, regression=False)
+    # tmp1.fit(x_train, y_train)
 
     # tmp = SelectByTargetMeanPerformance(scoring="f1", threshold = 0.01, cv=10, regression=False)
     # tmp.fit_transform(x_train, y_train)
 
     # find features to keep
-    features_to_keep = tmp1.get_feature_names_out()
+    features_to_keep = tmp_cv.get_feature_names_out()
 
     # Convert feature output from selected_features_target_mean to index array and list of features
     selected_features_index = [element[1:] for element in features_to_keep]
@@ -375,8 +481,8 @@ def target_mean_selection(x_train, x_test, y_train, all_features, random_state):
     selected_features = [all_features[index] for index in selected_features_index]
 
     # Grab relevant feature columns from x_train and x_test
-    x_train = tmp1.transform(x_train)
-    x_test = tmp1.transform(x_test)
+    x_train = tmp_cv.transform(x_train)
+    x_test = tmp_cv.transform(x_test)
 
     # Example feature code
     # tmp_variables = tmp.variables_
@@ -402,7 +508,7 @@ def target_mean_selection(x_train, x_test, y_train, all_features, random_state):
     return x_train, x_test, selected_features
 
 
-def ridge_methods(x_train, x_test, y_train, y_test, all_features, classifier_type, train_class, class_weight_imb):
+def ridge_methods(x_train, x_test, y_train, y_test, all_features, classifier_type, train_class, class_weight_imb, random_state):
     # Initialize Dictionaries
     performance_metric_summary_ridge = dict()
     x_train_ridge = dict()
@@ -415,9 +521,11 @@ def ridge_methods(x_train, x_test, y_train, y_test, all_features, classifier_typ
     # Loop through threshold values
     for n in range(len(percentile_threshold)):
         # Determine reduced feature set & transform x_train and x_test
-        x_train_ridge[n], x_test_ridge[n], selected_features_ridge[n] = feature_selection_ridge(x_train, x_test, y_train,
-                                                                                       all_features,
-                                                                                       percentile_threshold[n])
+        x_train_ridge[n], x_test_ridge[n], selected_features_ridge[n] = feature_selection_ridge(x_train, x_test,
+                                                                                                y_train,
+                                                                                                all_features,
+                                                                                                percentile_threshold[n],
+                                                                                                random_state)
 
         # Assess performance for all classifiers
         performance_metric_summary_ridge[percentile_threshold[n]] = (call_all_classifiers(classifier_type, x_train_ridge[n], x_test_ridge[n], y_train,
@@ -452,7 +560,7 @@ def mrmr_methods(x_train, x_test, y_train, y_test, all_features, classifier_type
 
     return x_train_mrmr, x_test_mrmr, selected_features_mrmr, performance_metric_summary_mrmr
 
-def sfp_methods(x_train, x_test, y_train, y_test, all_features, train_class, class_weight_imb):
+def sfp_methods(x_train, x_test, y_train, y_test, all_features, train_class, class_weight_imb, random_state):
 
     # Initialize Dictionaries
     x_train_performance = dict()
@@ -465,11 +573,11 @@ def sfp_methods(x_train, x_test, y_train, y_test, all_features, train_class, cla
     for i in range(len(classifier_method)):
         # Determine reduced feature set & transform x_train and x_test
         x_train_performance[i], x_test_performance[i], selected_features_performance[i] = feature_selection_performance(x_train,
-                                                                                                               x_test,
-                                                                                                               y_train,
-                                                                                                               all_features,
-                                                                                                               classifier_method[
-                                                                                                                   i])
+                                                                                                                        x_test,
+                                                                                                                        y_train,
+                                                                                                                        all_features,
+                                                                                                                        classifier_method[i],
+                                                                                                                        random_state)
 
         ## Assess performance for all classifiers
         # Logistic Regression | logreg
@@ -537,7 +645,7 @@ def shuffle_methods(x_train, x_test, y_train, y_test, all_features, train_class,
                                                                                                         y_train,
                                                                                                         all_features,
                                                                                                         classifier_method[
-                                                                                                            i])
+                                                                                                            i], random_state)
 
         ## Assess performance for all classifiers
         # Logistic Regression | logreg
