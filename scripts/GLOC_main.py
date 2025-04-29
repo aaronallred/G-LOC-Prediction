@@ -26,7 +26,7 @@ if __name__ == "__main__":
     trouble_shoot_mode = 0
 
     # Import Feature Matrix | 0 = No, Proceed with Baseline and Feature Extraction , 1 = Yes, Use Existing Pkl
-    import_feature_matrix = 1
+    import_feature_matrix = 0
     feature_matrix_name = 'x_feature_matrix.pkl'
     y_label_name = 'y_gloc_labels.pkl'
     all_features_name = 'all_features.pkl'
@@ -46,11 +46,11 @@ if __name__ == "__main__":
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
     # Note: 'shuffle' does not work for KNN or LDA
-    feature_reduction_type = 'none'
+    feature_reduction_type = 'lasso'
 
     # Data Handling Options
     remove_NaN_trials = True
-    impute_type = 3
+    impute_type = 2
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
@@ -60,9 +60,8 @@ if __name__ == "__main__":
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
 
-    # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
-    baseline_methods_to_use = ['v0','v1', 'v2', 'v5', 'v6', 'v7', 'v8']
-    baseline_methods_to_use = ['v0', 'v1']
+    baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
+    baseline_methods_to_use = ['v0']
 
     analysis_type = 2
 

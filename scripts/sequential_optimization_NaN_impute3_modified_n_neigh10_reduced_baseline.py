@@ -41,7 +41,7 @@ def main_loop(impute_type, n_neighbors, timestamp, model_type, method_key):
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
 
-    baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
+    baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
 
     analysis_type = 2
 
@@ -55,6 +55,15 @@ def main_loop(impute_type, n_neighbors, timestamp, model_type, method_key):
     # Subject & Trial Information (only need to adjust this if doing analysis type 0,1)
     subject_to_analyze = '01'
     trial_to_analyze = '02'
+
+    # File names to save data .pkl as
+    output_file = ('all_data_' + 'impute_type_' + str(impute_type) +'.pkl')
+
+
+    # Specify Folder to Save X_matrix, Y-label and Feature Names
+    pkl_save_folder = os.path.join("../PklSave/SequentialOptimizationNaN", timestamp_outerloop)
+    if not os.path.exists(pkl_save_folder):
+        os.makedirs(pkl_save_folder)
 
 
 ############################################# LOAD AND PROCESS DATA #############################################
@@ -135,6 +144,11 @@ def main_loop(impute_type, n_neighbors, timestamp, model_type, method_key):
           Split data into training/test for optimization loop of sequential optimization framework.
     """
 
+    # Remove all NaN rows from x matrix before train/test split for method 2 & method 1 if there are remaining NaNs
+    if impute_type == 2 or impute_type == 1:
+        y_gloc_labels, x_feature_matrix, all_features = process_NaN(y_gloc_labels, x_feature_matrix, all_features)
+
+
     # Training/Test Split
     x_train_NaN, x_test_NaN, y_train_NaN, y_test_NaN = pre_classification_training_test_split(y_gloc_labels,
                                                                                               x_feature_matrix,
@@ -146,16 +160,8 @@ def main_loop(impute_type, n_neighbors, timestamp, model_type, method_key):
           Remove NaNs from data if method 2, impute using kNN imputation if method 3. Remove all remaining rows with NaN
           for method 1. Otherwise, do nothing.
     """
-
-    # Impute Training/Test Set
-    if impute_type == 2 or impute_type == 1:
-        # Remove NaN rows from Training Set
-        y_train, x_train, all_features = process_NaN(y_train_NaN, x_train_NaN, all_features)
-
-        # Remove NaN rows from Test Set
-        y_test, x_test, all_features = process_NaN(y_test_NaN, x_test_NaN, all_features)
-
-    elif impute_type == 3:
+    # If method 3, apply knn imputation to x matrix on train/test separately
+    if impute_type == 3:
         # Leave y-labels as-is
         y_train = y_train_NaN
         y_test = y_test_NaN
@@ -166,10 +172,16 @@ def main_loop(impute_type, n_neighbors, timestamp, model_type, method_key):
         # Impute Test Data
         x_test, indicator_matrix_test = knn_impute(x_test_NaN, n_neighbors)
 
+    # if method 1 or 2, NaN rows have already been removed, so just need to relabel variables
     else:
         # Leave train/test matrix as is
         y_train, x_train = y_train_NaN, x_train_NaN
         y_test, x_test = y_test_NaN, x_test_NaN
+
+    # Save pkl
+    output_data = (y_train, y_test, x_train, x_test)
+    with open(os.path.join(pkl_save_folder, output_file), 'wb') as file:
+        pickle.dump(output_data, file)
 
  ################################################ MACHINE LEARNING ################################################
 
@@ -288,10 +300,10 @@ if __name__ == "__main__":
     timestamp_outerloop = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     # Imputation Methods to Test
-    impute_type_all = [1,2,3]
+    impute_type_all = [3]
 
     # N-Neighbors Definition for Imputation Methods 1 & 3
-    n_neighbors_all = [3, 5, 7, 10]
+    n_neighbors_all = [10]
 
     # Specify Model Type
     model_type_outerloop = ['noAFE', 'explicit']
