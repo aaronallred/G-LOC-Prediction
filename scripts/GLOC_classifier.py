@@ -481,7 +481,7 @@ def classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_wei
             random_state=random_state,
             n_jobs=-1,
             verbose=1,
-            error_score='nan'  # 'nan' to silently skip failing configs
+            error_score=np.nan  # 'nan' to silently skip failing configs
         )
 
         clf.fit(x_train, np.ravel(y_train))
@@ -567,7 +567,7 @@ def classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_im
             random_state=random_state,
             n_jobs=-1,
             verbose=1,
-            error_score='nan'  # 'nan' to silently skip failing configs
+            error_score=np.nan  # 'nan' to silently skip failing configs
         )
 
         clf.fit(x_train, np.ravel(y_train))
@@ -668,7 +668,7 @@ def classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
             random_state=0,
             n_jobs=-1,
             verbose=1,
-            error_score='nan'  # 'nan' to silently skip failing configs
+            error_score=np.nan  # 'nan' to silently skip failing configs
         )
 
         clf.fit(x_train, np.ravel(y_train))
@@ -749,7 +749,7 @@ def classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
             random_state=0,
             n_jobs=-1,
             verbose=1,
-            error_score='nan'  # 'nan' to silently skip failing configs
+            error_score=np.nan  # 'nan' to silently skip failing configs
         )
 
         # Fit the model
@@ -841,7 +841,7 @@ def classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_
             random_state=0,
             n_jobs=-1,
             verbose=1,
-            error_score='nan'  # 'nan' to silently skip failing configs
+            error_score=np.nan  # 'nan' to silently skip failing configs
         )
 
         clf.fit(x_train, np.ravel(y_train))
@@ -931,7 +931,7 @@ def classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, rando
             random_state=random_state,
             n_jobs=-1,
             verbose=1,
-            error_score='nan'  # 'nan' to silently skip failing configs
+            error_score=np.nan  # 'nan' to silently skip failing configs
         )
 
         # Fit the model
