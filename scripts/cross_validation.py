@@ -25,7 +25,7 @@ def main_loop(kfold_ID, num_splits, runname):
     random_state = 42
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
-    classifier_type = 'rf_hpo'
+    classifier_type = 'all_hpo'
     train_class = True
     class_weight_imb = None
 
@@ -172,7 +172,16 @@ def main_loop(kfold_ID, num_splits, runname):
     # Training/Test Split
     x_train, x_test, y_train, y_test = stratified_kfold_split(y_gloc_labels_noNaN,x_feature_matrix_noNaN,
                                                               num_splits, kfold_ID)
- ################################################ MACHINE LEARNING ################################################
+
+    ################################################ Feature Selection ################################################
+
+    x_train, x_test, selected_features =  feature_selection_lasso(x_train, x_test, y_train, all_features, random_state)
+
+    ################################################ Class Imbalance ################################################
+
+    x_train, y_train =  simple_smote(x_train, y_train, random_state)
+
+    ################################################ MACHINE LEARNING ################################################
     save_folder = os.path.join("../ModelSave/CV", runname, str(kfold_ID))
 
     # Logistic Regression HPO | logreg_hpo
@@ -332,9 +341,9 @@ if __name__ == "__main__":
 
     # Get time stamp for saving models
     # runname = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    runname = 'ImplicitV0-8HPOnoFSnoNANrf'
+    runname = 'ImplicitV0-8HPO_SMOTE_LASSO_noNAN_all'
 
-    # Test set identifierfor 10-fold Model Validation
+    # Test set identifier for 10-fold Model Validation
     num_splits = 10
     kfold_ID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 

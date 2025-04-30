@@ -46,7 +46,7 @@ def feature_selection_lasso(x_train, x_test, y_train, all_features, random_state
 
     # Define the hyperparameter search space
     search_spaces = {
-        'alpha': Real(0.00001, 100)
+        'alpha': Real(1e-5, 100, prior='log-uniform')
     }
 
     # Initializing the Model
@@ -57,6 +57,7 @@ def feature_selection_lasso(x_train, x_test, y_train, all_features, random_state
         estimator=lasso,
         search_spaces=search_spaces,
         cv=3,
+        n_iter=50,
         random_state=random_state,
         n_jobs=-1,
         verbose=1
@@ -66,7 +67,9 @@ def feature_selection_lasso(x_train, x_test, y_train, all_features, random_state
     lasso_cv.fit(x_train, np.ravel(y_train))
 
     # Using np.abs() to make coefficients positive.
-    lasso_optimal_coef = np.abs(lasso_cv.coef_)
+    # Get best model and coefficients
+    best_lasso = lasso_cv.best_estimator_
+    lasso_optimal_coef = np.abs(best_lasso.coef_)
 
     # # plotting the Column Names and Importance of Columns.
     # fig,ax = plt.subplots(figsize=(10,10))
@@ -701,3 +704,97 @@ def shuffle_methods(x_train, x_test, y_train, y_test, all_features, train_class,
                                                       columns=performance_metrics)
 
     return x_train_shuffle, x_test_shuffle, selected_features_shuffle, performance_metric_summary_shuffle
+
+
+
+## Attempts at speeding up mrmr
+from sklearn.feature_selection import mutual_info_classif
+def feature_selection_mrmr_greedy(x_train, y_train, x_test, all_features, n):
+    """
+    Greedy mRMR (MIQ-style) feature selection using mutual information (relevance)
+    and Pearson correlation (redundancy).
+
+    Returns reduced x_train, x_test, and selected feature names.
+    """
+
+    # Step 1: Compute mutual information (relevance) between each feature and the target
+    mi = mutual_info_classif(x_train, y_train, discrete_features='auto')
+    feature_indices = np.argsort(mi)[::-1]  # Sort by relevance descending
+
+    selected = []
+    candidate_indices = list(feature_indices)
+
+    # Step 2: Greedy selection
+    while len(selected) < n and candidate_indices:
+        best_score = -np.inf
+        best_feature = None
+
+        for idx in candidate_indices:
+            # Relevance
+            relevance = mi[idx]
+
+            # Redundancy (mean correlation with already selected features)
+            if selected:
+                corr = np.abs(np.corrcoef(x_train[:, idx],
+                                          np.mean(x_train[:, selected], axis=1))[0, 1])
+            else:
+                corr = 0  # No redundancy if nothing selected
+
+            # mRMR MIQ = Relevance / (Redundancy + ε)
+            score = relevance / (corr + 1e-6)
+
+            if score > best_score:
+                best_score = score
+                best_feature = idx
+
+        selected.append(best_feature)
+        candidate_indices.remove(best_feature)
+
+    # Final feature subset
+    selected_features = [all_features[i] for i in selected]
+    x_train_selected = x_train[:, selected]
+    x_test_selected = x_test[:, selected]
+
+    return x_train_selected, x_test_selected, selected_features
+
+
+from joblib import Parallel, delayed
+def feature_selection_mrmr_parallel(x_train, y_train, x_test, all_features, n, n_jobs=-1):
+    """
+    Parallel greedy mRMR feature selection using mutual information and Pearson correlation.
+    Uses joblib to speed up selection.
+    """
+
+    # Precompute mutual information (relevance)
+    mi = mutual_info_classif(x_train, np.ravel(y_train), discrete_features='auto')
+    feature_indices = np.argsort(mi)[::-1].tolist()
+
+    selected = []
+    candidate_indices = feature_indices.copy()
+
+    def score_feature(idx, selected):
+        relevance = mi[idx]
+        if selected:
+            mean_selected = np.mean(x_train[:, selected], axis=1)
+            redundancy = np.abs(np.corrcoef(x_train[:, idx], mean_selected)[0, 1])
+        else:
+            redundancy = 0
+        return relevance / (redundancy + 1e-6), idx
+
+    while len(selected) < n and candidate_indices:
+        # Parallel scoring of all remaining candidates
+        scores = Parallel(n_jobs=n_jobs)(
+            delayed(score_feature)(idx, selected) for idx in candidate_indices
+        )
+
+        # Select the best-scoring feature
+        best_score, best_feature = max(scores)
+        selected.append(best_feature)
+        candidate_indices.remove(best_feature)
+
+    # Final output
+    selected_features = [all_features[i] for i in selected]
+    x_train_selected = x_train[:, selected]
+    x_test_selected = x_test[:, selected]
+
+    return x_train_selected, x_test_selected, selected_features
