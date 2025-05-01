@@ -60,3 +60,14 @@ def resample_smote(x_train, y_train, random_state):
     resampled_x, resampled_y = smote_cv.fit_resample(x_train, y_train)
 
     return resampled_x, resampled_y
+
+def simple_smote(x_train, y_train, random_state):
+
+    # Initializing the Model
+    smote_model = SMOTE(random_state=random_state, k_neighbors=7)
+
+    # Resample the Training Data
+    resampled_x, resampled_y = smote_model.fit_resample(x_train, y_train)
+
+    return resampled_x, resampled_y
+

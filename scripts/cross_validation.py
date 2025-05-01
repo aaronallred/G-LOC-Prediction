@@ -35,7 +35,7 @@ def main_loop(kfold_ID, num_splits, runname):
     n_neighbors = 3
 
     ## Model Parameters
-    model_type = ['noAFE', 'explicit']
+    model_type = ['noAFE', 'implicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
@@ -172,7 +172,16 @@ def main_loop(kfold_ID, num_splits, runname):
     # Training/Test Split
     x_train, x_test, y_train, y_test = stratified_kfold_split(y_gloc_labels_noNaN,x_feature_matrix_noNaN,
                                                               num_splits, kfold_ID)
- ################################################ MACHINE LEARNING ################################################
+
+    ################################################ Feature Selection ################################################
+
+    x_train, x_test, selected_features =  feature_selection_lasso(x_train, x_test, y_train, all_features, random_state)
+
+    ################################################ Class Imbalance ################################################
+
+    x_train, y_train =  simple_smote(x_train, y_train, random_state)
+
+    ################################################ MACHINE LEARNING ################################################
     save_folder = os.path.join("../ModelSave/CV", runname, str(kfold_ID))
 
     # Logistic Regression HPO | logreg_hpo
@@ -332,9 +341,9 @@ if __name__ == "__main__":
 
     # Get time stamp for saving models
     # runname = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    runname = 'EEGV0-2HPOnoFSnoNANall'
+    runname = 'ImplicitV0-8HPO_SMOTE_LASSO_noNAN_all'
 
-    # Test set identifierfor 10-fold Model Validation
+    # Test set identifier for 10-fold Model Validation
     num_splits = 10
     kfold_ID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
@@ -346,6 +355,18 @@ if __name__ == "__main__":
         # Loop through all train-test splits
         method_key = str(kfold_ID[i])
         kfold_performance_summary[method_key] = main_loop(kfold_ID[i], num_splits, runname)
+
+        # Save pkl summary for this iteration
+        save_folder = os.path.join("../PerformanceSave/CrossValidation", runname, method_key)
+        save_file = 'FoldSummary.pkl'
+        save_path = os.path.join(save_folder, save_file)
+
+        # Ensure the save folder exists
+        if not os.path.exists(save_folder):
+            os.makedirs(save_folder)
+
+        with open(save_path, 'wb') as file:
+            pickle.dump(kfold_performance_summary, file)
 
     # Save pkl summary
     save_folder = os.path.join("../PerformanceSave/CrossValidation", runname)

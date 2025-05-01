@@ -47,19 +47,19 @@ def pre_classification_training_test_split(y_gloc_labels_noNaN, x_feature_matrix
 
 # Training Test Split Using Stratified K-Fold
 # USING RANDOM STATE = 42
-def stratified_kfold_split(Y, X, num_splits, kfold_ID):
+def stratified_kfold_split(Y, X, num_splits, kfold_ID, random_state=42):
     """
     This function splits the X and y matrix into training and test matrix.
     """
 
     # Stratified K-Fold setup
     # Use random state to ensure repeatability across runs and classifiers
-    skf = StratifiedKFold(n_splits=num_splits)
+    skf = StratifiedKFold(n_splits=num_splits, shuffle=True, random_state=random_state)
 
     # Safety check to ensure that kfold_ID is within the fold indices
     n_folds = skf.get_n_splits()
     if kfold_ID < 0 or kfold_ID >= n_folds:
-        raise ValueError(f"Fold index {X_fold} out of range (must be between 0 and {n_folds - 1})")
+        raise ValueError(f"Fold index {kfold_ID} out of range (must be between 0 and {n_folds - 1})")
 
     # Grab train and test indices given the skf generator format for a specific kfold_ID
     train_index, test_index = next(islice(skf.split(X, Y), kfold_ID, kfold_ID + 1))
@@ -480,7 +480,8 @@ def classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_wei
             cv=3,
             random_state=random_state,
             n_jobs=-1,
-            verbose=1
+            verbose=1,
+            error_score=np.nan  # 'nan' to silently skip failing configs
         )
 
         clf.fit(x_train, np.ravel(y_train))
@@ -565,7 +566,8 @@ def classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_im
             scoring='f1',
             random_state=random_state,
             n_jobs=-1,
-            verbose=1
+            verbose=1,
+            error_score=np.nan  # 'nan' to silently skip failing configs
         )
 
         clf.fit(x_train, np.ravel(y_train))
@@ -648,7 +650,7 @@ def classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
             # Case 2: solver = 'lsqr' or 'eigen' (shrinkage allowed)
             {
                 'solver': Categorical(['lsqr', 'eigen']),
-                'shrinkage': Categorical([None, 0.1, 0.2, 0.4, 0.6, 0.8, 1, 'auto']),
+                'shrinkage': Categorical([0.1, 0.2, 0.4, 0.6, 0.8, 1, 'auto']),
                 'tol': Real(1e-10, 1e-2, prior='log-uniform')
             }
         ]
@@ -665,7 +667,8 @@ def classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
             scoring='f1',
             random_state=0,
             n_jobs=-1,
-            verbose=1
+            verbose=1,
+            error_score=np.nan  # 'nan' to silently skip failing configs
         )
 
         clf.fit(x_train, np.ravel(y_train))
@@ -745,7 +748,8 @@ def classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
             scoring='f1',
             random_state=0,
             n_jobs=-1,
-            verbose=1
+            verbose=1,
+            error_score=np.nan  # 'nan' to silently skip failing configs
         )
 
         # Fit the model
@@ -836,7 +840,8 @@ def classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_
             scoring='f1',
             random_state=0,
             n_jobs=-1,
-            verbose=1
+            verbose=1,
+            error_score=np.nan  # 'nan' to silently skip failing configs
         )
 
         clf.fit(x_train, np.ravel(y_train))
@@ -925,7 +930,8 @@ def classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, rando
             scoring='f1',
             random_state=random_state,
             n_jobs=-1,
-            verbose=1
+            verbose=1,
+            error_score=np.nan  # 'nan' to silently skip failing configs
         )
 
         # Fit the model
