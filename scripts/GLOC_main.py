@@ -41,12 +41,12 @@ if __name__ == "__main__":
 
     ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
     # Note: Cost Function techniques ('cost_function' 'rus_cf' 'ros_cf' 'smote_cf') do not work for LDA, KNN, or Ens. Learner
-    imbalance_technique = 'none'
+    imbalance_technique = 'smote_cf'
     class_weight_imb = None
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
     # Note: 'shuffle' does not work for KNN or LDA
-    feature_reduction_type = 'pca'
+    feature_reduction_type = 'none'
 
     # Data Handling Options
     remove_NaN_trials = True

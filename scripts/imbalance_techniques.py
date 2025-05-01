@@ -1,6 +1,8 @@
 from imblearn.under_sampling import RandomUnderSampler
 from imblearn.over_sampling import RandomOverSampler
 from imblearn.over_sampling import SMOTE
+from skopt import BayesSearchCV
+from skopt.space import Real, Integer, Categorical
 
 def resample_rus(x_train, y_train, random_state):
     # Define Model
@@ -38,7 +40,6 @@ def resample_smote(x_train, y_train, random_state):
     search_spaces = {
         'k_neighbors': Real(3, 15)
     }
-
     # Initializing the Model
     smote_initialize = SMOTE(random_state=random_state)
 
@@ -55,9 +56,11 @@ def resample_smote(x_train, y_train, random_state):
     # Fit model
     smote_cv.fit(x_train, np.ravel(y_train))
 
+    # Get best model and coefficients
+    best_smote = smote_cv.best_estimator_
 
     # Resample the Training Data
-    resampled_x, resampled_y = smote_cv.fit_resample(x_train, y_train)
+    resampled_x, resampled_y = best_smote.fit_resample(x_train, y_train)
 
     return resampled_x, resampled_y
 

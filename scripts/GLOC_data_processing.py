@@ -1500,3 +1500,74 @@ def read_csv_float32(filepath, preview_rows=100, **kwargs):
     df = pd.read_csv(filepath, dtype=dtype_mapping, **kwargs)
 
     return df
+
+def process_swp_pkl():
+    with open("C:\\Users\\nicol\\Downloads\\Sequential_Optimization_Sliding_Window_dictionary_model_type_explicit_KNN.pkl", 'rb') as file:
+        knn_pkl = pickle.load(file)
+
+    column_names = list(knn_pkl[next(iter(data))].columns)
+
+    # Flatten and convert each value to a 1D NumPy array
+    flattened_rows = [np.array(v).reshape(-1) for v in knn_pkl.values()]  # Converts from DataFrame -> array -> (6,)
+
+    # Stack into a 2D NumPy array
+    data_array = np.vstack(flattened_rows)
+
+    # Create the DataFrame with custom row labels
+    knn_results = pd.DataFrame(data_array, index=knn_pkl.keys(), columns=column_names)
+
+    with open("C:\\Users\\nicol\\Downloads\\Sequential_Optimization_Sliding_Window_dictionary_model_type_explicit_LDA.pkl", 'rb') as file:
+        lda_pkl = pickle.load(file)
+
+    column_names = list(lda_pkl[next(iter(data))].columns)
+
+    # Flatten and convert each value to a 1D NumPy array
+    flattened_rows = [np.array(v).reshape(-1) for v in lda_pkl.values()]  # Converts from DataFrame -> array -> (6,)
+
+    # Stack into a 2D NumPy array
+    data_array = np.vstack(flattened_rows)
+
+    # Create the DataFrame with custom row labels
+    lda_results = pd.DataFrame(data_array, index=lda_pkl.keys(), columns=column_names)
+
+    with open("C:\\Users\\nicol\\Downloads\\Sequential_Optimization_Sliding_Window_dictionary_model_type_explicit_logreg.pkl", 'rb') as file:
+        logreg_pkl = pickle.load(file)
+
+    column_names = list(logreg_pkl[next(iter(data))].columns)
+
+    # Flatten and convert each value to a 1D NumPy array
+    flattened_rows = [np.array(v).reshape(-1) for v in logreg_pkl.values()]  # Converts from DataFrame -> array -> (6,)
+
+    # Stack into a 2D NumPy array
+    data_array = np.vstack(flattened_rows)
+
+    # Create the DataFrame with custom row labels
+    logreg_results = pd.DataFrame(data_array, index=logreg_pkl.keys(), columns=column_names)
+
+    with open("C:\\Users\\nicol\\Downloads\\Sequential_Optimization_Sliding_Window_dictionary_model_type_explicit_rf.pkl", 'rb') as file:
+        rf_pkl = pickle.load(file)
+
+    column_names = list(rf_pkl[next(iter(data))].columns)
+
+    # Flatten and convert each value to a 1D NumPy array
+    flattened_rows = [np.array(v).reshape(-1) for v in rf_pkl.values()]  # Converts from DataFrame -> array -> (6,)
+
+    # Stack into a 2D NumPy array
+    data_array = np.vstack(flattened_rows)
+
+    # Create the DataFrame with custom row labels
+    rf_results = pd.DataFrame(data_array, index=rf_pkl.keys(), columns=column_names)
+
+    with open("C:\\Users\\nicol\\Downloads\\Sequential_Optimization_Sliding_Window_dictionary_model_type_explicit_egb_fast.pkl", 'rb') as file:
+        egb_fast_pkl = pickle.load(file)
+
+    column_names = list(egb_fast_pkl[next(iter(data))].columns)
+
+    # Flatten and convert each value to a 1D NumPy array
+    flattened_rows = [np.array(v).reshape(-1) for v in egb_fast_pkl.values()]  # Converts from DataFrame -> array -> (6,)
+
+    # Stack into a 2D NumPy array
+    data_array = np.vstack(flattened_rows)
+
+    # Create the DataFrame with custom row labels
+    egb_fast_results = pd.DataFrame(data_array, index=egb_fast_pkl.keys(), columns=column_names)

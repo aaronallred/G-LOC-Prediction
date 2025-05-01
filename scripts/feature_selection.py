@@ -16,6 +16,8 @@ from feature_engine.selection import SelectBySingleFeaturePerformance
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn import svm
 from GLOC_classifier import *
+from skopt import BayesSearchCV
+from skopt.space import Real, Integer, Categorical
 
 
 # Feature Selection
@@ -66,20 +68,20 @@ def feature_selection_lasso(x_train, x_test, y_train, all_features, random_state
     # Fit model
     lasso_cv.fit(x_train, np.ravel(y_train))
 
-    # Use optimal alpha value from CV
-    alpha_optimal = lasso_cv.best_params_['alpha']
+    # # Use optimal alpha value from CV
+    # alpha_optimal = lasso_cv.best_params_['alpha']
 
-    # calling the model with the best parameter
-    lasso_optimal = Lasso(alpha=alpha_optimal)
-    lasso_optimal.fit(x_train, y_train)
+    # # calling the model with the best parameter
+    # lasso_optimal = Lasso(alpha=alpha_optimal)
+    # lasso_optimal.fit(x_train, y_train)
+    #
+    #
+    # # Using np.abs() to make coefficients positive.
+    # lasso_optimal_coef = np.abs(lasso_optimal.coef_)
 
-
-    # Using np.abs() to make coefficients positive.
-    lasso_optimal_coef = np.abs(lasso_optimal.coef_)
-
-    # # Get best model and coefficients
-    # best_lasso = lasso_cv.best_estimator_
-    # lasso_optimal_coef = np.abs(best_lasso.coef_)
+    # Get best model and coefficients
+    best_lasso = lasso_cv.best_estimator_
+    lasso_optimal_coef = np.abs(best_lasso.coef_)
 
     # # plotting the Column Names and Importance of Columns.
     # fig,ax = plt.subplots(figsize=(10,10))
@@ -181,16 +183,20 @@ def feature_selection_elastic_net(x_train, x_test, y_train, all_features, random
     # Fit model
     enet_cv.fit(x_train, np.ravel(y_train))
 
-    # Use optimal alpha value and l1 ratio from CV
-    alpha_optimal = enet_cv.best_params_['alpha']
-    l1ratio_optimal = enet_cv.best_params_['l1_ratio']
+    # Get best model and coefficients
+    best_enet = enet_cv.best_estimator_
+    enet1_coef = np.abs(best_enet.coef_)
 
-    # calling the model with the best parameter
-    enet1 = ElasticNet(alpha=alpha_optimal, l1_ratio=l1ratio_optimal)
-    enet1.fit(x_train, y_train)
+    # # Use optimal alpha value and l1 ratio from CV
+    # alpha_optimal = enet_cv.best_params_['alpha']
+    # l1ratio_optimal = enet_cv.best_params_['l1_ratio']
+    #
+    # # calling the model with the best parameter
+    # enet1 = ElasticNet(alpha=alpha_optimal, l1_ratio=l1ratio_optimal)
+    # enet1.fit(x_train, y_train)
 
     # Using np.abs() to make coefficients positive.
-    enet1_coef = np.abs(enet1.coef_)
+    # enet1_coef = np.abs(enet1.coef_)
 
     # # plotting the Column Names and Importance of Columns.
     # fig, ax = plt.subplots(figsize=(10, 10))
@@ -260,15 +266,19 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features, n, random_st
     # Fit model
     ridge_cv.fit(x_train, np.ravel(y_train))
 
-    # Use optimal alpha value from CV
-    alpha_optimal = ridge_cv.best_params_['alpha']
+    # Get best model and coefficients
+    best_ridge = ridge_cv.best_estimator_
+    ridge1_coef = np.abs(best_ridge.coef_)
 
-    # calling the model with the best parameter
-    ridge1 = Ridge(alpha=alpha_optimal)
-    ridge1.fit(x_train, y_train)
+    # # Use optimal alpha value from CV
+    # alpha_optimal = ridge_cv.best_params_['alpha']
+    #
+    # # calling the model with the best parameter
+    # ridge1 = Ridge(alpha=alpha_optimal)
+    # ridge1.fit(x_train, y_train)
 
-    # Using np.abs() to make coefficients positive.
-    ridge1_coef = np.abs(ridge1.coef_)
+    # # Using np.abs() to make coefficients positive.
+    # ridge1_coef = np.abs(ridge1.coef_)
     ridge1_coef = np.ravel(ridge1_coef)
 
     # # plotting the Column Names and Importance of Columns.
@@ -327,12 +337,15 @@ def dimensionality_reduction_PCA(x_train, x_test, random_state):
     # Fit model
     pca_cv.fit(x_train)
 
+    # Get best model and coefficients
+    best_pca = pca_cv.best_estimator_
+
     # Transform training & test matrices
-    x_train_pca = pca_cv.transform(x_train)
-    x_test_pca = pca_cv.transform(x_test)
+    x_train_pca = best_pca.transform(x_train)
+    x_test_pca = best_pca.transform(x_test)
 
     # Evaluate explained variance
-    explained_variance = pca_cv.explained_variance_ratio_
+    explained_variance = best_pca.explained_variance_ratio_
 
     # Create string name for PCA features
     selected_features = [str(i) for i in range(0, np.shape(x_train_pca)[1])]
@@ -490,18 +503,21 @@ def target_mean_selection(x_train, x_test, y_train, all_features, random_state):
     # Fit model
     tmp_cv.fit(x_train, y_train)
 
-    # Use optimal value for threshold found in GridSearchCV
-    threshold_optimal = tmp_cv.best_params_['threshold']
+    # Get best model and coefficients
+    best_tmp = tmp_cv.best_estimator_
 
-    # calling the model with the best parameter
-    tmp1 = SelectByTargetMeanPerformance(scoring="f1", threshold = threshold_optimal, cv=10, regression=False)
-    tmp1.fit(x_train, y_train)
+    # # Use optimal value for threshold found in GridSearchCV
+    # threshold_optimal = tmp_cv.best_params_['threshold']
+    #
+    # # calling the model with the best parameter
+    # tmp1 = SelectByTargetMeanPerformance(scoring="f1", threshold = threshold_optimal, cv=10, regression=False)
+    # tmp1.fit(x_train, y_train)
 
     # tmp = SelectByTargetMeanPerformance(scoring="f1", threshold = 0.01, cv=10, regression=False)
     # tmp.fit_transform(x_train, y_train)
 
     # find features to keep
-    features_to_keep = tmp1.get_feature_names_out()
+    features_to_keep = best_tmp.get_feature_names_out()
 
     # Convert feature output from selected_features_target_mean to index array and list of features
     selected_features_index = [element[1:] for element in features_to_keep]
@@ -509,8 +525,8 @@ def target_mean_selection(x_train, x_test, y_train, all_features, random_state):
     selected_features = [all_features[index] for index in selected_features_index]
 
     # Grab relevant feature columns from x_train and x_test
-    x_train = tmp1.transform(x_train)
-    x_test = tmp1.transform(x_test)
+    x_train = best_tmp.transform(x_train)
+    x_test = best_tmp.transform(x_test)
 
     # Example feature code
     # tmp_variables = tmp.variables_
