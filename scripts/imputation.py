@@ -4,6 +4,7 @@ from sklearn.preprocessing import StandardScaler
 from scipy.stats import chi2_contingency
 from statsmodels.stats.multitest import multipletests
 from sklearn.model_selection import GridSearchCV, KFold
+import faiss
 
 def knn_impute(predictors, n_neighbors, scale_data=False):
     """
@@ -107,3 +108,61 @@ def knn_impute_with_smim(labels, predictors, n_neighbors=5, scale_data=False, fd
 
     # Return only the original features (without indicators)
     return imputed_labels, imputed_predictors
+
+# --- FAISS-based KNN imputation ---
+def fast_knn_impute(X, k=5):
+    mask = np.isnan(X)
+    X_imputed = X.copy()
+
+    # Temporarily mean impute missing values
+    X_temp = np.where(mask, np.nanmean(X, axis=0), X)
+
+    # Build FAISS index
+    d = X.shape[1]  # dimension
+    index = faiss.IndexFlatL2(d)
+    index.add(X_temp.astype(np.float32))
+
+    # Find k nearest neighbors
+    distances, indices = index.search(X_temp.astype(np.float32), k + 1)
+
+    # Impute missing values
+    for i in range(X.shape[0]):
+        neighbors = indices[i, 1:]  # skip self (first neighbor)
+        for j in range(X.shape[1]):
+            if mask[i, j]:
+                neighbor_values = X_temp[neighbors, j]
+                X_imputed[i, j] = np.mean(neighbor_values)
+
+    return X_imputed
+
+
+def faster_knn_impute(X, k=5, M=32, efSearch=64):
+  """
+  Perform KNN imputation using FAISS HNSW index.
+  Parameters:
+  - X: (n_samples, n_features) matrix with missing values as np.nan
+  - k: Number of neighbors for imputation
+  - M: Number of neighbors in the HNSW graph (higher = more accurate, slower)
+  - efSearch: Number of candidates to consider during search (higher = better recall)
+  Returns:
+  - X_imputed: Matrix with missing values imputed
+  """
+  mask = np.isnan(X)
+  X_imputed = X.copy()
+  # Temporarily mean impute missing values
+  X_temp = np.where(mask, np.nanmean(X, axis=0), X)
+  # Build FAISS index (HNSW)
+  d = X.shape[1] # dimension
+  index = faiss.IndexHNSWFlat(d, M)
+  index.hnsw.efSearch = efSearch
+  index.add(X_temp.astype(np.float32))
+  # Find k nearest neighbors
+  distances, indices = index.search(X_temp.astype(np.float32), k + 1)
+  # Impute missing values (skip self, which is always the first neighbor)
+  for i in range(X.shape[0]):
+    neighbors = indices[i, 1:] # skip self
+    for j in range(X.shape[1]):
+      if mask[i, j]: # Only impute missing values
+        neighbor_values = X_temp[neighbors, j]
+        X_imputed[i, j] = np.nanmean(neighbor_values)
+  return X_imputed

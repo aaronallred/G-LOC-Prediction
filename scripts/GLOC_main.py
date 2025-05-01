@@ -46,11 +46,11 @@ if __name__ == "__main__":
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
     # Note: 'shuffle' does not work for KNN or LDA
-    feature_reduction_type = 'shuffle'
+    feature_reduction_type = 'pca'
 
     # Data Handling Options
     remove_NaN_trials = True
-    impute_type = 2
+    impute_type = 1
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
@@ -60,8 +60,7 @@ if __name__ == "__main__":
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
 
-    baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
-    baseline_methods_to_use = ['v0']
+    baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
 
     analysis_type = 2
 
@@ -181,10 +180,11 @@ if __name__ == "__main__":
             # Remove rows with NaN
             gloc, features, gloc_data_reduced = process_NaN_raw(gloc, features, gloc_data_reduced)
         if impute_type == 1:
-            features, indicator_matrix = knn_impute(features, n_neighbors=3)
+            print('Entering impute 1')
+            features = faster_knn_impute(features, k=3)
 
         ################################################## REDUCE MEMORY ##################################################
-
+        print('Exiting impute 1')
         # Grab columns from gloc_data_reduced and remove gloc_data_reduced variable from memory
         trial_column = gloc_data_reduced['trial_id']
         time_column = gloc_data_reduced['Time (s)']
@@ -233,15 +233,15 @@ if __name__ == "__main__":
         #     y_gloc_labels_noNaN, x_feature_matrix_noNaN = y_gloc_labels, x_feature_matrix
 
 
-        # Save pkl
-        with open (y_label_name, 'wb') as file:
-            pickle.dump(y_gloc_labels, file)
-
-        with open (feature_matrix_name, 'wb') as file:
-            pickle.dump(x_feature_matrix, file)
-
-        with open (all_features_name, 'wb') as file:
-            pickle.dump(all_features, file)
+        # # Save pkl
+        # with open (y_label_name, 'wb') as file:
+        #     pickle.dump(y_gloc_labels, file)
+        #
+        # with open (feature_matrix_name, 'wb') as file:
+        #     pickle.dump(x_feature_matrix, file)
+        #
+        # with open (all_features_name, 'wb') as file:
+        #     pickle.dump(all_features, file)
 
 
     # Import pkl

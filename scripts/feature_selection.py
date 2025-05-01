@@ -65,8 +65,16 @@ def feature_selection_lasso(x_train, x_test, y_train, all_features, random_state
     # Fit model
     lasso_cv.fit(x_train, np.ravel(y_train))
 
+    # Use optimal alpha value from CV
+    alpha_optimal = lasso_cv.best_params_['alpha']
+
+    # calling the model with the best parameter
+    lasso_optimal = Lasso(alpha=alpha_optimal)
+    lasso_optimal.fit(x_train, y_train)
+
+
     # Using np.abs() to make coefficients positive.
-    lasso_optimal_coef = np.abs(lasso_cv.coef_)
+    lasso_optimal_coef = np.abs(lasso_optimal.coef_)
 
     # # plotting the Column Names and Importance of Columns.
     # fig,ax = plt.subplots(figsize=(10,10))
@@ -168,8 +176,16 @@ def feature_selection_elastic_net(x_train, x_test, y_train, all_features, random
     # Fit model
     enet_cv.fit(x_train, np.ravel(y_train))
 
+    # Use optimal alpha value and l1 ratio from CV
+    alpha_optimal = enet_cv.best_params_['alpha']
+    l1ratio_optimal = enet_cv.best_params_['l1_ratio']
+
+    # calling the model with the best parameter
+    enet1 = ElasticNet(alpha=alpha_optimal, l1_ratio=l1ratio_optimal)
+    enet1.fit(x_train, y_train)
+
     # Using np.abs() to make coefficients positive.
-    enet1_coef = np.abs(enet_cv.coef_)
+    enet1_coef = np.abs(enet1.coef_)
 
     # # plotting the Column Names and Importance of Columns.
     # fig, ax = plt.subplots(figsize=(10, 10))
@@ -239,9 +255,16 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features, n, random_st
     # Fit model
     ridge_cv.fit(x_train, np.ravel(y_train))
 
+    # Use optimal alpha value from CV
+    alpha_optimal = ridge_cv.best_params_['alpha']
+
+    # calling the model with the best parameter
+    ridge1 = Ridge(alpha=alpha_optimal)
+    ridge1.fit(x_train, y_train)
+
     # Using np.abs() to make coefficients positive.
-    ridge1_coef = np.abs(ridge_cv.coef_)
-    ridge1_coef = np.ravel(ridge_cv)
+    ridge1_coef = np.abs(ridge1.coef_)
+    ridge1_coef = np.ravel(ridge1_coef)
 
     # # plotting the Column Names and Importance of Columns.
     # fig, ax = plt.subplots(figsize=(10, 10))
@@ -255,8 +278,8 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features, n, random_st
     # plt.show()
 
     # Determine threshold for top n% features
-    threshold = np.percentile(ridge_cv, 100 - n)
-    selected_features = np.array(all_features)[ridge_cv >= threshold]
+    threshold = np.percentile(ridge1_coef, 100 - n)
+    selected_features = np.array(all_features)[ridge1_coef >= threshold]
 
     # Grab relevant feature columns from x_train and x_test
     feature_index = [index for index, element in enumerate(all_features) if element in selected_features]
@@ -465,15 +488,15 @@ def target_mean_selection(x_train, x_test, y_train, all_features, random_state):
     # Use optimal value for threshold found in GridSearchCV
     threshold_optimal = tmp_cv.best_params_['threshold']
 
-    # # calling the model with the best parameter
-    # tmp1 = SelectByTargetMeanPerformance(scoring="f1", threshold = threshold_optimal, cv=10, regression=False)
-    # tmp1.fit(x_train, y_train)
+    # calling the model with the best parameter
+    tmp1 = SelectByTargetMeanPerformance(scoring="f1", threshold = threshold_optimal, cv=10, regression=False)
+    tmp1.fit(x_train, y_train)
 
     # tmp = SelectByTargetMeanPerformance(scoring="f1", threshold = 0.01, cv=10, regression=False)
     # tmp.fit_transform(x_train, y_train)
 
     # find features to keep
-    features_to_keep = tmp_cv.get_feature_names_out()
+    features_to_keep = tmp1.get_feature_names_out()
 
     # Convert feature output from selected_features_target_mean to index array and list of features
     selected_features_index = [element[1:] for element in features_to_keep]
@@ -481,8 +504,8 @@ def target_mean_selection(x_train, x_test, y_train, all_features, random_state):
     selected_features = [all_features[index] for index in selected_features_index]
 
     # Grab relevant feature columns from x_train and x_test
-    x_train = tmp_cv.transform(x_train)
-    x_test = tmp_cv.transform(x_test)
+    x_train = tmp1.transform(x_train)
+    x_test = tmp1.transform(x_test)
 
     # Example feature code
     # tmp_variables = tmp.variables_
