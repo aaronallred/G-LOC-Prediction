@@ -373,13 +373,13 @@ def feature_selection_shuffle(x_train, x_test, y_train, all_features, classifier
         sbs = SelectByShuffling(LogisticRegression(random_state=random_state),cv=3,random_state=random_state)
     elif classifier_method == 'rf':
         sbs = SelectByShuffling(RandomForestClassifier(random_state=random_state), cv=3, random_state=random_state)
-    elif classifier_method == 'lda':
+    elif classifier_method == 'LDA':
         sbs = SelectByShuffling(LinearDiscriminantAnalysis(), cv=3, random_state=random_state)
-    elif classifier_method == 'knn':
+    elif classifier_method == 'KNN':
         sbs = SelectByShuffling(KNeighborsClassifier(), cv=3, random_state=random_state)
-    elif classifier_method == 'svm':
+    elif classifier_method == 'SVM':
         sbs = SelectByShuffling(svm.SVC(random_state=random_state), cv=3, random_state=random_state)
-    elif classifier_method == 'gb':
+    elif classifier_method == 'EGB':
         sbs = SelectByShuffling(GradientBoostingClassifier(random_state=random_state), cv=3, random_state=random_state)
 
     # fit select by shuffling on the training data
@@ -423,13 +423,13 @@ def feature_selection_performance(x_train, x_test, y_train, all_features, classi
         sfp = SelectBySingleFeaturePerformance(LogisticRegression(random_state=random_state),cv=3)
     elif classifier_method == 'rf':
         sfp = SelectBySingleFeaturePerformance(RandomForestClassifier(random_state=random_state), cv=3)
-    elif classifier_method == 'lda':
+    elif classifier_method == 'LDA':
         sfp = SelectBySingleFeaturePerformance(LinearDiscriminantAnalysis(), cv=3)
-    elif classifier_method == 'knn':
+    elif classifier_method == 'KNN':
         sfp = SelectBySingleFeaturePerformance(KNeighborsClassifier(), cv=3)
-    elif classifier_method == 'svm':
+    elif classifier_method == 'SVM':
         sfp = SelectBySingleFeaturePerformance(svm.SVC(random_state=random_state), cv=3)
-    elif classifier_method == 'gb':
+    elif classifier_method == 'EGB':
         sfp = SelectBySingleFeaturePerformance(GradientBoostingClassifier(random_state=random_state), cv=3)
 
     # fit single feature performance model on the training data
@@ -494,6 +494,7 @@ def target_mean_selection(x_train, x_test, y_train, all_features, random_state):
     tmp_cv = BayesSearchCV(
         estimator=tmp,
         search_spaces=search_spaces,
+        scoring='roc_auc',
         cv=3,
         random_state=random_state,
         n_jobs=-1,
@@ -612,7 +613,7 @@ def sfp_methods(x_train, x_test, y_train, y_test, all_features, train_class, cla
     selected_features_performance = dict()
 
     # Define Classifier Methods
-    classifier_method = ['logreg', 'rf', 'lda', 'knn', 'svm', 'gb']
+    classifier_method = ['logreg', 'rf', 'LDA', 'KNN', 'SVM', 'EGB']
 
     for i in range(len(classifier_method)):
         # Determine reduced feature set & transform x_train and x_test
@@ -637,23 +638,23 @@ def sfp_methods(x_train, x_test, y_train, y_test, all_features, train_class, cla
                                        retrain=train_class))
 
         # Linear discriminant analysis | LDA
-        elif classifier_method[i] == 'lda':
+        elif classifier_method[i] == 'LDA':
             accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
                 classify_lda(x_train_performance[i], x_test_performance[i], y_train, y_test, retrain=train_class))
 
         # K Nearest Neighbors | KNN
-        elif classifier_method[i] == 'knn':
+        elif classifier_method[i] == 'KNN':
             accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
                 classify_knn(x_train_performance[i], x_test_performance[i], y_train, y_test, retrain=train_class))
 
         # Support Vector Machine | SVM
-        elif classifier_method[i] == 'svm':
+        elif classifier_method[i] == 'SVM':
             accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
                 classify_svm(x_train_performance[i], x_test_performance[i], y_train, y_test, class_weight_imb,
                              retrain=train_class))
 
         # Ensemble with Gradient Boosting | EGB
-        elif classifier_method[i] == 'gb':
+        elif classifier_method[i] == 'EGB':
             accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
                 classify_ensemble_with_gradboost(x_train_performance[i], x_test_performance[i], y_train, y_test,
                                                  retrain=train_class))
@@ -680,7 +681,7 @@ def shuffle_methods(x_train, x_test, y_train, y_test, all_features, train_class,
     selected_features_shuffle = dict()
 
     # Define Classifier Methods
-    classifier_method = ['logreg', 'rf', 'svm', 'gb']
+    classifier_method = ['logreg', 'rf', 'SVM', 'GB']
 
     # Loop through classifier methods
     for i in range(len(classifier_method)):
@@ -705,23 +706,23 @@ def shuffle_methods(x_train, x_test, y_train, y_test, all_features, train_class,
                                        retrain=train_class))
 
         # Linear discriminant analysis | LDA
-        elif classifier_method[i] == 'lda':
+        elif classifier_method[i] == 'LDA':
             accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
                 classify_lda(x_train_shuffle[i], x_test_shuffle[i], y_train, y_test, retrain=train_class))
 
         # K Nearest Neighbors | KNN
-        elif classifier_method[i] == 'knn':
+        elif classifier_method[i] == 'KNN':
             accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
                 classify_knn(x_train_shuffle[i], x_test_shuffle[i], y_train, y_test, retrain=train_class))
 
         # Support Vector Machine | SVM
-        elif classifier_method[i] == 'svm':
+        elif classifier_method[i] == 'SVM':
             accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
                 classify_svm(x_train_shuffle[i], x_test_shuffle[i], y_train, y_test, class_weight_imb,
                              retrain=train_class))
 
         # Ensemble with Gradient Boosting | EGB
-        elif classifier_method[i] == 'gb':
+        elif classifier_method[i] == 'EGB':
             accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
                 classify_ensemble_with_gradboost(x_train_shuffle[i], x_test_shuffle[i], y_train, y_test,
                                                  retrain=train_class))

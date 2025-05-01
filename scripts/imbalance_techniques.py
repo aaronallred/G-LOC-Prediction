@@ -3,6 +3,7 @@ from imblearn.over_sampling import RandomOverSampler
 from imblearn.over_sampling import SMOTE
 from skopt import BayesSearchCV
 from skopt.space import Real, Integer, Categorical
+import numpy as np
 
 def resample_rus(x_train, y_train, random_state):
     # Define Model
@@ -54,7 +55,7 @@ def resample_smote(x_train, y_train, random_state):
     )
 
     # Fit model
-    smote_cv.fit(x_train, np.ravel(y_train))
+    smote_cv.fit(x_train, y_train)
 
     # Get best model and coefficients
     best_smote = smote_cv.best_estimator_
