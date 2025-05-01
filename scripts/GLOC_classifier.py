@@ -373,6 +373,50 @@ def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, random_st
 
     return accuracy, precision, recall, f1, specificity, g_mean
 
+# Ensemble Learner with Gradient Boost
+def faster_classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, random_state,
+                                     save_folder="../ModelSave",model_name="ensemble_model.pkl", retrain = True):
+    """
+    This function fits and assesses performance of an Ensemble Learner w/ Grad Boost ML classifier for
+    the data specified. Within this function, a separate confusion matrix function is called.
+    """
+
+    # Use Default Parameters & Fit Model
+    if retrain:
+        gb = GradientBoostingClassifier(random_state=random_state, n_estimators=50,max_features='sqrt').fit(x_train, np.ravel(y_train))
+    else:
+        model_path = os.path.join(save_folder, model_name)
+        gb = joblib.load(model_path)
+
+    # Predict
+    label_predictions = gb.predict(x_test)
+
+    # Assess Performance
+    accuracy = metrics.accuracy_score(y_test, label_predictions)
+    precision = metrics.precision_score(y_test, label_predictions)
+    recall = metrics.recall_score(y_test, label_predictions)
+    f1 = metrics.f1_score(y_test, label_predictions)
+    specificity = metrics.recall_score(y_test, label_predictions, pos_label=0)
+    g_mean = geometric_mean_score(y_test, label_predictions)
+
+    # Print performance metrics
+    print("\nEnsemble Learner with Gradient Boosting Performance Metrics:")
+    print("Accuracy: ", accuracy)
+    print("Precision: ", precision)
+    print("Recall: ", recall)
+    print("F1 Score: ", f1)
+    print("Specificity: ", specificity)
+    print("G-Mean: ", g_mean)
+
+    # Create Confusion Matrix
+    create_confusion_matrix(y_test, label_predictions, 'Gradient Boosting')
+
+    # Save model
+    if retrain:
+        save_model_weights(gb, save_folder, model_name)
+
+    return accuracy, precision, recall, f1, specificity, g_mean
+
 def call_all_classifiers(classifier_type, x_train, x_test, y_train, y_test, all_features,train_class, class_weight_imb,
                          random_state):
     # Logistic Regression | logreg

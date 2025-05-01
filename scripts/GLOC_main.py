@@ -423,7 +423,7 @@ if __name__ == "__main__":
         # Principle Component Analysis | pca
         if feature_reduction_type == 'all' or feature_reduction_type == 'pca':
             # Implement feature reduction
-            x_train_pca, x_test_pca, selected_features_pca = dimensionality_reduction_PCA(x_train, x_test)
+            x_train_pca, x_test_pca, selected_features_pca = dimensionality_reduction_PCA(x_train, x_test, random_state)
 
             # Assess performance for all classifiers
             performance_metric_summary_pca = (call_all_classifiers(classifier_type, x_train_pca, x_test_pca, y_train,

@@ -293,7 +293,7 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features, n, random_st
 
     return x_train, x_test, selected_features
 
-def dimensionality_reduction_PCA(x_train, x_test):
+def dimensionality_reduction_PCA(x_train, x_test, random_state):
     """
     This function completes PCA for the training data. The number of components are determined
     based on achieving n_components*100 percent explained variance.
