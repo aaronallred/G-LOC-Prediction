@@ -457,7 +457,7 @@ def plot_cross_val_sp(data_dict):
     num_metrics = len(metrics)
 
     # Subplot layout (auto-fit to rows of 2)
-    ncols = 3
+    ncols = 2
     nrows = math.ceil(num_metrics / ncols)
 
     # --- Compute F1-score statistics ---
@@ -588,6 +588,7 @@ def plot_f1_bar_with_ci(data_dict):
     bar_plot = sns.barplot(
         x=summary.index,
         y=summary['f1_median'],
+        hue=summary.index,
         palette='viridis'
     )
 
@@ -610,6 +611,120 @@ def plot_f1_bar_with_ci(data_dict):
     plt.xticks(rotation=45)
     plt.tight_layout()
     plt.show()
+
+
+def bridget_recall_specificity_balanced_accuracy(data_dict):
+    # Combine all data into a single DataFrame
+    all_data = []
+    for label, df in data_dict.items():
+        temp_df = df.copy()
+        temp_df['model'] = temp_df.index
+        temp_df['label'] = label
+        all_data.append(temp_df)
+
+    combined_df = pd.concat(all_data).reset_index(drop=True)
+
+    # Check that required columns exist
+    required_columns = ['f1-score', 'recall', 'specificity', 'model']
+    if not all(col in combined_df.columns for col in required_columns):
+        print(f"Error: Required columns {required_columns} not found.")
+        return
+
+    # Group by model and calculate mean, count, std for f1-score, recall, and specificity
+    summary = (
+        combined_df
+        .groupby('model')[['f1-score', 'recall', 'specificity']]
+        .agg(['mean', 'count', 'std'])
+        .dropna()
+    )
+
+    # Rename columns for clarity, joining the multi-level column names
+    summary.columns = [f'{metric}_{stat}' for metric, stat in summary.columns]
+
+    # Calculate CI95 for each metric (f1, recall, specificity)
+    for metric in ['f1-score', 'recall', 'specificity']:
+        summary[f'{metric}_ci95'] = 1.96 * (summary[f'{metric}_std'] / np.sqrt(summary[f'{metric}_count']))
+
+    # Calculate Balanced Accuracy: (Recall + Specificity) / 2
+    summary['balanced_accuracy'] = (summary['recall_mean'] + summary['specificity_mean']) / 2
+    summary['balanced_accuracy_ci95'] = 1.96 * (
+                summary['recall_std'] / np.sqrt(summary['recall_count']) + summary['specificity_std'] / np.sqrt(
+            summary['specificity_count']))
+
+    # --- Print the results for all models ---
+    # Set pandas display options to show all rows and columns
+    pd.set_option('display.max_rows', None)  # Show all rows
+    pd.set_option('display.max_columns', None)  # Show all columns
+    pd.set_option('display.width', None)  # Auto-adjust width to avoid line truncation
+    pd.set_option('display.max_colwidth', None)  # Ensure no column width truncation
+
+    print("Summary for all models:")
+    print(summary[['f1-score_mean', 'f1-score_std', 'f1-score_ci95',
+                   'recall_mean', 'recall_std', 'recall_ci95',
+                   'specificity_mean', 'specificity_std', 'specificity_ci95',
+                   'balanced_accuracy', 'balanced_accuracy_ci95']])
+    print("\n")
+
+    # Plot the barplot for each metric (F1-score, Recall, Specificity, Balanced Accuracy)
+    metrics = ['f1-score', 'recall', 'specificity', 'balanced_accuracy']
+    n_metrics = len(metrics)
+    fig, axes = plt.subplots(1, n_metrics, figsize=(22, 6))
+
+    for i, metric in enumerate(metrics):
+        ax = axes[i]
+
+        # For each metric, use the proper column for y
+        if metric != 'balanced_accuracy':
+            sns.barplot(
+                x=summary.index,
+                y=summary[f'{metric}_mean'],
+                hue=summary.index,  # Use the model as hue
+                palette='viridis',
+                ax=ax,
+                legend=False  # Turn off the legend
+            )
+        else:
+            sns.barplot(
+                x=summary.index,
+                y=summary['balanced_accuracy'],
+                hue=summary.index,  # Use the model as hue
+                palette='viridis',
+                ax=ax,
+                legend=False  # Turn off the legend
+            )
+
+        # Add error bars (95% CI) on top of the bars
+        for j, model in enumerate(summary.index):
+            if metric != 'balanced_accuracy':
+                ax.errorbar(
+                    x=j,
+                    y=summary.loc[model, f'{metric}_mean'],
+                    yerr=summary.loc[model, f'{metric}_ci95'],
+                    fmt='none',
+                    color='black',
+                    capsize=5,
+                    elinewidth=2
+                )
+            else:
+                ax.errorbar(
+                    x=j,
+                    y=summary.loc[model, 'balanced_accuracy'],
+                    yerr=summary.loc[model, 'balanced_accuracy_ci95'],
+                    fmt='none',
+                    color='black',
+                    capsize=5,
+                    elinewidth=2
+                )
+
+        ax.set_title(f'Mean {metric.capitalize()} with 95% CI per Model')
+        ax.set_ylabel(f'{metric.capitalize()}')
+        ax.set_xlabel('Model')
+        ax.set_ylim(0, 1.05)  # Ensure the y-axis starts from 0 and goes slightly above 1
+        ax.tick_params(axis='x', rotation=45)
+
+    plt.tight_layout()
+    plt.show()
+
 
 def plot_bayes_tuning(clf):
     results = clf.cv_results_
@@ -660,11 +775,12 @@ if __name__ == "__main__":
     # Visualization of k-fold cross validation
     if plot_cv == 1:
 
-        with open('../PerformanceSave/CrossValidation/ImplicitV0-8HPO_SMOTE_LASSO_noNAN_all/CrossValidation.pkl', 'rb') as f:
+        with open('../PerformanceSave/CrossValidation/ExplicitV0-8HPO_SMOTE_LASSO_noNAN_all/CrossValidation.pkl', 'rb') as f:
             data_dict = pickle.load(f)
 
         plot_cross_val_sp(data_dict)
         plot_f1_bar_with_ci(data_dict)
+        bridget_recall_specificity_balanced_accuracy(data_dict)
         #plot_cross_val_hist(data_dict)
 
     # Visualization of bayes search convergence
