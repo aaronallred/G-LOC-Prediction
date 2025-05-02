@@ -35,7 +35,7 @@ def main_loop(kfold_ID, num_splits, runname):
     n_neighbors = 3
 
     ## Model Parameters
-    model_type = ['noAFE', 'implicit']
+    model_type = ['noAFE', 'explicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
@@ -341,7 +341,7 @@ if __name__ == "__main__":
 
     # Get time stamp for saving models
     # runname = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    runname = 'ImplicitV0-8HPO_SMOTE_LASSO_noNAN_all'
+    runname = 'ExplicitV0-8HPO_SMOTE_LASSO_noNAN_all'
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10

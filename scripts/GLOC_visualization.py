@@ -457,8 +457,29 @@ def plot_cross_val_sp(data_dict):
     num_metrics = len(metrics)
 
     # Subplot layout (auto-fit to rows of 2)
-    ncols = 2
+    ncols = 3
     nrows = math.ceil(num_metrics / ncols)
+
+    # --- Compute F1-score statistics ---
+    if 'f1-score' in combined_df.columns and 'model' in combined_df.columns:
+        # Group by model and calculate median, count, std, and 95% CI
+        f1_stats = (
+            combined_df
+            .groupby('model')['f1-score']
+            .agg(['median', 'count', 'std'])
+            .dropna()
+        )
+        f1_stats['ci95'] = 1.96 * (f1_stats['std'] / (f1_stats['count'] ** 0.5))
+
+        # Find the best model based on median F1-score
+        best_model = f1_stats['median'].idxmax()
+        best_median = f1_stats.loc[best_model, 'median']
+        ci = f1_stats.loc[best_model, 'ci95']
+
+        print(f"Best model by median F1-score: {best_model}")
+        print(f"Median F1-score: {best_median:.4f} (95% CI: [{best_median - ci:.4f}, {best_median + ci:.4f}])")
+    else:
+        print("Warning: Required columns ('model', 'f1-score') not found. Skipping F1-score summary.")
 
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(8 * ncols, 6 * nrows))
     axes = axes.flatten() if num_metrics > 1 else [axes]
@@ -530,6 +551,66 @@ def plot_cross_val_hist(data_dict):
         plt.pause(1)
     plt.show()
 
+
+def plot_f1_bar_with_ci(data_dict):
+    # Combine all data into a single DataFrame
+    all_data = []
+    for label, df in data_dict.items():
+        temp_df = df.copy()
+        temp_df['model'] = temp_df.index
+        temp_df['label'] = label
+        all_data.append(temp_df)
+
+    combined_df = pd.concat(all_data).reset_index(drop=True)
+
+    # Check that required columns exist
+    if 'f1-score' not in combined_df.columns or 'model' not in combined_df.columns:
+        print("Error: 'f1-score' or 'model' column not found.")
+        return
+
+    # Group by model and calculate median, count, std, and 95% CI
+    summary = (
+        combined_df
+        .groupby('model')['f1-score']
+        .agg(['median', 'count', 'std'])
+        .dropna()
+        .rename(columns={'median': 'f1_median'})
+    )
+    summary['ci95'] = 1.96 * (summary['std'] / np.sqrt(summary['count']))
+
+    # --- Print the results for all models ---
+    print("F1-score summary for all models:")
+    print(summary[['f1_median', 'ci95']])
+    print("\n")
+
+    # Plot the barplot first
+    plt.figure(figsize=(10, 6))
+    bar_plot = sns.barplot(
+        x=summary.index,
+        y=summary['f1_median'],
+        palette='viridis'
+    )
+
+    # Add error bars (95% CI) on top of the bars
+    for i, model in enumerate(summary.index):
+        plt.errorbar(
+            x=i,
+            y=summary.loc[model, 'f1_median'],
+            yerr=summary.loc[model, 'ci95'],
+            fmt='none',
+            color='black',
+            capsize=5,
+            elinewidth=2
+        )
+
+    plt.title('Median F1-score with 95% CI per Model')
+    plt.ylabel('F1-score')
+    plt.xlabel('Model')
+    plt.ylim(0, 1.05)  # Ensure the y-axis starts from 0 and goes slightly above 1
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
 def plot_bayes_tuning(clf):
     results = clf.cv_results_
 
@@ -562,7 +643,7 @@ if __name__ == "__main__":
     plot_data = 0       # flag to set whether plots should be generated (0 = no, 1 = yes)
     plot_pairwise = 0   # flag to set whether pairwise plots should be generated (0 = no, 1 = yes)
     plot_cv = 1
-    plot_bayes = 1
+    plot_bayes = 0
 
     # Visualization of feature throughout trial
     if plot_data == 1:
@@ -579,10 +660,11 @@ if __name__ == "__main__":
     # Visualization of k-fold cross validation
     if plot_cv == 1:
 
-        with open('../PerformanceSave/CrossValidation/ImplicitV0-8HPOnoFSnoNANrf2/CrossValidation.pkl', 'rb') as f:
+        with open('../PerformanceSave/CrossValidation/ImplicitV0-8HPO_SMOTE_LASSO_noNAN_all/CrossValidation.pkl', 'rb') as f:
             data_dict = pickle.load(f)
 
         plot_cross_val_sp(data_dict)
+        plot_f1_bar_with_ci(data_dict)
         #plot_cross_val_hist(data_dict)
 
     # Visualization of bayes search convergence
