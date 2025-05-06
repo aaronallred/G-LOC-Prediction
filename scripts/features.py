@@ -826,3 +826,10 @@ def sliding_window_other_features(time_start, stride, window_size, trial_column,
      sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
      sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
      sliding_window_cognitive_ies_s2)
+
+def nofeature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column,
+                       combined_baseline_names,baseline_names_v0, baseline_v0, feature_groups_to_analyze):
+
+
+
+    return y_gloc_labels.astype(np.float32), x_feature_matrix.astype(np.float32), all_features

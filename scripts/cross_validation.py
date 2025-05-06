@@ -12,6 +12,7 @@ from numpy import number
 from openpyxl.styles.builtins import percent
 import os
 from datetime import datetime
+from sklearn.preprocessing import StandardScaler
 
 def main_loop(kfold_ID, num_splits, runname):
     start_time = time.time()
@@ -25,9 +26,9 @@ def main_loop(kfold_ID, num_splits, runname):
     random_state = 42
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
-    classifier_type = 'all_hpo'
+    classifier_type = 'LSTM'
     train_class = True
-    class_weight_imb = None
+    class_weight_imb = 'balanced'
 
     # Data Handling Options
     remove_NaN_trials = True
@@ -35,16 +36,17 @@ def main_loop(kfold_ID, num_splits, runname):
     n_neighbors = 3
 
     ## Model Parameters
-    model_type = ['noAFE', 'explicit']
+    model_type = ['noAFE', 'implicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
-        # feature_groups_to_analyze = ['ECG']
+        feature_groups_to_analyze = ['ECG']
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
     baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
+    baseline_methods_to_use = ['v0']
 
     analysis_type = 2
 
@@ -128,12 +130,17 @@ def main_loop(kfold_ID, num_splits, runname):
 
     ################################################ GENERATE FEATURES ################################################
     """
-        Generates features from baseline data
+        Generates unengineered features from baseline data using same naming convention as traditional models
     """
 
-    y_gloc_labels, x_feature_matrix, all_features = (
-        feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column,
-                           combined_baseline_names,baseline_names_v0, baseline_v0, feature_groups_to_analyze))
+    # Unpack without feature generation
+    x_feature_matrix = np.vstack([
+        combined_baseline[trial_id] for trial_id in combined_baseline
+    ]).astype(np.float32)
+
+    y_gloc_labels = gloc
+
+    all_features = combined_baseline_names
 
     ############################################# FEATURE CLEAN AND PREP ##############################################
     """ 
@@ -173,158 +180,30 @@ def main_loop(kfold_ID, num_splits, runname):
     x_train, x_test, y_train, y_test = stratified_kfold_split(y_gloc_labels_noNaN,x_feature_matrix_noNaN,
                                                               num_splits, kfold_ID)
 
+    # And standardize based on training data
+    scaler  = StandardScaler()
+    x_train = scaler.fit_transform(x_train)
+    x_test  = scaler.transform(x_test)
+
     ################################################ Feature Selection ################################################
 
-    x_train, x_test, selected_features =  feature_selection_lasso(x_train, x_test, y_train, all_features, random_state)
+    # x_train, x_test, selected_features =  feature_selection_lasso(x_train, x_test, y_train, all_features, random_state)
 
     ################################################ Class Imbalance ################################################
 
-    x_train, y_train =  simple_smote(x_train, y_train, random_state)
+    # x_train, y_train =  simple_smote(x_train, y_train, random_state)
 
     ################################################ MACHINE LEARNING ################################################
     save_folder = os.path.join("../ModelSave/CV", runname, str(kfold_ID))
 
-    # Logistic Regression HPO | logreg_hpo
-    if classifier_type == 'all_hpo' or classifier_type == 'logreg_hpo':
-        accuracy_logreg_hpo, precision_logreg_hpo, recall_logreg_hpo, f1_logreg_hpo, specificity_logreg_hpo, g_mean_logreg_hpo = (
-            classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                                             save_folder=save_folder, retrain=train_class))
+    # Long Short Term Memory RNN
+    if classifier_type == 'LSTM' or classifier_type == 'all':
+        accuracy, precision, recall, f1, specificity, g_mean = (
+            lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                                             save_folder=save_folder))
 
         performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_logreg_hpo, precision_logreg_hpo, recall_logreg_hpo, f1_logreg_hpo,
-            specificity_logreg_hpo, g_mean_logreg_hpo,['Log Reg'])
-
-    # Logistic Regression | logreg
-    if classifier_type == 'all' or classifier_type == 'logreg':
-        accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
-            classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb,random_state,
-                                         save_folder=save_folder, retrain=train_class))
-
-        performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_logreg, precision_logreg, recall_logreg, f1_logreg,
-            specificity_logreg, g_mean_logreg,['Log Reg'])
-
-    # Random Forest HPO | rf_hpo
-    if classifier_type == 'all_hpo' or classifier_type == 'rf_hpo':
-        accuracy_rf_hpo, precision_rf_hpo, recall_rf_hpo, f1_rf_hpo, tree_depth_hpo, specificity_rf_hpo, g_mean_rf_hpo  = (
-            classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                                       save_folder=save_folder, retrain=train_class))
-
-        performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_rf_hpo, precision_rf_hpo, recall_rf_hpo, f1_rf_hpo,
-            specificity_rf_hpo, g_mean_rf_hpo,['RF'])
-
-    # Random Forrest | rf
-    if classifier_type == 'all' or classifier_type == 'rf':
-        accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
-            classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                                   save_folder=save_folder, retrain=train_class))
-
-        performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_rf, precision_rf, recall_rf, f1_rf, specificity_rf, g_mean_rf, ['RF'])
-
-    # Linear discriminant analysis HPO | LDA_hpo
-    if classifier_type == 'all_hpo' or classifier_type == 'LDA_hpo':
-        accuracy_lda_hpo, precision_lda_hpo, recall_lda_hpo, f1_lda_hpo, specificity_lda_hpo, g_mean_lda_hpo = (
-            classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
-                             save_folder=save_folder, retrain=train_class))
-
-        performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_lda_hpo, precision_lda_hpo, recall_lda_hpo, f1_lda_hpo,
-            specificity_lda_hpo, g_mean_lda_hpo, ['LDA'])
-
-    # Linear discriminant analysis | LDA
-    if classifier_type == 'all' or classifier_type == 'LDA':
-        accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
-            classify_lda(x_train, x_test, y_train, y_test, random_state,
-                         save_folder=save_folder, retrain=train_class))
-
-        performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda, ['LDA'])
-
-    # K Nearest Neighbors HPO | KNN_hpo
-    if classifier_type == 'all_hpo' or classifier_type == 'KNN_hpo':
-        accuracy_knn_hpo, precision_knn_hpo, recall_knn_hpo, f1_knn_hpo, specificity_knn_hpo, g_mean_knn_hpo = (
-            classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
-                             save_folder=save_folder, retrain=train_class))
-
-        performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_knn_hpo, precision_knn_hpo, recall_knn_hpo, f1_knn_hpo,
-            specificity_knn_hpo, g_mean_knn_hpo, ['KNN'])
-
-    # K Nearest Neighbors | KNN
-    if classifier_type == 'all' or classifier_type == 'KNN':
-        accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
-            classify_knn(x_train, x_test, y_train, y_test, random_state,
-                         save_folder=save_folder, retrain=train_class))
-
-        performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn, ['KNN'])
-
-    # Support Vector Machine HPO | SVM_hpo
-    if classifier_type == 'all_hpo' or classifier_type == 'SVM_hpo':
-        accuracy_svm_hpo, precision_svm_hpo, recall_svm_hpo, f1_svm_hpo, specificity_svm_hpo, g_mean_svm_hpo = (
-            classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                             save_folder=save_folder, retrain=train_class))
-
-        performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_svm_hpo, precision_svm_hpo, recall_svm_hpo, f1_svm_hpo,
-            specificity_svm_hpo, g_mean_svm_hpo, ['SVM'])
-
-    # Support Vector Machine | SVM
-    if classifier_type == 'all' or classifier_type == 'SVM':
-        accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
-            classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                         save_folder=save_folder, retrain=train_class))
-
-        performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm, ['SVM'])
-
-    # Ensemble with Gradient Boosting HPO | EGB_hpo
-    if classifier_type == 'all_hpo' or classifier_type == 'EGB_hpo':
-        accuracy_gb_hpo, precision_gb_hpo, recall_gb_hpo, f1_gb_hpo, specificity_gb_hpo, g_mean_gb_hpo = (
-            classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, random_state,
-                                                 save_folder=save_folder, retrain=train_class))
-
-        performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_gb_hpo, precision_gb_hpo, recall_gb_hpo, f1_gb_hpo,
-            specificity_gb_hpo, g_mean_gb_hpo, ['Ensemble w/ GB'])
-
-    # Ensemble with Gradient Boosting | EGB
-    if classifier_type == 'all' or classifier_type == 'EGB':
-        accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
-            classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, random_state,
-                                             save_folder=save_folder, retrain=train_class))
-
-        performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb, ['Ensemble w/ GB'])
-
-    # Build Performance Metric Summary Tables
-    if classifier_type == 'all':
-        performance_metric_summary = (summarize_performance_metrics(accuracy_logreg, accuracy_rf, accuracy_lda,
-                                                                    accuracy_knn, accuracy_svm, accuracy_gb,
-                                                                    precision_logreg, precision_rf, precision_lda,
-                                                                    precision_knn, precision_svm, precision_gb,
-                                                                    recall_logreg, recall_rf, recall_lda, recall_knn,
-                                                                    recall_svm, recall_gb, f1_logreg, f1_rf, f1_lda,
-                                                                    f1_knn, f1_svm, f1_gb,specificity_logreg,
-                                                                    specificity_rf, specificity_lda, specificity_knn,
-                                                                    specificity_svm, specificity_gb, g_mean_logreg,
-                                                                    g_mean_rf, g_mean_lda, g_mean_knn,
-                                                                    g_mean_svm, g_mean_gb))
-
-    if classifier_type == 'all_hpo':
-        performance_metric_summary_hpo = (summarize_performance_metrics(accuracy_logreg_hpo, accuracy_rf_hpo, accuracy_lda_hpo,
-                                                                    accuracy_knn_hpo, accuracy_svm_hpo, accuracy_gb_hpo,
-                                                                    precision_logreg_hpo, precision_rf_hpo, precision_lda_hpo,
-                                                                    precision_knn_hpo, precision_svm_hpo, precision_gb_hpo,
-                                                                    recall_logreg_hpo, recall_rf_hpo, recall_lda_hpo, recall_knn_hpo,
-                                                                    recall_svm_hpo, recall_gb_hpo, f1_logreg_hpo, f1_rf_hpo, f1_lda_hpo,
-                                                                    f1_knn_hpo, f1_svm_hpo, f1_gb_hpo,specificity_logreg_hpo,
-                                                                    specificity_rf_hpo, specificity_lda_hpo, specificity_knn_hpo,
-                                                                    specificity_svm_hpo, specificity_gb_hpo, g_mean_logreg_hpo,
-                                                                    g_mean_rf_hpo, g_mean_lda_hpo, g_mean_knn_hpo,
-                                                                    g_mean_svm_hpo, g_mean_gb_hpo))
+            accuracy, precision, recall, f1, specificity, g_mean,['LSTM'])
 
 
     duration = time.time() - start_time
@@ -332,8 +211,6 @@ def main_loop(kfold_ID, num_splits, runname):
 
     if classifier_type == 'all':
         return performance_metric_summary
-    if classifier_type == 'all_hpo':
-        return performance_metric_summary_hpo
     else:
         return performance_metric_summary_single
 
@@ -341,7 +218,7 @@ if __name__ == "__main__":
 
     # Get time stamp for saving models
     # runname = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    runname = 'ExplicitV0-8HPO_SMOTE_LASSO_noNAN_all'
+    runname = 'ImplicitV0-8HPO_noNAN_LSTM'
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10

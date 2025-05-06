@@ -8,7 +8,7 @@ from sklearn import metrics
 import pickle
 import math
 import joblib
-
+from sklearn.metrics import roc_curve, auc
 
 def initial_visualization(gloc_data_reduced, gloc, feature_baseline, all_features, time_variable):
     """
@@ -790,3 +790,55 @@ if __name__ == "__main__":
             clf = joblib.load(f)
 
         plot_bayes_tuning(clf)
+
+def roc_curve_plot(all_labels, all_preds):
+    # Plot the ROC curve
+    fpr, tpr, _ = roc_curve(all_labels, all_preds)
+    roc_auc = auc(fpr, tpr)
+
+    plt.figure()
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {roc_auc:.2f})')
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic (ROC) Curve')
+    plt.legend(loc='lower right')
+    plt.show()
+
+def prediction_time_plot(ground_truth, predicted,predictors_over_time):
+    # Plot the true values and predicted values over time
+    # plt.figure(figsize=(14, 6))
+    # plt.plot(ground_truth, label='Ground Truth Values', color='blue', linewidth=2)
+    # plt.plot(predicted, label='Predicted Values', color='red', linestyle='--', linewidth=2)
+    # plt.xlabel('Time Step')
+    # plt.ylabel('Value')
+    # plt.title('Time Series Predictions vs True Values')
+    # plt.legend()
+    # plt.show()
+
+    # Plotting
+    fig, axes = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
+
+    # Top subplot: Actual vs. Predicted Labels
+    axes[0].plot(ground_truth, label='Actual Labels', color='green', linewidth=1.5)
+    axes[0].plot(predicted, label='Predicted Labels', color='red', linestyle='--', linewidth=1.5)
+    axes[0].set_title('Actual vs. Predicted Labels')
+    axes[0].set_ylabel('Label Value')
+    axes[0].legend()
+    axes[0].grid(True)
+
+    # Bottom subplot: Predictors over Time
+    # Assuming predictors are 2D, e.g., (batch_size, time_steps, num_features)
+    for feature_idx in range(predictors_over_time.shape[1]):  # Loop over each feature
+        axes[1].plot(predictors_over_time[:, feature_idx], label=f'Feature {feature_idx + 1}')
+
+    axes[1].set_title('Predictors from Test Dataset Over Time')
+    axes[1].set_xlabel('Time Step')
+    axes[1].set_ylabel('Feature Value')
+    # axes[1].legend()
+    axes[1].grid(True)
+
+    plt.tight_layout()
+    plt.show()
