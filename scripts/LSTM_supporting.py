@@ -4,6 +4,7 @@ from sklearn.model_selection import train_test_split
 from sklearn import metrics
 from torch.utils.data import TensorDataset
 import numpy as np
+import os
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
@@ -40,11 +41,11 @@ def create_windows(sequence, labels, window_size, step_size):
         window_labels.append(max(labels[start:end]))  # Take the maximum label within the window
     return windows, window_labels
 
-def train_test_split_trials(X,Y,window_size,step_size,training_ratio):
+def train_test_split_trials(X,Y,window_size,step_size,test_ratio):
     # Creates train test split based on trials
     # Split data by trials
     unique_trials = np.unique(X[:, -1])  # Get unique trial identifiers
-    train_trials, test_trials = train_test_split(unique_trials, test_size=1 - training_ratio, random_state=42)
+    train_trials, test_trials = train_test_split(unique_trials, test_size = test_ratio, random_state=42)
 
     # Prepare train and test windows
     train_windows, train_labels = [], []
@@ -65,10 +66,10 @@ def train_test_split_trials(X,Y,window_size,step_size,training_ratio):
         test_labels.extend(labels)
 
     # Convert data to torch tensors and create DataLoaders
-    train_windows_tensor = torch.tensor(train_windows, dtype=torch.float32)
-    train_labels_tensor = torch.tensor(train_labels, dtype=torch.float32).view(-1, 1)
-    test_windows_tensor = torch.tensor(test_windows, dtype=torch.float32)
-    test_labels_tensor = torch.tensor(test_labels, dtype=torch.float32).view(-1, 1)
+    train_windows_tensor = torch.tensor(np.array(train_windows), dtype=torch.float32)
+    train_labels_tensor = torch.tensor(np.array(train_labels), dtype=torch.float32).view(-1, 1)
+    test_windows_tensor = torch.tensor(np.array(test_windows), dtype=torch.float32)
+    test_labels_tensor = torch.tensor(np.array(test_labels), dtype=torch.float32).view(-1, 1)
 
     train_dataset = TensorDataset(train_windows_tensor, train_labels_tensor)
     test_dataset = TensorDataset(test_windows_tensor, test_labels_tensor)
@@ -78,28 +79,25 @@ def train_test_split_trials(X,Y,window_size,step_size,training_ratio):
 
 
 # Objective function for Optuna
-def make_objective(x_train, y_train, class_weights):
+def make_objective(x_train, y_train, class_weights, save_folder):
     def objective(trial):
         # Hyperparameters
-        hidden_dim = trial.suggest_categorical("hidden_dim", [64, 128, 256])
+        hidden_dim = trial.suggest_categorical("hidden_dim", [32, 64, 128, 256])
         num_layers = trial.suggest_int("num_layers", 1, 3)
-        dropout = trial.suggest_float("dropout", 0.0, 0.5)
+        dropout = trial.suggest_float("dropout", 0.1, 0.5) if num_layers > 1 else 0
         learning_rate = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
-        batch_size = trial.suggest_categorical("batch_size", [16, 32, 64])
-        sequence_length = trial.suggest_int("sequence_length", 20, 100, step=10)
-        stride = trial.suggest_float("stride", 0.1, 2.0, step=0.1)
+        batch_size = trial.suggest_categorical("batch_size", [32, 64, 128])
+        sequence_length = trial.suggest_int("sequence_length", 25, 250)
+        stride = trial.suggest_float("stride", 0.25, 1.0)
         step_size = round(sequence_length * stride)
 
         # Create training and validation sets from x_train/y_train
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, val_windows_tensor, val_labels_tensor = (
-            train_test_split_trials(x_train, y_train, sequence_length, step_size, training_ratio=0.8)
+            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2)
         )
 
-        # Ensure class_weights are a tensor
-        class_weights_tensor = torch.tensor(class_weights, dtype=torch.float)
-
         # Create sampler for class imbalance
-        sample_weights = class_weights_tensor[train_labels_tensor]
+        sample_weights = class_weights[train_labels_tensor.long()].squeeze()
         sampler = torch.utils.data.WeightedRandomSampler(
             weights=sample_weights, num_samples=len(sample_weights), replacement=True
         )
@@ -114,13 +112,13 @@ def make_objective(x_train, y_train, class_weights):
         )
         model.to(device)
 
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=0)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
-        criterion = nn.BCELoss(weight=class_weights_tensor)
+        criterion = nn.BCELoss(weight=class_weights[1].to(device))
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-        # Early stopping params
+        # Early stopping parameters for cutting off runs if validation performance does not improve
         best_f1 = 0.0
         patience = 5
         wait = 0
@@ -165,7 +163,8 @@ def make_objective(x_train, y_train, class_weights):
             model.load_state_dict(best_model_state)
 
         # Save model to file
-        torch.save(model.state_dict(), f"best_model_trial_{trial.number}.pt")
+        os.makedirs(save_folder, exist_ok=True)
+        torch.save(model.state_dict(), os.path.join(save_folder, f"best_model_trial_{trial.number}.pt"))
 
         return best_f1
 

@@ -16,7 +16,7 @@ from skopt import BayesSearchCV
 from skopt.space import Real, Integer, Categorical
 from GLOC_visualization import create_confusion_matrix
 from sklearn.linear_model import Lasso
-from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold
+from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold, GroupKFold
 from itertools import islice
 from imblearn.metrics import geometric_mean_score
 from GLOC_data_processing import *
@@ -74,6 +74,31 @@ def stratified_kfold_split(Y, X, num_splits, kfold_ID, random_state=42):
     x_train, y_train = X[train_index], Y[train_index]
     x_test, y_test = X[test_index], Y[test_index]
 
+
+    return x_train, x_test, y_train, y_test
+
+# Training Test Split Using Stratified K-Fold
+# USING RANDOM STATE = 42
+def groupedtrial_kfold_split(Y, X, trials, num_splits, kfold_ID):
+    """
+    This function splits the X and y matrix into training and test matrix.
+    """
+
+    # Grouped K-Fold setup
+    # Use random state to ensure repeatability across runs and classifiers
+    gkf = GroupKFold(n_splits=num_splits)
+
+    # Safety check to ensure that kfold_ID is within the fold indices
+    n_folds = gkf.get_n_splits()
+    if kfold_ID < 0 or kfold_ID >= n_folds:
+        raise ValueError(f"Fold index {kfold_ID} out of range (must be between 0 and {n_folds - 1})")
+
+    # Grab train and test indices given the skf generator format for a specific kfold_ID
+    train_index, test_index = next(islice(gkf.split(X, Y, trials), kfold_ID, kfold_ID + 1))
+
+    # Extract the corresponding data for the given kfold_ID
+    x_train, y_train = X[train_index], Y[train_index]
+    x_test, y_test = X[test_index], Y[test_index]
 
     return x_train, x_test, y_train, y_test
 
@@ -1113,9 +1138,9 @@ def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     class_weights = torch.tensor(class_weights, dtype=torch.float)
 
     # Perform Hyperparameter Tuning with Optuna using only Training data
-    objective = make_objective(x_train, y_train, class_weights)
+    objective = make_objective(x_train, y_train, class_weights, save_folder)
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=30)
+    study.optimize(objective, n_trials=5)
 
     # Grab the Hyperparameters from the best set
     best_params = study.best_trial.params
@@ -1123,21 +1148,21 @@ def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
 
     hidden_dim = best_params["hidden_dim"]
     num_layers = best_params["num_layers"]
-    dropout = best_params["dropout"]
+    dropout = best_params["dropout"] if num_layers > 1 else 0
     learning_rate = best_params["lr"]
     batch_size = best_params["batch_size"]
     sequence_length = best_params["sequence_length"]
     stride = best_params["stride"]
     step_size = round(sequence_length * stride)
 
-    # Train with all training data
-    train_dataset, _, train_windows_tensor, _, _, train_labels_tensor = (
-        train_test_split_trials(x_train, y_train, sequence_length, step_size, training_ratio=1.0)
+    # Train with most training data
+    train_dataset, val_dataset, train_windows_tensor, _, _, train_labels_tensor = (
+        train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2)
     )
 
     # Create the test dataset format
-    _, test_dataset, _, _, _, _ = (
-        train_test_split_trials(x_test, y_test, sequence_length, step_size, training_ratio=1.0)
+    test_dataset, _, _, _, _, _ = (
+        train_test_split_trials(x_test, y_test, sequence_length, step_size, test_ratio=None)
     )
 
     input_dim = train_windows_tensor.shape[2]
@@ -1152,7 +1177,7 @@ def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     model.to(device)
 
     # Create sample weights using the windowed labels
-    sample_weights = class_weights[train_labels_tensor]  # Use the windowed labels here
+    sample_weights = class_weights[train_labels_tensor.long()].squeeze()  # Use the windowed labels here
 
     # Weighted Random Sampler for the windowed data
     sampler = torch.utils.data.WeightedRandomSampler(
@@ -1161,16 +1186,16 @@ def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
 
     # Prepare the DataLoader with the sampler
     train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
-    criterion = nn.BCELoss(weight=class_weights)  # Weighted BCE loss
+    criterion = nn.BCELoss(weight=class_weights[1].to(device))  # Weighted BCE loss
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     # Early stopping parameters
     patience = 5  # How many epochs to wait before stopping if no improvement
-    best_val_loss = float('inf')  # Initialize best validation loss as infinity
+    best_val_f1 = 0
     epochs_without_improvement = 0  # Counter for epochs without improvement
-
-    # Train model with X epochs
     num_epochs = 50
+
+    # Train model with early stopping
     model.train()
     for epoch in range(num_epochs):
         epoch_loss = 0
@@ -1192,32 +1217,32 @@ def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
 
         # Early stopping check: Monitor validation loss
         val_loss = 0
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         model.eval()
+        all_preds, all_labels = [], []
         with torch.no_grad():
-            for x_batch, y_batch in test_loader:
+            for x_batch, y_batch in val_loader:
                 x_batch, y_batch = x_batch.to(device), y_batch.to(device)
                 outputs = model(x_batch)
-                loss = criterion(outputs, y_batch)
-                val_loss += loss.item()
+                preds = (outputs >= 0.5).float()
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(y_batch.cpu().numpy())
 
-        val_loss /= len(test_loader)  # Calculate average validation loss
-        print(f"Validation Loss: {val_loss:.4f}")
+        val_f1 = metrics.f1_score(all_labels, all_preds)
+        print(f"Validation F1 Score: {val_f1:.4f}")
 
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
+        if val_f1 > best_val_f1:
+            best_val_f1 = val_f1
             epochs_without_improvement = 0
-            print("Validation loss improved, saving model...")
-            # Optionally, save the best model here
-            torch.save(model.state_dict(), "best_lstm_model.pth")  # Save model
+            # Save Model
+            print("Validation F1 improved, saving model...")
+            os.makedirs(save_folder, exist_ok=True)
+            torch.save(model.state_dict(), os.path.join(save_folder, f"trained_model.pt"))
         else:
             epochs_without_improvement += 1
             if epochs_without_improvement >= patience:
                 print(f"Early stopping triggered after {patience} epochs without improvement.")
                 break
-
-    # Save Model
-    torch.save(model.state_dict(), save_folder)
 
     # Evaluate final model
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
@@ -1232,12 +1257,13 @@ def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
             all_labels.extend(y_batch.cpu().numpy())
 
             # Append the input data for plotting predictors
-            predictors_over_time.extend(x_batch.numpy())
+            predictors_over_time.extend(x_batch.cpu().numpy())
 
     # Convert lists to numpy arrays
     all_preds = np.array(all_preds)
     all_labels = np.array(all_labels)
-    predictors_over_time = np.array(predictors_over_time)
+    #predictors_over_time = np.array(predictors_over_time)
+    #prediction_time_plot(all_labels, all_preds, predictors_over_time)
 
     # Assess Performance
     accuracy = metrics.accuracy_score(all_labels, all_preds)

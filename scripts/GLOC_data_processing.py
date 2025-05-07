@@ -1181,7 +1181,7 @@ def unpack_dict(gloc_window, sliding_window_mean_s1, number_windows, sliding_win
 
     return y_gloc_labels, x_feature_matrix
 
-def process_NaN(y_gloc_labels, x_feature_matrix, all_features):
+def process_NaN(y_gloc_labels, x_feature_matrix, all_features, trials):
     """
     This is a temporary function for removing all rows with NaN values. This can be replaced by
     another method in the future, but is necessary for feeding into ML Classifiers.
@@ -1197,10 +1197,13 @@ def process_NaN(y_gloc_labels, x_feature_matrix, all_features):
     # Find & Remove rows in label array if they have NaN values
     y_gloc_labels_noNaN = y_gloc_labels[~np.isnan(x_feature_matrix_noNaN_cols).any(axis=1)]
 
+    # Find & Remove rows in trial array if they have NaN values
+    trials_noNaN = trials[~np.isnan(x_feature_matrix_noNaN_cols).any(axis=1)]
+
     # Find & Remove rows in X matrix if the features have any NaN values in that row
     x_feature_matrix_noNaN = x_feature_matrix_noNaN_cols[~np.isnan(x_feature_matrix_noNaN_cols).any(axis=1)]
 
-    return y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features
+    return y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features, trials_noNaN
 
 def remove_constant_columns(x_feature_matrix_noNaN, all_features):
     """
@@ -1571,3 +1574,15 @@ def process_swp_pkl():
 
     # Create the DataFrame with custom row labels
     egb_fast_results = pd.DataFrame(data_array, index=egb_fast_pkl.keys(), columns=column_names)
+
+def convert_to_unique_ordered_integers(strings):
+    mapping = {}
+    result = []
+    current_id = 1
+    for s in strings:
+        if s not in mapping:
+            mapping[s] = current_id
+            current_id += 1
+        result.append(mapping[s])
+
+    return np.array(result,dtype=np.float32).reshape(-1, 1)

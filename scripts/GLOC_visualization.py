@@ -809,14 +809,6 @@ def roc_curve_plot(all_labels, all_preds):
 
 def prediction_time_plot(ground_truth, predicted,predictors_over_time):
     # Plot the true values and predicted values over time
-    # plt.figure(figsize=(14, 6))
-    # plt.plot(ground_truth, label='Ground Truth Values', color='blue', linewidth=2)
-    # plt.plot(predicted, label='Predicted Values', color='red', linestyle='--', linewidth=2)
-    # plt.xlabel('Time Step')
-    # plt.ylabel('Value')
-    # plt.title('Time Series Predictions vs True Values')
-    # plt.legend()
-    # plt.show()
 
     # Plotting
     fig, axes = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
@@ -841,4 +833,5 @@ def prediction_time_plot(ground_truth, predicted,predictors_over_time):
     axes[1].grid(True)
 
     plt.tight_layout()
-    plt.show()
+    plt.show(block=False)
+    plt.pause(5)

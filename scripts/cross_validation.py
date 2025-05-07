@@ -138,6 +138,10 @@ def main_loop(kfold_ID, num_splits, runname):
         combined_baseline[trial_id] for trial_id in combined_baseline
     ]).astype(np.float32)
 
+    trial_ints = convert_to_unique_ordered_integers(trial_column)
+
+    x_feature_matrix = np.hstack([x_feature_matrix,trial_ints])
+
     y_gloc_labels = gloc
 
     all_features = combined_baseline_names
@@ -152,13 +156,13 @@ def main_loop(kfold_ID, num_splits, runname):
 
     if impute_type == 2 or impute_type == 1:
         # Remove rows with NaN (temporary solution-should replace with other method eventually)
-        y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features = process_NaN(y_gloc_labels, x_feature_matrix,
-                                                                                all_features)
+        y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features, trials_noNaN = process_NaN(y_gloc_labels, x_feature_matrix,
+                                                                                all_features, trial_ints)
     elif impute_type == 3:
         y_gloc_labels_noNaN = y_gloc_labels
         x_feature_matrix_noNaN, indicator_matrix = knn_impute(x_feature_matrix, n_neighbors)
     else:
-        y_gloc_labels_noNaN, x_feature_matrix_noNaN = y_gloc_labels, x_feature_matrix
+        y_gloc_labels_noNaN, x_feature_matrix_noNaN, trials_noNaN = y_gloc_labels, x_feature_matrix, trial_ints
 
 
     # Save pkl
@@ -177,13 +181,23 @@ def main_loop(kfold_ID, num_splits, runname):
     """
 
     # Training/Test Split
-    x_train, x_test, y_train, y_test = stratified_kfold_split(y_gloc_labels_noNaN,x_feature_matrix_noNaN,
+    x_train, x_test, y_train, y_test = groupedtrial_kfold_split(y_gloc_labels_noNaN,x_feature_matrix_noNaN, trials_noNaN,
                                                               num_splits, kfold_ID)
+
+    # Grab trials as separate
+    x_train_trials = x_train[:,-1].reshape(-1, 1)
+    x_train = x_train[:,:-1]
+    x_test_trials = x_test[:, -1].reshape(-1, 1)
+    x_test = x_test[:, :-1]
 
     # And standardize based on training data
     scaler  = StandardScaler()
     x_train = scaler.fit_transform(x_train)
     x_test  = scaler.transform(x_test)
+
+    # Add back together
+    x_train = np.hstack([x_train,x_train_trials])
+    x_test = np.hstack([x_test, x_test_trials])
 
     ################################################ Feature Selection ################################################
 
@@ -218,11 +232,11 @@ if __name__ == "__main__":
 
     # Get time stamp for saving models
     # runname = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    runname = 'ImplicitV0-8HPO_noNAN_LSTM'
+    runname = 'ImplicitV0HPO_noNAN_LSTM'
 
     # Test set identifier for 10-fold Model Validation
-    num_splits = 10
-    kfold_ID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    num_splits = 5
+    kfold_ID = [0, 1, 2, 3, 4]
 
     # Pre-Allocate Performance Summary Dictionary
     kfold_performance_summary = dict()
@@ -257,4 +271,4 @@ if __name__ == "__main__":
     with open(save_path, 'wb') as file:
         pickle.dump(kfold_performance_summary, file)
 
-    plot_cross_val(kfold_performance_summary)
+    plot_cross_val_sp(kfold_performance_summary)
