@@ -13,6 +13,9 @@ from openpyxl.styles.builtins import percent
 import os
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
+from LSTM_supporting import *
+from Transformer_supporting import *
+from InceptionTime_supporting import *
 
 def main_loop(kfold_ID, num_splits, runname):
     start_time = time.time()
@@ -26,11 +29,12 @@ def main_loop(kfold_ID, num_splits, runname):
     random_state = 42
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
-    classifier_type = 'LSTM'
+    classifier_type = 'Trans'
     train_class = True
     class_weight_imb = 'balanced'
 
     # Data Handling Options
+    save_loaded_data = False
     remove_NaN_trials = True
     impute_type = 2
     n_neighbors = 3
@@ -40,9 +44,11 @@ def main_loop(kfold_ID, num_splits, runname):
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
+
     if 'noAFE' in model_type and 'implicit' in model_type:
-        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
-        feature_groups_to_analyze = ['ECG']
+        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
+        feature_groups_to_analyze = ['ECG','BR','temp', 'eyetracking','rawEEG']
+        feature_groups_to_analyze = ['processedEEG']
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
     baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
@@ -126,32 +132,49 @@ def main_loop(kfold_ID, num_splits, runname):
                       features_eeg, all_features_eeg, baseline_data_filename, list_of_baseline_eeg_processed_files,
                       model_type))
 
-
-
     ################################################ GENERATE FEATURES ################################################
     """
         Generates unengineered features from baseline data using same naming convention as traditional models
     """
-
     # Unpack without feature generation
-    x_feature_matrix = np.vstack([
-        combined_baseline[trial_id] for trial_id in combined_baseline
-    ]).astype(np.float32)
+    x_feature_matrix = np.vstack([combined_baseline[trial_id] for trial_id in combined_baseline]).astype(np.float32)
 
+    # Only grab unengineered datastreams
+    unengineered_streams = pull_unengineered_streams()
+    ue_indices = [i for i, feature in enumerate(all_features) if feature in unengineered_streams]
+    x_feature_matrix = x_feature_matrix[:,ue_indices]
     trial_ints = convert_to_unique_ordered_integers(trial_column)
 
-    x_feature_matrix = np.hstack([x_feature_matrix,trial_ints])
+    # Baseline by first 10 seconds
+    # Create a copy of x_feature_matrix to store the baselined data
+    x_baselined = x_feature_matrix.copy()
+    unique_trials = np.unique(trial_ints)
+    # Loop through each trial
+    for trial in unique_trials:
+        # Get the indices of samples belonging to the current trial
+        trial_indices = np.where(trial_ints == trial)[0]
+        # Get the first 250 datapoints of the current trial (or all if fewer than 250)
+        first_250_indices = trial_indices[:250]
+        # Compute the baseline (mean of the first 250 datapoints for each feature)
+        baseline = np.mean(x_feature_matrix[first_250_indices], axis=0)
+        # Replace NaNs in the baseline with 0 to not contaminate values with nans
+        baseline = np.nan_to_num(baseline, nan=0.0)
+        # Subtract the baseline from all samples of the current trial
+        x_baselined[trial_indices] -= baseline
 
+    x_feature_matrix = x_baselined
+    x_feature_matrix = np.hstack([x_feature_matrix,trial_ints])
     y_gloc_labels = gloc
 
     all_features = combined_baseline_names
+    all_features = [all_features[i] for i in ue_indices]
 
     ############################################# FEATURE CLEAN AND PREP ##############################################
     """ 
           Optional handling of raw NaN data, depending on 'impute_type' >= 2
     """
 
-    # Remove constant columns
+    # Remove constant columns (typically no constant columns)
     x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
 
     if impute_type == 2 or impute_type == 1:
@@ -166,14 +189,13 @@ def main_loop(kfold_ID, num_splits, runname):
 
 
     # Save pkl
-    with open (y_label_name, 'wb') as file:
-        pickle.dump(y_gloc_labels_noNaN, file)
-
-    with open (feature_matrix_name, 'wb') as file:
-        pickle.dump(x_feature_matrix_noNaN, file)
-
-    with open (all_features_name, 'wb') as file:
-        pickle.dump(all_features, file)
+    if save_loaded_data:
+        with open (y_label_name, 'wb') as file:
+            pickle.dump(y_gloc_labels_noNaN, file)
+        with open (feature_matrix_name, 'wb') as file:
+            pickle.dump(x_feature_matrix_noNaN, file)
+        with open (all_features_name, 'wb') as file:
+            pickle.dump(all_features, file)
 
     ################################################ TRAIN/TEST SPLIT  ################################################
     """ 
@@ -199,14 +221,6 @@ def main_loop(kfold_ID, num_splits, runname):
     x_train = np.hstack([x_train,x_train_trials])
     x_test = np.hstack([x_test, x_test_trials])
 
-    ################################################ Feature Selection ################################################
-
-    # x_train, x_test, selected_features =  feature_selection_lasso(x_train, x_test, y_train, all_features, random_state)
-
-    ################################################ Class Imbalance ################################################
-
-    # x_train, y_train =  simple_smote(x_train, y_train, random_state)
-
     ################################################ MACHINE LEARNING ################################################
     save_folder = os.path.join("../ModelSave/CV", runname, str(kfold_ID))
 
@@ -219,11 +233,21 @@ def main_loop(kfold_ID, num_splits, runname):
         performance_metric_summary_single = single_classifier_performance_summary(
             accuracy, precision, recall, f1, specificity, g_mean,['LSTM'])
 
+    # Long Short Term Memory RNN
+    if classifier_type == 'Trans' or classifier_type == 'all':
+        accuracy, precision, recall, f1, specificity, g_mean = (
+            transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                              save_folder=save_folder))
+
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy, precision, recall, f1, specificity, g_mean, ['LSTM'])
+
 
     duration = time.time() - start_time
     print(duration)
 
     if classifier_type == 'all':
+        performance_metric_summary = []
         return performance_metric_summary
     else:
         return performance_metric_summary_single
@@ -235,8 +259,9 @@ if __name__ == "__main__":
     runname = 'ImplicitV0HPO_noNAN_LSTM'
 
     # Test set identifier for 10-fold Model Validation
-    num_splits = 5
+    num_splits = 10
     kfold_ID = [0, 1, 2, 3, 4]
+    kfold_ID = [1]
 
     # Pre-Allocate Performance Summary Dictionary
     kfold_performance_summary = dict()
