@@ -811,18 +811,17 @@ def prediction_time_plot(ground_truth, predicted,predictors_over_time):
     # Plot the true values and predicted values over time
 
     # Plotting
-    fig, axes = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
+    fig, axes = plt.subplots(2, 1, figsize=(7, 14), sharex=True)
 
     # Top subplot: Actual vs. Predicted Labels
-    axes[0].plot(ground_truth, label='Actual Labels', color='green', linewidth=1.5)
     axes[0].plot(predicted, label='Predicted Labels', color='red', linestyle='--', linewidth=1.5)
+    axes[0].plot(ground_truth, label='Actual Labels', color='green', linewidth=1.5)
     axes[0].set_title('Actual vs. Predicted Labels')
     axes[0].set_ylabel('Label Value')
     axes[0].legend()
     axes[0].grid(True)
 
     # Bottom subplot: Predictors over Time
-    # Assuming predictors are 2D, e.g., (batch_size, time_steps, num_features)
     for feature_idx in range(predictors_over_time.shape[1]):  # Loop over each feature
         axes[1].plot(predictors_over_time[:, feature_idx], label=f'Feature {feature_idx + 1}')
 

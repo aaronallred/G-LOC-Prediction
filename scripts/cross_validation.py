@@ -13,9 +13,10 @@ from openpyxl.styles.builtins import percent
 import os
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
-from LSTM_supporting import *
-from Transformer_supporting import *
-from InceptionTime_supporting import *
+#from LSTM_supporting import lstm_binary_class
+#from Transformer_supporting import transformer_class
+from InceptionTime_supporting import inceptiontime_class
+from TCN_supporting import tcn_binary_class
 
 def main_loop(kfold_ID, num_splits, runname):
     start_time = time.time()
@@ -29,7 +30,7 @@ def main_loop(kfold_ID, num_splits, runname):
     random_state = 42
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
-    classifier_type = 'Trans'
+    classifier_type = 'TCN'
     train_class = True
     class_weight_imb = 'balanced'
 
@@ -48,7 +49,7 @@ def main_loop(kfold_ID, num_splits, runname):
     if 'noAFE' in model_type and 'implicit' in model_type:
         # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
         feature_groups_to_analyze = ['ECG','BR','temp', 'eyetracking','rawEEG']
-        feature_groups_to_analyze = ['processedEEG']
+        # feature_groups_to_analyze = ['processedEEG']
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
     baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
@@ -240,7 +241,16 @@ def main_loop(kfold_ID, num_splits, runname):
                               save_folder=save_folder))
 
         performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy, precision, recall, f1, specificity, g_mean, ['LSTM'])
+            accuracy, precision, recall, f1, specificity, g_mean, ['Trans'])
+
+    # Long Short Term Memory RNN
+    if classifier_type == 'TCN' or classifier_type == 'all':
+        accuracy, precision, recall, f1, specificity, g_mean = (
+            tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                              save_folder=save_folder))
+
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy, precision, recall, f1, specificity, g_mean, ['TCN'])
 
 
     duration = time.time() - start_time
