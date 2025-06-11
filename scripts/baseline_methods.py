@@ -127,7 +127,25 @@ def create_v1_baseline(baseline_window, trial_column, time_column, features_phys
         time_array = np.array(time_column)
 
         # Find baseline average based on specified baseline window
-        baseline_feature = np.mean(features_phys[index_window], axis = 0)
+        # baseline_feature = np.mean(features_phys[index_window], axis = 0)
+        #
+        # # Ensure that data doesn't introduce NaNs.
+        # if baseline_feature.shape[0] == 0:
+        #     # If baseline window is empty, use ones
+        #     baseline_feature = np.ones(features_phys.shape[1])
+        # baseline_feature = np.nan_to_num(baseline_feature,nan=1)
+        # baseline_feature = np.where(baseline_feature == 0, 1, baseline_feature)
+
+        # Find baseline average based on specified baseline window
+        # Ensure that data doesn't introduce NaNs.
+        if np.sum(index_window) == 0:
+            # Empty baseline window — use ones
+            baseline_feature = np.ones(features_phys.shape[1])
+        else:
+            # Compute mean baseline
+            baseline_feature = np.mean(features_phys[index_window], axis=0)
+            baseline_feature = np.nan_to_num(baseline_feature, nan=1)
+            baseline_feature = np.where(baseline_feature == 0, 1, baseline_feature)
 
         # Divide features for that trial by baselined data
         baseline_v1[trial_id_in_data[i]] = np.array(features_phys[(trial_column == trial_id_in_data[i])] /baseline_feature)
@@ -170,6 +188,7 @@ def create_v2_baseline(baseline_window, trial_column, time_column, features_phys
 
         # Find baseline average based on specified baseline window
         baseline_feature = np.mean(features_phys[index_window], axis = 0)
+        baseline_feature = np.nan_to_num(baseline_feature, nan=0)
 
         # Subtract baseline data (baseline v2)
         baseline_v2[trial_id_in_data[i]] = np.array(features_phys[(trial_column == trial_id_in_data[i])] - baseline_feature)
@@ -351,6 +370,7 @@ def create_v5_baseline(baseline_window, trial_column, time_column, subject_colum
         # Find baseline for current participant
         current_participant = participant_array[time_index][0]
         baseline_feature = participant_seated_rhr[current_participant]
+        baseline_feature = np.nan_to_num(baseline_feature, nan=1)
 
         # Divide features for that trial by baselined data
         baseline_v5[trial_id_in_data[i]] = np.array(features_ecg[(trial_column == trial_id_in_data[i])] /baseline_feature)
@@ -394,6 +414,7 @@ def create_v6_baseline(baseline_window, trial_column, time_column, subject_colum
         # Find baseline for current participant
         current_participant = participant_array[time_index][0]
         baseline_feature = participant_seated_rhr[current_participant]
+        baseline_feature = np.nan_to_num(baseline_feature, nan=0)
 
         # Divide features for that trial by baselined data
         baseline_v6[trial_id_in_data[i]] = np.array(features_ecg[(trial_column == trial_id_in_data[i])] - baseline_feature)

@@ -96,7 +96,7 @@ def groupedtrial_kfold_split(Y, X, trials, num_splits, kfold_ID):
     x_train, y_train = X[train_index], Y[train_index]
     x_test, y_test = X[test_index], Y[test_index]
 
-    return x_train, x_test, y_train, y_test
+    return x_train, x_test, y_train, y_test, train_index, test_index
 
 
 # Logistic Regression Classifier

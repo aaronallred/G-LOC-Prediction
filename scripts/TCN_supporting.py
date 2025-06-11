@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 from imblearn.metrics import geometric_mean_score
 from sklearn.utils.class_weight import compute_class_weight
 import optuna
+from imputation import fast_knn_impute
 from GLOC_visualization import prediction_time_plot
 
 class TemporalBlock(nn.Module):
@@ -216,16 +217,21 @@ def train_test_split_trials(X,Y,window_size,step_size,test_ratio, random_state =
             train_windows_tensor, train_labels_tensor, test_windows_tensor, test_labels_tensor)
 
 
-# Objective function for Optuna
 def make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler):
+    """
+    TCN Objective Function for Optuna.
+
+    Function objective (below) has access to all global arguments passed to this function. Returns F1 Score as Obj.
+
+    """
     def objective(trial):
         # Hyperparameters
-        hidden_dim = trial.suggest_categorical("hidden_dim", [64, 128, 256])
+        hidden_dim = trial.suggest_categorical("hidden_dim", [64, 128, 256, 512])
         num_layers = trial.suggest_int("num_layers", 1, 3)
         dropout = trial.suggest_float("dropout", 0.1, 0.5) if num_layers > 1 else 0
         learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
-        batch_size = trial.suggest_categorical("batch_size", [ 32, 64])
-        sequence_length = trial.suggest_int("sequence_length", 50, 100)
+        batch_size = trial.suggest_categorical("batch_size", [64, 128])
+        sequence_length = trial.suggest_int("sequence_length", 50, 250)
         stride = trial.suggest_float("stride", 0.25, 1.0)
         weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
         kernel_size = trial.suggest_categorical('kernel_size', [3, 5, 7])
@@ -262,13 +268,13 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-        # criterion = nn.BCEWithLogitsLoss(pos_weight=class_weights[1].to(device))
-        criterion = SoftF1Loss(pos_weight=class_weights[1].to(device))
+        criterion = nn.BCEWithLogitsLoss(pos_weight=class_weights[1].to(device))
+        # criterion = SoftF1Loss(pos_weight=class_weights[1].to(device))
         optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
         # Early stopping parameters for cutting off runs if validation performance does not improve
         best_f1, patience_counter = 0.0, 0
-        patience = 5
+        patience = 20
         num_epochs = 100
         best_model_state = None
 
@@ -364,7 +370,7 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
 
     # Train model with early stopping
     best_f1, patience_counter = 0.0, 0
-    patience = 5
+    patience = 20
     num_epochs = 100
     best_model_state = None
 
