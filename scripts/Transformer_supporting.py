@@ -1,272 +1,210 @@
+from DL_supporting import *
 import numpy as np
 import os
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from torch.nn.utils.rnn import pad_sequence
 import optuna
 from sklearn import metrics
 from imblearn.metrics import geometric_mean_score
 from sklearn.utils.class_weight import compute_class_weight
-from sklearn.model_selection import GroupShuffleSplit
-from collections import defaultdict
 
-# Convert Dataset to Pytorch tensors of Dtype Float 32
-class TimeSeriesDataset(Dataset):
-    def __init__(self, sequences, labels):
-        # Convert each sequence and label to tensors
-        self.sequences = [torch.tensor(seq, dtype=torch.float32) for seq in sequences]
-        self.labels = [torch.tensor(lbl, dtype=torch.float32) for lbl in labels]
+from GLOC_visualization import prediction_time_plot
 
-        # Pad sequences and labels
-        self.padded_sequences = pad_sequence(self.sequences, batch_first=True, padding_value=0.0)  # [B, T, F]
-        self.padded_labels = pad_sequence(self.labels, batch_first=True, padding_value=0.0)  # [B, T]
 
-        # Create attention masks: 1 for real tokens, 0 for padding
-        self.attn_masks = torch.tensor([
-            [1] * len(seq) + [0] * (self.padded_sequences.shape[1] - len(seq))
-            for seq in self.sequences
-        ], dtype=torch.bool)
-
-    def __len__(self):
-        return len(self.padded_sequences)
-
-    def __getitem__(self, idx):
-        return self.padded_sequences[idx], self.padded_labels[idx], self.attn_masks[idx]
-
-# Create Simple Transformer Model using pytorch with hyperparamater variables
 class TransformerClassifier(nn.Module):
-    def __init__(self, input_dim, d_model, nhead, num_layers, dim_feedforward, dropout):
-        super().__init__()
+    def __init__(self, input_dim, d_model=64, nhead=4, num_layers=2, dim_feedforward=128, dropout=0.3, output_dim=1):
+        super(TransformerClassifier, self).__init__()
+
+        # Input linear projection to d_model (embedding dimension)
         self.input_proj = nn.Linear(input_dim, d_model)
-        encoder_layer = nn.TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, batch_first=True)
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers)
-        self.classifier = nn.Linear(d_model, 1)
 
-    def forward(self, x, attn_mask):
-        x = self.input_proj(x)  # [B, T, d_model]
-        # Transformer expects attn_mask to be [B, T], bool mask where True = keep, False = pad
-        out = self.transformer(x, src_key_padding_mask=attn_mask.bool())
-        logits = self.classifier(out).squeeze(-1)  # [B, T]
+        # Transformer encoder layer and stack
+        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model,
+                                                   nhead=nhead,
+                                                   dim_feedforward=dim_feedforward,
+                                                   dropout=dropout,
+                                                   batch_first=True)  # batch_first=True matches LSTM's batch, seq, feature
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
-        return logits
+        # Final linear layer to output dimension (binary classification)
+        self.fc = nn.Linear(d_model, output_dim)
 
-# Define Pad Collate Function for DataLoader
-def pad_collate_fn(batch):
-    # Unpack each item in the batch
-    sequences, labels, masks = zip(*batch)  # Now we expect 3 elements per batch item
+    def forward(self, x):
+        # x shape: (batch_size, seq_len, input_dim)
+        x = self.input_proj(x)  # -> (batch_size, seq_len, d_model)
 
-    # Pad sequences and attention masks
-    padded_seqs = pad_sequence(sequences, batch_first=True, padding_value=0.0)  # [B x T_max x F]
-    attention_masks = torch.tensor([
-        [1] * len(seq) + [0] * (padded_seqs.shape[1] - len(seq)) for seq in sequences
-    ], dtype=torch.bool)
+        # Transformer Encoder expects input shape (batch_size, seq_len, d_model) with batch_first=True
+        x = self.transformer_encoder(x)  # (batch_size, seq_len, d_model)
 
-    # Stack labels
-    labels = torch.stack(labels).float()  # Ensure labels are correctly stacked
+        # You can do per-timestep output (sequence output) to match your LSTM output shape (batch, seq_len, 1)
+        out = self.fc(x)  # (batch_size, seq_len, output_dim)
 
-    return padded_seqs, attention_masks, labels
+        return out
 
-# Define Training Loop
-def train(model, loader, criterion, optimizer, device):
-    model.train()
-    for x_batch, y_batch, mask in loader:
-        x_batch, y_batch, mask = x_batch.to(device), y_batch.to(device), mask.to(device)
-        optimizer.zero_grad()
-        preds = model(x_batch, mask)
 
-        loss = criterion(preds[mask], y_batch[mask])
-        loss.backward()
-        optimizer.step()
+def make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler, objective_var):
+    """
+    TCN Objective Function for Optuna.
 
-# Define Evaluation Loop
-def evaluate(model, loader, device):
-    model.eval()
-    all_preds, all_labels = [], []
+    Function objective (below) has access to all global arguments passed to this function.
+    Returns Stopping Metric (here F1 score) as the objective (set to maximize)
+        The Stopping Metric (stopping_metric) is what cuts off training during hyperparameter tuning
+    Saves hyperparameters from the best validation performance for building final model
 
-    with torch.no_grad():
-        for x_batch, y_batch, mask in loader:
-            x_batch, y_batch, mask = x_batch.to(device), y_batch.to(device), mask.to(device)
-            logits = model(x_batch, mask)
-            probs = torch.sigmoid(logits) # Convert logits to probabilities
-            preds = (probs >= 0.5).float()  # Threshold at 0.5
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(y_batch.cpu().numpy())
-
-    return all_preds, all_labels
-
-# Define Evaluation with early stopping
-def evaluate_with_early_stopping(model, val_loader, device, best_f1=0, patience_counter=0, patience=5, epoch = None):
-    all_preds, all_labels = evaluate(model, val_loader, device)
-
-    f1 = metrics.f1_score(all_labels, all_preds)
-    print(f"Epoch {epoch}: F1 Score = {f1:.4f}")
-    if f1 > best_f1:
-        best_f1 = f1
-        patience_counter = 0
-        best_model_state = model.state_dict()
-    else:
-        patience_counter += 1
-    stop_early = patience_counter >= patience
-
-    return f1, best_f1, patience_counter, stop_early
-
-# Group Based Split (keeping train and test trials together)
-def group_based_split(x, y, trial_ids, test_size=0.2, random_state=42):
-
-    gss = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
-    train_idx, val_idx = next(gss.split(x, y, groups=trial_ids))
-
-    x_train, y_train = x[train_idx], y[train_idx]
-    x_val, y_val = x[val_idx], y[val_idx]
-
-    # Convert data to torch tensors and create DataLoaders
-    x_train_tensor = torch.tensor(np.array(x_train), dtype=torch.float32)
-    y_train_tensor = torch.tensor(np.array(y_train), dtype=torch.float32).view(-1, 1)
-    x_val_tensor = torch.tensor(np.array(x_val), dtype=torch.float32)
-    y_val_tensor = torch.tensor(np.array(y_val), dtype=torch.float32).view(-1, 1)
-
-    return x_train_tensor, x_val_tensor, y_train_tensor, y_val_tensor
-
-def split_trials(X, Y, trial_ids):
-    from collections import defaultdict
-    trial_dict = defaultdict(list)
-
-    for x, y, tid in zip(X, Y, trial_ids):
-        trial_dict[tid].append((x, y))
-
-    sequences, labels, groups = [], [], []
-    for tid, data in trial_dict.items():
-        trial_x = np.stack([x for x, _ in data])  # Shape: [T x F]
-        trial_y = np.array([y for _, y in data])  # Shape: [T]
-        sequences.append(trial_x)
-        labels.append(trial_y)
-        groups.append(tid)
-
-    return sequences, labels, groups
-
-# Define Optuna Objective Function to be Optimized
-def make_objective(train_set,val_set, class_weights, save_folder):
+    """
     def objective(trial):
+        # Hyperparameters
         d_model = trial.suggest_categorical("d_model", [32, 64, 128])
         nhead = trial.suggest_categorical("nhead", [2, 4, 8])
         num_layers = trial.suggest_int("num_layers", 1, 3)
         dim_feedforward = trial.suggest_int("dim_feedforward", 64, 512)
-        dropout = trial.suggest_float("dropout", 0.1, 0.5)
-        lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
-        batch_size = trial.suggest_categorical("batch_size", [1])
+        dropout = trial.suggest_float("dropout", 0.1, 0.5) if num_layers > 1 else 0
+        learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
+        batch_size = trial.suggest_categorical("batch_size", [64, 128])
+        sequence_length = trial.suggest_int("sequence_length", 50, 250)
+        stride = trial.suggest_float("stride", 0.25, 1.0)
+        weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
+        threshold = trial.suggest_float('threshold', 0.1, 0.9)
 
-        input_dim = train_set[0][0].shape[1]
-        model = TransformerClassifier(input_dim, d_model, nhead, num_layers, dim_feedforward, dropout)
+        step_size = round(sequence_length * stride)
 
-        device = (
-            torch.device("cuda") if torch.cuda.is_available()
-            else torch.device("mps") if torch.backends.mps.is_available()
-            else torch.device("cpu")
+        # Create training and validation sets from x_train/y_train
+        train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, val_windows_tensor, val_labels_tensor = (
+            train_test_split_trials(
+                x_train,y_train,sequence_length,step_size,test_ratio=0.2,random_state = random_state)
         )
-        model.to(device)
 
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-        criterion = nn.BCEWithLogitsLoss(pos_weight=class_weights[1].to(device))
+        # Prepare the data for training and evaluation
+        sampler = build_sampler(train_labels_tensor, class_weights) if use_sampler else None
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+
+        # Build model
+        input_dim = train_windows_tensor.shape[2]
+        model = TransformerClassifier(input_dim,
+                                      d_model=d_model,
+                                      nhead=nhead,
+                                      num_layers=num_layers,
+                                      dim_feedforward=dim_feedforward,
+                                      dropout=dropout,
+                                      output_dim=1)
+        device = get_device()
+        model.to(device)
+        criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, device)
 
         # Train and Evaluate with Early Stopping
-        train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, collate_fn=pad_collate_fn)
-        val_loader = DataLoader(val_set, batch_size=batch_size, collate_fn=pad_collate_fn)
+        best_model_state, best_epoch, best_stopping_metric = train_with_early_stopping(
+            model, train_loader, val_loader, criterion, optimizer, device, threshold, objective_var)
 
-        patience = 5
-        best_f1 = 0
-        patience_counter = 0
-        num_epochs = 50
+        # Restore best weights
+        if best_model_state:
+            model.load_state_dict(best_model_state)
 
-        for epoch in range(num_epochs):
-            # Train on training set
-            train(model, train_loader, criterion, optimizer, device)
-
-            # Evaluate on validation set
-            f1, best_f1, patience_counter, stop_early = evaluate_with_early_stopping(
-                model, val_loader, device, best_f1, patience_counter, patience, epoch)
-
-            if stop_early:
-                print(f"Early stopping at epoch {epoch+1} with best F1 score: {best_f1:.4f}")
-                break
+        # Store best epoch in trial attributes
+        trial.set_user_attr("best_epoch", best_epoch)
 
         # Save model to file
-        torch.save(model.state_dict(), os.path.join(save_folder, f"trans_best_model_trial_{trial.number}.pt"))
+        os.makedirs(save_folder, exist_ok=True)
+        torch.save(model.state_dict(), os.path.join(save_folder, f"TCN_best_model_trial_{trial.number}.pt"))
 
-        return best_f1
+        return best_stopping_metric
 
     return objective
 
 def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, save_folder):
+    """
+        Main Transformer Script
+        Input: train and test split of data
+        Output: model performance of trained model evaluated on test data
+    """
+    # User Options
+    use_sampler = False # Optionally use sampler to sample the minority class (ROS)
+    final_early_stop = False # Optionally use early stopping for final train (always uses early stop in tuning)
+    objective_var = 'F1' # 'F1' 'Acc' or else uses 1-Loss. (used by Optuna and Early Stop during hyperparameter tuning)
 
-    # Make save folder if needed
-    os.makedirs(save_folder, exist_ok=True)
-
-    # Split data into train, validation, and test
-    trial_ids_train = x_train[:, -1]
-    trial_ids_test = x_test[:, -1]
-    x_train = x_train[:,:-1]  # Discard last column (trial ids)
-    x_test = x_test[:,:-1]    # Discard last column (trial ids)
-
-    # Put into torch tensor
-    train_seqs, train_labels, train_groups = split_trials(x_train, y_train, trial_ids_train)
-    test_seqs, test_labels, _ = split_trials(x_test, y_test, trial_ids_test) # used after hyperparameter
-
-    gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=random_state)
-    train_idx, val_idx = next(gss.split(train_seqs, train_labels, groups=train_groups))
-
-    # Create Datasets
-    train_set = TimeSeriesDataset([train_seqs[i] for i in train_idx], [train_labels[i] for i in train_idx])
-    val_set = TimeSeriesDataset([train_seqs[i] for i in val_idx], [train_labels[i] for i in val_idx])
-    test_set = TimeSeriesDataset(test_seqs, test_labels)
-
-    # Compute the proportionality of the class weights used for training
+    # Compute class weights to address imbalance (depending on class_weight_imb pass)
     class_weights = compute_class_weight(class_weight_imb, classes=np.array([0, 1]), y=y_train)
     class_weights = torch.tensor(class_weights, dtype=torch.float)
 
-    # Perform Hyperparameter Tuning with Optuna using only Training data
-    objective = make_objective(train_set,val_set, class_weights, save_folder)
+    # Perform Hyperparameter Tuning with Optuna using only Training data where Objective is F1 Score
+    objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,objective_var)
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=5)
+    study.optimize(objective, n_trials=10)
 
-    # Grab the Hyperparameters from the best set
+    # Print out the optimal hyperparameters
     best_params = study.best_trial.params
     print("Best Trial:", study.best_trial)
 
-    # Final model training with best hyperparameters
+    # Grab the hyperparameters from the best set
+    learning_rate = best_params["lr"]
+    batch_size = best_params["batch_size"]
+    sequence_length = best_params["sequence_length"]
+    stride = best_params["stride"]
+    weight_decay = best_params["weight_decay"]
+    step_size = round(sequence_length * stride)
+    threshold = best_params['threshold']
+    num_epochs = max(study.best_trial.user_attrs.get("best_epoch", 15),15) # enforce min of 10 epochs
+
+    if final_early_stop:
+        # Train with most training data but set aside a validation dataset for early stopping
+        train_dataset, val_dataset, train_windows_tensor, _, _, train_labels_tensor = (
+            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2)
+        )
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    else:
+        # Train with all training data and train to a finite set of epochs (from the best hyperparameter run)
+        train_dataset, _, train_windows_tensor, _, _, train_labels_tensor = (
+            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=None)
+        )
+
+    # Create the test dataset, formatted into sequences
+    test_dataset, _, _, _, _, _ = (
+        train_test_split_trials(x_test, y_test, sequence_length, step_size, test_ratio=None)
+    )
+
+    # Build model
+    input_dim = train_windows_tensor.shape[2]
     model = TransformerClassifier(
-        input_dim=train_set[0][0].shape[1],
+        input_dim=input_dim,
         d_model=best_params["d_model"],
         nhead=best_params["nhead"],
         num_layers=best_params["num_layers"],
         dim_feedforward=best_params["dim_feedforward"],
         dropout=best_params["dropout"]
     )
-
-    # Grab device to train on depending on hardware
-    device = (
-        torch.device("cuda") if torch.cuda.is_available()
-        else torch.device("mps") if torch.backends.mps.is_available()
-        else torch.device("cpu")
-    )
+    device = get_device()
     model.to(device)
+    criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, device)
 
-    # Define optimization method, loss criterion, and train / test dataloaders in pytorch
-    optimizer = torch.optim.Adam(model.parameters(), lr=best_params["lr"])
-    criterion = nn.BCEWithLogitsLoss(pos_weight=class_weights[1].to(device))
+    # Prepare the data for training
+    sampler = build_sampler(train_labels_tensor, class_weights) if use_sampler else None
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
 
-    final_train_set = torch.utils.data.ConcatDataset([train_set, val_set])
-    train_loader = DataLoader(final_train_set, batch_size=best_params["batch_size"], shuffle=True,
-                              collate_fn=pad_collate_fn)
-    test_loader = DataLoader(test_set, batch_size=best_params["batch_size"], collate_fn=pad_collate_fn)
+    # Train model
+    if final_early_stop:
+        best_model_state, _, _ = train_with_early_stopping(
+            model, train_loader, val_loader, criterion, optimizer, device, threshold, objective_var)
+        if best_model_state:
+            model.load_state_dict(best_model_state)
 
-    # Train using full training dataset
-    num_epochs = 20
-    for epoch in range(num_epochs):  # Train longer after tuning
-        train(model, train_loader, criterion, optimizer, device)
+    else:
+        for epoch in range(num_epochs):
+            train(model, train_loader, criterion, optimizer, device, epoch, num_epochs)
 
-    # Final evaluation using test dataset
-    all_preds, all_labels = evaluate(model, test_loader, device)
+    # Save trained model
+    os.makedirs(save_folder, exist_ok=True)
+    torch.save(model.state_dict(), os.path.join(save_folder, f"trained_model.pt"))
+
+    # Evaluate final model
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    all_preds, all_labels, predictors_over_time,_ = evaluate(model, test_loader,  threshold, device, criterion)
+
+    # Convert lists to numpy arrays
+    all_preds = np.array(all_preds)
+    all_labels = np.array(all_labels)
+    predictors_over_time = np.array(predictors_over_time)
+    prediction_time_plot(all_labels, all_preds, predictors_over_time)
 
     # Assess Performance
     accuracy = metrics.accuracy_score(all_labels, all_preds)

@@ -17,7 +17,7 @@ from skopt import BayesSearchCV
 from skopt.space import Real, Integer, Categorical
 from GLOC_visualization import create_confusion_matrix
 from sklearn.linear_model import Lasso
-from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold, GroupKFold
+from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold, GroupKFold, StratifiedGroupKFold
 from itertools import islice
 from imblearn.metrics import geometric_mean_score
 from GLOC_data_processing import *
@@ -82,7 +82,7 @@ def groupedtrial_kfold_split(Y, X, trials, num_splits, kfold_ID):
 
     # Grouped K-Fold setup
     # Use random state to ensure repeatability across runs and classifiers
-    gkf = GroupKFold(n_splits=num_splits)
+    gkf = StratifiedGroupKFold(n_splits=num_splits, shuffle=False)
 
     # Safety check to ensure that kfold_ID is within the fold indices
     n_folds = gkf.get_n_splits()

@@ -14,9 +14,8 @@ from openpyxl.styles.builtins import percent
 import os
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
-#from LSTM_supporting import lstm_binary_class
-#from Transformer_supporting import transformer_class
-from InceptionTime_supporting import inceptiontime_class
+from LSTM_supporting import lstm_binary_class
+from Transformer_supporting import transformer_class
 from TCN_supporting import tcn_binary_class
 
 def main_loop(kfold_ID, num_splits, runname):
@@ -30,13 +29,12 @@ def main_loop(kfold_ID, num_splits, runname):
     # Random State | 42 - Debug mode
     random_state = 42
 
-    ## Classifier | Pick 'lstm', 'TCN', 'Trans', or 'all'
-    classifier_type = 'TCN'
+    ## Classifier | Pick 'LSTM', 'TCN', 'Trans', or 'all'
+    classifier_type = 'Trans'
     train_class = True
     class_weight_imb = 'balanced'
 
     # Data Handling Options
-    save_loaded_data = False
     remove_NaN_trials = True
     impute_type = 1
     n_neighbors = 3
@@ -53,7 +51,6 @@ def main_loop(kfold_ID, num_splits, runname):
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
     baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
     baseline_methods_to_use = ['v0','v1','v2']
-
 
     baseline_window = 32.5  # seconds
 
@@ -225,6 +222,7 @@ def main_loop(kfold_ID, num_splits, runname):
 
     ################################################ MACHINE LEARNING ################################################
     save_folder = os.path.join("../ModelSave/CV", runname, str(kfold_ID))
+    #performance_metric_summary_single = []
     summaries = []
 
     # Long Short Term Memory RNN
@@ -269,8 +267,9 @@ def main_loop(kfold_ID, num_splits, runname):
 
 if __name__ == "__main__":
 
-    # Get time stamp for saving models
-    # runname = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    # Needed for proper debugging of CUDA errors
+    # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+
     runname = 'ImplicitV0HPO_noNAN_TCN'
 
     # Test set identifier for 10-fold Model Validation

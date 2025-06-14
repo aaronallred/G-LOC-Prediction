@@ -1,55 +1,47 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import os
-import numpy as np
-import optuna
-from sklearn import metrics
-from imblearn.metrics import geometric_mean_score
-from torch.utils.data import DataLoader, TensorDataset, WeightedRandomSampler
 from sklearn.model_selection import train_test_split
+from sklearn import metrics
+from torch.utils.data import TensorDataset
+import numpy as np
+import os
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from imblearn.metrics import geometric_mean_score
 from sklearn.utils.class_weight import compute_class_weight
-from collections import Counter
+import optuna
+from GLOC_visualization import create_confusion_matrix, roc_curve_plot, prediction_time_plot
 
-# InceptionTime blocks and model
-class InceptionBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_sizes=[10, 20, 40], bottleneck_channels=32):
-        super(InceptionBlock, self).__init__()
-        self.bottleneck = nn.Conv1d(in_channels, bottleneck_channels, kernel_size=1, bias=False) if in_channels > 1 else nn.Identity()
+class LSTMClassifier(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim=1, num_layers=2, dropout=0.3, bidirectional=False):
 
-        self.convs = nn.ModuleList([
-            nn.Conv1d(bottleneck_channels if in_channels > 1 else 1, out_channels, kernel_size=k, padding=k // 2, bias=False)
-            for k in kernel_sizes
-        ])
-        self.maxpool = nn.MaxPool1d(kernel_size=3, stride=1, padding=1)
-        self.conv_pool = nn.Conv1d(in_channels, out_channels, kernel_size=1, bias=False)
-        self.batchnorm = nn.BatchNorm1d(out_channels * (len(kernel_sizes) + 1))
-        self.relu = nn.ReLU()
+        super(LSTMClassifier, self).__init__()
+        self.bidirectional = bidirectional
+        self.num_directions = 2 if bidirectional else 1
 
-    def forward(self, x):
-        x_bottleneck = self.bottleneck(x)
-        out = [conv(x_bottleneck) for conv in self.convs]
-        out.append(self.conv_pool(self.maxpool(x)))
-        out = torch.cat(out, dim=1)
-        return self.relu(self.batchnorm(out))
-
-class InceptionTime(nn.Module):
-    def __init__(self, input_dim, n_classes=1, num_blocks=3, in_channels=1, out_channels=32):
-        super(InceptionTime, self).__init__()
-        self.blocks = nn.Sequential(*[
-            InceptionBlock(in_channels if i == 0 else out_channels * 4, out_channels)
-            for i in range(num_blocks)
-        ])
-        self.gap = nn.AdaptiveAvgPool1d(1)
-        self.fc = nn.Linear(out_channels * 4, n_classes)
+        # LSTM layer
+        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True, dropout=dropout,
+                            bidirectional=bidirectional)
+        # Fully connected layer
+        self.fc = nn.Linear(hidden_dim * self.num_directions, output_dim)
 
     def forward(self, x):
-        x = x.permute(0, 2, 1)  # (batch, features, time)
-        x = self.blocks(x)
-        x = self.gap(x).squeeze(-1)
-        return self.fc(x)
+        lstm_out, _ = self.lstm(x)
+        last_out = lstm_out[:, -1, :]
+        out = self.fc(last_out)
 
-# Trial-wise split
+        return out
+
+def create_windows(sequence, labels, window_size, step_size):
+    """Creates windows of a given size with a certain step from to structure sequences as inputs to paired labels."""
+    windows = []
+    window_labels = []
+    for start in range(0, len(sequence) - window_size + 1, step_size):
+        end = start + window_size
+        windows.append(sequence[start:end])
+        window_labels.append(max(labels[start:end]))  # Take the maximum label within the window
+    return windows, window_labels
+
 def train_test_split_trials(X,Y,window_size,step_size,test_ratio):
     # Creates train test split based on trials
     # Split data by trials
@@ -86,23 +78,36 @@ def train_test_split_trials(X,Y,window_size,step_size,test_ratio):
     return (train_dataset, test_dataset,
             train_windows_tensor, train_labels_tensor, test_windows_tensor, test_labels_tensor)
 
-# Objective function
+
+# Objective function for Optuna
 def make_objective(x_train, y_train, class_weights, save_folder):
     def objective(trial):
-        out_channels = trial.suggest_categorical("out_channels", [16, 32, 64])
-        num_blocks = trial.suggest_int("num_blocks", 2, 6)
-        lr = trial.suggest_loguniform("lr", 1e-4, 1e-2)
-        batch_size = trial.suggest_categorical("batch_size", [32, 64, 128])
-        sequence_length = trial.suggest_int("sequence_length", 500, 1000)
+        # Hyperparameters
+        hidden_dim = trial.suggest_categorical("hidden_dim", [64, 128, 256])
+        num_layers = trial.suggest_int("num_layers", 1, 3)
+        dropout = trial.suggest_float("dropout", 0.1, 0.5) if num_layers > 1 else 0
+        learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
+        batch_size = trial.suggest_categorical("batch_size", [32, 64])
+        sequence_length = trial.suggest_int("sequence_length", 25, 125)
         stride = trial.suggest_float("stride", 0.25, 1.0)
+        weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
+        bidirectional = trial.suggest_categorical("bidirectional", [False])
+
         step_size = round(sequence_length * stride)
 
         # Create training and validation sets from x_train/y_train
-        train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, val_windows_tensor, val_labels_tensor =(
-            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2))
+        train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, val_windows_tensor, val_labels_tensor = (
+            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2)
+        )
+
+        # Create sampler for class imbalance
+        sample_weights = class_weights[train_labels_tensor.long()].squeeze()
+        sampler = torch.utils.data.WeightedRandomSampler(
+            weights=sample_weights, num_samples=len(sample_weights), replacement=True
+        )
 
         input_dim = train_windows_tensor.shape[2]
-        model = InceptionTime(input_dim, num_blocks=num_blocks, out_channels=out_channels)
+        model = LSTMClassifier(input_dim, hidden_dim, 1, num_layers, dropout, bidirectional)
 
         device = (
             torch.device("cuda") if torch.cuda.is_available()
@@ -154,7 +159,7 @@ def make_objective(x_train, y_train, class_weights, save_folder):
             else:
                 wait += 1
                 if wait >= patience:
-                    print(f"Early stopping at epoch {epoch + 1} with best F1 score: {best_f1:.4f}")
+                    print(f"Early stopping at epoch {epoch+1} with best F1 score: {best_f1:.4f}")
                     break
 
         # Restore best weights
@@ -169,8 +174,7 @@ def make_objective(x_train, y_train, class_weights, save_folder):
 
     return objective
 
-# Final training and evaluation
-def inceptiontime_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, save_folder):
+def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, save_folder):
 
     # Compute class weights to address imbalance
     class_weights = compute_class_weight(class_weight_imb, classes=np.array([0, 1]), y=y_train)
@@ -179,10 +183,23 @@ def inceptiontime_class(x_train, x_test, y_train, y_test, class_weight_imb, rand
     # Perform Hyperparameter Tuning with Optuna using only Training data
     objective = make_objective(x_train, y_train, class_weights, save_folder)
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=30)
+    study.optimize(objective, n_trials=100)
 
-    best_params = study.best_params
-    best_epoch = study.best_trial.user_attrs["best_epoch"]
+    # Grab the Hyperparameters from the best set
+    best_params = study.best_trial.params
+
+    print("Best Trial:", study.best_trial)
+
+    hidden_dim = best_params["hidden_dim"]
+    num_layers = best_params["num_layers"]
+    dropout = best_params["dropout"] if num_layers > 1 else 0
+    learning_rate = best_params["lr"]
+    batch_size = best_params["batch_size"]
+    sequence_length = best_params["sequence_length"]
+    stride = best_params["stride"]
+    weight_decay = best_params["weight_decay"]
+    bidirectional = best_params["bidirectional"]
+    step_size = round(sequence_length * stride)
 
     # Train with most training data
     train_dataset, val_dataset, train_windows_tensor, _, _, train_labels_tensor = (
@@ -194,8 +211,8 @@ def inceptiontime_class(x_train, x_test, y_train, y_test, class_weight_imb, rand
         train_test_split_trials(x_test, y_test, sequence_length, step_size, test_ratio=None)
     )
 
-    model = InceptionTime(input_dim=x_train.shape[2], num_blocks=best_params["num_blocks"],
-                          out_channels=best_params["out_channels"])
+    input_dim = train_windows_tensor.shape[2]
+    model = LSTMClassifier(input_dim, hidden_dim, 1, num_layers, dropout, bidirectional)
 
     # Move device to the model after it is created
     device = (
@@ -290,8 +307,8 @@ def inceptiontime_class(x_train, x_test, y_train, y_test, class_weight_imb, rand
     # Convert lists to numpy arrays
     all_preds = np.array(all_preds)
     all_labels = np.array(all_labels)
-    # predictors_over_time = np.array(predictors_over_time)
-    # prediction_time_plot(all_labels, all_preds, predictors_over_time)
+    #predictors_over_time = np.array(predictors_over_time)
+    #prediction_time_plot(all_labels, all_preds, predictors_over_time)
 
     # Assess Performance
     accuracy = metrics.accuracy_score(all_labels, all_preds)
