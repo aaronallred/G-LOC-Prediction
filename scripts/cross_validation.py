@@ -14,6 +14,7 @@ from openpyxl.styles.builtins import percent
 import os
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
+from LogRegTS_supporting import lrts_binary_class
 from LSTM_supporting import lstm_binary_class
 from Transformer_supporting import transformer_class
 from TCN_supporting import tcn_binary_class
@@ -224,6 +225,16 @@ def main_loop(kfold_ID, num_splits, runname):
     save_folder = os.path.join("../ModelSave/CV", runname, str(kfold_ID))
     #performance_metric_summary_single = []
     summaries = []
+
+    # Time Series (Autoregressive) Logistic Regression
+    if classifier_type == 'LogRegTS' or classifier_type == 'all':
+        accuracy, precision, recall, f1, specificity, g_mean = (
+            lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                              save_folder=save_folder))
+
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy, precision, recall, f1, specificity, g_mean, ['LSTM'])
+        summaries.append(performance_metric_summary_single)
 
     # Long Short Term Memory RNN
     if classifier_type == 'LSTM' or classifier_type == 'all':

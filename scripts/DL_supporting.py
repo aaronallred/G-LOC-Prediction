@@ -10,18 +10,21 @@ from torch.amp import autocast, GradScaler
 
 ### Define Data Handling Functions
 # Creates windowed sequences
-def create_windows(sequence, labels, window_size, step_size):
+def create_windows(sequence, labels, window_size, step_size, end_label):
     # Creates windows with paired labels.
     windows = []
     window_labels = []
     for start in range(0, len(sequence) - window_size + 1, step_size):
         end = start + window_size
         windows.append(sequence[start:end])
-        window_labels.append(labels[start:end])  # Take full window of labels
+        if end_label:
+            window_labels.append(labels[end-1])  # Take the last label only
+        else:
+            window_labels.append(labels[start:end])  # Take full window of labels
     return windows, window_labels
 
 # Splits dataset based on trial identifier (located in last column of predictors)
-def train_test_split_trials(X,Y,window_size,step_size,test_ratio, random_state = 42):
+def train_test_split_trials(X,Y,window_size,step_size,test_ratio, random_state = 42, end_label=False):
     # Creates train test split based on trials
     # Split data by trials
     unique_trials = np.unique(X[:, -1])  # Get unique trial identifiers
@@ -35,14 +38,14 @@ def train_test_split_trials(X,Y,window_size,step_size,test_ratio, random_state =
     for trial in train_trials:
         trial_sequence = X[X[:, -1] == trial, :-1]  # Exclude trial identifier
         trial_labels = Y[X[:, -1] == trial]
-        windows, labels = create_windows(trial_sequence, trial_labels, window_size, step_size)
+        windows, labels = create_windows(trial_sequence, trial_labels, window_size, step_size, end_label)
         train_windows.extend(windows)
         train_labels.extend(labels)
 
     for trial in test_trials:
         trial_sequence = X[X[:, -1] == trial, :-1]
         trial_labels = Y[X[:, -1] == trial]
-        windows, labels = create_windows(trial_sequence, trial_labels, window_size, step_size)
+        windows, labels = create_windows(trial_sequence, trial_labels, window_size, step_size, end_label)
         test_windows.extend(windows)
         test_labels.extend(labels)
 

@@ -22,7 +22,7 @@ class LogisticRegressionTS(nn.Module):
 
     def forward(self, x):
         # Flatten the time series window for logistic regression
-        batch_size, seq_len, feature_dim = x.shape
+        batch_size, feature_dim = x.shape
         x_flat = x.view(batch_size, -1)  # Shape: (batch_size, seq_len * feature_dim)
         return self.linear(x_flat)
 
@@ -52,7 +52,7 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         # Create training and validation sets from x_train/y_train
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, val_windows_tensor, val_labels_tensor = (
             train_test_split_trials(
-                x_train,y_train,sequence_length,step_size,test_ratio=0.2,random_state = random_state)
+                x_train,y_train, sequence_length, step_size, test_ratio=0.2, random_state = random_state, end_label=True)
         )
 
         # Flatten windows for logistic regression
@@ -92,7 +92,7 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
 
     return objective
 
-def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, save_folder):
+def lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, save_folder):
     """
         Main Temporal Convolutional Network Script
         Input: train and test split of data
@@ -131,18 +131,18 @@ def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     if final_early_stop:
         # Train with most training data but set aside a validation dataset for early stopping
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, _, _ = (
-            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2)
+            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2, end_label=True)
         )
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     else:
         # Train with all training data and train to a finite set of epochs (from the best hyperparameter run)
         train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
-            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=None)
+            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=None, end_label=True)
         )
 
     # Create the test dataset, formatted into sequences
     test_dataset, _, test_windows_tensor, test_labels_tensor, _, _ = (
-        train_test_split_trials(x_test, y_test, sequence_length, step_size, test_ratio=None)
+        train_test_split_trials(x_test, y_test, sequence_length, step_size, test_ratio=None, end_label=True)
     )
 
     # Flatten windows
