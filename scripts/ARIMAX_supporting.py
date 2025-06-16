@@ -1,81 +1,149 @@
-from multiprocessing.pool import worker
-
 from DL_supporting import *
 import torch
 import torch.nn as nn
+from sklearn.model_selection import train_test_split
 from sklearn import metrics
+from torch.utils.data import TensorDataset
 import numpy as np
 import os
+import torch.optim as optim
 from torch.utils.data import DataLoader
 from imblearn.metrics import geometric_mean_score
 from sklearn.utils.class_weight import compute_class_weight
 import optuna
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 from GLOC_visualization import prediction_time_plot
 
-# Build TCN architecture
-class TemporalBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride, dilation, padding, dropout):
-        super(TemporalBlock, self).__init__()
-        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size, stride=stride,
-                               padding=padding, dilation=dilation)
-        self.relu1 = nn.ReLU()
-        self.dropout1 = nn.Dropout(dropout)
-        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size, stride=stride,
-                               padding=padding, dilation=dilation)
-        self.relu2 = nn.ReLU()
-        self.dropout2 = nn.Dropout(dropout)
 
-        self.downsample = nn.Conv1d(in_channels, out_channels, 1) if in_channels != out_channels else None
-        self.init_weights()
+def make_objective(x_train, y_train, random_state, save_folder, objective_var):
+    """
+    ARIMAX Objective for Optuna hyperparameter tuning.
+    Fits SARIMAX with exogenous variables (x_train).
+    Evaluates on validation set using binary classification metrics after thresholding predictions.
+    """
 
-    def init_weights(self):
-        for layer in [self.conv1, self.conv2, self.downsample] if self.downsample else [self.conv1, self.conv2]:
-            nn.init.kaiming_normal_(layer.weight)
+    def objective(trial):
+        # Suggest ARIMA order params (p,d,q)
+        p = trial.suggest_int('p', 0, 3)
+        d = trial.suggest_int('d', 0, 1)
+        q = trial.suggest_int('q', 0, 3)
 
-    def forward(self, x):
-        out = self.conv1(x)
-        out = self.relu1(out)
-        out = self.dropout1(out)
-        out = self.conv2(out)
-        out = self.relu2(out)
-        out = self.dropout2(out)
+        # Seasonal order (optional)
+        P = trial.suggest_int('P', 0, 1)
+        D = trial.suggest_int('D', 0, 1)
+        Q = trial.suggest_int('Q', 0, 1)
+        s = trial.suggest_categorical('s', [0, 12])  # seasonality period, 0 means no seasonality
 
-        res = x if self.downsample is None else self.downsample(x)
-        # Match sequence lengths before addition
-        if res.size(-1) != out.size(-1):
-            min_len = min(res.size(-1), out.size(-1))
-            res = res[:, :, -min_len:]
-            out = out[:, :, -min_len:]
+        threshold = trial.suggest_float('threshold', 0.1, 0.9)
 
-        return out + res
+        # Train/validation split (simple split assuming time series order)
+        split_idx = int(len(y_train)*0.8)
+        y_tr, y_val = y_train[:split_idx], y_train[split_idx:]
+        x_tr, x_val = x_train[:split_idx], x_train[split_idx:]
 
-class TCNClassifier(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim=1, num_layers=2, kernel_size=3, dropout=0.3):
-        super(TCNClassifier, self).__init__()
-        layers = []
-        for i in range(num_layers):
-            dilation_size = 2 ** i
-            in_channels = input_dim if i == 0 else hidden_dim
-            layers.append(
-                TemporalBlock(in_channels, hidden_dim, kernel_size, stride=1,
-                              dilation=dilation_size, padding=(kernel_size-1)*dilation_size, dropout=dropout)
+        try:
+            model = SARIMAX(
+                y_tr,
+                exog=x_tr,
+                order=(p,d,q),
+                seasonal_order=(P,D,Q,s) if s > 0 else (0,0,0,0),
+                enforce_stationarity=False,
+                enforce_invertibility=False,
+                initialization='approximate_diffuse'
             )
-        self.network = nn.Sequential(*layers)
-        self.fc = nn.Linear(hidden_dim, output_dim)
+            model_fit = model.fit(disp=False)
 
-    def forward(self, x):
-        # Input shape: (batch, seq_len, features) → (batch, features, seq_len)
-        x = x.permute(0, 2, 1)
-        out = self.network(x)
-        # Take last time step (assumes full sequence processed)
-        out = out.permute(0, 2, 1)  # (batch, features, seq_len) → (batch, seq_len, features)
-        return self.fc(out)  # (batch, seq_len, 1)
+            # Predict on validation data
+            pred = model_fit.predict(start=split_idx, end=len(y_train)-1, exog=x_val)
+            pred_class = (pred > threshold).astype(int)
+
+            # Compute metric (use F1 or other objective)
+            if objective_var == 'F1':
+                score = f1_score(y_val, pred_class)
+            elif objective_var == 'Accuracy':
+                score = accuracy_score(y_val, pred_class)
+            else:
+                score = f1_score(y_val, pred_class)  # fallback
+
+        except Exception as e:
+            print(f"ARIMAX training failed: {e}")
+            return 0.0  # Fail gracefully in tuning
+
+        return score
+
+    return objective
+
+def arimax_class(x_train, x_test, y_train, y_test, random_state, save_folder, objective_var='F1'):
+    """
+    ARIMAX model training, hyperparameter tuning with Optuna, and evaluation.
+    """
+
+    # Run Optuna tuning
+    objective = make_objective(x_train, y_train, random_state, save_folder, objective_var)
+    study = optuna.create_study(direction='maximize')
+    study.optimize(objective, n_trials=20)
+
+    best_params = study.best_trial.params
+    print("Best ARIMAX params:", best_params)
+
+    # Fit best model on full training data
+    try:
+        if best_params['s'] > 0:
+            seasonal_order = (best_params['P'], best_params['D'], best_params['Q'], best_params['s'])
+        else:
+            seasonal_order = (0,0,0,0)
+
+        model = SARIMAX(
+            y_train,
+            exog=x_train,
+            order=(best_params['p'], best_params['d'], best_params['q']),
+            seasonal_order=seasonal_order,
+            enforce_stationarity=False,
+            enforce_invertibility=False,
+            initialization='approximate_diffuse'
+        )
+        model_fit = model.fit(disp=False)
+
+        # Predict on test data
+        pred = model_fit.predict(start=len(y_train), end=len(y_train)+len(y_test)-1, exog=x_test)
+        all_preds = (pred > best_params['threshold']).astype(int)
+
+    except Exception as e:
+        print(f"ARIMAX final training failed: {e}")
+        return None
+
+    all_labels = y_test
+
+    # Assess Performance
+    accuracy = metrics.accuracy_score(all_labels, all_preds)
+    precision = metrics.precision_score(all_labels, all_preds)
+    recall = metrics.recall_score(all_labels, all_preds)
+    f1 = metrics.f1_score(all_labels, all_preds)
+    specificity = metrics.recall_score(all_labels, all_preds, pos_label=0)  # Specificity
+    g_mean = geometric_mean_score(all_labels, all_preds)
+
+    print("\nARIMAX Performance Metrics:")
+    print("Accuracy: ", accuracy)
+    print("Precision:", precision)
+    print("Recall:   ", recall)
+    print("F1 Score: ", f1)
+    print("Specificity:", specificity)
+    print("G-Mean:  ", g_mean)
+
+    return accuracy, precision, recall, f1, specificity, g_mean
+
+
+
+
+
+
+
 
 
 def make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler, objective_var):
     """
-    TCN Objective Function for Optuna.
+    LSTM Objective Function for Optuna.
 
     Function objective (below) has access to all global arguments passed to this function.
     Returns Stopping Metric (here F1 score) as the objective (set to maximize)
@@ -90,16 +158,12 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         dropout = trial.suggest_float("dropout", 0.1, 0.5) if num_layers > 1 else 0
         learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
         batch_size = trial.suggest_categorical("batch_size", [64, 128])
-        sequence_length = trial.suggest_int("sequence_length", 50, 500)
+        sequence_length = trial.suggest_int("sequence_length", 25, 250)
         stride = trial.suggest_float("stride", 0.25, 1.0)
         weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
-        kernel_size = trial.suggest_categorical('kernel_size', [3, 5, 7])
+        bidirectional = trial.suggest_categorical("bidirectional", [False])
         threshold = trial.suggest_float('threshold', 0.1, 0.9)
-
         step_size = round(sequence_length * stride)
-        min_length = (kernel_size - 1) * (2 ** (num_layers - 1)) + 1
-        if sequence_length < min_length:
-            raise optuna.exceptions.TrialPruned()
 
         # Create training and validation sets from x_train/y_train
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, val_windows_tensor, val_labels_tensor = (
@@ -108,14 +172,13 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         )
 
         # Prepare the data for training and evaluation
-        workers = get_optimal_workers()
         sampler = build_sampler(train_labels_tensor, class_weights) if use_sampler else None
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=workers)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
         # Build model
         input_dim = train_windows_tensor.shape[2]
-        model = TCNClassifier(input_dim, hidden_dim, 1, num_layers, kernel_size=kernel_size, dropout=dropout)
+        model = LSTMClassifier(input_dim, hidden_dim, 1, num_layers, dropout, bidirectional)
         device = get_device()
         model.to(device)
         criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, device)
@@ -139,7 +202,7 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
 
     return objective
 
-def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, save_folder):
+def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, save_folder):
     """
         Main Temporal Convolutional Network Script
         Input: train and test split of data
@@ -148,7 +211,7 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     # User Options
     use_sampler = False # Optionally use sampler to sample the minority class (ROS)
     final_early_stop = False # Optionally use early stopping for final train (always uses early stop in tuning)
-    objective_var = 'F1' # 'F1' 'Acc' or else uses 1-Loss. (used by Optuna and Early Stop during hyperparameter tuning)
+    objective_var = 'F1' # F1 or else use 1-Loss. (param used by Optuna and Early Stop during hyperparameter tuning)
 
     # Compute class weights to address imbalance (depending on class_weight_imb pass)
     class_weights = compute_class_weight(class_weight_imb, classes=np.array([0, 1]), y=y_train)
@@ -172,22 +235,21 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     sequence_length = best_params["sequence_length"]
     stride = best_params["stride"]
     weight_decay = best_params["weight_decay"]
-    kernel_size = best_params['kernel_size']
+    bidirectional = best_params["bidirectional"]
     step_size = round(sequence_length * stride)
+
     threshold = best_params['threshold']
     num_epochs = max(study.best_trial.user_attrs.get("best_epoch", 15),15) # enforce min of 10 epochs
 
-    # Build training (potential validation) datasets for final train
-    workers = get_optimal_workers()
     if final_early_stop:
         # Train with most training data but set aside a validation dataset for early stopping
-        train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, _, _ = (
+        train_dataset, val_dataset, train_windows_tensor, _, _, train_labels_tensor = (
             train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2)
         )
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     else:
         # Train with all training data and train to a finite set of epochs (from the best hyperparameter run)
-        train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
+        train_dataset, _, train_windows_tensor, _, _, train_labels_tensor = (
             train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=None)
         )
 
@@ -198,14 +260,14 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
 
     # Build model
     input_dim = train_windows_tensor.shape[2]
-    model = TCNClassifier(input_dim, hidden_dim, 1, num_layers, kernel_size=kernel_size, dropout=dropout)
+    model = LSTMClassifier(input_dim, hidden_dim, 1, num_layers, dropout, bidirectional)
     device = get_device()
     model.to(device)
     criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, device)
 
     # Prepare the data for training
     sampler = build_sampler(train_labels_tensor, class_weights) if use_sampler else None
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=workers)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
 
     # Train model
     if final_early_stop:
@@ -223,7 +285,7 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     torch.save(model.state_dict(), os.path.join(save_folder, f"trained_model.pt"))
 
     # Evaluate final model
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     all_preds, all_labels, predictors_over_time,_ = evaluate(model, test_loader,  threshold, device, criterion)
 
     # Convert lists to numpy arrays

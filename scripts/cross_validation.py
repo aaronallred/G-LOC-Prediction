@@ -30,7 +30,7 @@ def main_loop(kfold_ID, num_splits, runname):
     random_state = 42
 
     ## Classifier | Pick 'LSTM', 'TCN', 'Trans', or 'all'
-    classifier_type = 'Trans'
+    classifier_type = 'all'
     train_class = True
     class_weight_imb = 'balanced'
 
@@ -40,7 +40,7 @@ def main_loop(kfold_ID, num_splits, runname):
     n_neighbors = 3
 
     ## Model Parameters
-    model_type = ['noAFE', 'implicit']
+    model_type = ['noAFE', 'explicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'strain', 'demographics']
@@ -235,7 +235,7 @@ def main_loop(kfold_ID, num_splits, runname):
             accuracy, precision, recall, f1, specificity, g_mean,['LSTM'])
         summaries.append(performance_metric_summary_single)
 
-    # Long Short Term Memory RNN
+    # Transformer
     if classifier_type == 'Trans' or classifier_type == 'all':
         accuracy, precision, recall, f1, specificity, g_mean = (
             transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
@@ -245,7 +245,7 @@ def main_loop(kfold_ID, num_splits, runname):
             accuracy, precision, recall, f1, specificity, g_mean, ['Trans'])
         summaries.append(performance_metric_summary_single)
 
-    # Long Short Term Memory RNN
+    # Temporal Convolutional Network
     if classifier_type == 'TCN' or classifier_type == 'all':
         accuracy, precision, recall, f1, specificity, g_mean = (
             tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
@@ -260,7 +260,7 @@ def main_loop(kfold_ID, num_splits, runname):
     print(duration)
 
     if classifier_type == 'all':
-        performance_metric_summary = pd.concat(summaries, ignore_index=True)
+        performance_metric_summary = pd.concat(summaries)
         return performance_metric_summary
     else:
         return performance_metric_summary_single
@@ -270,7 +270,7 @@ if __name__ == "__main__":
     # Needed for proper debugging of CUDA errors
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-    runname = 'ImplicitV0HPO_noNAN_TCN'
+    runname = 'ExplicitV0V3_alltest'
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10

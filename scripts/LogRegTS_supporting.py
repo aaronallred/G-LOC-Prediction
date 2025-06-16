@@ -1,11 +1,12 @@
-from multiprocessing.pool import worker
-
 from DL_supporting import *
 import torch
 import torch.nn as nn
+from sklearn.model_selection import train_test_split
 from sklearn import metrics
+from torch.utils.data import TensorDataset
 import numpy as np
 import os
+import torch.optim as optim
 from torch.utils.data import DataLoader
 from imblearn.metrics import geometric_mean_score
 from sklearn.utils.class_weight import compute_class_weight
@@ -13,69 +14,22 @@ import optuna
 
 from GLOC_visualization import prediction_time_plot
 
-# Build TCN architecture
-class TemporalBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride, dilation, padding, dropout):
-        super(TemporalBlock, self).__init__()
-        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size, stride=stride,
-                               padding=padding, dilation=dilation)
-        self.relu1 = nn.ReLU()
-        self.dropout1 = nn.Dropout(dropout)
-        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size, stride=stride,
-                               padding=padding, dilation=dilation)
-        self.relu2 = nn.ReLU()
-        self.dropout2 = nn.Dropout(dropout)
-
-        self.downsample = nn.Conv1d(in_channels, out_channels, 1) if in_channels != out_channels else None
-        self.init_weights()
-
-    def init_weights(self):
-        for layer in [self.conv1, self.conv2, self.downsample] if self.downsample else [self.conv1, self.conv2]:
-            nn.init.kaiming_normal_(layer.weight)
+# Build Time Series Logistic Regression architecture
+class LogisticRegressionTS(nn.Module):
+    def __init__(self, input_dim, output_dim=1):
+        super(LogisticRegressionTS, self).__init__()
+        self.linear = nn.Linear(input_dim, output_dim)
 
     def forward(self, x):
-        out = self.conv1(x)
-        out = self.relu1(out)
-        out = self.dropout1(out)
-        out = self.conv2(out)
-        out = self.relu2(out)
-        out = self.dropout2(out)
-
-        res = x if self.downsample is None else self.downsample(x)
-        # Match sequence lengths before addition
-        if res.size(-1) != out.size(-1):
-            min_len = min(res.size(-1), out.size(-1))
-            res = res[:, :, -min_len:]
-            out = out[:, :, -min_len:]
-
-        return out + res
-
-class TCNClassifier(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim=1, num_layers=2, kernel_size=3, dropout=0.3):
-        super(TCNClassifier, self).__init__()
-        layers = []
-        for i in range(num_layers):
-            dilation_size = 2 ** i
-            in_channels = input_dim if i == 0 else hidden_dim
-            layers.append(
-                TemporalBlock(in_channels, hidden_dim, kernel_size, stride=1,
-                              dilation=dilation_size, padding=(kernel_size-1)*dilation_size, dropout=dropout)
-            )
-        self.network = nn.Sequential(*layers)
-        self.fc = nn.Linear(hidden_dim, output_dim)
-
-    def forward(self, x):
-        # Input shape: (batch, seq_len, features) → (batch, features, seq_len)
-        x = x.permute(0, 2, 1)
-        out = self.network(x)
-        # Take last time step (assumes full sequence processed)
-        out = out.permute(0, 2, 1)  # (batch, features, seq_len) → (batch, seq_len, features)
-        return self.fc(out)  # (batch, seq_len, 1)
+        # Flatten the time series window for logistic regression
+        batch_size, seq_len, feature_dim = x.shape
+        x_flat = x.view(batch_size, -1)  # Shape: (batch_size, seq_len * feature_dim)
+        return self.linear(x_flat)
 
 
 def make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler, objective_var):
     """
-    TCN Objective Function for Optuna.
+    LSTM Objective Function for Optuna.
 
     Function objective (below) has access to all global arguments passed to this function.
     Returns Stopping Metric (here F1 score) as the objective (set to maximize)
@@ -85,21 +39,15 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
     """
     def objective(trial):
         # Hyperparameters
-        hidden_dim = trial.suggest_categorical("hidden_dim", [64, 128, 256, 512])
-        num_layers = trial.suggest_int("num_layers", 1, 3)
-        dropout = trial.suggest_float("dropout", 0.1, 0.5) if num_layers > 1 else 0
+        weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
         learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
         batch_size = trial.suggest_categorical("batch_size", [64, 128])
-        sequence_length = trial.suggest_int("sequence_length", 50, 500)
-        stride = trial.suggest_float("stride", 0.25, 1.0)
-        weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
-        kernel_size = trial.suggest_categorical('kernel_size', [3, 5, 7])
-        threshold = trial.suggest_float('threshold', 0.1, 0.9)
 
+        sequence_length = trial.suggest_int("sequence_length", 25, 250)
+        stride = trial.suggest_float("stride", 0.25, 1.0)
+
+        threshold = trial.suggest_float('threshold', 0.1, 0.9)
         step_size = round(sequence_length * stride)
-        min_length = (kernel_size - 1) * (2 ** (num_layers - 1)) + 1
-        if sequence_length < min_length:
-            raise optuna.exceptions.TrialPruned()
 
         # Create training and validation sets from x_train/y_train
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, val_windows_tensor, val_labels_tensor = (
@@ -107,15 +55,20 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
                 x_train,y_train,sequence_length,step_size,test_ratio=0.2,random_state = random_state)
         )
 
+        # Flatten windows for logistic regression
+        train_windows_tensor = train_windows_tensor.view(train_windows_tensor.size(0), -1)
+        val_windows_tensor = val_windows_tensor.view(val_windows_tensor.size(0), -1)
+
         # Prepare the data for training and evaluation
-        workers = get_optimal_workers()
         sampler = build_sampler(train_labels_tensor, class_weights) if use_sampler else None
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=workers)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
+        train_loader = DataLoader(TensorDataset(
+            train_windows_tensor, train_labels_tensor), batch_size=batch_size, sampler=sampler)
+        val_loader = DataLoader(TensorDataset(
+            val_windows_tensor, val_labels_tensor), batch_size=batch_size, shuffle=False)
 
         # Build model
-        input_dim = train_windows_tensor.shape[2]
-        model = TCNClassifier(input_dim, hidden_dim, 1, num_layers, kernel_size=kernel_size, dropout=dropout)
+        input_dim = train_windows_tensor.shape[1]
+        model = LogisticRegressionTS(input_dim)
         device = get_device()
         model.to(device)
         criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, device)
@@ -139,7 +92,7 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
 
     return objective
 
-def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, save_folder):
+def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, save_folder):
     """
         Main Temporal Convolutional Network Script
         Input: train and test split of data
@@ -148,7 +101,7 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     # User Options
     use_sampler = False # Optionally use sampler to sample the minority class (ROS)
     final_early_stop = False # Optionally use early stopping for final train (always uses early stop in tuning)
-    objective_var = 'F1' # 'F1' 'Acc' or else uses 1-Loss. (used by Optuna and Early Stop during hyperparameter tuning)
+    objective_var = 'F1' # F1 or else use 1-Loss. (param used by Optuna and Early Stop during hyperparameter tuning)
 
     # Compute class weights to address imbalance (depending on class_weight_imb pass)
     class_weights = compute_class_weight(class_weight_imb, classes=np.array([0, 1]), y=y_train)
@@ -164,27 +117,23 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     print("Best Trial:", study.best_trial)
 
     # Grab the hyperparameters from the best set
-    hidden_dim = best_params["hidden_dim"]
-    num_layers = best_params["num_layers"]
-    dropout = best_params["dropout"] if num_layers > 1 else 0
-    learning_rate = best_params["lr"]
     batch_size = best_params["batch_size"]
+    learning_rate = best_params["lr"]
+    weight_decay = best_params["weight_decay"]
     sequence_length = best_params["sequence_length"]
     stride = best_params["stride"]
-    weight_decay = best_params["weight_decay"]
-    kernel_size = best_params['kernel_size']
     step_size = round(sequence_length * stride)
+
     threshold = best_params['threshold']
     num_epochs = max(study.best_trial.user_attrs.get("best_epoch", 15),15) # enforce min of 10 epochs
 
     # Build training (potential validation) datasets for final train
-    workers = get_optimal_workers()
     if final_early_stop:
         # Train with most training data but set aside a validation dataset for early stopping
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, _, _ = (
             train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2)
         )
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     else:
         # Train with all training data and train to a finite set of epochs (from the best hyperparameter run)
         train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
@@ -192,20 +141,25 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
         )
 
     # Create the test dataset, formatted into sequences
-    test_dataset, _, _, _, _, _ = (
+    test_dataset, _, test_windows_tensor, test_labels_tensor, _, _ = (
         train_test_split_trials(x_test, y_test, sequence_length, step_size, test_ratio=None)
     )
 
+    # Flatten windows
+    train_windows_tensor = train_windows_tensor.view(train_windows_tensor.size(0), -1)
+    test_windows_tensor = test_windows_tensor.view(test_windows_tensor.size(0), -1)
+
     # Build model
-    input_dim = train_windows_tensor.shape[2]
-    model = TCNClassifier(input_dim, hidden_dim, 1, num_layers, kernel_size=kernel_size, dropout=dropout)
+    input_dim = train_windows_tensor.shape[1]
+    model = LogisticRegressionTS(input_dim)
     device = get_device()
     model.to(device)
     criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, device)
 
     # Prepare the data for training
     sampler = build_sampler(train_labels_tensor, class_weights) if use_sampler else None
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=workers)
+    train_loader = DataLoader(TensorDataset(train_windows_tensor, train_labels_tensor), batch_size=batch_size,
+                              sampler=sampler)
 
     # Train model
     if final_early_stop:
@@ -223,7 +177,8 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     torch.save(model.state_dict(), os.path.join(save_folder, f"trained_model.pt"))
 
     # Evaluate final model
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
+    test_loader = DataLoader(TensorDataset(test_windows_tensor, test_labels_tensor), batch_size=batch_size,
+                             shuffle=False)
     all_preds, all_labels, predictors_over_time,_ = evaluate(model, test_loader,  threshold, device, criterion)
 
     # Convert lists to numpy arrays

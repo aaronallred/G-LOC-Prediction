@@ -38,7 +38,7 @@ class LSTMClassifier(nn.Module):
 
 def make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler, objective_var):
     """
-    TCN Objective Function for Optuna.
+    LSTM Objective Function for Optuna.
 
     Function objective (below) has access to all global arguments passed to this function.
     Returns Stopping Metric (here F1 score) as the objective (set to maximize)
@@ -115,7 +115,7 @@ def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     # Perform Hyperparameter Tuning with Optuna using only Training data where Objective is F1 Score
     objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,objective_var)
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=10)
+    study.optimize(objective, n_trials=1)
 
     # Print out the optimal hyperparameters
     best_params = study.best_trial.params
@@ -136,15 +136,16 @@ def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     threshold = best_params['threshold']
     num_epochs = max(study.best_trial.user_attrs.get("best_epoch", 15),15) # enforce min of 10 epochs
 
+    # Build training (potential validation) datasets for final train
     if final_early_stop:
         # Train with most training data but set aside a validation dataset for early stopping
-        train_dataset, val_dataset, train_windows_tensor, _, _, train_labels_tensor = (
+        train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, _, _ = (
             train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2)
         )
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     else:
         # Train with all training data and train to a finite set of epochs (from the best hyperparameter run)
-        train_dataset, _, train_windows_tensor, _, _, train_labels_tensor = (
+        train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
             train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=None)
         )
 

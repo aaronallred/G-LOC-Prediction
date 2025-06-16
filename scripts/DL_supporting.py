@@ -4,7 +4,9 @@ from sklearn.model_selection import train_test_split
 from sklearn import metrics
 from torch.utils.data import TensorDataset
 import numpy as np
+import os
 import torch.optim as optim
+from torch.amp import autocast, GradScaler
 
 ### Define Data Handling Functions
 # Creates windowed sequences
@@ -65,6 +67,17 @@ def get_device():
         else torch.device("cpu")
     )
 
+# Check how many cores are available and return best use for DataLoader
+def get_optimal_workers():
+    num_cpus = os.cpu_count()
+
+    if num_cpus > 4:
+        workers = 0 # use 4 is there are main threads to spare
+    else:
+        workers = 0 # Default amount
+
+    return workers
+
 # Builds model loss criterion and optimizer (default is BCE)
 def build_training_components(model, class_weights, lr, weight_decay, device, loss='BCE'):
     if loss == 'BCE':
@@ -121,14 +134,28 @@ class SoftF1Loss(nn.Module):
 # Define training routines
 def train(model, loader, criterion, optimizer, device, epoch, num_epochs, verbose = 1):
     model.train()
+
+    use_amp = device.type in ['cuda']
+    scaler = GradScaler(enabled=use_amp)
+
     epoch_loss = 0
     for x_batch, y_batch in loader:
         x_batch, y_batch = x_batch.to(device), y_batch.to(device)
-        outputs = model(x_batch)
-        loss = criterion(outputs.reshape(-1), y_batch.reshape(-1))
         optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+
+        if use_amp:
+            with autocast(device_type=device.type):
+                outputs = model(x_batch)
+                loss = criterion(outputs.reshape(-1), y_batch.reshape(-1))
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+
+        else:
+            outputs = model(x_batch)
+            loss = criterion(outputs.reshape(-1), y_batch.reshape(-1))
+            loss.backward()
+            optimizer.step()
 
         epoch_loss += loss.item()
 

@@ -45,7 +45,7 @@ class TransformerClassifier(nn.Module):
 
 def make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler, objective_var):
     """
-    TCN Objective Function for Optuna.
+    Transformer Objective Function for Optuna.
 
     Function objective (below) has access to all global arguments passed to this function.
     Returns Stopping Metric (here F1 score) as the objective (set to maximize)
@@ -76,9 +76,10 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         )
 
         # Prepare the data for training and evaluation
+        workers = get_optimal_workers()
         sampler = build_sampler(train_labels_tensor, class_weights) if use_sampler else None
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=workers)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
 
         # Build model
         input_dim = train_windows_tensor.shape[2]
@@ -130,7 +131,7 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     # Perform Hyperparameter Tuning with Optuna using only Training data where Objective is F1 Score
     objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,objective_var)
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=10)
+    study.optimize(objective, n_trials=1)
 
     # Print out the optimal hyperparameters
     best_params = study.best_trial.params
@@ -146,15 +147,17 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     threshold = best_params['threshold']
     num_epochs = max(study.best_trial.user_attrs.get("best_epoch", 15),15) # enforce min of 10 epochs
 
+    # Build training (potential validation) datasets for final train
+    workers = get_optimal_workers()
     if final_early_stop:
         # Train with most training data but set aside a validation dataset for early stopping
-        train_dataset, val_dataset, train_windows_tensor, _, _, train_labels_tensor = (
+        train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, _, _ = (
             train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2)
         )
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
     else:
         # Train with all training data and train to a finite set of epochs (from the best hyperparameter run)
-        train_dataset, _, train_windows_tensor, _, _, train_labels_tensor = (
+        train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
             train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=None)
         )
 
@@ -171,7 +174,7 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
         nhead=best_params["nhead"],
         num_layers=best_params["num_layers"],
         dim_feedforward=best_params["dim_feedforward"],
-        dropout=best_params["dropout"]
+        dropout=best_params["dropout"] if best_params["num_layers"] > 1 else 0
     )
     device = get_device()
     model.to(device)
@@ -179,7 +182,7 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
 
     # Prepare the data for training
     sampler = build_sampler(train_labels_tensor, class_weights) if use_sampler else None
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=workers)
 
     # Train model
     if final_early_stop:
@@ -197,7 +200,7 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     torch.save(model.state_dict(), os.path.join(save_folder, f"trained_model.pt"))
 
     # Evaluate final model
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
     all_preds, all_labels, predictors_over_time,_ = evaluate(model, test_loader,  threshold, device, criterion)
 
     # Convert lists to numpy arrays

@@ -1603,7 +1603,33 @@ def pull_unengineered_streams():
                             'T8 - EEG', 'TP9 - EEG', 'TP10 - EEG', 'P7 - EEG', 'P8 - EEG', 'AFz - EEG', 'AF4 - EEG',
                             'FT9 - EEG', 'FT10 - EEG', 'FC5 - EEG', 'FC3 - EEG', 'FC1 - EEG', 'FC2 - EEG', 'FC4 - EEG',
                             'FC6 - EEG', 'C5 - EEG', 'Cz - EEG', 'CP5 - EEG', 'CP6 - EEG', 'P5 - EEG', 'P3 - EEG',
-                            'P1 - EEG', 'Pz - EEG', 'P4 - EEG', 'P6 - EEG']
+                            'P1 - EEG', 'Pz - EEG', 'P4 - EEG', 'P6 - EEG',
+
+                            'magnitude - Centrifuge',
+                            'Strain [0/1]',
+                            'participant_gender', 'participant_age', 'participant_height',
+                            'participant_weight', 'participant_BMI', 'participant_blood_volume',
+                            'participant_SBP_seated', 'participant_SBP_stand', 'participant_SBP_exercise',
+                            'participant_DBP_seated', 'participant_DBP_stand', 'participant_DBP_exercise',
+                            'participant_MAP_seated', 'participant_MAP_stand', 'participant_MAP_exercise',
+                            'participant_HR_seated', 'participant_HR_stand', 'participant_HR_exercise',
+                            'participant_max_leg_strength', 'participant_largest_leg_circumference',
+                            'participant_lower_leg_volume', 'participant_skinfolds_chest_avg',
+                            'participant_skinfolds_abd_avg', 'participant_skinfolds_thigh_avg',
+                            'participant_skinfolds_midax_avg', 'participant_skinfolds_subscap_avg',
+                            'participant_skinfolds_tri_avg', 'participant_skinfolds_supra_avg',
+                            'participant_skinfolds_sum', 'participant_percent_fat', 'participant_leg_length',
+                            'participant_arm_length', 'participant_midline_neck_length',
+                            'participant_lateral_neck_length', 'participant_torso_length_post',
+                            'participant_torso_length_ax', 'participant_head_to_heart', 'participant_head_girth',
+                            'participant_neck_girth', 'participant_chest_upper_girth', 'participant_chest_under_girth',
+                            'participant_waist_girth', 'participant_hip_girth', 'participant_thigh_girth',
+                            'participant_calf_girth', 'participant_biceps_girth_flex', 'participant_biceps_girth_relax',
+                            'participant_neck_flexion', 'participant_neck_extension', 'participant_neck_right_rotation',
+                            'participant_neck_left_rotation', 'participant_neck_left_lat_flex',
+                            'participant_neck_right_lat_flex', 'participant_pred_vo2'
+
+                            ]
 
                             # 'F1_delta - EEG', 'F1_theta - EEG', 'F1_alpha - EEG', 'F1_beta - EEG',
                             # 'Fz_delta - EEG', 'Fz_theta - EEG', 'Fz_alpha - EEG', 'Fz_beta - EEG',
