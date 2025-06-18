@@ -41,7 +41,7 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         # Hyperparameters
         weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
         learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
-        batch_size = trial.suggest_categorical("batch_size", [64, 128])
+        batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
         sequence_length = trial.suggest_int("sequence_length", 25, 250)
         threshold = trial.suggest_float('threshold', 0.1, 0.9)
         step_size = trial.suggest_int("step_size", 25, 75)
@@ -108,7 +108,7 @@ def lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     # Perform Hyperparameter Tuning with Optuna using only Training data where Objective is F1 Score
     objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,objective_var)
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=5)
+    study.optimize(objective, n_trials=50)
 
     # Print out the optimal hyperparameters
     best_params = study.best_trial.params

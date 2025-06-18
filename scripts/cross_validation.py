@@ -15,6 +15,7 @@ import os
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 from LogRegTS_supporting import lrts_binary_class
+from NAM_supporting import nam_binary_class
 from LSTM_supporting import lstm_binary_class
 from Transformer_supporting import transformer_class
 from TCN_supporting import tcn_binary_class
@@ -31,7 +32,7 @@ def main_loop(kfold_ID, num_splits, runname):
     random_state = 42
 
     ## Classifier | Pick 'LogRegTS', 'LSTM', 'TCN', 'Trans', or 'all'
-    classifier_type = 'all'
+    classifier_type = 'NAM'
     train_class = True
     class_weight_imb = 'balanced'
 
@@ -233,7 +234,17 @@ def main_loop(kfold_ID, num_splits, runname):
                               save_folder=save_folder))
 
         performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy, precision, recall, f1, specificity, g_mean, ['LSTM'])
+            accuracy, precision, recall, f1, specificity, g_mean, ['LogRegTS'])
+        summaries.append(performance_metric_summary_single)
+
+    # Time Series (Autoregressive Time Aware) Neural Additive Model
+    if classifier_type == 'NAM' or classifier_type == 'all':
+        accuracy, precision, recall, f1, specificity, g_mean = (
+            lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                              save_folder=save_folder))
+
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy, precision, recall, f1, specificity, g_mean, ['NAM'])
         summaries.append(performance_metric_summary_single)
 
     # Long Short Term Memory RNN
