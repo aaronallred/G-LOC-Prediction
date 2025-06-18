@@ -15,7 +15,7 @@ import os
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 from LogRegTS_supporting import lrts_binary_class
-from NAM_supporting import nam_binary_class
+from NAM2_supporting import nam_binary_class
 from LSTM_supporting import lstm_binary_class
 from Transformer_supporting import transformer_class
 from TCN_supporting import tcn_binary_class
@@ -32,7 +32,7 @@ def main_loop(kfold_ID, num_splits, runname):
     random_state = 42
 
     ## Classifier | Pick 'LogRegTS', 'LSTM', 'TCN', 'Trans', or 'all'
-    classifier_type = 'all'
+    classifier_type = 'NAM'
     train_class = True
     class_weight_imb = 'balanced'
 
