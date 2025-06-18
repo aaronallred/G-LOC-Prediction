@@ -152,6 +152,7 @@ def nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
 
     baseline_method = best_params["baseline_method"]
     x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
+    x_test_ds, _ = baseline_down_select(x_test, all_features, baseline_method)
 
     # Build training (potential validation) datasets for final train
     if final_early_stop:
@@ -168,7 +169,7 @@ def nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
 
     # Create the test dataset, formatted into sequences
     test_dataset, _, test_windows_tensor, test_labels_tensor, _, _ = (
-        train_test_split_trials(x_test, y_test, sequence_length, step_size=10, test_ratio=None, end_label=True)
+        train_test_split_trials(x_test_ds, y_test, sequence_length, step_size=10, test_ratio=None, end_label=True)
     )
 
     # Flatten windows

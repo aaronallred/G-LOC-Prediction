@@ -155,6 +155,7 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
 
     baseline_method = best_params["baseline_method"]
     x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
+    x_test_ds, _ = baseline_down_select(x_test, all_features, baseline_method)
 
     # Build training (potential validation) datasets for final train
     workers = get_optimal_workers()
@@ -174,7 +175,7 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
 
     # Create the test dataset, formatted into sequences
     test_dataset, _, _, _, _, _ = (
-        train_test_split_trials(x_test, y_test, sequence_length, step_size=10, test_ratio=None,
+        train_test_split_trials(x_test_ds, y_test, sequence_length, step_size=10, test_ratio=None,
                                 random_state=random_state, end_label=True)
     )
 
