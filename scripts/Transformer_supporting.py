@@ -37,6 +37,8 @@ class TransformerClassifier(nn.Module):
         # Transformer Encoder expects input shape (batch_size, seq_len, d_model) with batch_first=True
         x = self.transformer_encoder(x)  # (batch_size, seq_len, d_model)
 
+        x = x[:,-1,:]
+
         # You can do per-timestep output (sequence output) to match your LSTM output shape (batch, seq_len, 1)
         out = self.fc(x)  # (batch_size, seq_len, output_dim)
 
@@ -62,17 +64,16 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         dropout = trial.suggest_float("dropout", 0.1, 0.5) if num_layers > 1 else 0
         learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
         batch_size = trial.suggest_categorical("batch_size", [64, 128])
-        sequence_length = trial.suggest_int("sequence_length", 50, 250)
-        stride = trial.suggest_float("stride", 0.25, 1.0)
+        sequence_length = trial.suggest_int("sequence_length", 25, 250)
         weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
         threshold = trial.suggest_float('threshold', 0.1, 0.9)
-
-        step_size = round(sequence_length * stride)
+        step_size = trial.suggest_int("step_size", 25, 75)
+        # step_size = round(sequence_length * stride)
 
         # Create training and validation sets from x_train/y_train
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, val_windows_tensor, val_labels_tensor = (
             train_test_split_trials(
-                x_train,y_train,sequence_length,step_size,test_ratio=0.2,random_state = random_state)
+                x_train,y_train,sequence_length,step_size,test_ratio=0.2, random_state = random_state, end_label=True)
         )
 
         # Prepare the data for training and evaluation
@@ -120,7 +121,7 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
         Output: model performance of trained model evaluated on test data
     """
     # User Options
-    use_sampler = False # Optionally use sampler to sample the minority class (ROS)
+    use_sampler = True # Optionally use sampler to sample the minority class (ROS)
     final_early_stop = False # Optionally use early stopping for final train (always uses early stop in tuning)
     objective_var = 'F1' # 'F1' 'Acc' or else uses 1-Loss. (used by Optuna and Early Stop during hyperparameter tuning)
 
@@ -141,29 +142,33 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     learning_rate = best_params["lr"]
     batch_size = best_params["batch_size"]
     sequence_length = best_params["sequence_length"]
-    stride = best_params["stride"]
+    # stride = best_params["stride"]
     weight_decay = best_params["weight_decay"]
-    step_size = round(sequence_length * stride)
+    # step_size = round(sequence_length * stride)
     threshold = best_params['threshold']
     num_epochs = max(study.best_trial.user_attrs.get("best_epoch", 15),15) # enforce min of 10 epochs
+    step_size =  best_params["step_size"]
 
     # Build training (potential validation) datasets for final train
     workers = get_optimal_workers()
     if final_early_stop:
         # Train with most training data but set aside a validation dataset for early stopping
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, _, _ = (
-            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2)
+            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2,
+                                    random_state=random_state, end_label=True)
         )
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
     else:
         # Train with all training data and train to a finite set of epochs (from the best hyperparameter run)
         train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
-            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=None)
+            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=None,
+                                    random_state=random_state, end_label=True)
         )
 
     # Create the test dataset, formatted into sequences
     test_dataset, _, _, _, _, _ = (
-        train_test_split_trials(x_test, y_test, sequence_length, step_size, test_ratio=None)
+        train_test_split_trials(x_test, y_test, sequence_length, step_size=10, test_ratio=None,
+                                random_state=random_state, end_label=True)
     )
 
     # Build model

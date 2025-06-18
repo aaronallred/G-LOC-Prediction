@@ -42,12 +42,10 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
         learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
         batch_size = trial.suggest_categorical("batch_size", [64, 128])
-
         sequence_length = trial.suggest_int("sequence_length", 25, 250)
-        stride = trial.suggest_float("stride", 0.25, 1.0)
-
         threshold = trial.suggest_float('threshold', 0.1, 0.9)
-        step_size = round(sequence_length * stride)
+        step_size = trial.suggest_int("step_size", 25, 75)
+        # step_size = round(sequence_length * stride)
 
         # Create training and validation sets from x_train/y_train
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, val_windows_tensor, val_labels_tensor = (
@@ -121,9 +119,8 @@ def lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     learning_rate = best_params["lr"]
     weight_decay = best_params["weight_decay"]
     sequence_length = best_params["sequence_length"]
-    stride = best_params["stride"]
-    step_size = round(sequence_length * stride)
-
+    step_size = best_params["step_size"]
+    # step_size = round(sequence_length * stride)
     threshold = best_params['threshold']
     num_epochs = max(study.best_trial.user_attrs.get("best_epoch", 15),15) # enforce min of 10 epochs
 
@@ -142,7 +139,7 @@ def lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
 
     # Create the test dataset, formatted into sequences
     test_dataset, _, test_windows_tensor, test_labels_tensor, _, _ = (
-        train_test_split_trials(x_test, y_test, sequence_length, step_size, test_ratio=None, end_label=True)
+        train_test_split_trials(x_test, y_test, sequence_length, step_size=10, test_ratio=None, end_label=True)
     )
 
     # Flatten windows
@@ -185,7 +182,7 @@ def lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     all_preds = np.array(all_preds)
     all_labels = np.array(all_labels)
     predictors_over_time = np.array(predictors_over_time)
-    prediction_time_plot(all_labels, all_preds, predictors_over_time)
+    # prediction_time_plot(all_labels, all_preds, predictors_over_time)
 
     # Assess Performance
     accuracy = metrics.accuracy_score(all_labels, all_preds)

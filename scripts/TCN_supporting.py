@@ -1,5 +1,3 @@
-from multiprocessing.pool import worker
-
 from DL_supporting import *
 import torch
 import torch.nn as nn
@@ -70,6 +68,7 @@ class TCNClassifier(nn.Module):
         out = self.network(x)
         # Take last time step (assumes full sequence processed)
         out = out.permute(0, 2, 1)  # (batch, features, seq_len) → (batch, seq_len, features)
+        out = out[:,-1,:]
         return self.fc(out)  # (batch, seq_len, 1)
 
 
@@ -89,14 +88,14 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         num_layers = trial.suggest_int("num_layers", 1, 3)
         dropout = trial.suggest_float("dropout", 0.1, 0.5) if num_layers > 1 else 0
         learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
-        batch_size = trial.suggest_categorical("batch_size", [64, 128])
-        sequence_length = trial.suggest_int("sequence_length", 50, 500)
-        stride = trial.suggest_float("stride", 0.25, 1.0)
+        batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
+        sequence_length = trial.suggest_int("sequence_length", 25, 250)
         weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
         kernel_size = trial.suggest_categorical('kernel_size', [3, 5, 7])
         threshold = trial.suggest_float('threshold', 0.1, 0.9)
+        step_size = trial.suggest_int("step_size", 25, 75)
 
-        step_size = round(sequence_length * stride)
+        # step_size = round(sequence_length * stride)
         min_length = (kernel_size - 1) * (2 ** (num_layers - 1)) + 1
         if sequence_length < min_length:
             raise optuna.exceptions.TrialPruned()
@@ -104,7 +103,7 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         # Create training and validation sets from x_train/y_train
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, val_windows_tensor, val_labels_tensor = (
             train_test_split_trials(
-                x_train,y_train,sequence_length,step_size,test_ratio=0.2,random_state = random_state)
+                x_train,y_train,sequence_length,step_size,test_ratio=0.2,random_state = random_state, end_label=True)
         )
 
         # Prepare the data for training and evaluation
@@ -146,7 +145,7 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
         Output: model performance of trained model evaluated on test data
     """
     # User Options
-    use_sampler = False # Optionally use sampler to sample the minority class (ROS)
+    use_sampler = True # Optionally use sampler to sample the minority class (ROS)
     final_early_stop = False # Optionally use early stopping for final train (always uses early stop in tuning)
     objective_var = 'F1' # 'F1' 'Acc' or else uses 1-Loss. (used by Optuna and Early Stop during hyperparameter tuning)
 
@@ -170,10 +169,11 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     learning_rate = best_params["lr"]
     batch_size = best_params["batch_size"]
     sequence_length = best_params["sequence_length"]
-    stride = best_params["stride"]
+    # stride = best_params["stride"]
     weight_decay = best_params["weight_decay"]
     kernel_size = best_params['kernel_size']
-    step_size = round(sequence_length * stride)
+    # step_size = round(sequence_length * stride)
+    step_size = best_params["step_size"]
     threshold = best_params['threshold']
     num_epochs = max(study.best_trial.user_attrs.get("best_epoch", 15),15) # enforce min of 10 epochs
 
@@ -182,18 +182,21 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     if final_early_stop:
         # Train with most training data but set aside a validation dataset for early stopping
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, _, _ = (
-            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2)
+            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2,
+                                    random_state = random_state, end_label=True)
         )
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
     else:
         # Train with all training data and train to a finite set of epochs (from the best hyperparameter run)
         train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
-            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=None)
+            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=None,
+                                    random_state = random_state, end_label=True)
         )
 
     # Create the test dataset, formatted into sequences
     test_dataset, _, _, _, _, _ = (
-        train_test_split_trials(x_test, y_test, sequence_length, step_size, test_ratio=None)
+        train_test_split_trials(x_test, y_test, sequence_length, step_size=10, test_ratio=None,
+                                random_state = random_state, end_label=True)
     )
 
     # Build model

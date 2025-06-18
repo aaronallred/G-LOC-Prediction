@@ -15,6 +15,7 @@ import os
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 from LogRegTS_supporting import lrts_binary_class
+from DGLM_supporting import dglm_class
 from LSTM_supporting import lstm_binary_class
 from Transformer_supporting import transformer_class
 from TCN_supporting import tcn_binary_class
@@ -30,8 +31,8 @@ def main_loop(kfold_ID, num_splits, runname):
     # Random State | 42 - Debug mode
     random_state = 42
 
-    ## Classifier | Pick 'LSTM', 'TCN', 'Trans', or 'all'
-    classifier_type = 'all'
+    ## Classifier | Pick 'LogRegTS', 'LSTM', 'TCN', 'Trans', or 'all'
+    classifier_type = 'Trans'
     train_class = True
     class_weight_imb = 'balanced'
 
@@ -41,7 +42,7 @@ def main_loop(kfold_ID, num_splits, runname):
     n_neighbors = 3
 
     ## Model Parameters
-    model_type = ['noAFE', 'explicit']
+    model_type = ['noAFE', 'implicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'strain', 'demographics']
@@ -51,7 +52,7 @@ def main_loop(kfold_ID, num_splits, runname):
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
     baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
-    baseline_methods_to_use = ['v0','v1','v2']
+    baseline_methods_to_use = ['v0','v1','v2','v5','v6']
 
     baseline_window = 32.5  # seconds
 
@@ -225,6 +226,16 @@ def main_loop(kfold_ID, num_splits, runname):
     save_folder = os.path.join("../ModelSave/CV", runname, str(kfold_ID))
     #performance_metric_summary_single = []
     summaries = []
+
+    # Time Series (Autoregressive) GAM
+    if classifier_type == 'DGLM' or classifier_type == 'all':
+        accuracy, precision, recall, f1, specificity, g_mean = (
+            dglm_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                              save_folder=save_folder))
+
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy, precision, recall, f1, specificity, g_mean, ['LSTM'])
+        summaries.append(performance_metric_summary_single)
 
     # Time Series (Autoregressive) Logistic Regression
     if classifier_type == 'LogRegTS' or classifier_type == 'all':

@@ -30,8 +30,8 @@ class LSTMClassifier(nn.Module):
 
     def forward(self, x):
         lstm_out, _ = self.lstm(x)
-        # last_out = lstm_out[:, -1, :] # If we were predicting a single output label e.g., traditional learners
-        out = self.fc(lstm_out)  # (batch, seq_len, 1)
+        last_out = lstm_out[:, -1, :] # If we were predicting a single output label e.g., traditional learners
+        out = self.fc(last_out)  # (batch, seq_len, 1)
 
         return out
 
@@ -54,16 +54,15 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
         batch_size = trial.suggest_categorical("batch_size", [64, 128])
         sequence_length = trial.suggest_int("sequence_length", 25, 250)
-        stride = trial.suggest_float("stride", 0.25, 1.0)
+        step_size = trial.suggest_int("step_size", 25, 75)
         weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
         bidirectional = trial.suggest_categorical("bidirectional", [False])
         threshold = trial.suggest_float('threshold', 0.1, 0.9)
-        step_size = round(sequence_length * stride)
 
         # Create training and validation sets from x_train/y_train
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, val_windows_tensor, val_labels_tensor = (
             train_test_split_trials(
-                x_train,y_train,sequence_length,step_size,test_ratio=0.2,random_state = random_state)
+                x_train,y_train,sequence_length,step_size,test_ratio=0.2, random_state = random_state, end_label=True)
         )
 
         # Prepare the data for training and evaluation
@@ -104,7 +103,7 @@ def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
         Output: model performance of trained model evaluated on test data
     """
     # User Options
-    use_sampler = False # Optionally use sampler to sample the minority class (ROS)
+    use_sampler = True # Optionally use sampler to sample the minority class (ROS)
     final_early_stop = False # Optionally use early stopping for final train (always uses early stop in tuning)
     objective_var = 'F1' # F1 or else use 1-Loss. (param used by Optuna and Early Stop during hyperparameter tuning)
 
@@ -115,7 +114,7 @@ def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     # Perform Hyperparameter Tuning with Optuna using only Training data where Objective is F1 Score
     objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,objective_var)
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=1)
+    study.optimize(objective, n_trials=10)
 
     # Print out the optimal hyperparameters
     best_params = study.best_trial.params
@@ -128,10 +127,9 @@ def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     learning_rate = best_params["lr"]
     batch_size = best_params["batch_size"]
     sequence_length = best_params["sequence_length"]
-    stride = best_params["stride"]
+    step_size = best_params["step_size"]
     weight_decay = best_params["weight_decay"]
     bidirectional = best_params["bidirectional"]
-    step_size = round(sequence_length * stride)
 
     threshold = best_params['threshold']
     num_epochs = max(study.best_trial.user_attrs.get("best_epoch", 15),15) # enforce min of 10 epochs
@@ -140,18 +138,21 @@ def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     if final_early_stop:
         # Train with most training data but set aside a validation dataset for early stopping
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, _, _ = (
-            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2)
+            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2
+                                    ,random_state=random_state, end_label=True)
         )
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     else:
         # Train with all training data and train to a finite set of epochs (from the best hyperparameter run)
         train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
-            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=None)
+            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=None,
+                                    random_state=random_state, end_label=True)
         )
 
     # Create the test dataset, formatted into sequences
     test_dataset, _, _, _, _, _ = (
-        train_test_split_trials(x_test, y_test, sequence_length, step_size, test_ratio=None)
+        train_test_split_trials(x_test, y_test, sequence_length, step_size=10, test_ratio=None,
+                                random_state=random_state, end_label=True)
     )
 
     # Build model

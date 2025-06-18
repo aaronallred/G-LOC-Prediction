@@ -98,8 +98,12 @@ def build_training_components(model, class_weights, lr, weight_decay, device, lo
 # builds a sampler for random oversampling the minority class (not used)
 def build_sampler(train_labels_tensor, class_weights):
     # Determine if window has GLOC event
-    mean_labels = train_labels_tensor.float().mean(dim=1)  # shape: (num_windows,)
-    binary_labels = (mean_labels > 0).long()
+    # Ensure 2D shape for mean computation
+    if train_labels_tensor.dim() == 1:
+        binary_labels = train_labels_tensor.long()
+    else:
+        mean_labels = train_labels_tensor.float().mean(dim=1)  # shape: (num_windows,)
+        binary_labels = (mean_labels > 0).long()
 
     # Apply class weights
     sample_weights = class_weights[binary_labels]  # shape: (num_windows,)
@@ -212,7 +216,7 @@ def evaluate(model, loader, threshold, device, criterion):
             all_labels.extend(y_batch.view(-1).cpu().numpy())
 
             # Append the input data for plotting predictors
-            predictors_over_time.extend(x_batch.cpu().numpy())
+            predictors_over_time.extend(x_batch[-1].cpu().numpy())
 
     avg_eval_loss = eval_loss / len(loader)
 
