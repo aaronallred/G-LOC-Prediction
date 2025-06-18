@@ -15,7 +15,6 @@ import os
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 from LogRegTS_supporting import lrts_binary_class
-from DGLM_supporting import dglm_class
 from LSTM_supporting import lstm_binary_class
 from Transformer_supporting import transformer_class
 from TCN_supporting import tcn_binary_class
@@ -32,7 +31,7 @@ def main_loop(kfold_ID, num_splits, runname):
     random_state = 42
 
     ## Classifier | Pick 'LogRegTS', 'LSTM', 'TCN', 'Trans', or 'all'
-    classifier_type = 'Trans'
+    classifier_type = 'all'
     train_class = True
     class_weight_imb = 'balanced'
 
@@ -227,17 +226,7 @@ def main_loop(kfold_ID, num_splits, runname):
     #performance_metric_summary_single = []
     summaries = []
 
-    # Time Series (Autoregressive) GAM
-    if classifier_type == 'DGLM' or classifier_type == 'all':
-        accuracy, precision, recall, f1, specificity, g_mean = (
-            dglm_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                              save_folder=save_folder))
-
-        performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy, precision, recall, f1, specificity, g_mean, ['LSTM'])
-        summaries.append(performance_metric_summary_single)
-
-    # Time Series (Autoregressive) Logistic Regression
+    # Time Series (Autoregressive Time Aware) Logistic Regression
     if classifier_type == 'LogRegTS' or classifier_type == 'all':
         accuracy, precision, recall, f1, specificity, g_mean = (
             lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
@@ -292,11 +281,12 @@ if __name__ == "__main__":
     # Needed for proper debugging of CUDA errors
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-    runname = 'ExplicitV0V3_alltest'
+    runname = 'ImplicitV0V3_alltest'
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10
     kfold_ID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    kfold_ID = [0, 1]
 
     # Pre-Allocate Performance Summary Dictionary
     kfold_performance_summary = dict()

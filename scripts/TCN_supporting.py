@@ -156,7 +156,7 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     # Perform Hyperparameter Tuning with Optuna using only Training data where Objective is F1 Score
     objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,objective_var)
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=1)
+    study.optimize(objective, n_trials=5)
 
     # Print out the optimal hyperparameters
     best_params = study.best_trial.params
@@ -223,7 +223,7 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
 
     # Save trained model
     os.makedirs(save_folder, exist_ok=True)
-    torch.save(model.state_dict(), os.path.join(save_folder, f"trained_model.pt"))
+    torch.save(model.state_dict(), os.path.join(save_folder, f"TCN_trained_model.pt"))
 
     # Evaluate final model
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
@@ -244,7 +244,7 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     g_mean = geometric_mean_score(all_labels, all_preds)
 
     # Print performance metrics
-    print("\nPerformance Metrics:")
+    print("\nPerformance Metrics for TCN:")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
     print("Recall: ", recall)

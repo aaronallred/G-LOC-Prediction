@@ -775,7 +775,7 @@ if __name__ == "__main__":
     # Visualization of k-fold cross validation
     if plot_cv == 1:
 
-        with open('../PerformanceSave/CrossValidation/ExplicitV0-8HPO_SMOTE_LASSO_noNAN_all/CrossValidation.pkl', 'rb') as f:
+        with open('../PerformanceSave/CrossValidation/ImplicitV0V3_alltest/CrossValidation.pkl', 'rb') as f:
             data_dict = pickle.load(f)
 
         plot_cross_val_sp(data_dict)
