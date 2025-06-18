@@ -32,7 +32,7 @@ def main_loop(kfold_ID, num_splits, runname):
     random_state = 42
 
     ## Classifier | Pick 'LogRegTS', 'LSTM', 'TCN', 'Trans', or 'all'
-    classifier_type = 'NAM'
+    classifier_type = 'all'
     train_class = True
     class_weight_imb = 'balanced'
 
@@ -231,17 +231,17 @@ def main_loop(kfold_ID, num_splits, runname):
     if classifier_type == 'LogRegTS' or classifier_type == 'all':
         accuracy, precision, recall, f1, specificity, g_mean = (
             lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                              save_folder=save_folder))
+                              all_features, save_folder=save_folder))
 
         performance_metric_summary_single = single_classifier_performance_summary(
             accuracy, precision, recall, f1, specificity, g_mean, ['LogRegTS'])
         summaries.append(performance_metric_summary_single)
 
     # Time Series (Autoregressive Time Aware) Neural Additive Model
-    if classifier_type == 'NAM' or classifier_type == 'all':
+    if classifier_type == 'NAM':
         accuracy, precision, recall, f1, specificity, g_mean = (
-            lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                              save_folder=save_folder))
+            nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                              all_features, save_folder=save_folder))
 
         performance_metric_summary_single = single_classifier_performance_summary(
             accuracy, precision, recall, f1, specificity, g_mean, ['NAM'])
@@ -251,7 +251,7 @@ def main_loop(kfold_ID, num_splits, runname):
     if classifier_type == 'LSTM' or classifier_type == 'all':
         accuracy, precision, recall, f1, specificity, g_mean = (
             lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                                             save_folder=save_folder))
+                              all_features, save_folder=save_folder))
 
         performance_metric_summary_single = single_classifier_performance_summary(
             accuracy, precision, recall, f1, specificity, g_mean,['LSTM'])
@@ -261,7 +261,7 @@ def main_loop(kfold_ID, num_splits, runname):
     if classifier_type == 'Trans' or classifier_type == 'all':
         accuracy, precision, recall, f1, specificity, g_mean = (
             transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                              save_folder=save_folder))
+                              all_features, save_folder=save_folder))
 
         performance_metric_summary_single = single_classifier_performance_summary(
             accuracy, precision, recall, f1, specificity, g_mean, ['Trans'])
@@ -271,7 +271,7 @@ def main_loop(kfold_ID, num_splits, runname):
     if classifier_type == 'TCN' or classifier_type == 'all':
         accuracy, precision, recall, f1, specificity, g_mean = (
             tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                              save_folder=save_folder))
+                              all_features, save_folder=save_folder))
 
         performance_metric_summary_single = single_classifier_performance_summary(
             accuracy, precision, recall, f1, specificity, g_mean, ['TCN'])
@@ -292,12 +292,12 @@ if __name__ == "__main__":
     # Needed for proper debugging of CUDA errors
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-    runname = 'ImplicitV0V3_alltest'
+    runname = 'Implicit_final_test'
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10
     kfold_ID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-    kfold_ID = [0, 1]
+    kfold_ID = [0, 1, 2, 3]
 
     # Pre-Allocate Performance Summary Dictionary
     kfold_performance_summary = dict()

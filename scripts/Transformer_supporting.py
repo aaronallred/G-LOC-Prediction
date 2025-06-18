@@ -45,7 +45,7 @@ class TransformerClassifier(nn.Module):
         return out
 
 
-def make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler, objective_var):
+def make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler, objective_var, all_features):
     """
     Transformer Objective Function for Optuna.
 
@@ -57,6 +57,7 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
     """
     def objective(trial):
         # Hyperparameters
+        baseline_method = trial.suggest_categorical("baseline_method", [0, 1, 2, 3, 4, 5])
         d_model = trial.suggest_categorical("d_model", [32, 64, 128])
         nhead = trial.suggest_categorical("nhead", [2, 4, 8])
         num_layers = trial.suggest_int("num_layers", 1, 3)
@@ -70,10 +71,12 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         step_size = trial.suggest_int("step_size", 25, 75)
         # step_size = round(sequence_length * stride)
 
+        x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
+
         # Create training and validation sets from x_train/y_train
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, val_windows_tensor, val_labels_tensor = (
             train_test_split_trials(
-                x_train,y_train,sequence_length,step_size,test_ratio=0.2, random_state = random_state, end_label=True)
+                x_train_ds,y_train,sequence_length,step_size,test_ratio=0.2, random_state = random_state, end_label=True)
         )
 
         # Prepare the data for training and evaluation
@@ -114,7 +117,7 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
 
     return objective
 
-def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, save_folder):
+def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, all_features, save_folder):
     """
         Main Transformer Script
         Input: train and test split of data
@@ -130,9 +133,10 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     class_weights = torch.tensor(class_weights, dtype=torch.float)
 
     # Perform Hyperparameter Tuning with Optuna using only Training data where Objective is F1 Score
-    objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,objective_var)
+    objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,
+                               objective_var, all_features)
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=10)
+    study.optimize(objective, n_trials=4)
 
     # Print out the optimal hyperparameters
     best_params = study.best_trial.params
@@ -149,19 +153,22 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     num_epochs = max(study.best_trial.user_attrs.get("best_epoch", 15),15) # enforce min of 10 epochs
     step_size =  best_params["step_size"]
 
+    baseline_method = best_params["baseline_method"]
+    x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
+
     # Build training (potential validation) datasets for final train
     workers = get_optimal_workers()
     if final_early_stop:
         # Train with most training data but set aside a validation dataset for early stopping
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, _, _ = (
-            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2,
+            train_test_split_trials(x_train_ds, y_train, sequence_length, step_size, test_ratio=0.2,
                                     random_state=random_state, end_label=True)
         )
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
     else:
         # Train with all training data and train to a finite set of epochs (from the best hyperparameter run)
         train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
-            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=None,
+            train_test_split_trials(x_train_ds, y_train, sequence_length, step_size, test_ratio=None,
                                     random_state=random_state, end_label=True)
         )
 

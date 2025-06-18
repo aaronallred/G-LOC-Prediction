@@ -11,47 +11,47 @@ from torch.utils.data import DataLoader
 from imblearn.metrics import geometric_mean_score
 from sklearn.utils.class_weight import compute_class_weight
 import optuna
-import pickle
-from pygam import LogisticGAM, s, f
 
 from GLOC_visualization import prediction_time_plot
 
-class NeuralAdditiveModelTS(nn.Module):
-    def __init__(self, input_dim, hidden_dim=32, output_dim=1):
-        """
-        Neural Additive Model for Time Series
-        Assumes x is [batch_size, seq_len * num_features] after flattening
-        """
-        super(NeuralAdditiveModelTS, self).__init__()
+# Build Time Series Neural Additive Model architecture (Using GAMapprox below)
+class NAM(nn.Module):
+    def __init__(self, input_dim, hidden_dim=4, num_layers=1, dropout=0.2):
+        super().__init__()
         self.input_dim = input_dim
-
-        # One sub-network per feature (after flattening)
-        self.nets = nn.ModuleList([
-            nn.Sequential(
-                nn.Linear(1, hidden_dim),
-                nn.ReLU(),
-                nn.Linear(hidden_dim, 1)
-            )
+        self.subnetworks = nn.ModuleList([
+            self._create_subnetwork(hidden_dim, num_layers, dropout)
             for _ in range(input_dim)
         ])
+        self.final_activation = nn.Sigmoid()
 
-        self.output = nn.Linear(input_dim, output_dim)
+    def _create_subnetwork(self, num_units, num_layers, dropout):
+        layers = []
+        for _ in range(num_layers):
+            layers.extend([
+                nn.Linear(1, num_units),
+                nn.ReLU(),
+                nn.Dropout(dropout)
+            ])
+        layers.append(nn.Linear(num_units, 1))
+        return nn.Sequential(*layers)
 
     def forward(self, x):
         # x shape: (batch_size, input_dim)
-        feature_contributions = []
+        outputs = []
         for i in range(self.input_dim):
-            feature = x[:, i].unsqueeze(1)  # (batch_size, 1)
-            contrib = self.nets[i](feature)  # (batch_size, 1)
-            feature_contributions.append(contrib)
+            # Process each feature through its subnetwork
+            feature = x[:, i:i + 1]  # (batch_size, 1)
+            outputs.append(self.subnetworks[i](feature))
 
-        stacked = torch.cat(feature_contributions, dim=1)  # (batch_size, input_dim)
-        out = self.output(stacked)  # (batch_size, 1)
-        return out
+        # Sum all subnetwork outputs
+        combined = torch.sum(torch.cat(outputs, dim=1), dim=1, keepdim=True)
+        return combined
 
-def make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler, objective_var):
+
+def make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler, objective_var, all_features):
     """
-    LSTM Objective Function for Optuna.
+    NAM Objective Function for Optuna.
 
     Function objective (below) has access to all global arguments passed to this function.
     Returns Stopping Metric (here F1 score) as the objective (set to maximize)
@@ -61,7 +61,7 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
     """
     def objective(trial):
         # Hyperparameters
-        hidden_dim =  trial.suggest_categorical("hidden_dim", [8, 16, 32, 64])
+        baseline_method = trial.suggest_categorical("baseline_method",[0,1,2,3,4,5])
         weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
         learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
         batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
@@ -70,10 +70,12 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         step_size = trial.suggest_int("step_size", 25, 75)
         # step_size = round(sequence_length * stride)
 
+        x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
+
         # Create training and validation sets from x_train/y_train
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, val_windows_tensor, val_labels_tensor = (
             train_test_split_trials(
-                x_train,y_train, sequence_length, step_size, test_ratio=0.2, random_state = random_state, end_label=True)
+                x_train_ds,y_train, sequence_length, step_size, test_ratio=0.2, random_state = random_state, end_label=True)
         )
 
         # Flatten windows for logistic regression
@@ -89,7 +91,7 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
 
         # Build model
         input_dim = train_windows_tensor.shape[1]
-        model = NeuralAdditiveModelTS(input_dim, hidden_dim=hidden_dim)
+        model = NAM(input_dim)
         device = get_device()
         model.to(device)
         criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, device)
@@ -107,15 +109,15 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
 
         # Save model to file
         os.makedirs(save_folder, exist_ok=True)
-        torch.save(model.state_dict(), os.path.join(save_folder, f"LogReg_best_model_trial_{trial.number}.pt"))
+        torch.save(model.state_dict(), os.path.join(save_folder, f"NAM_best_model_trial_{trial.number}.pt"))
 
         return best_stopping_metric
 
     return objective
 
-def nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, save_folder):
+def nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, all_features, save_folder):
     """
-        Main Temporal Convolutional Network Script
+        Main Neural Additive Model (GLM - extension of GAM) Script
         Input: train and test split of data
         Output: model performance of trained model evaluated on test data
     """
@@ -129,16 +131,16 @@ def nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     class_weights = torch.tensor(class_weights, dtype=torch.float)
 
     # Perform Hyperparameter Tuning with Optuna using only Training data where Objective is F1 Score
-    objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,objective_var)
+    objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,
+                               objective_var, all_features)
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=50)
+    study.optimize(objective, n_trials=5)
 
     # Print out the optimal hyperparameters
     best_params = study.best_trial.params
     print("Best Trial:", study.best_trial)
 
     # Grab the hyperparameters from the best set
-    hidden_dim = best_params["hidden_dim"]
     batch_size = best_params["batch_size"]
     learning_rate = best_params["lr"]
     weight_decay = best_params["weight_decay"]
@@ -148,17 +150,20 @@ def nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     threshold = best_params['threshold']
     num_epochs = max(study.best_trial.user_attrs.get("best_epoch", 15),15) # enforce min of 10 epochs
 
+    baseline_method = best_params["baseline_method"]
+    x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
+
     # Build training (potential validation) datasets for final train
     if final_early_stop:
         # Train with most training data but set aside a validation dataset for early stopping
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, _, _ = (
-            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2, end_label=True)
+            train_test_split_trials(x_train_ds, y_train, sequence_length, step_size, test_ratio=0.2, end_label=True)
         )
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     else:
         # Train with all training data and train to a finite set of epochs (from the best hyperparameter run)
         train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
-            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=None, end_label=True)
+            train_test_split_trials(x_train_ds, y_train, sequence_length, step_size, test_ratio=None, end_label=True)
         )
 
     # Create the test dataset, formatted into sequences
@@ -172,7 +177,7 @@ def nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
 
     # Build model
     input_dim = train_windows_tensor.shape[1]
-    model = NeuralAdditiveModelTS(input_dim, hidden_dim=hidden_dim)
+    model = NAM(input_dim)
     device = get_device()
     model.to(device)
     criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, device)
@@ -195,7 +200,7 @@ def nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
 
     # Save trained model
     os.makedirs(save_folder, exist_ok=True)
-    torch.save(model.state_dict(), os.path.join(save_folder, f"LogReg_trained_model.pt"))
+    torch.save(model.state_dict(), os.path.join(save_folder, f"NAM_trained_model.pt"))
 
     # Evaluate final model
     test_loader = DataLoader(TensorDataset(test_windows_tensor, test_labels_tensor), batch_size=batch_size,

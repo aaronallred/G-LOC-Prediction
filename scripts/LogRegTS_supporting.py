@@ -27,9 +27,9 @@ class LogisticRegressionTS(nn.Module):
         return self.linear(x_flat)
 
 
-def make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler, objective_var):
+def make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler, objective_var, all_features):
     """
-    LSTM Objective Function for Optuna.
+    LogRegTS Objective Function for Optuna.
 
     Function objective (below) has access to all global arguments passed to this function.
     Returns Stopping Metric (here F1 score) as the objective (set to maximize)
@@ -39,6 +39,7 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
     """
     def objective(trial):
         # Hyperparameters
+        baseline_method = trial.suggest_categorical("baseline_method", [0, 1, 2, 3, 4, 5])
         weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
         learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
         batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
@@ -47,10 +48,12 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         step_size = trial.suggest_int("step_size", 25, 75)
         # step_size = round(sequence_length * stride)
 
+        x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
+
         # Create training and validation sets from x_train/y_train
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, val_windows_tensor, val_labels_tensor = (
             train_test_split_trials(
-                x_train,y_train, sequence_length, step_size, test_ratio=0.2, random_state = random_state, end_label=True)
+                x_train_ds,y_train, sequence_length, step_size, test_ratio=0.2, random_state = random_state, end_label=True)
         )
 
         # Flatten windows for logistic regression
@@ -90,9 +93,9 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
 
     return objective
 
-def lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, save_folder):
+def lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, all_features, save_folder):
     """
-        Main Temporal Convolutional Network Script
+        Main Autoregressive Logistic Regression Script
         Input: train and test split of data
         Output: model performance of trained model evaluated on test data
     """
@@ -106,9 +109,10 @@ def lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     class_weights = torch.tensor(class_weights, dtype=torch.float)
 
     # Perform Hyperparameter Tuning with Optuna using only Training data where Objective is F1 Score
-    objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,objective_var)
+    objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,
+                               objective_var, all_features)
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=50)
+    study.optimize(objective, n_trials=10)
 
     # Print out the optimal hyperparameters
     best_params = study.best_trial.params
@@ -124,17 +128,20 @@ def lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     threshold = best_params['threshold']
     num_epochs = max(study.best_trial.user_attrs.get("best_epoch", 15),15) # enforce min of 10 epochs
 
+    baseline_method = best_params["baseline_method"]
+    x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
+
     # Build training (potential validation) datasets for final train
     if final_early_stop:
         # Train with most training data but set aside a validation dataset for early stopping
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, _, _ = (
-            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=0.2, end_label=True)
+            train_test_split_trials(x_train_ds, y_train, sequence_length, step_size, test_ratio=0.2, end_label=True)
         )
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     else:
         # Train with all training data and train to a finite set of epochs (from the best hyperparameter run)
         train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
-            train_test_split_trials(x_train, y_train, sequence_length, step_size, test_ratio=None, end_label=True)
+            train_test_split_trials(x_train_ds, y_train, sequence_length, step_size, test_ratio=None, end_label=True)
         )
 
     # Create the test dataset, formatted into sequences

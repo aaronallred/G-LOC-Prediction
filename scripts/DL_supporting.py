@@ -9,6 +9,61 @@ import torch.optim as optim
 from torch.amp import autocast, GradScaler
 
 ### Define Data Handling Functions
+# Baseline down selection
+def baseline_down_select(x,all_features,method):
+    if method == 0: # No baseline columns
+        include =  {name for name in all_features if name.endswith('_v0')}
+
+    elif method == 1: # v1 baseline
+        v0_base = {name[:-3] for name in all_features if name.endswith('_v0')}
+        v1_base = {name[:-3] for name in all_features if name.endswith('_v1')}
+        unique_v0_names = [f"{base}_v0" for base in v0_base if base not in v1_base]
+        unique_v1_names = [f"{base}_v1" for base in v1_base]
+
+        include = unique_v0_names + unique_v1_names
+
+    elif method == 2: # v2 baseline
+        v0_base = {name[:-3] for name in all_features if name.endswith('_v0')}
+        v2_base = {name[:-3] for name in all_features if name.endswith('_v2')}
+        unique_v0_names = [f"{base}_v0" for base in v0_base if base not in v2_base]
+        unique_v2_names = [f"{base}_v2" for base in v2_base]
+
+        include = unique_v0_names + unique_v2_names
+
+    elif method == 3:
+        v0_base = {name[:-3] for name in all_features if name.endswith('_v0')}
+        v1_base = {name[:-3] for name in all_features if name.endswith('_v1')}
+        v5_base = {name[:-3] for name in all_features if name.endswith('_v5')}
+        unique_v0_names = [f"{base}_v0" for base in v0_base if base not in v1_base and base not in v5_base]
+        unique_v1_names = [f"{base}_v1" for base in v1_base if base not in v5_base]
+        unique_v5_names = [f"{base}_v5" for base in v5_base]
+
+        include = unique_v0_names + unique_v1_names + unique_v5_names
+
+    elif method == 4:
+        v0_base = {name[:-3] for name in all_features if name.endswith('_v0')}
+        v2_base = {name[:-3] for name in all_features if name.endswith('_v2')}
+        v6_base = {name[:-3] for name in all_features if name.endswith('_v6')}
+        unique_v0_names = [f"{base}_v0" for base in v0_base if base not in v2_base and base not in v6_base]
+        unique_v2_names = [f"{base}_v2" for base in v2_base if base not in v6_base]
+        unique_v6_names = [f"{base}_v6" for base in v6_base]
+
+        include = unique_v0_names + unique_v2_names + unique_v6_names
+
+    else:
+        include = all_features
+
+    # Grab indices of included features
+    i_indices = [i for i, feature in enumerate(all_features) if feature in include]
+
+    # Add last column index
+    i_indices.append(x.shape[1] - 1)
+
+    x = x[:,i_indices]
+
+    return x, include
+
+
 # Creates windowed sequences
 def create_windows(sequence, labels, window_size, step_size, end_label):
     # Creates windows with paired labels.
