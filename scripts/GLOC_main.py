@@ -23,10 +23,10 @@ if __name__ == "__main__":
     random_state = 42
 
     # troubleshoot mode | 0 = No, Proceed with full feature set , 1 = Yes, reduce feature set for testing/troubleshooting
-    trouble_shoot_mode = 1
+    trouble_shoot_mode = 0
 
     # Import Feature Matrix | 0 = No, Proceed with Baseline and Feature Extraction , 1 = Yes, Use Existing Pkl
-    import_feature_matrix = 1
+    import_feature_matrix = 0
     feature_matrix_name = 'x_feature_matrix.pkl'
     y_label_name = 'y_gloc_labels.pkl'
     all_features_name = 'all_features.pkl'
@@ -50,7 +50,7 @@ if __name__ == "__main__":
 
     # Data Handling Options
     remove_NaN_trials = True
-    impute_type = 1
+    impute_type = 2
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
@@ -61,6 +61,7 @@ if __name__ == "__main__":
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
 
     baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
+    baseline_methods_to_use = ['v0']
 
     analysis_type = 2
 
@@ -191,7 +192,7 @@ if __name__ == "__main__":
         event_validated_column = gloc_data_reduced['event_validated']
         subject_column = gloc_data_reduced['subject']
 
-        del gloc_data_reduced
+        # del gloc_data_reduced
 
         ################################################## BASELINE DATA ##################################################
         """ 

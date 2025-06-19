@@ -1571,3 +1571,17 @@ def process_swp_pkl():
 
     # Create the DataFrame with custom row labels
     egb_fast_results = pd.DataFrame(data_array, index=egb_fast_pkl.keys(), columns=column_names)
+
+    with open("C:\\Users\\nicol\\Downloads\\Sequential_Optimization_Sliding_Window_dictionary_model_type_explicit_svm.pkl", 'rb') as file:
+        svm_pkl = pickle.load(file)
+
+    column_names = svm_pkl['baseline_5.0_window_size_5.0_stride_0.0'].columns
+
+    # Flatten and convert each value to a 1D NumPy array
+    flattened_rows = [np.array(v).reshape(-1) for v in svm_pkl.values()]  # Converts from DataFrame -> array -> (6,)
+
+    # Stack into a 2D NumPy array
+    data_array = np.vstack(flattened_rows)
+
+    # Create the DataFrame with custom row labels
+    svm_results = pd.DataFrame(data_array, index=svm_pkl.keys(), columns=column_names)

@@ -592,3 +592,60 @@ if __name__ == "__main__":
             clf = joblib.load(f)
 
         plot_bayes_tuning(clf)
+
+def visualize_nan(combined_baseline, combined_baseline_names):
+    trial_id_in_data = gloc_data_reduced.trial_id.unique()
+
+    # Iterate through all unique trial_id
+    for i in range(np.size(trial_id_in_data)):
+        fig, ax = plt.subplots()
+
+        current_index = (gloc_data_reduced['trial_id'] == trial_id_in_data[i])
+        current_time = np.array(gloc_data_reduced['Time (s)'])
+        time = current_time[current_index]
+
+        # Plot NaNs for HR
+        hr_av = np.array(gloc_data_reduced['HR_average - Equivital'])
+        hr_av =  np.nan_to_num(hr_av, nan=1000.0)
+        hr_sensor = hr_av[current_index]
+
+        # Plot NaNs for RR
+        rr = np.array(gloc_data_reduced['BR (rpm) - Equivital'])
+        rr = np.nan_to_num(rr, nan=1000.0)
+        rr_sensor = rr[current_index]
+
+        # Plot NaNs for Skin Temp
+        skin_temp = np.array(gloc_data_reduced['Skin Temperature - IR Thermometer (°C) - Equivital'])
+        skin_temp = np.nan_to_num(skin_temp, nan=1000.0)
+        skin_temp_sensor = skin_temp[current_index]
+
+        # Plot NaNs for Eye Tracking
+        eye_tracking = np.array(gloc_data_reduced['Pupil position left Y [HUCS mm] - Tobii'])
+        eye_tracking = np.nan_to_num(eye_tracking, nan=1000.0)
+        eye_tracking_sensor = eye_tracking[current_index]
+
+        # Plot NaNs for Raw EEG
+        eeg_raw = np.array(gloc_data_reduced['C3 - EEG'])
+        eeg_raw = np.nan_to_num(eeg_raw, nan=1000.0)
+        eeg_raw_sensor = eeg_raw[current_index]
+
+        # Plot NaNs for Processed EEG
+        eeg_processed = np.array(gloc_data_reduced['F1_alpha - EEG'])
+        eeg_processed = np.nan_to_num(eeg_processed, nan=1000.0)
+        eeg_processed_sensor = eeg_processed[current_index]
+
+        # Plot G level
+        g_mag = np.array(gloc_data_reduced['magnitude - Centrifuge'])
+        g = g_mag[current_index]
+
+        # Plot all
+        ax.plot(time, hr_sensor, label = 'HR')
+        ax.plot(time, rr_sensor, label = 'RR')
+        ax.plot(time, skin_temp_sensor, label='SkinTemp')
+        ax.plot(time, eye_tracking_sensor, label='Eye')
+        ax.plot(time, eeg_raw_sensor, label='rawEEG')
+        ax.plot(time, eeg_processed_sensor, label='processedEEG')
+        ax.plot(time, g * 1000, label = 'G')
+
+        plt.legend()
+        plt.show()
