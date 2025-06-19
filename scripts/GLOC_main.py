@@ -192,7 +192,7 @@ if __name__ == "__main__":
         event_validated_column = gloc_data_reduced['event_validated']
         subject_column = gloc_data_reduced['subject']
 
-        # del gloc_data_reduced
+        del gloc_data_reduced
 
         ################################################## BASELINE DATA ##################################################
         """ 
