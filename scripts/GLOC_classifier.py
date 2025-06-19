@@ -882,7 +882,7 @@ def classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_
             n_iter=30,  # You can tune this
             cv=3,
             scoring='f1',
-            random_state=0,
+            random_state=42,
             n_jobs=-1,
             verbose=1,
             error_score=np.nan  # 'nan' to silently skip failing configs
