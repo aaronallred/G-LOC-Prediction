@@ -823,7 +823,7 @@ def visualize_nan(combined_baseline, combined_baseline_names):
         eye_tracking_sensor = eye_tracking[current_index]
 
         # Plot NaNs for Raw EEG
-        eeg_raw = np.array(gloc_data_reduced['C3 - EEG'])
+        eeg_raw = np.array(gloc_data_reduced['F1 - EEG'])
         eeg_raw = np.nan_to_num(eeg_raw, nan=1000.0)
         eeg_raw_sensor = eeg_raw[current_index]
 
@@ -845,5 +845,6 @@ def visualize_nan(combined_baseline, combined_baseline_names):
         ax.plot(time, eeg_processed_sensor, label='processedEEG')
         ax.plot(time, g * 1000, label = 'G')
 
+        plt.title(f'Trial: {trial_id_in_data[i]}')
         plt.legend()
         plt.show()
