@@ -15,13 +15,17 @@ import os
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 from LogRegTS_supporting import lrts_binary_class
-from NAM2_supporting import nam_binary_class
+from NAM_supporting import nam_binary_class
 from LSTM_supporting import lstm_binary_class
 from Transformer_supporting import transformer_class
 from TCN_supporting import tcn_binary_class
 
+from GAM_supporting import gam_binary_class
+
 def main_loop(kfold_ID, num_splits, runname):
     start_time = time.time()
+    save_folder = os.path.join("../ModelSave/CV", runname, str(kfold_ID))
+    os.makedirs(save_folder, exist_ok=True)
 
     ################################################### USER INPUTS  ###################################################
     ## Data Folder Location
@@ -32,14 +36,17 @@ def main_loop(kfold_ID, num_splits, runname):
     random_state = 42
 
     ## Classifier | Pick 'LogRegTS', 'LSTM', 'TCN', 'Trans', or 'all'
-    classifier_type = 'NAM'
+    classifier_type = 'all'
     train_class = True
     class_weight_imb = 'balanced'
 
     # Data Handling Options
     remove_NaN_trials = True
     impute_type = 1
-    n_neighbors = 3
+    n_neighbors = 4
+
+    save_impute = True   # save post impute?
+    load_impute = False  # skip impute and load from file?
 
     ## Model Parameters
     model_type = ['noAFE', 'implicit']
@@ -51,7 +58,7 @@ def main_loop(kfold_ID, num_splits, runname):
         feature_groups_to_analyze = ['ECG','BR','temp', 'eyetracking','rawEEG']
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
-    baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
+    # baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
     baseline_methods_to_use = ['v0','v1','v2','v5','v6']
 
     baseline_window = 32.5  # seconds
@@ -116,23 +123,36 @@ def main_loop(kfold_ID, num_splits, runname):
     """
     ### Impute missing row data
     if impute_type == 1:
+        # Set full path for imputed data
+        impute_path = os.path.join(save_folder, "imputed_data.pkl")
+
         # Grab train and test indices
         _, _, _, _, train_ind, test_ind = groupedtrial_kfold_split(gloc, features,
                                                                    trial_ints,
                                                                    num_splits, kfold_ID)
 
-        # Impute the missing data
-        features = faster_knn_impute_train_test(features, train_ind, test_ind, n_neighbors)
+        # Load or compute imputed features
+        if load_impute and os.path.exists(impute_path):
+            with open(impute_path, 'rb') as f:
+                features = pickle.load(f)
+            print(f"Loaded imputed data from {impute_path}")
+        else:
+            features = faster_knn_impute_train_test(features, train_ind, test_ind, n_neighbors)
 
-        # Calculate new subfeature arrays
+            if save_impute:
+                with open(impute_path, 'wb') as f:
+                    pickle.dump(features, f)
+                print(f"Saved imputed data to {impute_path}")
+
+        # Calculate new sub-feature arrays
         phys_indices = [i for i, feature in enumerate(all_features) if (feature in all_features_phys)]
-        features_phys = features[:,phys_indices]
+        features_phys = features[:, phys_indices]
 
         ecg_indices = [i for i, feature in enumerate(all_features) if (feature in all_features_ecg)]
-        features_ecg = features[:,ecg_indices]
+        features_ecg = features[:, ecg_indices]
 
         eeg_indices = [i for i, feature in enumerate(all_features) if (feature in all_features_eeg)]
-        features_eeg = features[:,eeg_indices]
+        features_eeg = features[:, eeg_indices]
 
 
 
@@ -223,7 +243,6 @@ def main_loop(kfold_ID, num_splits, runname):
 
 
     ################################################ MACHINE LEARNING ################################################
-    save_folder = os.path.join("../ModelSave/CV", runname, str(kfold_ID))
     #performance_metric_summary_single = []
     summaries = []
 
@@ -238,7 +257,7 @@ def main_loop(kfold_ID, num_splits, runname):
         summaries.append(performance_metric_summary_single)
 
     # Time Series (Autoregressive Time Aware) Neural Additive Model
-    if classifier_type == 'NAM':
+    if classifier_type == 'NAM' or classifier_type == 'all':
         accuracy, precision, recall, f1, specificity, g_mean = (
             nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
                               all_features, save_folder=save_folder))
@@ -297,7 +316,6 @@ if __name__ == "__main__":
     # Test set identifier for 10-fold Model Validation
     num_splits = 10
     kfold_ID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-    kfold_ID = [0, 1, 2, 3]
 
     # Pre-Allocate Performance Summary Dictionary
     kfold_performance_summary = dict()

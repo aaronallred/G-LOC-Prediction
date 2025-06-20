@@ -16,13 +16,13 @@ from pygam import LogisticGAM, s, f
 
 from GLOC_visualization import prediction_time_plot
 
-def extract_flat_features(dataset):
-    # Flatten or pool over the sequence dimension
+def extract_feature_summary(dataset):
     features, labels = [], []
     for x, y in dataset:
-        flat = x.view(-1).numpy()  # flatten entire sequence
-        features.append(flat)
-        labels.append(y.item() if isinstance(y, torch.Tensor) else y)
+        # x shape: [seq_len, n_features]
+        x_summary = x.mean(dim=0).numpy()  # now shape: [n_features]
+        features.append(x_summary)
+        labels.append(y.item())
     return np.array(features), np.array(labels)
 
 def make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler, objective_var):
@@ -39,8 +39,8 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
             x_train, y_train, sequence_length, step_size, test_ratio=0.2, random_state = random_state, end_label=True)
 
         # Extract fixed-length features
-        x_train_flat, y_train_flat = extract_flat_features(train_dataset)
-        x_val_flat, y_val_flat = extract_flat_features(val_dataset)
+        x_train_flat, y_train_flat = extract_feature_summary(train_dataset)
+        x_val_flat, y_val_flat = extract_feature_summary(val_dataset)
 
         # Build and train pyGAM model
         n_features = x_train_flat.shape[1]
@@ -62,7 +62,7 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
 
     return objective
 
-def gam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, save_folder):
+def gam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, all_features, save_folder):
     """
         Main Transformer Script
         Input: train and test split of data
@@ -94,8 +94,8 @@ def gam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
                                                   random_state = random_state, end_label=True)
 
     # Extract fixed-length features
-    x_train_flat, y_train_flat = extract_flat_features(train_dataset)
-    x_test_flat, y_test_flat = extract_flat_features(test_dataset)
+    x_train_flat, y_train_flat = extract_feature_summary(train_dataset)
+    x_test_flat, y_test_flat = extract_feature_summary(test_dataset)
 
     # Train final pyGAM model
     n_features = x_train_flat.shape[1]

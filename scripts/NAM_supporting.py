@@ -16,12 +16,14 @@ from GLOC_visualization import prediction_time_plot
 
 # Build Time Series Neural Additive Model architecture (Using GAMapprox below)
 class NAM(nn.Module):
-    def __init__(self, input_dim, hidden_dim=4, num_layers=1, dropout=0.2):
+    def __init__(self, num_features, window_length, hidden_dim=4, num_layers=1, dropout=0.2):
         super().__init__()
-        self.input_dim = input_dim
+        self.num_features = num_features
+        self.window_length = window_length
+
         self.subnetworks = nn.ModuleList([
             self._create_subnetwork(hidden_dim, num_layers, dropout)
-            for _ in range(input_dim)
+            for _ in range(num_features)
         ])
         self.final_activation = nn.Sigmoid()
 
@@ -37,15 +39,18 @@ class NAM(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        # x shape: (batch_size, input_dim)
+        # x shape: (batch_size, sequence_length, num_features)
+        batch_size, seq_len, num_features = x.shape
         outputs = []
-        for i in range(self.input_dim):
-            # Process each feature through its subnetwork
-            feature = x[:, i:i + 1]  # (batch_size, 1)
-            outputs.append(self.subnetworks[i](feature))
+        for i in range(self.num_features):  # input_dim = num_features
+            feature_seq = x[:, :, i]  # shape: (batch_size, sequence_length)
+            feature_seq = feature_seq.unsqueeze(-1)  # shape: (batch_size, sequence_length, 1)
+            out = self.subnetworks[i](feature_seq)  # apply the feature’s subnetwork
+            outputs.append(out.squeeze(-1))  # shape: (batch_size, sequence_length)
 
-        # Sum all subnetwork outputs
-        combined = torch.sum(torch.cat(outputs, dim=1), dim=1, keepdim=True)
+        # Sum over features, then reduce over time (mean or sum over time)
+        combined = torch.stack(outputs, dim=0).sum(dim=0)  # shape: (batch_size, sequence_length)
+        combined = combined.mean(dim=1, keepdim=True)  # shape: (batch_size, 1)
         return combined
 
 
@@ -78,10 +83,6 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
                 x_train_ds,y_train, sequence_length, step_size, test_ratio=0.2, random_state = random_state, end_label=True)
         )
 
-        # Flatten windows for logistic regression
-        train_windows_tensor = train_windows_tensor.view(train_windows_tensor.size(0), -1)
-        val_windows_tensor = val_windows_tensor.view(val_windows_tensor.size(0), -1)
-
         # Prepare the data for training and evaluation
         sampler = build_sampler(train_labels_tensor, class_weights) if use_sampler else None
         train_loader = DataLoader(TensorDataset(
@@ -90,8 +91,8 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
             val_windows_tensor, val_labels_tensor), batch_size=batch_size, shuffle=False)
 
         # Build model
-        input_dim = train_windows_tensor.shape[1]
-        model = NAM(input_dim)
+        input_dim = train_windows_tensor.shape[2]
+        model = NAM(input_dim,sequence_length)
         device = get_device()
         model.to(device)
         criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, device)
@@ -125,6 +126,7 @@ def nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     use_sampler = True # Optionally use sampler to sample the minority class (ROS)
     final_early_stop = False # Optionally use early stopping for final train (always uses early stop in tuning)
     objective_var = 'F1' # F1 or else use 1-Loss. (param used by Optuna and Early Stop during hyperparameter tuning)
+    trials = 2  # The number of trials in for the Bayesian Search
 
     # Compute class weights to address imbalance (depending on class_weight_imb pass)
     class_weights = compute_class_weight(class_weight_imb, classes=np.array([0, 1]), y=y_train)
@@ -134,7 +136,7 @@ def nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,
                                objective_var, all_features)
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=5)
+    study.optimize(objective, n_trials=trials)
 
     # Print out the optimal hyperparameters
     best_params = study.best_trial.params
@@ -172,13 +174,9 @@ def nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
         train_test_split_trials(x_test_ds, y_test, sequence_length, step_size=10, test_ratio=None, end_label=True)
     )
 
-    # Flatten windows
-    train_windows_tensor = train_windows_tensor.view(train_windows_tensor.size(0), -1)
-    test_windows_tensor = test_windows_tensor.view(test_windows_tensor.size(0), -1)
-
     # Build model
-    input_dim = train_windows_tensor.shape[1]
-    model = NAM(input_dim)
+    input_dim = train_windows_tensor.shape[2]
+    model = NAM(input_dim,sequence_length)
     device = get_device()
     model.to(device)
     criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, device)

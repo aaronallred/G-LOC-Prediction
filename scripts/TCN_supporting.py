@@ -151,6 +151,7 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     use_sampler = True # Optionally use sampler to sample the minority class (ROS)
     final_early_stop = False # Optionally use early stopping for final train (always uses early stop in tuning)
     objective_var = 'F1' # 'F1' 'Acc' or else uses 1-Loss. (used by Optuna and Early Stop during hyperparameter tuning)
+    trials = 2 # The number of trials in for the Bayesian Search
 
     # Compute class weights to address imbalance (depending on class_weight_imb pass)
     class_weights = compute_class_weight(class_weight_imb, classes=np.array([0, 1]), y=y_train)
@@ -160,7 +161,7 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,
                                objective_var, all_features)
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=4)
+    study.optimize(objective, n_trials=trials)
 
     # Print out the optimal hyperparameters
     best_params = study.best_trial.params

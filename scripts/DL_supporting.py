@@ -146,7 +146,7 @@ def build_training_components(model, class_weights, lr, weight_decay, device, lo
         # Default is just Binary cross entropy
         criterion = nn.BCEWithLogitsLoss(pos_weight=class_weights[1].to(device))
 
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     return criterion, optimizer
 
