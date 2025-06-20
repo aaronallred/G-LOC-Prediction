@@ -137,7 +137,7 @@ def get_optimal_workers():
     return workers
 
 # Builds model loss criterion and optimizer (default is BCE)
-def build_training_components(model, class_weights, lr, weight_decay, device, loss='BCE'):
+def build_training_components(model, class_weights, lr, weight_decay, momentum, device, loss='BCE', optimizer_type='AdamW'):
     if loss == 'BCE':
         criterion = nn.BCEWithLogitsLoss(pos_weight=class_weights[1].to(device))
     elif loss == 'F1':
@@ -146,7 +146,13 @@ def build_training_components(model, class_weights, lr, weight_decay, device, lo
         # Default is just Binary cross entropy
         criterion = nn.BCEWithLogitsLoss(pos_weight=class_weights[1].to(device))
 
-    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    if optimizer_type == 'AdamW':
+        optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    elif optimizer_type == 'SGD':
+        optimizer = optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay, momentum=momentum)
+    else:
+        raise ValueError(f"Unsupported optimizer type: {optimizer_type}")
+
 
     return criterion, optimizer
 

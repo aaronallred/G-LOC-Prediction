@@ -58,18 +58,19 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
     def objective(trial):
         # Hyperparameters
         baseline_method = trial.suggest_categorical("baseline_method", [0, 1, 2, 3, 4, 5])
+        batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
+        optimizer_type = trial.suggest_categorical("optimizer_type", ['SGD'])
+        momentum = trial.suggest_float("momentum", 0.0, 0.99) if optimizer_type == "SGD" else None
+        learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
+        weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
         d_model = trial.suggest_categorical("d_model", [32, 64, 128])
         nhead = trial.suggest_categorical("nhead", [2, 4, 8])
         num_layers = trial.suggest_int("num_layers", 1, 3)
         dim_feedforward = trial.suggest_int("dim_feedforward", 64, 512)
         dropout = trial.suggest_float("dropout", 0.1, 0.5) if num_layers > 1 else 0
-        learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
-        batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
         sequence_length = trial.suggest_int("sequence_length", 25, 250)
-        weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
-        threshold = trial.suggest_float('threshold', 0.1, 0.9)
         step_size = trial.suggest_int("step_size", 25, 75)
-        # step_size = round(sequence_length * stride)
+        threshold = trial.suggest_float('threshold', 0.1, 0.9)
 
         x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
 
@@ -96,7 +97,8 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
                                       output_dim=1)
         device = get_device()
         model.to(device)
-        criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, device)
+        criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, momentum,
+                                                         device, loss='BCE', optimizer_type=optimizer_type)
 
         # Train and Evaluate with Early Stopping
         best_model_state, best_epoch, best_stopping_metric = train_with_early_stopping(
@@ -144,15 +146,15 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     print("Best Trial:", study.best_trial)
 
     # Grab the hyperparameters from the best set
-    learning_rate = best_params["lr"]
     batch_size = best_params["batch_size"]
-    sequence_length = best_params["sequence_length"]
-    # stride = best_params["stride"]
+    optimizer_type = best_params["optimizer_type"]
+    momentum = best_params["momentum"] if optimizer_type == "SGD" else None
+    learning_rate = best_params["lr"]
     weight_decay = best_params["weight_decay"]
-    # step_size = round(sequence_length * stride)
+    sequence_length = best_params["sequence_length"]
+    step_size = best_params["step_size"]
     threshold = best_params['threshold']
     num_epochs = max(study.best_trial.user_attrs.get("best_epoch", 15),15) # enforce min of 10 epochs
-    step_size =  best_params["step_size"]
 
     baseline_method = best_params["baseline_method"]
     x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
@@ -192,7 +194,8 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     )
     device = get_device()
     model.to(device)
-    criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, device)
+    criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, momentum,
+                                                     device, loss='BCE', optimizer_type=optimizer_type)
 
     # Prepare the data for training
     sampler = build_sampler(train_labels_tensor, class_weights) if use_sampler else None

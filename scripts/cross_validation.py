@@ -37,7 +37,7 @@ def main_loop(kfold_ID, num_splits, runname):
 
     ## Classifier | Pick 'LogRegTS', 'LSTM', 'TCN', 'Trans', or 'all'
     classifier_type = 'all'
-    train_class = True
+    train_class = True # not yet set up to test and not train (always trains)
     class_weight_imb = 'balanced'
 
     # Data Handling Options
