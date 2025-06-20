@@ -41,8 +41,8 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         # Hyperparameters
         baseline_method = trial.suggest_categorical("baseline_method", [0, 1, 2, 3, 4, 5])
         batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
-        optimizer_type = trial.suggest_categorical("optimizer_type",['SGD'])
-        momentum = trial.suggest_float("momentum", 0.0, 0.99) if optimizer_type == "SGD" else None
+        optimizer_type = trial.suggest_categorical("optimizer_type",['AdamW'])
+        momentum = 0.9 if optimizer_type == "SGD" else None
         weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
         learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
         sequence_length = trial.suggest_int("sequence_length", 25, 250)
@@ -105,7 +105,7 @@ def lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     use_sampler = True # Optionally use sampler to sample the minority class (ROS)
     final_early_stop = False # Optionally use early stopping for final train (always uses early stop in tuning)
     objective_var = 'F1' # F1 or else use 1-Loss. (param used by Optuna and Early Stop during hyperparameter tuning)
-    trials = 2 # The number of trials in for the Bayesian Search
+    trials = 50 # The number of trials in for the Bayesian Search
 
     # Compute class weights to address imbalance (depending on class_weight_imb pass)
     class_weights = compute_class_weight(class_weight_imb, classes=np.array([0, 1]), y=y_train)
@@ -124,7 +124,7 @@ def lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     # Grab the hyperparameters from the best set
     batch_size = best_params["batch_size"]
     optimizer_type = best_params["optimizer_type"]
-    momentum = best_params["momentum"] if optimizer_type == "SGD" else None
+    momentum = 0.9 if optimizer_type == "SGD" else None
     learning_rate = best_params["lr"]
     weight_decay = best_params["weight_decay"]
     sequence_length = best_params["sequence_length"]

@@ -52,7 +52,7 @@ def main_loop(kfold_ID, num_splits, runname):
     model_type = ['noAFE', 'implicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
-                                 'rawEEG', 'strain', 'demographics']
+                                 'rawEEG', 'demographics']
 
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG','BR','temp', 'eyetracking','rawEEG']
@@ -254,6 +254,7 @@ def main_loop(kfold_ID, num_splits, runname):
 
         performance_metric_summary_single = single_classifier_performance_summary(
             accuracy, precision, recall, f1, specificity, g_mean, ['LogRegTS'])
+        save_metrics_to_csv(performance_metric_summary_single, save_folder)
         summaries.append(performance_metric_summary_single)
 
     # Time Series (Autoregressive Time Aware) Neural Additive Model
@@ -264,6 +265,7 @@ def main_loop(kfold_ID, num_splits, runname):
 
         performance_metric_summary_single = single_classifier_performance_summary(
             accuracy, precision, recall, f1, specificity, g_mean, ['NAM'])
+        save_metrics_to_csv(performance_metric_summary_single, save_folder)
         summaries.append(performance_metric_summary_single)
 
     # Long Short Term Memory RNN
@@ -274,6 +276,7 @@ def main_loop(kfold_ID, num_splits, runname):
 
         performance_metric_summary_single = single_classifier_performance_summary(
             accuracy, precision, recall, f1, specificity, g_mean,['LSTM'])
+        save_metrics_to_csv(performance_metric_summary_single, save_folder)
         summaries.append(performance_metric_summary_single)
 
     # Transformer
@@ -284,6 +287,7 @@ def main_loop(kfold_ID, num_splits, runname):
 
         performance_metric_summary_single = single_classifier_performance_summary(
             accuracy, precision, recall, f1, specificity, g_mean, ['Trans'])
+        save_metrics_to_csv(performance_metric_summary_single, save_folder)
         summaries.append(performance_metric_summary_single)
 
     # Temporal Convolutional Network
@@ -294,6 +298,7 @@ def main_loop(kfold_ID, num_splits, runname):
 
         performance_metric_summary_single = single_classifier_performance_summary(
             accuracy, precision, recall, f1, specificity, g_mean, ['TCN'])
+        save_metrics_to_csv(performance_metric_summary_single, save_folder)
         summaries.append(performance_metric_summary_single)
 
 

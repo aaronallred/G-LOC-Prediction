@@ -1590,6 +1590,20 @@ def convert_to_unique_ordered_integers(strings):
 
     return np.array(result,dtype=np.float32).reshape(-1, 1)
 
+
+def save_metrics_to_csv(summary, save_folder, filename="performance_metrics.csv"):
+    os.makedirs(save_folder, exist_ok=True)
+    csv_path = os.path.join(save_folder, filename)
+
+    df = pd.DataFrame(summary)
+
+    # If file exists, append without duplicating header
+    if os.path.exists(csv_path):
+        df.to_csv(csv_path, mode='a', header=False, index=False)
+    else:
+        df.to_csv(csv_path, index=False)
+
+
 def pull_unengineered_streams():
 
     # Create Raw Feature Indices
