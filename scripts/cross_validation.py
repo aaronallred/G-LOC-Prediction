@@ -316,7 +316,7 @@ if __name__ == "__main__":
     # Needed for proper debugging of CUDA errors
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-    runname = 'Implicit_final_test'
+    runname = 'Implicit_final'
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10

@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 from imblearn.metrics import geometric_mean_score
 from sklearn.utils.class_weight import compute_class_weight
 import optuna
+import gc
 
 from GLOC_visualization import prediction_time_plot
 
@@ -91,6 +92,11 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         os.makedirs(save_folder, exist_ok=True)
         torch.save(model.state_dict(), os.path.join(save_folder, f"LogReg_best_model_trial_{trial.number}.pt"))
 
+        del model
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+        gc.collect()
+
         return best_stopping_metric
 
     return objective
@@ -115,7 +121,7 @@ def lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,
                                objective_var, all_features)
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=trials)
+    study.optimize(objective, n_trials=trials, catch=(RuntimeError, ValueError))
 
     # Print out the optimal hyperparameters
     best_params = study.best_trial.params

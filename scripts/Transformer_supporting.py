@@ -8,6 +8,7 @@ import optuna
 from sklearn import metrics
 from imblearn.metrics import geometric_mean_score
 from sklearn.utils.class_weight import compute_class_weight
+import gc
 
 from GLOC_visualization import prediction_time_plot
 
@@ -58,15 +59,15 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
     def objective(trial):
         # Hyperparameters
         baseline_method = trial.suggest_categorical("baseline_method", [0, 1, 2, 3, 4, 5])
-        batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
+        batch_size = trial.suggest_categorical("batch_size", [64, 128])
         optimizer_type = trial.suggest_categorical("optimizer_type", ['AdamW'])
         momentum = 0.9 if optimizer_type == "SGD" else None
         learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
         weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
-        d_model = trial.suggest_categorical("d_model", [32, 64, 128])
+        d_model = trial.suggest_categorical("d_model", [64, 128, 256])
         nhead = trial.suggest_categorical("nhead", [2, 4, 8])
         num_layers = trial.suggest_int("num_layers", 1, 3)
-        dim_feedforward = trial.suggest_int("dim_feedforward", 64, 512)
+        dim_feedforward = trial.suggest_categorical("dim_feedforward", [128, 256, 512])
         dropout = trial.suggest_float("dropout", 0.1, 0.5) if num_layers > 1 else 0
         sequence_length = trial.suggest_int("sequence_length", 25, 250)
         step_size = trial.suggest_int("step_size", 25, 75)
@@ -115,6 +116,11 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         os.makedirs(save_folder, exist_ok=True)
         torch.save(model.state_dict(), os.path.join(save_folder, f"Trans_best_model_trial_{trial.number}.pt"))
 
+        del model
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+        gc.collect()
+
         return best_stopping_metric
 
     return objective
@@ -139,7 +145,7 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,
                                objective_var, all_features)
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=trials)
+    study.optimize(objective, n_trials=trials, catch=(RuntimeError, ValueError))
 
     # Print out the optimal hyperparameters
     best_params = study.best_trial.params

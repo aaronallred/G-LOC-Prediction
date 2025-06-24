@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 from imblearn.metrics import geometric_mean_score
 from sklearn.utils.class_weight import compute_class_weight
 import optuna
+import gc
 
 from GLOC_visualization import prediction_time_plot
 
@@ -85,7 +86,7 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
     def objective(trial):
         # Hyperparameters
         baseline_method = trial.suggest_categorical("baseline_method", [0, 1, 2, 3, 4, 5])
-        batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
+        batch_size = trial.suggest_categorical("batch_size", [64, 128])
         optimizer_type = trial.suggest_categorical("optimizer_type", ['AdamW'])
         momentum = 0.9 if optimizer_type == "SGD" else None
         learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
@@ -140,6 +141,11 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         os.makedirs(save_folder, exist_ok=True)
         torch.save(model.state_dict(), os.path.join(save_folder, f"TCN_best_model_trial_{trial.number}.pt"))
 
+        del model
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+        gc.collect()
+
         return best_stopping_metric
 
     return objective
@@ -164,7 +170,7 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,
                                objective_var, all_features)
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=trials)
+    study.optimize(objective, n_trials=trials, catch=(RuntimeError, ValueError))
 
     # Print out the optimal hyperparameters
     best_params = study.best_trial.params
