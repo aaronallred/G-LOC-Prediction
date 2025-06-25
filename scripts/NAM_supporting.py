@@ -12,6 +12,8 @@ from imblearn.metrics import geometric_mean_score
 from sklearn.utils.class_weight import compute_class_weight
 import optuna
 import gc
+import joblib
+import json
 
 from GLOC_visualization import prediction_time_plot
 
@@ -116,8 +118,28 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         trial.set_user_attr("best_epoch", best_epoch)
 
         # Save model to file
-        os.makedirs(save_folder, exist_ok=True)
-        torch.save(model.state_dict(), os.path.join(save_folder, f"NAM_best_model_trial_{trial.number}.pt"))
+        try:
+            best_value = trial.study.best_value
+        except (ValueError, AttributeError):
+            best_value = float("-inf")
+        if best_stopping_metric >= best_value:
+            os.makedirs(save_folder, exist_ok=True)
+
+            # Save model weights
+            torch.save(model.state_dict(), os.path.join(save_folder, "NAM_best_model.pt"))
+
+            # Save hyperparameters
+            with open(os.path.join(save_folder, "NAM_best_params.json"), "w") as f:
+                json.dump(trial.params, f, indent=4)
+
+            # Save additional metadata
+            metadata = {
+                "trial_number": trial.number,
+                "objective_value": best_stopping_metric,
+                "best_epoch": trial.user_attrs.get("best_epoch", None)
+            }
+            with open(os.path.join(save_folder, "NAM_best_trial_metadata.json"), "w") as f:
+                json.dump(metadata, f, indent=4)
 
         del model
         torch.cuda.empty_cache()
@@ -151,6 +173,8 @@ def nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     study.optimize(objective, n_trials=trials, catch=(RuntimeError, ValueError))
 
     # Print out the optimal hyperparameters
+    study_path = os.path.join(save_folder, "NAM_optuna_study.pkl")
+    joblib.dump(study, study_path)
     best_params = study.best_trial.params
     print("Best Trial:", study.best_trial)
 

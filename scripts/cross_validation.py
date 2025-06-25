@@ -49,7 +49,7 @@ def main_loop(kfold_ID, num_splits, runname):
     load_impute = False  # skip impute and load from file?
 
     ## Model Parameters
-    model_type = ['noAFE', 'implicit']
+    model_type = ['noAFE', 'explicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'demographics']
@@ -316,7 +316,7 @@ if __name__ == "__main__":
     # Needed for proper debugging of CUDA errors
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-    runname = 'Implicit_final'
+    runname = 'Explicit_final'
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10
