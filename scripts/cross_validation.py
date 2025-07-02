@@ -36,7 +36,7 @@ def main_loop(kfold_ID, num_splits, runname):
     random_state = 42
 
     ## Classifier | Pick 'LogRegTS', 'LSTM', 'TCN', 'Trans', or 'all'
-    classifier_type = 'all'
+    classifier_type = 'Trans'
     train_class = True # not yet set up to test and not train (always trains)
     class_weight_imb = 'balanced'
 
@@ -51,15 +51,18 @@ def main_loop(kfold_ID, num_splits, runname):
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
+        #feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
+        #                             'rawEEG', 'demographics']
+        # For processed explicit
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
-                                 'rawEEG', 'demographics']
+                                     'rawEEG', 'processedEEG', 'demographics', 'strain']
 
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG','BR','temp', 'eyetracking','rawEEG']
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
     # baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
-    baseline_methods_to_use = ['v0','v1','v2','v5','v6']
+    baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
 
     baseline_window = 32.5  # seconds
 
@@ -316,7 +319,7 @@ if __name__ == "__main__":
     # Needed for proper debugging of CUDA errors
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-    runname = 'Explicit_final'
+    runname = 'Trans_processed_final'
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10

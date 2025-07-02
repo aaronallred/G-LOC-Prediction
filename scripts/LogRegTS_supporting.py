@@ -115,8 +115,9 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
                 json.dump(metadata, f, indent=4)
 
         del model
-        torch.cuda.empty_cache()
-        torch.cuda.ipc_collect()
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
         gc.collect()
 
         return best_stopping_metric

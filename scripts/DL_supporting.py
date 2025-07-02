@@ -34,21 +34,28 @@ def baseline_down_select(x,all_features,method):
         v0_base = {name[:-3] for name in all_features if name.endswith('_v0')}
         v1_base = {name[:-3] for name in all_features if name.endswith('_v1')}
         v5_base = {name[:-3] for name in all_features if name.endswith('_v5')}
-        unique_v0_names = [f"{base}_v0" for base in v0_base if base not in v1_base and base not in v5_base]
-        unique_v1_names = [f"{base}_v1" for base in v1_base if base not in v5_base]
-        unique_v5_names = [f"{base}_v5" for base in v5_base]
+        v7_base = {name[:-3] for name in all_features if name.endswith('_v7')}
 
-        include = unique_v0_names + unique_v1_names + unique_v5_names
+        unique_v0_names = [f"{base}_v0" for base in v0_base if
+                           base not in v1_base and base not in v5_base and base not in v7_base]
+        unique_v1_names = [f"{base}_v1" for base in v1_base if base not in v5_base and base not in v7_base]
+        unique_v5_names = [f"{base}_v5" for base in v5_base if base not in v7_base]
+        unique_v7_names = [f"{base}_v7" for base in v7_base]
+
+        include = unique_v0_names + unique_v1_names + unique_v5_names + unique_v7_names
 
     elif method == 4:
         v0_base = {name[:-3] for name in all_features if name.endswith('_v0')}
         v2_base = {name[:-3] for name in all_features if name.endswith('_v2')}
         v6_base = {name[:-3] for name in all_features if name.endswith('_v6')}
-        unique_v0_names = [f"{base}_v0" for base in v0_base if base not in v2_base and base not in v6_base]
-        unique_v2_names = [f"{base}_v2" for base in v2_base if base not in v6_base]
-        unique_v6_names = [f"{base}_v6" for base in v6_base]
+        v8_base = {name[:-3] for name in all_features if name.endswith('_v8')}
+        unique_v0_names = [f"{base}_v0" for base in v0_base if
+                           base not in v2_base and base not in v6_base and base not in v8_base]
+        unique_v2_names = [f"{base}_v2" for base in v2_base if base not in v6_base and base not in v8_base]
+        unique_v6_names = [f"{base}_v6" for base in v6_base if base not in v8_base]
+        unique_v8_names = [f"{base}_v8" for base in v8_base]
 
-        include = unique_v0_names + unique_v2_names + unique_v6_names
+        include = unique_v0_names + unique_v2_names + unique_v6_names + unique_v8_names
 
     else:
         include = all_features
