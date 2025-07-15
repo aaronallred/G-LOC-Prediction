@@ -187,7 +187,7 @@ if __name__ == "__main__":
         print('Exiting impute 1')
         # Grab columns from gloc_data_reduced and remove gloc_data_reduced variable from memory
         trial_column = gloc_data_reduced['trial_id']
-        time_column = gloc_data_reduced['Time (s)']
+        time_column = gloc_data_reduced['Time (s)'] # added for DL classifiers
         event_validated_column = gloc_data_reduced['event_validated']
         subject_column = gloc_data_reduced['subject']
 

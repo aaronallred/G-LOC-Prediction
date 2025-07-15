@@ -6,12 +6,21 @@ from feature_selection import *
 from GLOC_classifier import *
 from GLOC_visualization import *
 from imbalance_techniques import *
+from GLOC_data_processing import pull_unengineered_streams
+from GLOC_data_processing import save_metrics_to_csv
 import pickle
 import time
+import pandas as pd
 from numpy import number
 from openpyxl.styles.builtins import percent
 import os
 from datetime import datetime
+from sklearn.preprocessing import StandardScaler
+from LogRegTS_supporting import lrts_binary_class
+from NAM_supporting import nam_binary_class
+from LSTM_supporting import lstm_binary_class
+from Transformer_supporting import transformer_class
+from TCN_supporting import tcn_binary_class
 
 def main_loop(kfold_ID, num_splits, runname):
     start_time = time.time()
@@ -24,7 +33,11 @@ def main_loop(kfold_ID, num_splits, runname):
     # Random State | 42 - Debug mode
     random_state = 42
 
+    # DL vs ML  | DL = 1, ML = 0
+    learningmode=0
+
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
+    ## Add 'LogRegTS', 'LSTM', 'TCN', 'Trans' functionality
     classifier_type = 'all_hpo'
     train_class = True
     class_weight_imb = None
@@ -32,13 +45,13 @@ def main_loop(kfold_ID, num_splits, runname):
     # Data Handling Options
     remove_NaN_trials = True
     impute_type = 2
-    n_neighbors = 3
+    n_neighbors = 3 # change this?
 
     ## Model Parameters
-    model_type = ['noAFE', 'explicit']
+    model_type = ['noAFE', 'explicit'] # change this for different options
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
-                                 'rawEEG', 'processedEEG', 'strain', 'demographics']
+                                 'rawEEG', 'processedEEG', 'strain', 'demographics'] # order of the strain and dmeographs matter?
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
         # feature_groups_to_analyze = ['ECG']
@@ -48,6 +61,8 @@ def main_loop(kfold_ID, num_splits, runname):
 
     analysis_type = 2
 
+
+#NOTE DL Classifiers do not use these variables, beside the baseline_window
     baseline_window = 10  # seconds
     window_size = 10  # seconds
     stride = 1  # seconds
@@ -108,10 +123,16 @@ def main_loop(kfold_ID, num_splits, runname):
     # Grab columns from gloc_data_reduced and remove gloc_data_reduced variable from memory
     trial_column = gloc_data_reduced['trial_id']
     time_column = gloc_data_reduced['Time (s)']
+    # trial_ints = convert_to_unique_ordered_integers(trial_column)
     event_validated_column = gloc_data_reduced['event_validated']
     subject_column = gloc_data_reduced['subject']
 
     del gloc_data_reduced
+
+    ################################################## Impute Missing ##################################################
+
+    #DL Classifier has impute missing section
+
 
     ################################################## BASELINE DATA ##################################################
     """ 
@@ -131,57 +152,132 @@ def main_loop(kfold_ID, num_splits, runname):
         Generates features from baseline data
     """
 
-    y_gloc_labels, x_feature_matrix, all_features = (
-        feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column,
+    if learningmode==1:
+        y_gloc_labels, x_feature_matrix, all_features = (
+            feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column,
                            combined_baseline_names,baseline_names_v0, baseline_v0, feature_groups_to_analyze))
-
-    ############################################# FEATURE CLEAN AND PREP ##############################################
-    """ 
-          Optional handling of raw NaN data, depending on 'impute_type' >= 2
-    """
-
-    # Remove constant columns
-    x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
-
-    if impute_type == 2 or impute_type == 1:
-        # Remove rows with NaN (temporary solution-should replace with other method eventually)
-        y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features = process_NaN(y_gloc_labels, x_feature_matrix,
-                                                                                all_features)
-    elif impute_type == 3:
-        y_gloc_labels_noNaN = y_gloc_labels
-        x_feature_matrix_noNaN, indicator_matrix = knn_impute(x_feature_matrix, n_neighbors)
     else:
-        y_gloc_labels_noNaN, x_feature_matrix_noNaN = y_gloc_labels, x_feature_matrix
+        x_feature_matrix = np.vstack([combined_baseline[trial_id] for trial_id in combined_baseline]).astype(np.float32)
 
+        # Only grab unengineered datastreams
+        unengineered_streams = pull_unengineered_streams()
 
-    # Save pkl
-    with open (y_label_name, 'wb') as file:
-        pickle.dump(y_gloc_labels_noNaN, file)
+        # Grab indices corresponding to unengineered features in unengineered streams (but also with baseline suffix id)
+        ue_indices = [
+            i for i, feature in enumerate(combined_baseline_names)
+            if (
+                    feature in unengineered_streams
+                    or any(
+                f"{stream}_{suffix}" == feature for stream in unengineered_streams for suffix in
+                baseline_methods_to_use)
+            )
+        ]
 
-    with open (feature_matrix_name, 'wb') as file:
-        pickle.dump(x_feature_matrix_noNaN, file)
+        # Get new x_feature matrix
+        x_feature_matrix = x_feature_matrix[:, ue_indices]
+        trial_ints = convert_to_unique_ordered_integers(trial_column)
 
-    with open (all_features_name, 'wb') as file:
-        pickle.dump(all_features, file)
+        x_feature_matrix = np.hstack([x_feature_matrix, trial_ints])
+        y_gloc_labels = gloc
+
+        all_features = combined_baseline_names
+        all_features = [all_features[i] for i in ue_indices]
+
+        ############################################# FEATURE CLEAN AND PREP ##############################################
+        """ 
+              Optional handling of raw NaN data, depending on 'impute_type' >= 2
+        """
+    if learningmode==0:
+        # Remove constant columns
+        x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
+
+        if impute_type == 2 or impute_type == 1:
+            # Remove rows with NaN (temporary solution-should replace with other method eventually)
+            y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features = process_NaN(y_gloc_labels, x_feature_matrix,
+                                                                                    all_features)
+        elif impute_type == 3:
+            y_gloc_labels_noNaN = y_gloc_labels
+            x_feature_matrix_noNaN, indicator_matrix = knn_impute(x_feature_matrix, n_neighbors)
+        else:
+            y_gloc_labels_noNaN, x_feature_matrix_noNaN = y_gloc_labels, x_feature_matrix
+
+        # Save pkl
+        if learningmode==0:
+
+            with open(y_label_name, 'wb') as file:
+                pickle.dump(y_gloc_labels_noNaN, file)
+
+            with open(feature_matrix_name, 'wb') as file:
+                pickle.dump(x_feature_matrix_noNaN, file)
+
+            with open(all_features_name, 'wb') as file:
+                pickle.dump(all_features, file)
+    elif learningmode==1:
+        def process_NaN(y_gloc_labels, x_feature_matrix, all_features, trials):
+            """
+            This is a temporary function for removing all rows with NaN values. This can be replaced by
+            another method in the future, but is necessary for feeding into ML Classifiers.
+            """
+            # Find & remove columns if they have all NaN values
+            nan_test = np.isnan(x_feature_matrix)
+            index_column_all_NaN = np.all(nan_test, axis=0)
+            x_feature_matrix_noNaN_cols = x_feature_matrix[:, ~index_column_all_NaN]
+
+            # Adjust all_features to only include columns that don't have all NaN
+            all_features = [all_features[i] for i in range(len(all_features)) if ~index_column_all_NaN[i]]
+
+            # Find & Remove rows in label array if they have NaN values
+            y_gloc_labels_noNaN = y_gloc_labels[~np.isnan(x_feature_matrix_noNaN_cols).any(axis=1)]
+
+            # Find & Remove rows in trial array if they have NaN values
+            trials_noNaN = trials[~np.isnan(x_feature_matrix_noNaN_cols).any(axis=1)]
+
+            # Find & Remove rows in X matrix if the features have any NaN values in that row
+            x_feature_matrix_noNaN = x_feature_matrix_noNaN_cols[~np.isnan(x_feature_matrix_noNaN_cols).any(axis=1)]
+
+            return y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features, trials_noNaN
 
     ################################################ TRAIN/TEST SPLIT  ################################################
     """ 
           Split data into training/test for optimization loop of sequential optimization framework.
     """
 
-    # Training/Test Split
-    x_train, x_test, y_train, y_test = stratified_kfold_split(y_gloc_labels_noNaN,x_feature_matrix_noNaN,
+    if learningmode==1: # If in DL mode
+        # Training/Test Split
+        x_train, x_test, y_train, y_test, _, _ = groupedtrial_kfold_split(
+            y_gloc_labels_noNaN, x_feature_matrix_noNaN, trials_noNaN, num_splits, kfold_ID)
+
+        # Grab trials as separate
+        x_train_trials = x_train[:, -1].reshape(-1, 1)
+        x_train = x_train[:, :-1]
+        x_test_trials = x_test[:, -1].reshape(-1, 1)
+        x_test = x_test[:, :-1]
+
+        # And standardize based on training data
+        scaler = StandardScaler()
+        x_train = scaler.fit_transform(x_train)
+        x_test = scaler.transform(x_test)
+
+        # Add indices back as final column
+        x_train = np.hstack([x_train, x_train_trials])
+        x_test = np.hstack([x_test, x_test_trials])
+    else:
+        # Training/Test Split
+        x_train, x_test, y_train, y_test = stratified_kfold_split(y_gloc_labels_noNaN,x_feature_matrix_noNaN,
                                                               num_splits, kfold_ID)
 
     ################################################ Feature Selection ################################################
 
-    x_train, x_test, selected_features =  feature_selection_lasso(x_train, x_test, y_train, all_features, random_state)
+    if learningmode==0:
+        x_train, x_test, selected_features =  feature_selection_lasso(x_train, x_test, y_train, all_features, random_state)
 
     ################################################ Class Imbalance ################################################
-
-    x_train, y_train =  simple_smote(x_train, y_train, random_state)
+    if learningmode==0:
+        x_train, y_train =  simple_smote(x_train, y_train, random_state)
 
     ################################################ MACHINE LEARNING ################################################
+    summaries = []
+
     save_folder = os.path.join("../ModelSave/CV", runname, str(kfold_ID))
 
     # Logistic Regression HPO | logreg_hpo
@@ -298,6 +394,63 @@ def main_loop(kfold_ID, num_splits, runname):
 
         performance_metric_summary_single = single_classifier_performance_summary(
             accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb, ['Ensemble w/ GB'])
+
+    # DEEP LEARNING METHODS
+
+    # Time Series (Autoregressive Time Aware) Logistic Regression
+    if classifier_type == 'LogRegTS' or classifier_type == 'all':
+        accuracy, precision, recall, f1, specificity, g_mean = (
+            lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                              all_features, save_folder=save_folder))
+
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy, precision, recall, f1, specificity, g_mean, ['LogRegTS'])
+        save_metrics_to_csv(performance_metric_summary_single, save_folder)
+        summaries.append(performance_metric_summary_single)
+
+    # Time Series (Autoregressive Time Aware) Neural Additive Model
+    if classifier_type == 'NAM' or classifier_type == 'all':
+        accuracy, precision, recall, f1, specificity, g_mean = (
+            nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                              all_features, save_folder=save_folder))
+
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy, precision, recall, f1, specificity, g_mean, ['NAM'])
+        save_metrics_to_csv(performance_metric_summary_single, save_folder)
+        summaries.append(performance_metric_summary_single)
+
+    # Long Short Term Memory RNN
+    if classifier_type == 'LSTM' or classifier_type == 'all':
+        accuracy, precision, recall, f1, specificity, g_mean = (
+            lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                              all_features, save_folder=save_folder))
+
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy, precision, recall, f1, specificity, g_mean,['LSTM'])
+        save_metrics_to_csv(performance_metric_summary_single, save_folder)
+        summaries.append(performance_metric_summary_single)
+
+    # Transformer
+    if classifier_type == 'Trans' or classifier_type == 'all':
+        accuracy, precision, recall, f1, specificity, g_mean = (
+            transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                              all_features, save_folder=save_folder))
+
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy, precision, recall, f1, specificity, g_mean, ['Trans'])
+        save_metrics_to_csv(performance_metric_summary_single, save_folder)
+        summaries.append(performance_metric_summary_single)
+
+    # Temporal Convolutional Network
+    if classifier_type == 'TCN' or classifier_type == 'all':
+        accuracy, precision, recall, f1, specificity, g_mean = (
+            tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                              all_features, save_folder=save_folder))
+
+        performance_metric_summary_single = single_classifier_performance_summary(
+            accuracy, precision, recall, f1, specificity, g_mean, ['TCN'])
+        save_metrics_to_csv(performance_metric_summary_single, save_folder)
+        summaries.append(performance_metric_summary_single)
 
     # Build Performance Metric Summary Tables
     if classifier_type == 'all':
