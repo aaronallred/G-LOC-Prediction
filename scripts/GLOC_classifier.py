@@ -71,6 +71,28 @@ def stratified_kfold_split(Y, X, num_splits, kfold_ID, random_state=42):
 
     return x_train, x_test, y_train, y_test
 
+def groupedtrial_kfold_split(Y, X, trials, num_splits, kfold_ID):
+    """
+    This function splits the X and y matrix into training and test matrix.
+    """
+
+    # Grouped K-Fold setup
+    # Use random state to ensure repeatability across runs and classifiers
+    gkf = StratifiedKFold(n_splits=num_splits, shuffle=False,random_state=42)
+
+    # Safety check to ensure that kfold_ID is within the fold indices
+    n_folds = gkf.get_n_splits()
+    if kfold_ID < 0 or kfold_ID >= n_folds:
+        raise ValueError(f"Fold index {kfold_ID} out of range (must be between 0 and {n_folds - 1})")
+
+    # Grab train and test indices given the skf generator format for a specific kfold_ID
+    train_index, test_index = next(islice(gkf.split(X, Y, trials), kfold_ID, kfold_ID + 1))
+
+    # Extract the corresponding data for the given kfold_ID
+    x_train, y_train = X[train_index], Y[train_index]
+    x_test, y_test = X[test_index], Y[test_index]
+
+    return x_train, x_test, y_train, y_test, train_index, test_index
 
 # Logistic Regression Classifier
 def classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb, random_state,

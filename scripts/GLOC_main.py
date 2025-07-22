@@ -16,7 +16,7 @@ if __name__ == "__main__":
 
     ################################################### USER INPUTS  ###################################################
     ## Data Folder Location
-    datafolder = '../../'
+    datafolder = '../../..'
     # datafolder = '../data/'
 
     # Random State | 42 - Debug mode
@@ -24,6 +24,9 @@ if __name__ == "__main__":
 
     # troubleshoot mode | 0 = No, Proceed with full feature set , 1 = Yes, reduce feature set for testing/troubleshooting
     trouble_shoot_mode = 1
+
+    # NOTE: testing | DL = 1, ML =0
+    learningMode=1
 
     # Import Feature Matrix | 0 = No, Proceed with Baseline and Feature Extraction , 1 = Yes, Use Existing Pkl
     import_feature_matrix = 1
