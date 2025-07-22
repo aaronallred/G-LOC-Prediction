@@ -14,6 +14,7 @@ import optuna
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 from GLOC_visualization import prediction_time_plot
+from scripts.LSTM_supporting import LSTMClassifier
 
 
 def make_objective(x_train, y_train, random_state, save_folder, objective_var):

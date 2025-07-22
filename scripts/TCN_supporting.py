@@ -12,7 +12,7 @@ import gc
 import joblib
 import json
 
-from GLOC_visualization import prediction_time_plot
+# from GLOC_visualization import prediction_time_plot
 
 # Build TCN architecture
 class TemporalBlock(nn.Module):

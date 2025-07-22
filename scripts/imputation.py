@@ -166,3 +166,65 @@ def faster_knn_impute(X, k=5, M=32, efSearch=64):
         neighbor_values = X_temp[neighbors, j]
         X_imputed[i, j] = np.nanmean(neighbor_values)
   return X_imputed
+
+
+def faster_knn_impute_train_test(X, train_ind, test_ind, k=5, M=32, efSearch=64):
+    """
+    Impute missing values in train and test sets using FAISS KNN with training data only.
+
+    Parameters:
+    - X: input array
+    - train_ind: the indices associated with the triaining dataset for this fold
+    - test_ind: the indices associated with the test dataset for this fold
+    - k: number of neighbors
+    - M, efSearch: HNSW graph parameters
+
+    Returns:
+    - X_imputed: imputed versions of input array
+    """
+
+    # Split into train and test
+    X_train = X[train_ind]
+    X_test = X[test_ind]
+
+    # Masks for missing values
+    mask_train = np.isnan(X_train)
+    mask_test = np.isnan(X_test)
+
+    # Temporary mean imputation to allow FAISS indexing
+    mean_vals = np.nanmean(X_train, axis=0)
+    X_train_temp = np.where(mask_train, mean_vals, X_train)
+    X_test_temp = np.where(mask_test, mean_vals, X_test)
+
+    # Build FAISS HNSW index on training data
+    d = X_train.shape[1]
+    index = faiss.IndexHNSWFlat(d, M)
+    index.hnsw.efSearch = efSearch
+    index.add(X_train_temp.astype(np.float32))
+
+    # Impute training data
+    distances, indices = index.search(X_train_temp.astype(np.float32), k + 1)
+    X_train_imputed = X_train.copy()
+    for i in range(X_train.shape[0]):
+        neighbors = indices[i, 1:]  # skip self
+        for j in range(X_train.shape[1]):
+            if mask_train[i, j]:
+                neighbor_values = X_train_temp[neighbors, j]
+                X_train_imputed[i, j] = np.nanmean(neighbor_values)
+
+    # Impute test data
+    distances_test, indices_test = index.search(X_test_temp.astype(np.float32), k)
+    X_test_imputed = X_test.copy()
+    for i in range(X_test.shape[0]):
+        neighbors = indices_test[i]
+        for j in range(X_test.shape[1]):
+            if mask_test[i, j]:
+                neighbor_values = X_train_temp[neighbors, j]
+                X_test_imputed[i, j] = np.nanmean(neighbor_values)
+
+    # Rebuild into single array
+    X_imputed = X.copy()
+    X_imputed[train_ind] = X_train_imputed
+    X_imputed[test_ind] = X_test_imputed
+
+    return X_imputed
