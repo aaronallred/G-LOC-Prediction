@@ -78,7 +78,7 @@ def groupedtrial_kfold_split(Y, X, trials, num_splits, kfold_ID):
 
     # Grouped K-Fold setup
     # Use random state to ensure repeatability across runs and classifiers
-    gkf = StratifiedKFold(n_splits=num_splits, shuffle=False,random_state=42)
+    gkf = StratifiedKFold(n_splits=num_splits, shuffle=True,random_state=42)
 
     # Safety check to ensure that kfold_ID is within the fold indices
     n_folds = gkf.get_n_splits()
@@ -439,38 +439,40 @@ def faster_classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, ra
 
     return accuracy, precision, recall, f1, specificity, g_mean
 
+# this for calling all of the ML classifiers
+
 def call_all_classifiers(classifier_type, x_train, x_test, y_train, y_test, all_features,train_class, class_weight_imb,
                          random_state):
     # Logistic Regression | logreg
-    if classifier_type == 'all' or classifier_type == 'logreg':
+    if classifier_type == 'all_ml' or classifier_type == 'logreg':
         accuracy_logreg, precision_logreg, recall_logreg, f1_logreg, specificity_logreg, g_mean_logreg = (
             classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb,random_state,
                                          retrain=train_class))
 
     # Random Forrest | rf
-    if classifier_type == 'all' or classifier_type == 'rf':
+    if classifier_type == 'all_ml' or classifier_type == 'rf':
         accuracy_rf, precision_rf, recall_rf, f1_rf, tree_depth, specificity_rf, g_mean_rf = (
             classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb,random_state,
                                    retrain=train_class))
 
     # Linear discriminant analysis | LDA
-    if classifier_type == 'all' or classifier_type == 'LDA':
+    if classifier_type == 'all_ml' or classifier_type == 'LDA':
         accuracy_lda, precision_lda, recall_lda, f1_lda, specificity_lda, g_mean_lda = (
             classify_lda(x_train, x_test, y_train, y_test,random_state,
                          retrain=train_class))
 
     # KNN
-    if classifier_type == 'all' or classifier_type == 'KNN':
+    if classifier_type == 'all_ml' or classifier_type == 'KNN':
         accuracy_knn, precision_knn, recall_knn, f1_knn, specificity_knn, g_mean_knn = (
             classify_knn(x_train, x_test, y_train, y_test, random_state, retrain=train_class))
 
     # SVM
-    if classifier_type == 'all' or classifier_type == 'SVM':
+    if classifier_type == 'all_ml' or classifier_type == 'SVM':
         accuracy_svm, precision_svm, recall_svm, f1_svm, specificity_svm, g_mean_svm = (
             classify_svm(x_train, x_test, y_train, y_test, class_weight_imb,random_state, retrain=train_class))
 
     # Ensemble with Gradient Boosting
-    if classifier_type == 'all' or classifier_type == 'EGB':
+    if classifier_type == 'all_ml' or classifier_type == 'EGB':
         accuracy_gb, precision_gb, recall_gb, f1_gb, specificity_gb, g_mean_gb = (
             classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test,random_state,
                                              retrain=train_class))

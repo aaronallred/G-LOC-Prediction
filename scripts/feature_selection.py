@@ -18,6 +18,7 @@ from sklearn import svm
 from GLOC_classifier import *
 from skopt import BayesSearchCV
 from skopt.space import Real, Integer, Categorical
+from sklearn.feature_selection import mutual_info_classif
 
 
 # Feature Selection
@@ -750,7 +751,6 @@ def shuffle_methods(x_train, x_test, y_train, y_test, all_features, train_class,
 
 
 ## Attempts at speeding up mrmr
-from sklearn.feature_selection import mutual_info_classif
 def feature_selection_mrmr_greedy(x_train, y_train, x_test, all_features, n):
     """
     Greedy mRMR (MIQ-style) feature selection using mutual information (relevance)

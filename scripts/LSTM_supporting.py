@@ -13,6 +13,7 @@ from sklearn.utils.class_weight import compute_class_weight
 import optuna
 import gc
 import joblib
+from sklearn.utils.class_weight import compute_class_weight
 import json
 
 from GLOC_visualization import prediction_time_plot
@@ -144,7 +145,9 @@ def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     trials = 100  # The number of trials in for the Bayesian Search
 
     # Compute class weights to address imbalance (depending on class_weight_imb pass)
-    class_weights = compute_class_weight(class_weight_imb, classes=np.array([0, 1]), y=y_train)
+    y_train_flat = np.asarray(y_train).ravel()
+
+    class_weights = compute_class_weight(class_weight_imb,classes=np.array([0, 1]), y=y_train_flat)
     class_weights = torch.tensor(class_weights, dtype=torch.float)
 
     # Perform Hyperparameter Tuning with Optuna using only Training data where Objective is F1 Score

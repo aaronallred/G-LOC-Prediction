@@ -2,33 +2,71 @@ import numpy as np
 import pandas as pd
 import warnings
 from GLOC_data_processing import tabulateNaN
+from pandas.errors import ParserError
+import os
 
-def baseline_data(baseline_methods_to_use, trial_column, time_column, event_validated_column, subject_column, features, all_features, gloc, baseline_window,
-                  features_phys, all_features_phys, features_ecg, all_features_ecg, features_eeg, all_features_eeg,
-                  baseline_data_filename, list_of_baseline_eeg_processed_files, model_type):
-
+def baseline_data(
+    baseline_methods_to_use,
+    trial_column,
+    time_column,
+    event_validated_column,
+    subject_column,
+    features,
+    all_features,
+    gloc,
+    baseline_window,
+    features_phys,
+    all_features_phys,
+    features_ecg,
+    all_features_ecg,
+    features_eeg,
+    all_features_eeg,
+    baseline_data_filename,
+    list_of_baseline_eeg_processed_files,
+    model_type
+):
     """
     Baselines pre-feature data based on 'baseline_methods_to_use'
     """
+    # 1) Preallocate storage
+    baseline = {}
+    baseline_derivative = {}
+    baseline_second_derivative = {}
+    baseline_names = {}
 
-    baseline, baseline_derivative, baseline_second_derivative, baseline_names = {}, {}, {}, {}
-
-    # Load participant baseline data once if needed
+    # 2) Participant resting HR if needed
     participant_seated_rhr = None
     if any(method in baseline_methods_to_use for method in ['v5', 'v6']):
         participant_baseline = pd.read_csv(baseline_data_filename)
         participant_seated_rhr = participant_baseline['resting HR [seated]'][:-1]
-        participant_seated_rhr.index = [f"{i:02d}" for i in range(1, 14)]  # Index from '01' to '13'
+        participant_seated_rhr.index = [f"{i:02d}" for i in range(1, 14)]
 
-    # Load EEG baseline data once if needed
+    # 3) **Robust** EEG baseline loader for v7/v8
     eeg_baseline_data = {}
-    if any(method in baseline_methods_to_use for method in ['v7', 'v8']) and 'noAFE' in model_type:
+    if any(m in baseline_methods_to_use for m in ['v7', 'v8']) and 'noAFE' in model_type:
         eeg_labels = ['delta', 'theta', 'alpha', 'beta']
         for idx, label in enumerate(eeg_labels):
-            eeg_baseline_data[label] = pd.read_csv(list_of_baseline_eeg_processed_files[idx])
-            eeg_baseline_data[label].index = [f"{i:02d}" for i in range(1, 14)]
+            path = list_of_baseline_eeg_processed_files[idx]
+            ext = os.path.splitext(path)[1].lower()
 
-    # Define baseline functions
+            if ext in ('.xlsx', '.xls'):
+                try:
+                    df = pd.read_excel(path)
+                except Exception:
+                    # fallback to CSV if Excel read fails
+                    df = pd.read_csv(path, engine='python', encoding='latin1')
+            else:
+                try:
+                    df = pd.read_csv(path)
+                except (UnicodeDecodeError, ParserError):
+                    # fallback to Excel if CSV parse fails
+                    df = pd.read_excel(path)
+
+            # restore original indexing (01–13)
+            df.index = [f"{i:02d}" for i in range(1, len(df)+1)]
+            eeg_baseline_data[label] = df
+
+    # 4) Define how to compute each baseline version
     baseline_methods = {
         'v0': lambda: create_v0_baseline(trial_column, time_column, features, all_features),
         'v1': lambda: create_v1_baseline(baseline_window, trial_column, time_column, features_phys, all_features_phys),
@@ -37,34 +75,43 @@ def baseline_data(baseline_methods_to_use, trial_column, time_column, event_vali
         'v4': lambda: create_v4_baseline(baseline_window, trial_column, time_column, event_validated_column, features_phys, all_features_phys),
         'v5': lambda: create_v5_baseline(baseline_window, trial_column, time_column, subject_column, features_ecg, participant_seated_rhr, all_features_ecg),
         'v6': lambda: create_v6_baseline(baseline_window, trial_column, time_column, subject_column, features_ecg, participant_seated_rhr, all_features_ecg),
-        'v7': lambda: create_v7_baseline(baseline_window, trial_column, time_column, subject_column, features_eeg,
-                                         eeg_baseline_data['delta'], eeg_baseline_data['theta'],
-                                         eeg_baseline_data['alpha'], eeg_baseline_data['beta'], all_features_eeg)
-                if 'noAFE' in model_type else warnings.warn('EEG baseline methods not implemented for AFE conditions yet.'),
-        'v8': lambda: create_v8_baseline(baseline_window, trial_column, time_column, subject_column, features_eeg,
-                                         eeg_baseline_data['delta'], eeg_baseline_data['theta'],
-                                         eeg_baseline_data['alpha'], eeg_baseline_data['beta'], all_features_eeg)
-                if 'noAFE' in model_type else warnings.warn('EEG baseline methods not implemented for AFE conditions yet.')
+        'v7': lambda: create_v7_baseline(
+            baseline_window, trial_column, time_column, subject_column, features_eeg,
+            eeg_baseline_data['delta'], eeg_baseline_data['theta'],
+            eeg_baseline_data['alpha'], eeg_baseline_data['beta'], all_features_eeg
+        ) if 'noAFE' in model_type else warnings.warn('EEG baseline methods not implemented for AFE conditions yet.'),
+        'v8': lambda: create_v8_baseline(
+            baseline_window, trial_column, time_column, subject_column, features_eeg,
+            eeg_baseline_data['delta'], eeg_baseline_data['theta'],
+            eeg_baseline_data['alpha'], eeg_baseline_data['beta'], all_features_eeg
+        ) if 'noAFE' in model_type else warnings.warn('EEG baseline methods not implemented for AFE conditions yet.')
     }
 
-    # Process only selected methods
+    # 5) Compute only the selected methods
     for method in baseline_methods_to_use:
         if method in baseline_methods:
-            (baseline[method], baseline_derivative[method], baseline_second_derivative[method],
+            (baseline[method],
+             baseline_derivative[method],
+             baseline_second_derivative[method],
              baseline_names[method]) = baseline_methods[method]()
 
-    # Combine all baseline methods into a large dictionary
-    combined_baseline, combined_baseline_names = combine_all_baseline(trial_column, baseline, baseline_derivative,
-                                                                      baseline_second_derivative, baseline_names)
+    # 6) Combine all methods into one big per-trial array
+    combined_baseline, combined_baseline_names = combine_all_baseline(
+        trial_column,
+        baseline,
+        baseline_derivative,
+        baseline_second_derivative,
+        baseline_names
+    )
 
-    # baseline_v0 = baseline['v0']
-    # baseline_names_v0 = baseline_names['v0']
-
-    # Tabulate NaN
-    # NaN_table, NaN_proportion, NaN_gloc_proportion = tabulateNaN(baseline['v0'], all_features, gloc,
-    #                                                              gloc_data_reduced)
-
-    return combined_baseline, combined_baseline_names, baseline['v0'], baseline_names['v0']
+    # 7) Return the four structures your CV code expects:
+    #    (combined_baseline, combined_baseline_names, baseline['v0'], baseline_names['v0'])
+    return (
+        combined_baseline,
+        combined_baseline_names,
+        baseline['v0'],
+        baseline_names['v0']
+    )
 
 def create_v0_baseline(trial_column, time_column, features, all_features):
     """
@@ -127,7 +174,25 @@ def create_v1_baseline(baseline_window, trial_column, time_column, features_phys
         time_array = np.array(time_column)
 
         # Find baseline average based on specified baseline window
-        baseline_feature = np.mean(features_phys[index_window], axis = 0)
+        # baseline_feature = np.mean(features_phys[index_window], axis = 0)
+        #
+        # # Ensure that data doesn't introduce NaNs.
+        # if baseline_feature.shape[0] == 0:
+        #     # If baseline window is empty, use ones
+        #     baseline_feature = np.ones(features_phys.shape[1])
+        # baseline_feature = np.nan_to_num(baseline_feature,nan=1)
+        # baseline_feature = np.where(baseline_feature == 0, 1, baseline_feature)
+
+        # Find baseline average based on specified baseline window
+        # Ensure that data doesn't introduce NaNs.
+        if np.sum(index_window) == 0:
+            # Empty baseline window — use ones
+            baseline_feature = np.ones(features_phys.shape[1])
+        else:
+            # Compute mean baseline
+            baseline_feature = np.mean(features_phys[index_window], axis=0)
+            baseline_feature = np.nan_to_num(baseline_feature, nan=1)
+            baseline_feature = np.where(baseline_feature == 0, 1, baseline_feature)
 
         # Divide features for that trial by baselined data
         baseline_v1[trial_id_in_data[i]] = np.array(features_phys[(trial_column == trial_id_in_data[i])] /baseline_feature)
@@ -170,6 +235,7 @@ def create_v2_baseline(baseline_window, trial_column, time_column, features_phys
 
         # Find baseline average based on specified baseline window
         baseline_feature = np.mean(features_phys[index_window], axis = 0)
+        baseline_feature = np.nan_to_num(baseline_feature, nan=0)
 
         # Subtract baseline data (baseline v2)
         baseline_v2[trial_id_in_data[i]] = np.array(features_phys[(trial_column == trial_id_in_data[i])] - baseline_feature)
@@ -351,6 +417,7 @@ def create_v5_baseline(baseline_window, trial_column, time_column, subject_colum
         # Find baseline for current participant
         current_participant = participant_array[time_index][0]
         baseline_feature = participant_seated_rhr[current_participant]
+        baseline_feature = np.nan_to_num(baseline_feature, nan=1)
 
         # Divide features for that trial by baselined data
         baseline_v5[trial_id_in_data[i]] = np.array(features_ecg[(trial_column == trial_id_in_data[i])] /baseline_feature)
@@ -394,6 +461,7 @@ def create_v6_baseline(baseline_window, trial_column, time_column, subject_colum
         # Find baseline for current participant
         current_participant = participant_array[time_index][0]
         baseline_feature = participant_seated_rhr[current_participant]
+        baseline_feature = np.nan_to_num(baseline_feature, nan=0)
 
         # Divide features for that trial by baselined data
         baseline_v6[trial_id_in_data[i]] = np.array(features_ecg[(trial_column == trial_id_in_data[i])] - baseline_feature)
@@ -608,19 +676,15 @@ def combine_all_baseline(trial_column, baseline, baseline_derivative, baseline_s
 
     # Iterate through all unique trial_id & combine the baseline, baseline derivative, and baseline second derivative
     for trial in trial_id_in_data:
-        # all_baseline_data = []
-        for i, method in enumerate(baseline.keys()):
-            m,n = baseline[method][trial].shape
-            start = i * n
-            end = start + n
-            combined_baseline[trial][:,start:end] = baseline[method][trial].astype(np.float32)
-            combined_baseline[trial][:,start+n:end+n] = baseline_derivative[method][trial].astype(np.float32)
-            combined_baseline[trial][:,start+2*n:end+2*n] = baseline_second_derivative[method][trial].astype(np.float32)
-            # all_baseline_data.append(baseline[method][trial])
-            # all_baseline_data.append(baseline_derivative[method][trial])
-            # all_baseline_data.append(baseline_second_derivative[method][trial])
+        all_data = []
+        for method in baseline.keys():
+            base = baseline[method][trial].astype(np.float32)
+            deriv = baseline_derivative[method][trial].astype(np.float32)
+            second = baseline_second_derivative[method][trial].astype(np.float32)
+            all_data.append(np.hstack([base, deriv, second]))
 
-        # combined_baseline2[trial] = np.column_stack(tuple(all_baseline_data))
+        combined_baseline[trial] = np.hstack(all_data).astype(np.float32)
+
 
     combined_baseline_names = sum([baseline_names[method] + [s + '_derivative' for s in baseline_names[method]] +
                                        [s + '_2derivative' for s in baseline_names[method]] for method in baseline_names.keys()], [])
@@ -785,3 +849,40 @@ def baseline_data_old(baseline_methods_to_use, gloc_data_reduced, features,time_
     baseline_names_v0 = baseline_names['v0']
 
     return combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0
+
+def combine_all_baseline_old(trial_column, baseline, baseline_derivative, baseline_second_derivative, baseline_names):
+    """
+    This function combines the features, derivative of features, and second derivative of features into one np array.
+    """
+
+    # Find Unique Trial ID
+    trial_id_in_data = trial_column.unique()
+
+    # Preallocate the dictionary with NumPy arrays
+    num_cols = 0
+    for method in baseline.keys():
+        num_cols += baseline[method][trial_id_in_data[0]].shape[1]*3
+    combined_baseline = {trial: np.empty((baseline[list(baseline.keys())[0]][trial].shape[0], num_cols), dtype=np.float32) for trial in trial_id_in_data}
+    # combined_baseline2 = {trial: np.empty((baseline[list(baseline.keys())[0]][trial].shape[0], 0)) for trial in
+    #                      trial_id_in_data}
+
+    # Iterate through all unique trial_id & combine the baseline, baseline derivative, and baseline second derivative
+    for trial in trial_id_in_data:
+        # all_baseline_data = []
+        for i, method in enumerate(baseline.keys()):
+            m,n = baseline[method][trial].shape
+            start = i * n
+            end = start + n
+            combined_baseline[trial][:,start:end] = baseline[method][trial].astype(np.float32)
+            combined_baseline[trial][:,start+n:end+n] = baseline_derivative[method][trial].astype(np.float32)
+            combined_baseline[trial][:,start+2*n:end+2*n] = baseline_second_derivative[method][trial].astype(np.float32)
+            # all_baseline_data.append(baseline[method][trial])
+            # all_baseline_data.append(baseline_derivative[method][trial])
+            # all_baseline_data.append(baseline_second_derivative[method][trial])
+
+        # combined_baseline2[trial] = np.column_stack(tuple(all_baseline_data))
+
+    combined_baseline_names = sum([baseline_names[method] + [s + '_derivative' for s in baseline_names[method]] +
+                                       [s + '_2derivative' for s in baseline_names[method]] for method in baseline_names.keys()], [])
+
+    return combined_baseline, combined_baseline_names

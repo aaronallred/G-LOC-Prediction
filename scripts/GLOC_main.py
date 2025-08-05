@@ -17,7 +17,7 @@ if __name__ == "__main__":
     ################################################### USER INPUTS  ###################################################
     ## Data Folder Location
     datafolder = '../../..'
-    # datafolder = '../data/'
+    datafolder = '../RunningGLOC/'
 
     # Random State | 42 - Debug mode
     random_state = 42
@@ -25,22 +25,19 @@ if __name__ == "__main__":
     # troubleshoot mode | 0 = No, Proceed with full feature set , 1 = Yes, reduce feature set for testing/troubleshooting
     trouble_shoot_mode = 1
 
-    # NOTE: testing | DL = 1, ML =0
-    learningMode=1
-
     # Import Feature Matrix | 0 = No, Proceed with Baseline and Feature Extraction , 1 = Yes, Use Existing Pkl
-    import_feature_matrix = 1
+    import_feature_matrix = 0
     feature_matrix_name = 'x_feature_matrix.pkl'
     y_label_name = 'y_gloc_labels.pkl'
     all_features_name = 'all_features.pkl'
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
     #                    'logreg_hpo' 'rf_hpo' 'LDA_hpo' 'KNN_hpo' 'SVM_hpo' 'EGB_hpo' or 'all_hpo'
-    classifier_type = 'all'
+    classifier_type = 'all' # Not being used, change in cross_val.py
     train_class = True
 
     ## Sequential Optimization Mode | Pick 'none' 'imbalance' 'nan' 'sliding_window' or 'feature_reduction'
-    sequential_optimization_mode = 'none'
+    sequential_optimization_mode = 'imbalance'
 
     ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
     # Note: Cost Function techniques ('cost_function' 'rus_cf' 'ros_cf' 'smote_cf') do not work for LDA, KNN, or Ens. Learner
@@ -53,7 +50,7 @@ if __name__ == "__main__":
 
     # Data Handling Options
     remove_NaN_trials = True
-    impute_type = 1
+    impute_type = 2
 
     ## Model Parameters
     model_type = ['noAFE', 'explicit']
@@ -65,7 +62,7 @@ if __name__ == "__main__":
 
     baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
 
-    analysis_type = 2
+    analysis_type = 1
 
     baseline_window = 10  # seconds
     window_size = 10  # seconds
@@ -75,15 +72,16 @@ if __name__ == "__main__":
     training_ratio = 0.8
 
     # Subject & Trial Information (only need to adjust this if doing analysis type 0,1)
-    subject_to_analyze = '01'
+    subject_to_analyze = '02'
     trial_to_analyze = '02'
 
     #### DESCRIPTIONS OF ABOVE PARAMETERS
     ## datafolder: Location of structured data files
 
     ## classifier_type: Type of Classifier
-        # options without hyperparameter tuning: 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB'
-            # select 'all' to run all of the above
+        # ML options without hyperparameter tuning: 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB'
+            # select 'all_ml' to run all of the above
+        # DL options without hyperparameter tuning: 'LogRegTS', 'LSTM', 'TCN', 'Trans'
         # options with hyperparameter tuning: 'logreg_hpo' 'rf_hpo' 'LDA_hpo' 'KNN_hpo' 'SVM_hpo' 'EGB_hpo'
             # select 'all_hpo' to run all of the above
 

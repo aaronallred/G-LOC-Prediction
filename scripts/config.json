@@ -1,0 +1,22 @@
+{
+  "datafolder": "../RunningGLOC/",
+
+  "learning_mode": 0,
+  "engineering_mode": 1,
+
+  "window_size": 10,
+  "stride": 1,
+  "offset": 0,
+
+  "remove_NaN_trials": true,
+  "impute_type": 1,
+  "n_neighbors": 4,
+  "save_impute": false,
+  "load_impute": false,
+
+  "classifier_type": "LDA",
+  "train_class": true,
+  "class_weight_imb": "balanced",
+
+  "model_type": ["noAFE","implicit"]
+}
