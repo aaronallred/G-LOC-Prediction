@@ -13,6 +13,7 @@ import joblib
 import json
 
 from GLOC_visualization import prediction_time_plot
+from scripts.forecasting_fun import train_test_split_trials_forecast
 
 
 class TransformerClassifier(nn.Module):
@@ -267,6 +268,110 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
 
     # Print performance metrics
     print("\nPerformance Metrics for Transformer:")
+    print("Accuracy: ", accuracy)
+    print("Precision: ", precision)
+    print("Recall: ", recall)
+    print("F1 Score: ", f1)
+    print("Specificity: ", specificity)
+    print("G-Mean: ", g_mean)
+
+    return accuracy, precision, recall, f1, specificity, g_mean
+
+import forecasting_fun
+def transformer_class_load(x_train, x_test, y_train, y_test, class_weight_imb, random_state, all_features, param_path, save_folder):
+    """
+    Train a Transformer model directly from saved hyperparameters and metadata JSON files (skip Optuna).
+    """
+    # Load best hyperparameters
+    params_path = os.path.join(param_path, "Trans_best_params.json")
+    with open(params_path, "r") as f:
+        best_params = json.load(f)
+
+    # Load metadata (for best_epoch)
+    metadata_path = os.path.join(param_path, "Trans_best_trial_metadata.json")
+    if os.path.exists(metadata_path):
+        with open(metadata_path, "r") as f:
+            metadata = json.load(f)
+        num_epochs = max(metadata.get("best_epoch", 15), 15)  # enforce min of 15
+    else:
+        num_epochs = 15  # fallback if metadata file missing
+
+    # Compute class weights
+    class_weights = compute_class_weight(class_weight_imb, classes=np.array([0, 1]), y=y_train)
+    class_weights = torch.tensor(class_weights, dtype=torch.float)
+
+    # Unpack key params
+    batch_size = best_params["batch_size"]
+    optimizer_type = best_params["optimizer_type"]
+    momentum = 0.9 if optimizer_type == "SGD" else None
+    learning_rate = best_params["lr"]
+    weight_decay = best_params["weight_decay"]
+    sequence_length = best_params["sequence_length"]
+    step_size = best_params["step_size"]
+    threshold = best_params['threshold']
+
+    # Baseline feature selection
+    baseline_method = best_params["baseline_method"]
+    x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
+    x_test_ds, _ = baseline_down_select(x_test, all_features, baseline_method)
+
+    # Build datasets
+    workers = get_optimal_workers()
+    train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
+        train_test_split_trials_forecast(x_train_ds, y_train, sequence_length, step_size, test_ratio=None,
+                                random_state=random_state, end_label=True)
+    )
+
+    test_dataset, _, _, _, _, _ = (
+        train_test_split_trials_forecast(x_test_ds, y_test, sequence_length, step_size=10, test_ratio=None,
+                                random_state=random_state, end_label=True)
+    )
+
+    # Build model
+    input_dim = train_windows_tensor.shape[2]
+    model = TransformerClassifier(
+        input_dim=input_dim,
+        d_model=best_params["d_model"],
+        nhead=best_params["nhead"],
+        num_layers=best_params["num_layers"],
+        dim_feedforward=best_params["dim_feedforward"],
+        dropout=best_params["dropout"] if best_params["num_layers"] > 1 else 0
+    )
+    device = get_device()
+    model.to(device)
+    criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, momentum,
+                                                     device, loss='BCE', optimizer_type=optimizer_type)
+
+    # Train
+    sampler = build_sampler(train_labels_tensor, class_weights)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=workers)
+
+    for epoch in range(num_epochs):
+        train(model, train_loader, criterion, optimizer, device, epoch, num_epochs)
+
+    # Save trained model
+    os.makedirs(save_folder, exist_ok=True)
+    torch.save(model.state_dict(), os.path.join(save_folder, f"Trans_trained_model_from_json.pt"))
+
+    # Evaluate
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
+    all_preds, all_labels, predictors_over_time, _ = evaluate(model, test_loader, threshold, device, criterion)
+
+    all_preds = np.array(all_preds)
+    all_labels = np.array(all_labels)
+    predictors_over_time = np.array(predictors_over_time)
+    prediction_time_plot(all_labels, all_preds, predictors_over_time)
+
+    # Metrics
+    accuracy = metrics.accuracy_score(all_labels, all_preds)
+    precision = metrics.precision_score(all_labels, all_preds)
+    recall = metrics.recall_score(all_labels, all_preds)
+    f1 = metrics.f1_score(all_labels, all_preds)
+    specificity = metrics.recall_score(all_labels, all_preds, pos_label=0)
+    g_mean = geometric_mean_score(all_labels, all_preds)
+
+    print(f"\nTrained for {num_epochs} epochs")
+    print("\nPerformance Metrics for Transformer (from JSON):")
     print("Accuracy: ", accuracy)
     print("Precision: ", precision)
     print("Recall: ", recall)

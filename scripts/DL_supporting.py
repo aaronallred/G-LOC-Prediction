@@ -70,7 +70,6 @@ def baseline_down_select(x,all_features,method):
 
     return x, include
 
-
 # Creates windowed sequences
 def create_windows(sequence, labels, window_size, step_size, end_label):
     # Creates windows with paired labels.

@@ -1,0 +1,181 @@
+Index: scripts/LogRegTS_supporting.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>from DL_supporting import *\nimport torch\nimport torch.nn as nn\nfrom sklearn.model_selection import train_test_split\nfrom sklearn import metrics\nfrom torch.utils.data import TensorDataset\nimport numpy as np\nimport os\nimport torch.optim as optim\nfrom torch.utils.data import DataLoader\nfrom imblearn.metrics import geometric_mean_score\nfrom sklearn.utils.class_weight import compute_class_weight\nimport optuna\nimport gc\n\nfrom GLOC_visualization import prediction_time_plot\n\n# Build Time Series Logistic Regression architecture\nclass LogisticRegressionTS(nn.Module):\n    def __init__(self, input_dim, output_dim=1):\n        super(LogisticRegressionTS, self).__init__()\n        self.linear = nn.Linear(input_dim, output_dim)\n\n    def forward(self, x):\n        # Flatten the time series window for logistic regression\n        batch_size, feature_dim = x.shape\n        x_flat = x.view(batch_size, -1)  # Shape: (batch_size, seq_len * feature_dim)\n        return self.linear(x_flat)\n\n\ndef make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler, objective_var, all_features):\n    \"\"\"\n    LogRegTS Objective Function for Optuna.\n\n    Function objective (below) has access to all global arguments passed to this function.\n    Returns Stopping Metric (here F1 score) as the objective (set to maximize)\n        The Stopping Metric (stopping_metric) is what cuts off training during hyperparameter tuning\n    Saves hyperparameters from the best validation performance for building final model\n\n    \"\"\"\n    def objective(trial):\n        # Hyperparameters\n        baseline_method = trial.suggest_categorical(\"baseline_method\", [0, 1, 2, 3, 4, 5])\n        batch_size = trial.suggest_categorical(\"batch_size\", [64, 128, 256])\n        optimizer_type = trial.suggest_categorical(\"optimizer_type\",['AdamW'])\n        momentum = 0.9 if optimizer_type == \"SGD\" else None\n        weight_decay = trial.suggest_float(\"weight_decay\", 1e-6, 1e-2, log=True)\n        learning_rate = trial.suggest_float(\"lr\", 1e-5, 1e-2, log=True)\n        sequence_length = trial.suggest_int(\"sequence_length\", 25, 250)\n        threshold = trial.suggest_float('threshold', 0.1, 0.9)\n        step_size = trial.suggest_int(\"step_size\", 25, 75)\n\n        x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)\n\n        # Create training and validation sets from x_train/y_train\n        train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, val_windows_tensor, val_labels_tensor = (\n            train_test_split_trials(\n                x_train_ds,y_train, sequence_length, step_size, test_ratio=0.2, random_state = random_state, end_label=True)\n        )\n\n        # Flatten windows for logistic regression\n        train_windows_tensor = train_windows_tensor.view(train_windows_tensor.size(0), -1)\n        val_windows_tensor = val_windows_tensor.view(val_windows_tensor.size(0), -1)\n\n        # Prepare the data for training and evaluation\n        sampler = build_sampler(train_labels_tensor, class_weights) if use_sampler else None\n        train_loader = DataLoader(TensorDataset(\n            train_windows_tensor, train_labels_tensor), batch_size=batch_size, sampler=sampler)\n        val_loader = DataLoader(TensorDataset(\n            val_windows_tensor, val_labels_tensor), batch_size=batch_size, shuffle=False)\n\n        # Build model\n        input_dim = train_windows_tensor.shape[1]\n        model = LogisticRegressionTS(input_dim)\n        device = get_device()\n        model.to(device)\n        criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, momentum,\n                                                         device, loss='BCE', optimizer_type=optimizer_type)\n\n        # Train and Evaluate with Early Stopping\n        best_model_state, best_epoch, best_stopping_metric = train_with_early_stopping(\n            model, train_loader, val_loader, criterion, optimizer, device, threshold, objective_var)\n\n        # Restore best weights\n        if best_model_state:\n            model.load_state_dict(best_model_state)\n\n        # Store best epoch in trial attributes\n        trial.set_user_attr(\"best_epoch\", best_epoch)\n\n        # Save model to file\n        os.makedirs(save_folder, exist_ok=True)\n        torch.save(model.state_dict(), os.path.join(save_folder, f\"LogReg_best_model_trial_{trial.number}.pt\"))\n\n        del model\n        torch.cuda.empty_cache()\n        torch.cuda.ipc_collect()\n        gc.collect()\n\n        return best_stopping_metric\n\n    return objective\n\ndef lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, all_features, save_folder):\n    \"\"\"\n        Main Autoregressive Logistic Regression Script\n        Input: train and test split of data\n        Output: model performance of trained model evaluated on test data\n    \"\"\"\n    # User Options\n    use_sampler = True # Optionally use sampler to sample the minority class (ROS)\n    final_early_stop = False # Optionally use early stopping for final train (always uses early stop in tuning)\n    objective_var = 'F1' # F1 or else use 1-Loss. (param used by Optuna and Early Stop during hyperparameter tuning)\n    trials = 50 # The number of trials in for the Bayesian Search\n\n    # Compute class weights to address imbalance (depending on class_weight_imb pass)\n    class_weights = compute_class_weight(class_weight_imb, classes=np.array([0, 1]), y=y_train)\n    class_weights = torch.tensor(class_weights, dtype=torch.float)\n\n    # Perform Hyperparameter Tuning with Optuna using only Training data where Objective is F1 Score\n    objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,\n                               objective_var, all_features)\n    study = optuna.create_study(direction=\"maximize\")\n    study.optimize(objective, n_trials=trials, catch=(RuntimeError, ValueError))\n\n    # Print out the optimal hyperparameters\n    best_params = study.best_trial.params\n    print(\"Best Trial:\", study.best_trial)\n\n    # Grab the hyperparameters from the best set\n    batch_size = best_params[\"batch_size\"]\n    optimizer_type = best_params[\"optimizer_type\"]\n    momentum = 0.9 if optimizer_type == \"SGD\" else None\n    learning_rate = best_params[\"lr\"]\n    weight_decay = best_params[\"weight_decay\"]\n    sequence_length = best_params[\"sequence_length\"]\n    step_size = best_params[\"step_size\"]\n    threshold = best_params['threshold']\n    num_epochs = max(study.best_trial.user_attrs.get(\"best_epoch\", 15),15) # enforce min of 10 epochs\n\n    baseline_method = best_params[\"baseline_method\"]\n    x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)\n    x_test_ds, _ = baseline_down_select(x_test, all_features, baseline_method)\n\n    # Build training (potential validation) datasets for final train\n    if final_early_stop:\n        # Train with most training data but set aside a validation dataset for early stopping\n        train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, _, _ = (\n            train_test_split_trials(x_train_ds, y_train, sequence_length, step_size, test_ratio=0.2, end_label=True)\n        )\n        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)\n    else:\n        # Train with all training data and train to a finite set of epochs (from the best hyperparameter run)\n        train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (\n            train_test_split_trials(x_train_ds, y_train, sequence_length, step_size, test_ratio=None, end_label=True)\n        )\n\n    # Create the test dataset, formatted into sequences\n    test_dataset, _, test_windows_tensor, test_labels_tensor, _, _ = (\n        train_test_split_trials(x_test_ds, y_test, sequence_length, step_size=10, test_ratio=None, end_label=True)\n    )\n\n    # Flatten windows\n    train_windows_tensor = train_windows_tensor.view(train_windows_tensor.size(0), -1)\n    test_windows_tensor = test_windows_tensor.view(test_windows_tensor.size(0), -1)\n\n    # Build model\n    input_dim = train_windows_tensor.shape[1]\n    model = LogisticRegressionTS(input_dim)\n    device = get_device()\n    model.to(device)\n    criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, momentum,\n                                                     device, loss='BCE', optimizer_type=optimizer_type)\n\n    # Prepare the data for training\n    sampler = build_sampler(train_labels_tensor, class_weights) if use_sampler else None\n    train_loader = DataLoader(TensorDataset(train_windows_tensor, train_labels_tensor), batch_size=batch_size,\n                              sampler=sampler)\n\n    # Train model\n    if final_early_stop:\n        best_model_state, _, _ = train_with_early_stopping(\n            model, train_loader, val_loader, criterion, optimizer, device, threshold, objective_var)\n        if best_model_state:\n            model.load_state_dict(best_model_state)\n\n    else:\n        for epoch in range(num_epochs):\n            train(model, train_loader, criterion, optimizer, device, epoch, num_epochs)\n\n    # Save trained model\n    os.makedirs(save_folder, exist_ok=True)\n    torch.save(model.state_dict(), os.path.join(save_folder, f\"LogReg_trained_model.pt\"))\n\n    # Evaluate final model\n    test_loader = DataLoader(TensorDataset(test_windows_tensor, test_labels_tensor), batch_size=batch_size,\n                             shuffle=False)\n    all_preds, all_labels, predictors_over_time,_ = evaluate(model, test_loader,  threshold, device, criterion)\n\n    # Convert lists to numpy arrays\n    all_preds = np.array(all_preds)\n    all_labels = np.array(all_labels)\n    predictors_over_time = np.array(predictors_over_time)\n    # prediction_time_plot(all_labels, all_preds, predictors_over_time)\n\n    # Assess Performance\n    accuracy = metrics.accuracy_score(all_labels, all_preds)\n    precision = metrics.precision_score(all_labels, all_preds)\n    recall = metrics.recall_score(all_labels, all_preds)\n    f1 = metrics.f1_score(all_labels, all_preds)\n    specificity = metrics.recall_score(all_labels, all_preds, pos_label=0)  # Specificity\n    g_mean = geometric_mean_score(all_labels, all_preds)\n\n    # Print performance metrics\n    print(\"\\nPerformance Metrics for LogReg:\")\n    print(\"Accuracy: \", accuracy)\n    print(\"Precision: \", precision)\n    print(\"Recall: \", recall)\n    print(\"F1 Score: \", f1)\n    print(\"Specificity: \", specificity)\n    print(\"G-Mean: \", g_mean)\n\n    return accuracy, precision, recall, f1, specificity, g_mean
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/scripts/LogRegTS_supporting.py b/scripts/LogRegTS_supporting.py
+--- a/scripts/LogRegTS_supporting.py	(revision aedd59496b18d495c7a1978aab37773fbc902780)
++++ b/scripts/LogRegTS_supporting.py	(date 1750859110677)
+@@ -101,7 +101,7 @@
+ 
+     return objective
+ 
+-def lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, all_features, save_folder):
++def lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_state, all_features, save_folder, Train = True):
+     """
+         Main Autoregressive Logistic Regression Script
+         Input: train and test split of data
+@@ -113,84 +113,95 @@
+     objective_var = 'F1' # F1 or else use 1-Loss. (param used by Optuna and Early Stop during hyperparameter tuning)
+     trials = 50 # The number of trials in for the Bayesian Search
+ 
+-    # Compute class weights to address imbalance (depending on class_weight_imb pass)
+-    class_weights = compute_class_weight(class_weight_imb, classes=np.array([0, 1]), y=y_train)
+-    class_weights = torch.tensor(class_weights, dtype=torch.float)
++    # Model Path for Save and Load
++    model_path = os.path.join(save_folder, f"LogReg_trained_model.pt")
++
++    if Train:
++        # Compute class weights to address imbalance (depending on class_weight_imb pass)
++        class_weights = compute_class_weight(class_weight_imb, classes=np.array([0, 1]), y=y_train)
++        class_weights = torch.tensor(class_weights, dtype=torch.float)
+ 
+-    # Perform Hyperparameter Tuning with Optuna using only Training data where Objective is F1 Score
+-    objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,
+-                               objective_var, all_features)
+-    study = optuna.create_study(direction="maximize")
+-    study.optimize(objective, n_trials=trials, catch=(RuntimeError, ValueError))
++        # Perform Hyperparameter Tuning with Optuna using only Training data where Objective is F1 Score
++        objective = make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler,
++                                   objective_var, all_features)
++        study = optuna.create_study(direction="maximize")
++        study.optimize(objective, n_trials=trials, catch=(RuntimeError, ValueError))
+ 
+-    # Print out the optimal hyperparameters
+-    best_params = study.best_trial.params
+-    print("Best Trial:", study.best_trial)
++        # Print out the optimal hyperparameters
++        best_params = study.best_trial.params
++        print("Best Trial:", study.best_trial)
+ 
+-    # Grab the hyperparameters from the best set
+-    batch_size = best_params["batch_size"]
+-    optimizer_type = best_params["optimizer_type"]
+-    momentum = 0.9 if optimizer_type == "SGD" else None
+-    learning_rate = best_params["lr"]
+-    weight_decay = best_params["weight_decay"]
+-    sequence_length = best_params["sequence_length"]
+-    step_size = best_params["step_size"]
+-    threshold = best_params['threshold']
+-    num_epochs = max(study.best_trial.user_attrs.get("best_epoch", 15),15) # enforce min of 10 epochs
++        # Grab the hyperparameters from the best set
++        batch_size = best_params["batch_size"]
++        optimizer_type = best_params["optimizer_type"]
++        momentum = 0.9 if optimizer_type == "SGD" else None
++        learning_rate = best_params["lr"]
++        weight_decay = best_params["weight_decay"]
++        sequence_length = best_params["sequence_length"]
++        step_size = best_params["step_size"]
++        threshold = best_params['threshold']
++        num_epochs = max(study.best_trial.user_attrs.get("best_epoch", 15),15) # enforce min of 10 epochs
+ 
+-    baseline_method = best_params["baseline_method"]
+-    x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
+-    x_test_ds, _ = baseline_down_select(x_test, all_features, baseline_method)
++        baseline_method = best_params["baseline_method"]
++        x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
++        x_test_ds, _ = baseline_down_select(x_test, all_features, baseline_method)
+ 
+-    # Build training (potential validation) datasets for final train
+-    if final_early_stop:
+-        # Train with most training data but set aside a validation dataset for early stopping
+-        train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, _, _ = (
+-            train_test_split_trials(x_train_ds, y_train, sequence_length, step_size, test_ratio=0.2, end_label=True)
+-        )
+-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+-    else:
+-        # Train with all training data and train to a finite set of epochs (from the best hyperparameter run)
+-        train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
+-            train_test_split_trials(x_train_ds, y_train, sequence_length, step_size, test_ratio=None, end_label=True)
+-        )
++        # Build training (potential validation) datasets for final train
++        if final_early_stop:
++            # Train with most training data but set aside a validation dataset for early stopping
++            train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, _, _ = (
++                train_test_split_trials(x_train_ds, y_train, sequence_length, step_size, test_ratio=0.2, end_label=True)
++            )
++            val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
++        else:
++            # Train with all training data and train to a finite set of epochs (from the best hyperparameter run)
++            train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
++                train_test_split_trials(x_train_ds, y_train, sequence_length, step_size, test_ratio=None, end_label=True)
++            )
+ 
+-    # Create the test dataset, formatted into sequences
+-    test_dataset, _, test_windows_tensor, test_labels_tensor, _, _ = (
+-        train_test_split_trials(x_test_ds, y_test, sequence_length, step_size=10, test_ratio=None, end_label=True)
+-    )
++        # Create the test dataset, formatted into sequences
++        test_dataset, _, test_windows_tensor, test_labels_tensor, _, _ = (
++            train_test_split_trials(x_test_ds, y_test, sequence_length, step_size=10, test_ratio=None, end_label=True)
++        )
+ 
+-    # Flatten windows
+-    train_windows_tensor = train_windows_tensor.view(train_windows_tensor.size(0), -1)
+-    test_windows_tensor = test_windows_tensor.view(test_windows_tensor.size(0), -1)
++        # Flatten windows
++        train_windows_tensor = train_windows_tensor.view(train_windows_tensor.size(0), -1)
++        test_windows_tensor = test_windows_tensor.view(test_windows_tensor.size(0), -1)
+ 
+-    # Build model
+-    input_dim = train_windows_tensor.shape[1]
+-    model = LogisticRegressionTS(input_dim)
+-    device = get_device()
+-    model.to(device)
+-    criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, momentum,
+-                                                     device, loss='BCE', optimizer_type=optimizer_type)
++        # Build model
++        input_dim = train_windows_tensor.shape[1]
++        model = LogisticRegressionTS(input_dim)
++        device = get_device()
++        model.to(device)
++        criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, momentum,
++                                                         device, loss='BCE', optimizer_type=optimizer_type)
+ 
+-    # Prepare the data for training
+-    sampler = build_sampler(train_labels_tensor, class_weights) if use_sampler else None
+-    train_loader = DataLoader(TensorDataset(train_windows_tensor, train_labels_tensor), batch_size=batch_size,
+-                              sampler=sampler)
++        # Prepare the data for training
++        sampler = build_sampler(train_labels_tensor, class_weights) if use_sampler else None
++        train_loader = DataLoader(TensorDataset(train_windows_tensor, train_labels_tensor), batch_size=batch_size,
++                                  sampler=sampler)
+ 
+-    # Train model
+-    if final_early_stop:
+-        best_model_state, _, _ = train_with_early_stopping(
+-            model, train_loader, val_loader, criterion, optimizer, device, threshold, objective_var)
+-        if best_model_state:
+-            model.load_state_dict(best_model_state)
++        # Train model
++        if final_early_stop:
++            best_model_state, _, _ = train_with_early_stopping(
++                model, train_loader, val_loader, criterion, optimizer, device, threshold, objective_var)
++            if best_model_state:
++                model.load_state_dict(best_model_state)
+ 
+-    else:
+-        for epoch in range(num_epochs):
+-            train(model, train_loader, criterion, optimizer, device, epoch, num_epochs)
++        else:
++            for epoch in range(num_epochs):
++                train(model, train_loader, criterion, optimizer, device, epoch, num_epochs)
+ 
+-    # Save trained model
+-    os.makedirs(save_folder, exist_ok=True)
+-    torch.save(model.state_dict(), os.path.join(save_folder, f"LogReg_trained_model.pt"))
++        # Save trained model
++        os.makedirs(save_folder, exist_ok=True)
++        torch.save(model.state_dict(), model_path)
++    else:
++        device = get_device()
++        # Load weights
++        if not os.path.exists(model_path):
++            raise FileNotFoundError(f"Trained model not found at {model_path}. Set Train=True to train.")
++        model.load_state_dict(torch.load(model_path, map_location=device))
++
+ 
+     # Evaluate final model
+     test_loader = DataLoader(TensorDataset(test_windows_tensor, test_labels_tensor), batch_size=batch_size,
