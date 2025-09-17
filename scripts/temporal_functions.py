@@ -161,67 +161,141 @@ def data_with_prediction(backstep,data_rate, classifier_type):
     analysis_type = 2
 
         # File names to save data .pkl as
-    feature_matrix_name = 'x_feature_matrix_imputation_method' + str(impute_type) +'.pkl'
-    y_label_name = 'y_gloc_labels_imputation_method' + str(impute_type) +'.pkl'
-    all_features_name = 'all_features_imputation_method' + str(impute_type) +'.pkl'
+    feature_matrix_name = 'x_feature_matrix_method_' + str(classifier_type) +'.pkl'
+    y_label_name = 'y_gloc_labels_method_' + str(classifier_type) +'.pkl'
+    all_features_name = 'all_features_method_' + str(classifier_type) +'.pkl'
 
-    ############################################# LOAD AND PROCESS DATA #############################################
-    """ 
-           Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze'
-        """
+    #### Making code more efficient by only running certain sections on first iteration
+    cache_folder = './cached_data'
+    if backstep == 0:
+        ############################################# LOAD AND PROCESS DATA #############################################
+        """ 
+               Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze'
+            """
 
-        # Grab Data File Locations
-    (filename, baseline_data_filename, demographic_data_filename,
-        list_of_eeg_data_files, list_of_baseline_eeg_processed_files) = data_locations(datafolder)
+            # Grab Data File Locations
+        (filename, baseline_data_filename, demographic_data_filename,
+            list_of_eeg_data_files, list_of_baseline_eeg_processed_files) = data_locations(datafolder)
 
-        # Load Data
-    (gloc_data_reduced, features, features_phys, features_ecg, features_eeg, all_features, all_features_phys,
-        all_features_ecg, all_features_eeg) = (
-        analysis_driven_csv_processing(analysis_type, filename, feature_groups_to_analyze, demographic_data_filename,
-                                           model_type,list_of_eeg_data_files,trial_to_analyze,subject_to_analyze))
+            # Load Data
+        (gloc_data_reduced, features, features_phys, features_ecg, features_eeg, all_features, all_features_phys,
+            all_features_ecg, all_features_eeg) = (
+            analysis_driven_csv_processing(analysis_type, filename, feature_groups_to_analyze, demographic_data_filename,
+                                               model_type,list_of_eeg_data_files,trial_to_analyze,subject_to_analyze))
 
-        # Create GLOC Categorical Vector
-    gloc = label_gloc_events(gloc_data_reduced)
+            # Create GLOC Categorical Vector
+        gloc = label_gloc_events(gloc_data_reduced)
 
-        # Reduce Dataset based on AFE / nonAFE condition
-    gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
-            afe_subset(model_type, gloc_data_reduced,all_features,
-                       features,features_phys, features_ecg, features_eeg, gloc))
+            # Reduce Dataset based on AFE / nonAFE condition
+        gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
+                afe_subset(model_type, gloc_data_reduced,all_features,
+                           features,features_phys, features_ecg, features_eeg, gloc))
 
 
-        ############################################### DATA CLEAN AND Imputation ###############################################
-    """ 
-           Optional handling of raw NaN data, depending on 'remove_NaN_trials' 'impute_type' <= 1
-        """
+            ############################################### DATA CLEAN AND Imputation ###############################################
+        """ 
+               Optional handling of raw NaN data, depending on 'remove_NaN_trials' 'impute_type' <= 1
+            """
+        print('Starting imputation for', backstep, 'backstep')
+          ### Remove full trials with NaN
+        if remove_NaN_trials:
+          gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc, nan_proportion_df = (
+              remove_all_nan_trials(gloc_data_reduced, all_features,
+                                    features, features_phys, features_ecg, features_eeg, gloc))
 
-      ### Remove full trials with NaN
-    if remove_NaN_trials:
-      gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc, nan_proportion_df = (
-          remove_all_nan_trials(gloc_data_reduced, all_features,
-                                features, features_phys, features_ecg, features_eeg, gloc))
+          ### Impute missing row data
+        if impute_type == 0:
+          # Remove rows with NaN
+          gloc, features, gloc_data_reduced = process_NaN_raw(gloc, features, gloc_data_reduced)
 
-      ### Impute missing row data
-    if impute_type == 0:
-      # Remove rows with NaN
-      gloc, features, gloc_data_reduced = process_NaN_raw(gloc, features, gloc_data_reduced)
+                ### Impute missing row data
+        elif impute_type == 1:
+            features, indicator_matrix = knn_impute(features, n_neighbors)
 
-            ### Impute missing row data
-    elif impute_type == 1:
-        features, indicator_matrix = knn_impute(features, n_neighbors)
+            ################################################## REDUCE MEMORY ##################################################
 
-        ################################################## REDUCE MEMORY ##################################################
+            # Grab columns from gloc_data_reduced and remove gloc_data_reduced variable from memory
+        trial_column = gloc_data_reduced['trial_id']
+        time_column = gloc_data_reduced['Time (s)']
+        event_validated_column = gloc_data_reduced['event_validated']
+        subject_column = gloc_data_reduced['subject']
 
-        # Grab columns from gloc_data_reduced and remove gloc_data_reduced variable from memory
-    trial_column = gloc_data_reduced['trial_id']
-    time_column = gloc_data_reduced['Time (s)']
-    event_validated_column = gloc_data_reduced['event_validated']
-    subject_column = gloc_data_reduced['subject']
+        del gloc_data_reduced
 
-    del gloc_data_reduced
+        save_variables_to_folder(cache_folder, {
+            'filename': filename,
+            'baseline_data_filename': baseline_data_filename,
+            'demographic_data_filename': demographic_data_filename,
+            'list_of_eeg_data_files': list_of_eeg_data_files,
+            'list_of_baseline_eeg_processed_files': list_of_baseline_eeg_processed_files,
+            'features': features,
+            'features_phys': features_phys,
+            'features_ecg': features_ecg,
+            'features_eeg': features_eeg,
+            'all_features': all_features,
+            'all_features_phys': all_features_phys,
+            'all_features_ecg': all_features_ecg,
+            'all_features_eeg': all_features_eeg,
+            'gloc': gloc,
+            'trial_column': trial_column,
+            'time_column': time_column,
+            'event_validated_column': event_validated_column,
+            'subject_column': subject_column,
+            'nan_proportion_df': nan_proportion_df if remove_NaN_trials else None,
+            'indicator_matrix': indicator_matrix if impute_type == 1 else None
+        })
 
+        print('reduce memory complete for', backstep, 'backstep')
+
+    else:
+        # Load from cache
+        cached_vars = load_variables_from_folder(cache_folder, [
+            'filename',
+            'baseline_data_filename',
+            'demographic_data_filename',
+            'list_of_eeg_data_files',
+            'list_of_baseline_eeg_processed_files',
+            'features',
+            'features_phys',
+            'features_ecg',
+            'features_eeg',
+            'all_features',
+            'all_features_phys',
+            'all_features_ecg',
+            'all_features_eeg',
+            'gloc',
+            'trial_column',
+            'time_column',
+            'event_validated_column',
+            'subject_column',
+            'nan_proportion_df',
+            'indicator_matrix'
+        ])
+
+        # Unpack
+        filename = cached_vars['filename']
+        baseline_data_filename = cached_vars['baseline_data_filename']
+        demographic_data_filename = cached_vars['demographic_data_filename']
+        list_of_eeg_data_files = cached_vars['list_of_eeg_data_files']
+        list_of_baseline_eeg_processed_files = cached_vars['list_of_baseline_eeg_processed_files']
+        features = cached_vars['features']
+        features_phys = cached_vars['features_phys']
+        features_ecg = cached_vars['features_ecg']
+        features_eeg = cached_vars['features_eeg']
+        all_features = cached_vars['all_features']
+        all_features_phys = cached_vars['all_features_phys']
+        all_features_ecg = cached_vars['all_features_ecg']
+        all_features_eeg = cached_vars['all_features_eeg']
+        gloc = cached_vars['gloc']
+        trial_column = cached_vars['trial_column']
+        time_column = cached_vars['time_column']
+        event_validated_column = cached_vars['event_validated_column']
+        subject_column = cached_vars['subject_column']
+        nan_proportion_df = cached_vars['nan_proportion_df']
+        indicator_matrix = cached_vars['indicator_matrix']
+        print('for', backstep, 'backstep... data was recovered from cache')  # debugging
 
         ################################################ Prediction Offset ###############################################
-
     # Flag to see if GLOC has any NaN in it
     if np.isnan(gloc).any():
         print('gloc has nan')
@@ -247,11 +321,14 @@ def data_with_prediction(backstep,data_rate, classifier_type):
                     features_eeg, all_features_eeg, baseline_data_filename, list_of_baseline_eeg_processed_files,
                     model_type))
 
+    print('baseline complete for', backstep, 'backstep')  # debugging
+
     y_gloc_labels, x_feature_matrix, all_features = (
       feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column,
                          time_column,
                          combined_baseline_names, baseline_names_v0, baseline_v0, feature_groups_to_analyze))
 
+    print('generation complete for', backstep, 'backstep')  # debugging
     # Remove constant columns
     x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
 
@@ -279,25 +356,31 @@ def data_with_prediction(backstep,data_rate, classifier_type):
 
         # Store generated features and reduced features at 0 seconds offset. FIX TO THIS for every other offset.
         # Need to name these files to specific classifiers
-        with open("all_features.pkl", 'wb') as file:
+        with open(all_features_name, 'wb') as file:
             pickle.dump(all_features, file)
 
-        with open("x_features.pkl", 'wb') as file:
+        with open(feature_matrix_name, 'wb') as file:
             pickle.dump(x_feature_matrix, file)
+
+        print('reduction complete for', backstep, 'backstep')  # debugging
     else:
         # If we have already generated features at 0 backstep, just reopen.
-        with open('all_features.pkl', 'rb') as file:
+        with open(all_features_name, 'rb') as file:
             all_features = pickle.load(file)
-        with open('x_features.pkl', 'rb') as file:
+        with open(feature_matrix_name, 'rb') as file:
             x_feature_matrix = pickle.load(file)
 
 
     ############################################## CLASS IMBALANCE ####################################################
+
+    # With the way the functions are currently designed need to do ROS on indiviudal train/test splits. Might be able to recode this later
+
     # Random Over Sampling | ros
     if imbalance_type == 'ros':
         # Implement Imbalance Sampling Technique
         x_train, x_test, y_train, y_test = train_test_split(x_feature_matrix, y_gloc_labels, training_ratio, random_state)
         ros_x_train, ros_y_train = resample_ros(x_train, y_train, random_state)
+        x_test, y_test = resample_ros(x_test, y_test, random_state)
         del x_train, y_train
         x_train = ros_x_train
         y_train = ros_y_train
@@ -328,17 +411,19 @@ def data_with_prediction(backstep,data_rate, classifier_type):
     #         feature_selection_performance_predict(x_feature_matrix, y_gloc_labels, all_features, classifier_type,
     #                     random_state))
 
-        ################################################ MODEL CALLS ################################################
-        """ 
-              Call each model function that has the stored hyperparameters, train and test the model, collect metrics
-    #     """
-    # Function call end
-    return (y_gloc_labels, x_feature_matrix,all_features)
+        ################################################ Get Outputs Ready ############################################
 
-def smote_andMORE (y_gloc_labels, x_feature_matrix, all_features, random_state,ID,num_folds):
+    x_feature_return = np.vstack((x_train, x_test))
+    y_return = np.vstack((y_train, y_test))
+
+
+    # Function call end
+    return (x_feature_return, y_return)
+
+def smote_andMORE (y_gloc_labels, x_feature_matrix,ID,num_folds):
     ################################################ TRAIN/TEST SPLIT  ################################################
     """
-          Split data into training/test. Will do 5 kfold splits
+          Split data into training/test with cross validation for performance
     """
     # # Training/Test Split with kfolds
     # inputs are y, x, the number of folds we will use and which fold iteration we are on.
@@ -347,10 +432,6 @@ def smote_andMORE (y_gloc_labels, x_feature_matrix, all_features, random_state,I
 
     # Simple version of train test split
     # x_train, x_test, y_train, y_test = train_test_split(x_feature_matrix, y_gloc_labels, test_size=0.2, random_state=random_state)
-
-    ################################################ Class Imbalance ################################################
-
-    x_train, y_train = simple_smote(x_train, y_train, random_state)
 
     return (y_train, y_test, x_train, x_test)
 
@@ -819,3 +900,19 @@ def feature_selection_lasso_predict(x, y, all_features, random_state):
     x = x[:, feature_index]
 
     return x, selected_features
+
+def save_variables_to_folder(folder_path, variables_dict):
+    os.makedirs(folder_path, exist_ok=True)
+    for var_name, var_value in variables_dict.items():
+        with open(os.path.join(folder_path, f"{var_name}.pkl"), 'wb') as f:
+            pickle.dump(var_value, f)
+
+def load_variables_from_folder(folder_path, variable_names):
+    loaded_vars = {}
+    for var_name in variable_names:
+        file_path = os.path.join(folder_path, f"{var_name}.pkl")
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Missing file: {file_path}")
+        with open(file_path, 'rb') as f:
+            loaded_vars[var_name] = pickle.load(f)
+    return loaded_vars

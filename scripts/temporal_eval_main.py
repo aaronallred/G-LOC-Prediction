@@ -21,7 +21,7 @@ from itertools import islice
 from imblearn.metrics import geometric_mean_score
 from baseline_methods import baseline_data
 from GLOC_data_processing import *
-from scripts.data_testing import plotting_offset_models, lr_call
+from scripts.temporal_functions import plotting_offset_models
 
 from scripts.features import feature_generation
 from scripts.imputation import knn_impute
@@ -30,14 +30,14 @@ import pickle
 from imblearn.metrics import geometric_mean_score
 from sklearn.model_selection import train_test_split
 
-from data_testing import data_with_prediction
-from data_testing import smote_andMORE
-from data_testing import rf_call
-from data_testing import lda_call
-from data_testing import ensemble_call
-from data_testing import knn_call
-from data_testing import lr_call
-from data_testing import svm_call
+from temporal_functions import data_with_prediction
+from temporal_functions import smote_andMORE
+from temporal_functions import rf_call
+from temporal_functions import lda_call
+from temporal_functions import ensemble_call
+from temporal_functions import knn_call
+from temporal_functions import lr_call
+from temporal_functions import svm_call
 from feature_selection import feature_selection_lasso
 import warnings
 warnings.filterwarnings("ignore", message="Could not find the number of physical cores")
@@ -49,9 +49,10 @@ warnings.filterwarnings("ignore", message="Could not find the number of physical
 # The general structure will be a loop that calls in data_testing but will only do certain sections more than once.
 # 0.04 is the smallest step size we can have (this is 25hz step)
 # Does not work to have a .5 second step size.
-offset_ranges = np.arange(0.04,20,0.04)
+########## offset_ranges = np.arange(0,20,0.04)
+offset_ranges = np.arange(0,5,1)
 data_rate = 25 # (hz)
-preference = 1 # Which section of the code do we want to run
+preference = 3 # Which section of the code do we want to run
 random_state = 42
 
 if preference == 1:
@@ -103,24 +104,21 @@ if preference == 3:
     specificity_model = np.zeros((len(offset_ranges), num_kfold))
     g_mean_model = np.zeros((len(offset_ranges), num_kfold))
 
-    # Load in the data that does not change with the looping
-    with open('all_features.pkl', 'rb') as file:
-        all_features = pickle.load(file)
-    with open('x_features_lasso.pkl', 'rb') as file:
-        x_feature_matrix = pickle.load(file)
+    classifier = 'logreg'
 
     for i in range(len(offset_ranges)):
-        filename = f"y_offset_{offset_ranges[i]}.pkl" # Find unique filename for y matrix of this offset
-
-        # Load in the pkl data files of GLOC labels
-        with open(filename, 'rb') as file:
-            y_gloc_labels = pickle.load(file).ravel()
-
-        # Begin nested loop for each fold to be evaluated
+        # filename = f"y_offset_{offset_ranges[i]}.pkl" # Find unique filename for y matrix of this offset
+        #
+        # # Load in the pkl data files of GLOC labels
+        # with open(filename, 'rb') as file:
+        #     y_gloc_labels = pickle.load(file).ravel()
+        (x,y) = data_with_prediction(offset_ranges[i], data_rate, classifier)
+        # Start nested loop for each fold to be evaluated
         for k in range(num_kfold):
             # Call models and collect performance data
-            (y_train, y_test, x_train, x_test) = smote_andMORE(y_gloc_labels, x_feature_matrix, all_features, random_state, k, num_kfold)
-            (accuracy, precision, recall, f1, specificity, g_mean) = rf_call(y_train, y_test, x_train, x_test)
+
+            y_train, y_test, x_train, x_test = smote_andMORE(y,x,k, num_kfold)
+            (accuracy, precision, recall, f1, specificity, g_mean) = lr_call(y_train, y_test, x_train, x_test)
 
             # Storing each value in arrays
             accuracy_model[i, k] = accuracy
