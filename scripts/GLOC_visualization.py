@@ -752,6 +752,52 @@ def plot_bayes_tuning(clf):
     plt.tight_layout()
     plt.show()
 
+
+def roc_curve_plot(all_labels, all_preds):
+    # Plot the ROC curve
+    fpr, tpr, _ = roc_curve(all_labels, all_preds)
+    roc_auc = auc(fpr, tpr)
+
+    plt.figure()
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {roc_auc:.2f})')
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic (ROC) Curve')
+    plt.legend(loc='lower right')
+    plt.show()
+
+
+def prediction_time_plot(ground_truth, predicted, predictors_over_time):
+    # Plot the true values and predicted values over time
+
+    # Plotting
+    fig, axes = plt.subplots(2, 1, figsize=(7, 14), sharex=True)
+
+    # Top subplot: Actual vs. Predicted Labels
+    axes[0].plot(predicted, label='Predicted Labels', color='red', linestyle='--', linewidth=1.5)
+    axes[0].plot(ground_truth, label='Actual Labels', color='green', linewidth=1.5)
+    axes[0].set_title('Actual vs. Predicted Labels')
+    axes[0].set_ylabel('Label Value')
+    axes[0].legend()
+    axes[0].grid(True)
+
+    # Bottom subplot: Predictors over Time
+    for feature_idx in range(predictors_over_time.shape[1]):  # Loop over each feature
+        axes[1].plot(predictors_over_time[:, feature_idx], label=f'Feature {feature_idx + 1}')
+
+    axes[1].set_title('Predictors from Test Dataset Over Time')
+    axes[1].set_xlabel('Time Step')
+    axes[1].set_ylabel('Feature Value')
+    # axes[1].legend()
+    axes[1].grid(True)
+
+    plt.tight_layout()
+    plt.show(block=False)
+    plt.pause(5)
+
 def plot_f1_over_horizons(data_dict):
     """
     Plot F1-score vs prediction horizon.
@@ -837,13 +883,90 @@ def plot_metrics_over_horizons(data_dict):
     plt.tight_layout()
     plt.show()
 
+def plot_metrics_over_offsets(data_dict, group_key="horizon", error_type="std"):
+    """
+    Plots all performance metrics vs. a chosen grouping key (e.g., 'offset' or 'horizon'),
+    using either min–max or ±std shading across folds.
+
+    group_key: str, optional
+        Column name (either {"offset", "horizon"}) in dict representing the x-axis variable
+    error_type: str, optional
+        Specify either {"range", "std"} if you want to shade a range of the std of the CV distribution
+    """
+
+    # Combine all DataFrames into one
+    combined_df = pd.concat(data_dict.values(), ignore_index=True)
+
+    # Identify metric columns (exclude group_key + folds if present)
+    non_metric_cols = [group_key]
+    if 'fold' in combined_df.columns:
+        non_metric_cols.append('fold')
+    metrics = [col for col in combined_df.columns if col not in non_metric_cols]
+
+    # Fixed colors for known metrics
+    metric_colors = {
+        'accuracy': 'blue',
+        'precision': 'green',
+        'recall': 'orange',
+        'f1': 'red',
+        'f1_score': 'red',
+        'specificity': 'purple',
+        'gmean': 'brown',
+        'g_mean': 'brown'
+    }
+
+    # Create subplots
+    n_metrics = len(metrics)
+    ncols = 3
+    nrows = (n_metrics + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(6 * ncols, 4 * nrows))
+    axes = axes.flatten() if n_metrics > 1 else [axes]
+
+    for i, metric in enumerate(metrics):
+        ax = axes[i]
+
+        # Group by group_key across folds
+        if error_type == "std":
+            grouped = combined_df.groupby(group_key)[metric].agg(['mean', 'std']).reset_index()
+            lower = grouped['mean'] - grouped['std']
+            upper = grouped['mean'] + grouped['std']
+        else:  # range
+            grouped = combined_df.groupby(group_key)[metric].agg(['mean', 'min', 'max']).reset_index()
+            lower, upper = grouped['min'], grouped['max']
+
+        color = metric_colors.get(metric.lower(), None)
+
+        x_vals = grouped[group_key] / 25 if group_key == "horizon" else grouped[group_key]
+
+        ax.plot(x_vals , grouped['mean'], marker='o',
+                color=color, label='Mean' if color is None else metric.capitalize())
+        ax.scatter(x_vals , grouped['mean'],
+                   color=color, edgecolor='black', zorder=5)
+        ax.fill_between(x_vals , lower, upper,
+                        color='gray', alpha=0.3,
+                        label='±1 std' if error_type == "std" else 'Range (min–max)')
+
+        ax.set_title(f"{metric.capitalize()} vs {group_key.capitalize()}")
+        ax.set_xlabel(group_key.capitalize() + " (s)")
+        ax.set_ylabel(metric.capitalize())
+        ax.grid(True)
+        ax.legend()
+
+    # Remove unused subplots
+    for j in range(i + 1, len(axes)):
+        fig.delaxes(axes[j])
+
+    plt.tight_layout()
+    plt.show()
+
 if __name__ == "__main__":
 
     # Plot Flags
     plot_data = 0       # flag to set whether plots should be generated (0 = no, 1 = yes)
     plot_pairwise = 0   # flag to set whether pairwise plots should be generated (0 = no, 1 = yes)
-    plot_cv = 1
+    plot_cv = 0
     plot_bayes = 0
+    plot_horizon = 1
 
     # Visualization of feature throughout trial
     if plot_data == 1:
@@ -876,46 +999,7 @@ if __name__ == "__main__":
 
         plot_bayes_tuning(clf)
 
-def roc_curve_plot(all_labels, all_preds):
-    # Plot the ROC curve
-    fpr, tpr, _ = roc_curve(all_labels, all_preds)
-    roc_auc = auc(fpr, tpr)
-
-    plt.figure()
-    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {roc_auc:.2f})')
-    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('Receiver Operating Characteristic (ROC) Curve')
-    plt.legend(loc='lower right')
-    plt.show()
-
-def prediction_time_plot(ground_truth, predicted,predictors_over_time):
-    # Plot the true values and predicted values over time
-
-    # Plotting
-    fig, axes = plt.subplots(2, 1, figsize=(7, 14), sharex=True)
-
-    # Top subplot: Actual vs. Predicted Labels
-    axes[0].plot(predicted, label='Predicted Labels', color='red', linestyle='--', linewidth=1.5)
-    axes[0].plot(ground_truth, label='Actual Labels', color='green', linewidth=1.5)
-    axes[0].set_title('Actual vs. Predicted Labels')
-    axes[0].set_ylabel('Label Value')
-    axes[0].legend()
-    axes[0].grid(True)
-
-    # Bottom subplot: Predictors over Time
-    for feature_idx in range(predictors_over_time.shape[1]):  # Loop over each feature
-        axes[1].plot(predictors_over_time[:, feature_idx], label=f'Feature {feature_idx + 1}')
-
-    axes[1].set_title('Predictors from Test Dataset Over Time')
-    axes[1].set_xlabel('Time Step')
-    axes[1].set_ylabel('Feature Value')
-    # axes[1].legend()
-    axes[1].grid(True)
-
-    plt.tight_layout()
-    plt.show(block=False)
-    plt.pause(5)
+    if plot_horizon == 1:
+        with open('../PerformanceSave/TemporalPrediction/Trans_forecast_horizons_fixed/AllHorizons.pkl', 'rb') as f:
+            clf = joblib.load(f)
+        plot_metrics_over_offsets(clf)

@@ -1,24 +1,16 @@
-from GLOC_data_processing import *
 from imputation import *
 from baseline_methods import *
-from features import *
-from feature_selection import *
 from GLOC_classifier import *
 from GLOC_visualization import *
 from imbalance_techniques import *
 import pickle
 import time
 import pandas as pd
-from numpy import number
-from openpyxl.styles.builtins import percent
 import os
-from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 from Transformer_supporting import transformer_class_load
 
-from GAM_supporting import gam_binary_class
-
-def main_loop(kfold_ID, num_splits, runname, param_path, horizon):
+def main_loop(kfold_ID, num_splits, runname, param_path, impute_path, horizon):
     start_time = time.time()
     save_folder = os.path.join("../ModelSave/Temporal", runname, str(kfold_ID))
     os.makedirs(save_folder, exist_ok=True)
@@ -126,7 +118,7 @@ def main_loop(kfold_ID, num_splits, runname, param_path, horizon):
     ### Impute missing row data
     if impute_type == 1:
         # Set full path for imputed data
-        impute_path = os.path.join(param_path, "imputed_data.pkl")
+        impute_path = os.path.join(impute_path, "imputed_data.pkl")
 
         # Grab train and test indices
         _, _, _, _, train_ind, test_ind = groupedtrial_kfold_split(gloc, features,
@@ -272,7 +264,7 @@ if __name__ == "__main__":
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
     # Naming run and save location for summary pkl files
-    runname = 'Trans_forecast_horizons_fixed'
+    runname = 'Trans_forecast_horizons_CV'
     summary_loc = "../PerformanceSave/TemporalPrediction"
 
     # For loading model parameters
@@ -280,40 +272,45 @@ if __name__ == "__main__":
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10
-    kfold_ID = 6 # Median performer for Transformer
+
+    # For loading model parameters
+    kfold_ID_Load = 6 # Median performer for Transformer
+    param_path = os.path.join("../ModelSave/CV", "Explicit_final", str(kfold_ID_Load))
 
     # Define horizon range
-    horizons = list(range(0, 376, 25))
+    horizons = list(range(0, 401, 50))
+    kfold_IDs = list(range(0, 10, 2))
 
     # Pre-Allocate Performance Summary Dictionary
     horizon_performance_summary = dict()
 
     # Loop through Imputation Methods
-    for horizon in horizons:
+    for fold in kfold_IDs:
+        for horizon in horizons:
 
-        # Make a key identifier for the dictionary
-        method_key = f"fold{str(kfold_ID)}_h{str(horizon)}"
+            # Make a key identifier for the dictionary
+            method_key = f"fold{str(fold)}_h{str(horizon)}"
 
-        # For loading model parameters
-        param_path = os.path.join("../ModelSave/CV", "Explicit_final", str(kfold_ID))
+            # For loading imputation (if saved)
+            impute_path = os.path.join("../ModelSave/CV/Explicit_final", str(fold))
 
-        # Run main loop
-        single_run = main_loop(kfold_ID, num_splits, runname, param_path, horizon)
-        single_run['horizon'] = horizon
-        single_run['fold'] = kfold_ID
+            # Run main loop
+            single_run = main_loop(fold, num_splits, runname, param_path, impute_path, horizon)
+            single_run['horizon'] = horizon
+            single_run['fold'] = fold
 
-        horizon_performance_summary[method_key] = single_run
+            horizon_performance_summary[method_key] = single_run
 
-        save_folder = os.path.join(summary_loc, runname)
-        save_file = f'FoldSummary_{method_key}.pkl'
-        save_path = os.path.join(save_folder, save_file)
+            save_folder = os.path.join(summary_loc, runname)
+            save_file = f'FoldSummary_{method_key}.pkl'
+            save_path = os.path.join(save_folder, save_file)
 
-        # Ensure the save folder exists
-        if not os.path.exists(save_folder):
-            os.makedirs(save_folder)
+            # Ensure the save folder exists
+            if not os.path.exists(save_folder):
+                os.makedirs(save_folder)
 
-        with open(save_path, 'wb') as file:
-            pickle.dump(horizon_performance_summary, file)
+            with open(save_path, 'wb') as file:
+                pickle.dump(horizon_performance_summary, file)
 
     # Save pkl summary
     save_folder = os.path.join(summary_loc, runname)
@@ -328,4 +325,3 @@ if __name__ == "__main__":
         pickle.dump(horizon_performance_summary, file)
 
     plot_metrics_over_horizons(horizon_performance_summary)
-    # plot_cross_val_sp(kfold_performance_summary)
