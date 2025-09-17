@@ -18,7 +18,7 @@ from Transformer_supporting import transformer_class_load
 
 from GAM_supporting import gam_binary_class
 
-def main_loop(kfold_ID, num_splits, runname, param_path):
+def main_loop(kfold_ID, num_splits, runname, param_path, horizon):
     start_time = time.time()
     save_folder = os.path.join("../ModelSave/Temporal", runname, str(kfold_ID))
     os.makedirs(save_folder, exist_ok=True)
@@ -251,7 +251,7 @@ def main_loop(kfold_ID, num_splits, runname, param_path):
     # Transformer
     if classifier_type == 'Trans' or classifier_type == 'all':
         accuracy, precision, recall, f1, specificity, g_mean = (
-            transformer_class_load(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+            transformer_class_load(x_train, x_test, y_train, y_test, horizon, class_weight_imb, random_state,
                               all_features,param_path=param_path, save_folder=save_folder))
 
         performance_metric_summary_single = single_classifier_performance_summary(
@@ -272,7 +272,7 @@ if __name__ == "__main__":
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
     # Naming run and save location for summary pkl files
-    runname = 'Trans_forecast'
+    runname = 'Trans_forecast_horizons_fixed'
     summary_loc = "../PerformanceSave/TemporalPrediction"
 
     # For loading model parameters
@@ -280,25 +280,32 @@ if __name__ == "__main__":
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10
-    kfold_ID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    kfold_ID = 6 # Median performer for Transformer
+
+    # Define horizon range
+    horizons = list(range(0, 376, 25))
 
     # Pre-Allocate Performance Summary Dictionary
-    kfold_performance_summary = dict()
+    horizon_performance_summary = dict()
 
     # Loop through Imputation Methods
-    for i in range(len(kfold_ID)):
-        # Loop through all train-test splits
-        method_key = str(kfold_ID[i])
+    for horizon in horizons:
+
+        # Make a key identifier for the dictionary
+        method_key = f"fold{str(kfold_ID)}_h{str(horizon)}"
 
         # For loading model parameters
-        param_path = os.path.join("../ModelSave/CV", "Explicit_final", method_key)
+        param_path = os.path.join("../ModelSave/CV", "Explicit_final", str(kfold_ID))
 
         # Run main loop
-        kfold_performance_summary[method_key] = main_loop(kfold_ID[i], num_splits, runname, param_path)
+        single_run = main_loop(kfold_ID, num_splits, runname, param_path, horizon)
+        single_run['horizon'] = horizon
+        single_run['fold'] = kfold_ID
 
-        # Save pkl summary for this iteration
-        save_folder = os.path.join(summary_loc, runname, method_key)
-        save_file = 'FoldSummary.pkl'
+        horizon_performance_summary[method_key] = single_run
+
+        save_folder = os.path.join(summary_loc, runname)
+        save_file = f'FoldSummary_{method_key}.pkl'
         save_path = os.path.join(save_folder, save_file)
 
         # Ensure the save folder exists
@@ -306,11 +313,11 @@ if __name__ == "__main__":
             os.makedirs(save_folder)
 
         with open(save_path, 'wb') as file:
-            pickle.dump(kfold_performance_summary, file)
+            pickle.dump(horizon_performance_summary, file)
 
     # Save pkl summary
     save_folder = os.path.join(summary_loc, runname)
-    save_file = 'AllFolds.pkl'
+    save_file = 'AllHorizons.pkl'
     save_path = os.path.join(save_folder, save_file)
 
     # Ensure the save folder exists
@@ -318,6 +325,7 @@ if __name__ == "__main__":
         os.makedirs(save_folder)
 
     with open(save_path, 'wb') as file:
-        pickle.dump(kfold_performance_summary, file)
+        pickle.dump(horizon_performance_summary, file)
 
-    plot_cross_val_sp(kfold_performance_summary)
+    plot_metrics_over_horizons(horizon_performance_summary)
+    # plot_cross_val_sp(kfold_performance_summary)

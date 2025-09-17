@@ -460,7 +460,7 @@ def plot_cross_val_sp(data_dict):
     ncols = 2
     nrows = math.ceil(num_metrics / ncols)
 
-    # --- Compute F1-score statistics ---
+    #  Compute F1-score statistics
     if 'f1-score' in combined_df.columns and 'model' in combined_df.columns:
         # Group by model and calculate median, count, std, and 95% CI
         f1_stats = (
@@ -748,6 +748,91 @@ def plot_bayes_tuning(clf):
     plt.ylabel("Best F1 Score so far")
     plt.grid(True)
 
+
+    plt.tight_layout()
+    plt.show()
+
+def plot_f1_over_horizons(data_dict):
+    """
+    Plot F1-score vs prediction horizon.
+
+    Parameters
+    ----------
+    data_dict : dict
+        Dictionary where keys are horizons (as str or int)
+        and values are dictionaries or DataFrames that contain an 'f1-score' entry.
+    """
+
+    # --- Extract horizons and F1 scores ---
+    horizons = []
+    f1_scores = []
+
+    for h, results in data_dict.items():
+        # Handle if results are dicts or DataFrames
+        if isinstance(results, dict) and 'f1-score' in results:
+            f1 = results['f1-score']
+        elif hasattr(results, "loc") and 'f1-score' in results.columns:
+            # If DataFrame: take mean across folds
+            f1 = results['f1-score'].mean()
+        else:
+            print(f"Warning: No f1-score found for horizon {h}")
+            continue
+
+        horizons.append(int(h))
+        f1_scores.append(f1)
+
+    # --- Sort by horizon ---
+    horizons, f1_scores = zip(*sorted(zip(horizons, f1_scores)))
+
+    # --- Plot ---
+    plt.figure(figsize=(8, 5))
+    plt.plot(horizons, f1_scores, marker='o', linestyle='-', color='tab:blue')
+    plt.xlabel("Prediction Horizon")
+    plt.ylabel("F1 Score")
+    plt.title("F1 Score vs Prediction Horizon")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_metrics_over_horizons(data_dict):
+    """
+    Plots all performance metrics over horizons.
+    """
+    # Combine all DataFrames into one
+    combined_df = pd.concat(data_dict.values(), ignore_index=True)
+
+    # Determine metric columns (exclude non-metrics)
+    non_metric_cols = ['fold', 'horizon'] if 'fold' in combined_df.columns else ['horizon']
+    metrics = [col for col in combined_df.columns if col not in non_metric_cols]
+
+    # Create subplots
+    n_metrics = len(metrics)
+    ncols = 2
+    nrows = (n_metrics + 1) // ncols
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(8 * ncols, 5 * nrows))
+    axes = axes.flatten() if n_metrics > 1 else [axes]
+
+    for i, metric in enumerate(metrics):
+        ax = axes[i]
+
+        # Group by horizon to compute mean and std across folds
+        grouped = combined_df.groupby('horizon')[metric].agg(['mean', 'std']).reset_index()
+        ax.plot(grouped['horizon'], grouped['mean'], marker='o', label='Mean')
+        ax.fill_between(grouped['horizon'],
+                        grouped['mean'] - grouped['std'],
+                        grouped['mean'] + grouped['std'],
+                        alpha=0.2, label='±1 std')
+
+        ax.set_title(f"{metric.capitalize()} over Horizon")
+        ax.set_xlabel("Horizon")
+        ax.set_ylabel(metric.capitalize())
+        ax.grid(True)
+        ax.legend()
+
+    # Hide any unused axes
+    for j in range(i + 1, len(axes)):
+        fig.delaxes(axes[j])
 
     plt.tight_layout()
     plt.show()

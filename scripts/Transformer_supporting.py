@@ -278,7 +278,7 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     return accuracy, precision, recall, f1, specificity, g_mean
 
 import forecasting_fun
-def transformer_class_load(x_train, x_test, y_train, y_test, class_weight_imb, random_state, all_features, param_path, save_folder):
+def transformer_class_load(x_train, x_test, y_train, y_test, horizon, class_weight_imb, random_state, all_features, param_path, save_folder):
     """
     Train a Transformer model directly from saved hyperparameters and metadata JSON files (skip Optuna).
     """
@@ -319,12 +319,12 @@ def transformer_class_load(x_train, x_test, y_train, y_test, class_weight_imb, r
     workers = get_optimal_workers()
     train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
         train_test_split_trials_forecast(x_train_ds, y_train, sequence_length, step_size, test_ratio=None,
-                                random_state=random_state, end_label=True)
+                                random_state=random_state, end_label=True, horizon=horizon)
     )
 
     test_dataset, _, _, _, _, _ = (
         train_test_split_trials_forecast(x_test_ds, y_test, sequence_length, step_size=10, test_ratio=None,
-                                random_state=random_state, end_label=True)
+                                random_state=random_state, end_label=True, horizon=horizon)
     )
 
     # Build model
