@@ -1000,6 +1000,6 @@ if __name__ == "__main__":
         plot_bayes_tuning(clf)
 
     if plot_horizon == 1:
-        with open('../PerformanceSave/TemporalPrediction/Trans_forecast_horizons_fixed/AllHorizons.pkl', 'rb') as f:
+        with open('../PerformanceSave/TemporalPrediction/Trans_forecast_horizons_CV/AllHorizons.pkl', 'rb') as f:
             clf = joblib.load(f)
         plot_metrics_over_offsets(clf)

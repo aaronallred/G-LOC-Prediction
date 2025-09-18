@@ -277,8 +277,10 @@ if __name__ == "__main__":
     kfold_ID_Load = 6 # Median performer for Transformer
     param_path = os.path.join("../ModelSave/CV", "Explicit_final", str(kfold_ID_Load))
 
-    # Define horizon range
+    # Define horizon range set
     horizons = list(range(0, 401, 50))
+
+    # Define CV range set
     kfold_IDs = list(range(0, 10, 2))
 
     # Pre-Allocate Performance Summary Dictionary
@@ -324,4 +326,4 @@ if __name__ == "__main__":
     with open(save_path, 'wb') as file:
         pickle.dump(horizon_performance_summary, file)
 
-    plot_metrics_over_horizons(horizon_performance_summary)
+    plot_metrics_over_offsets(horizon_performance_summary)

@@ -42,21 +42,37 @@ class NAM(nn.Module):
         layers.append(nn.Linear(num_units, 1))
         return nn.Sequential(*layers)
 
+    # def forward_og(self, x):
+    #     # x shape: (batch_size, sequence_length, num_features)
+    #     batch_size, seq_len, num_features = x.shape
+    #     outputs = []
+    #     for i in range(self.num_features):  # input_dim = num_features
+    #         feature_seq = x[:, :, i]  # shape: (batch_size, sequence_length)
+    #         feature_seq = feature_seq.unsqueeze(-1)  # shape: (batch_size, sequence_length, 1)
+    #         out = self.subnetworks[i](feature_seq)  # apply the feature’s subnetwork
+    #         outputs.append(out.squeeze(-1))  # shape: (batch_size, sequence_length)
+    #
+    #     # Sum over features, then reduce over time (mean or sum over time)
+    #     combined = torch.stack(outputs, dim=0).sum(dim=0)  # shape: (batch_size, sequence_length)
+    #     combined = combined.mean(dim=1, keepdim=True)  # shape: (batch_size, 1)
+    #     return combined
+
     def forward(self, x):
-        # x shape: (batch_size, sequence_length, num_features)
+        # x shape: (batch_size, seq_len, num_features)
         batch_size, seq_len, num_features = x.shape
         outputs = []
-        for i in range(self.num_features):  # input_dim = num_features
-            feature_seq = x[:, :, i]  # shape: (batch_size, sequence_length)
-            feature_seq = feature_seq.unsqueeze(-1)  # shape: (batch_size, sequence_length, 1)
-            out = self.subnetworks[i](feature_seq)  # apply the feature’s subnetwork
-            outputs.append(out.squeeze(-1))  # shape: (batch_size, sequence_length)
 
-        # Sum over features, then reduce over time (mean or sum over time)
-        combined = torch.stack(outputs, dim=0).sum(dim=0)  # shape: (batch_size, sequence_length)
-        combined = combined.mean(dim=1, keepdim=True)  # shape: (batch_size, 1)
-        return combined
+        # Flatten batch and sequence for each feature to speed up computation
+        for i, subnetwork in enumerate(self.subnetworks):
+            xi = x[:, :, i].reshape(batch_size * seq_len, 1)  # (batch*seq_len, 1)
+            out = subnetwork(xi)  # (batch*seq_len, 1)
+            out = out.reshape(batch_size, seq_len)  # reshape back to (batch, seq_len)
+            outputs.append(out)
 
+        # Sum over features, then reduce over time (mean)
+        combined = torch.stack(outputs, dim=0).sum(dim=0)  # (batch, seq_len)
+        combined = combined.mean(dim=1, keepdim=True)  # (batch, 1)
+        return self.final_activation(combined)
 
 def make_objective(x_train, y_train, class_weights, random_state, save_folder, use_sampler, objective_var, all_features):
     """
@@ -155,7 +171,7 @@ def nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
     """
         Main Neural Additive Model (GLM - extension of GAM) Script
         Input: train and test split of data
-        Output: model performance of trained model evaluated on test data
+        Output: model performance of the trained model evaluated on test data
     """
     # User Options
     use_sampler = True # Optionally use sampler to sample the minority class (ROS)
