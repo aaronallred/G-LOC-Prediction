@@ -1,6 +1,8 @@
 import numpy as np
 import os
 import joblib  # For saving the model
+from numpy import ravel
+import time
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn import metrics
@@ -21,17 +23,13 @@ from itertools import islice
 from imblearn.metrics import geometric_mean_score
 from baseline_methods import baseline_data
 from GLOC_data_processing import *
-from scripts.temporal_functions import plotting_offset_models
-
-from scripts.features import feature_generation
-from scripts.imputation import knn_impute
+from scripts.temporal_functions import plotting_offset_models, cross_validation_split, data_with_prediction, \
+    plot_f1_scores_across_classifiers
 import pickle
 
 from imblearn.metrics import geometric_mean_score
 from sklearn.model_selection import train_test_split
 
-from temporal_functions import data_with_prediction
-from temporal_functions import smote_andMORE
 from temporal_functions import rf_call
 from temporal_functions import lda_call
 from temporal_functions import ensemble_call
@@ -42,7 +40,7 @@ from feature_selection import feature_selection_lasso
 import warnings
 warnings.filterwarnings("ignore", message="Could not find the number of physical cores")
 
-
+start_time = time.time()
 ######## This is the new main file that will be used for the prediction side of things to loop and through each
 ######## classifier and get performance. Will only have 2 other scripts that it calls from
 
@@ -50,7 +48,8 @@ warnings.filterwarnings("ignore", message="Could not find the number of physical
 # 0.04 is the smallest step size we can have (this is 25hz step)
 # Does not work to have a .5 second step size.
 ########## offset_ranges = np.arange(0,20,0.04)
-offset_ranges = np.arange(0,5,1)
+
+offset_ranges = np.arange(0,20,1)
 data_rate = 25 # (hz)
 preference = 3 # Which section of the code do we want to run
 random_state = 42
@@ -95,56 +94,113 @@ if preference == 2:
 if preference == 3:
     # This preference section will load in pkl files and train/validate models according to offset data
     # NOTE: This code sequence will throw an error as it starts about number of cores using to process
-    # Initialize the arrays
-    num_kfold = 10  # Number of kfolds we will use for validation
-    accuracy_model = np.zeros((len(offset_ranges), num_kfold))
-    precision_model = np.zeros((len(offset_ranges), num_kfold))
-    recall_model = np.zeros((len(offset_ranges), num_kfold))
-    f1_model = np.zeros((len(offset_ranges), num_kfold))
-    specificity_model = np.zeros((len(offset_ranges), num_kfold))
-    g_mean_model = np.zeros((len(offset_ranges), num_kfold))
 
-    classifier = 'logreg'
+    # Can adjust this as needed to specify what classifiers we want to test
+    # options are: SVM , EGB, KNN, logreg, RF , LDA
+    classifiers_to_test = ['SVM', 'EGB', 'KNN','logreg','rf', 'LDA']
 
-    for i in range(len(offset_ranges)):
-        # filename = f"y_offset_{offset_ranges[i]}.pkl" # Find unique filename for y matrix of this offset
-        #
-        # # Load in the pkl data files of GLOC labels
-        # with open(filename, 'rb') as file:
-        #     y_gloc_labels = pickle.load(file).ravel()
-        (x,y) = data_with_prediction(offset_ranges[i], data_rate, classifier)
-        # Start nested loop for each fold to be evaluated
-        for k in range(num_kfold):
-            # Call models and collect performance data
+    for m in range(len(classifiers_to_test)):
+        # Initialize the arrays and class type
+        classifier = classifiers_to_test[m]
 
-            y_train, y_test, x_train, x_test = smote_andMORE(y,x,k, num_kfold)
-            (accuracy, precision, recall, f1, specificity, g_mean) = lr_call(y_train, y_test, x_train, x_test)
+        num_kfold = 5  # Number of kfolds we will use for validation
+        accuracy_model = np.zeros((len(offset_ranges), num_kfold))
+        precision_model = np.zeros((len(offset_ranges), num_kfold))
+        recall_model = np.zeros((len(offset_ranges), num_kfold))
+        f1_model = np.zeros((len(offset_ranges), num_kfold))
+        specificity_model = np.zeros((len(offset_ranges), num_kfold))
+        g_mean_model = np.zeros((len(offset_ranges), num_kfold))
 
-            # Storing each value in arrays
-            accuracy_model[i, k] = accuracy
-            precision_model[i, k] = precision
-            recall_model[i, k] = recall
-            f1_model[i, k] = f1
-            specificity_model[i, k] = specificity
-            g_mean_model[i, k] = g_mean
+        print('Starting loop for ', classifier)  # debugging
 
-        print('Success for offset of', offset_ranges[i])
-        # Store metric of each offset into an array.
+        for i in range(len(offset_ranges)):
 
-        # Clear variables at end of loop before reassignment on next iteration of loop
-        del y_train, y_test, x_train, x_test
+            # Call prediction function to obtain x and y. All methods are implemented in this function
+            (x,y) = data_with_prediction(offset_ranges[i], data_rate, classifier)
+            # Start nested loop for each fold to be evaluated
+            for k in range(num_kfold):
+                # Call models and collect performance data
+                print('Cross validating for k of', k)  # debugging
+                y_train, y_test, x_train, x_test = cross_validation_split(ravel(y),x,k, num_kfold)
 
-    # Plotting the results for one particular model, outside the loop
-    plotting_offset_models(offset_ranges, accuracy_model, precision_model, recall_model, f1_model, specificity_model, g_mean_model)
+                print('Classifier call for k of', k)  # debugging
+                if classifier == 'rf':
+                    (accuracy, precision, recall, f1, specificity, g_mean) = rf_call(y_train, y_test, x_train, x_test)
+                if classifier == 'LDA':
+                    (accuracy, precision, recall, f1, specificity, g_mean) = lda_call(y_train, y_test, x_train, x_test)
+                if classifier == 'logreg':
+                    (accuracy, precision, recall, f1, specificity, g_mean) = lr_call(y_train, y_test, x_train, x_test)
+                if classifier == 'SVM':
+                    (accuracy, precision, recall, f1, specificity, g_mean) = svm_call(y_train, y_test, x_train, x_test)
+                if classifier == 'KNN':
+                    (accuracy, precision, recall, f1, specificity, g_mean) = knn_call(y_train, y_test, x_train, x_test)
+                if classifier == 'EGB':
+                    (accuracy, precision, recall, f1, specificity, g_mean) = ensemble_call(y_train, y_test, x_train, x_test)
 
-        # # Print performance metrics
-        # print(f"\nLogistic Regression Performance Metrics for offset of {offset_ranges[i]}:")
-        # print("Accuracy: ", accuracy)
-        # print("Precision: ", precision)
-        # print("Recall: ", recall)
-        # print("F1 Score: ", f1)
-        # print("Specificity: ", specificity)
-        # print("G-Mean: ", g_mean)
+                # Storing each value in arrays
+                accuracy_model[i, k] = accuracy
+                precision_model[i, k] = precision
+                recall_model[i, k] = recall
+                f1_model[i, k] = f1
+                specificity_model[i, k] = specificity
+                g_mean_model[i, k] = g_mean
+
+            print('Success for offset of', offset_ranges[i], 'using classifier:', classifier)
+
+            # Clear variables at end of loop before reassignment on next iteration of loop
+            del y_train, y_test, x_train, x_test
+
+        # Plotting the results, function also saves the data to a folder for one particular model, outside the loop
+        plotting_offset_models(offset_ranges, accuracy_model, precision_model, recall_model, f1_model, specificity_model, g_mean_model,classifier)
+
+            # # Print performance metrics
+            # print(f"\nLogistic Regression Performance Metrics for offset of {offset_ranges[i]}:")
+            # print("Accuracy: ", accuracy)
+            # print("Precision: ", precision)
+            # print("Recall: ", recall)
+            # print("F1 Score: ", f1)
+            # print("Specificity: ", specificity)
+            # print("G-Mean: ", g_mean)
+        end_time = time.time()
+        elapsed = end_time - start_time
+        print(f"Total time for classifier '{classifier}': {elapsed:.2f} seconds")
+
+
+if preference == 4:
+    # This code preference will work with already derived/stored data as needed.
+
+    # Folder where results are stored
+    results_folder = './prediction_model_results'
+
+    # List of classifier names
+    # just classifiers_to_test
+    classifiers_to_test = ['rf', 'LDA', 'SVM', 'EGB', 'KNN', 'logreg']
+
+    # Load each F1 score file into a dictionary
+    f1_score_dict = {}
+
+    for clf in classifiers_to_test:
+        filename = f"f1_score_results_{clf}.pkl"
+        filepath = os.path.join(results_folder, filename)
+        if os.path.exists(filepath):
+            with open(filepath, 'rb') as f:
+                f1_score_dict[clf] = pickle.load(f) # store f1 scores into a dictionary
+            print(f"Loaded F1 scores for {clf}")
+        else:
+            print(f"File not found: {filepath}")
+
+    # Now do window_lengths for each classifier type
+    window_lengths = {
+        'logreg': 12.5, # FROM NIKKI PAPER
+        'rf': 7.5, # FROM NIKKI PAPER
+        'LDA': 15, # FROM NIKKI PAPER
+        'SVM': 15, # FROM NIKKI PAPER
+        'EGB': 12.5, # FROM NIKKI PAPER
+        'KNN': 15, # FROM NIKKI PAPER
+    }
+
+    plot_f1_scores_across_classifiers(offset_ranges, f1_score_dict, window_lengths)
+
 
 
 
