@@ -1,3 +1,13 @@
+The main functionsc called by either sequential optimization or cross validation are in the scripts folder. 
+
+Cross validation scripts are in the scripts/CrossValidation folder, with old scripts in the 'old' folder within scripts/CrossValidation.
+
+Sequential optimization scripts are in the scripts/SequentialOptimization folder, with old scripts in the 'old' folder within scripts/SequentialOptimization folder.
+
+The features used in the ML modeling of G-LOC can be grouped into two primary groups- phys only (also called implicit in some scripts) or phys+ (also called explicit in some scripts). Phys only features are those collected during a centrifuge trial, where phys + include all phys only features plus additional features including demographics, strain information, and AFE information.
+
+Feature groups for the scripts can be seen below:
+
 Feature groups
          ECG ('HR (bpm) - Equivital','ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital', 'HR_instant - Equivital',
               'HR_average - Equivital', 'HR_w_average - Equivital')
@@ -49,4 +59,4 @@ Feature groups
                                                'participant_biceps_girth_relax', 'participant_neck_flexion',
                                                'participant_neck_extension', 'participant_neck_right_rotation', 'participant_neck_left_rotation',
                                                'participant_neck_left_lat_flex', 'participant_neck_right_lat_flex',
-                                               'participant_pred_vo2'
+                                               'participant_pred_vo2')
