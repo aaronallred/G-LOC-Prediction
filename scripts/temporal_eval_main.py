@@ -23,36 +23,32 @@ from itertools import islice
 from imblearn.metrics import geometric_mean_score
 from baseline_methods import baseline_data
 from GLOC_data_processing import *
-from scripts.temporal_functions import plotting_offset_models, cross_validation_split, data_with_prediction, \
-    plot_f1_scores_across_classifiers
+from scripts.GLOC_classifier import stratified_kfold_split, classify_logistic_regression, classify_random_forest, \
+    classify_lda, classify_svm, classify_knn, classify_ensemble_with_gradboost
+from scripts.imbalance_techniques import resample_ros
+from scripts.temporal_functions import plotting_offset_models, data_with_prediction, \
+    plot_f1_scores_across_classifiers, plot_saved_offset_models
 import pickle
 
 from imblearn.metrics import geometric_mean_score
 from sklearn.model_selection import train_test_split
 
-from temporal_functions import rf_call
-from temporal_functions import lda_call
-from temporal_functions import ensemble_call
-from temporal_functions import knn_call
-from temporal_functions import lr_call
-from temporal_functions import svm_call
 from feature_selection import feature_selection_lasso
 import warnings
 warnings.filterwarnings("ignore", message="Could not find the number of physical cores")
 
-start_time = time.time()
 ######## This is the new main file that will be used for the prediction side of things to loop and through each
 ######## classifier and get performance. Will only have 2 other scripts that it calls from
 
 # The general structure will be a loop that calls in data_testing but will only do certain sections more than once.
 # 0.04 is the smallest step size we can have (this is 25hz step)
 # Does not work to have a .5 second step size.
-########## offset_ranges = np.arange(0,20,0.04)
 
-offset_ranges = np.arange(0,20,1)
+offset_ranges = np.arange(0,1,1) #FOR FULL RUNS: (0,21,1)
 data_rate = 25 # (hz)
 preference = 3 # Which section of the code do we want to run
 random_state = 42
+class_weight_imb = None
 
 if preference == 1:
     # This preference section will load in all the data and clean it for various offset ranges.
@@ -97,13 +93,14 @@ if preference == 3:
 
     # Can adjust this as needed to specify what classifiers we want to test
     # options are: SVM , EGB, KNN, logreg, RF , LDA
-    classifiers_to_test = ['SVM', 'EGB', 'KNN','logreg','rf', 'LDA']
+    classifiers_to_test = ['logreg','EGB']
 
     for m in range(len(classifiers_to_test)):
         # Initialize the arrays and class type
+        start_time = time.time()
         classifier = classifiers_to_test[m]
 
-        num_kfold = 5  # Number of kfolds we will use for validation
+        num_kfold = 3  # Number of kfolds we will use for validation, FOR FULL RUNS 10
         accuracy_model = np.zeros((len(offset_ranges), num_kfold))
         precision_model = np.zeros((len(offset_ranges), num_kfold))
         recall_model = np.zeros((len(offset_ranges), num_kfold))
@@ -117,25 +114,36 @@ if preference == 3:
 
             # Call prediction function to obtain x and y. All methods are implemented in this function
             (x,y) = data_with_prediction(offset_ranges[i], data_rate, classifier)
+
             # Start nested loop for each fold to be evaluated
             for k in range(num_kfold):
                 # Call models and collect performance data
-                print('Cross validating for k of', k)  # debugging
-                y_train, y_test, x_train, x_test = cross_validation_split(ravel(y),x,k, num_kfold)
+                print('Splitting for Kfold k of', k)  # debugging
+                x_train, x_test, y_train, y_test = stratified_kfold_split(ravel(y),x,num_kfold, k,random_state)
 
                 print('Classifier call for k of', k)  # debugging
-                if classifier == 'rf':
-                    (accuracy, precision, recall, f1, specificity, g_mean) = rf_call(y_train, y_test, x_train, x_test)
+                if classifier == 'RF':
+                    (accuracy, precision, recall, f1, tree_depth, specificity, g_mean) = classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                           save_folder="../prediction_model_results",model_name="random_forest_model.pkl",retrain=True)
                 if classifier == 'LDA':
-                    (accuracy, precision, recall, f1, specificity, g_mean) = lda_call(y_train, y_test, x_train, x_test)
+                    (accuracy, precision, recall, f1, specificity, g_mean) = classify_lda(x_train, x_test, y_train, y_test, random_state,
+                                                                                          save_folder="../prediction_model_results",
+                                                                                          model_name="LDA_model.pkl",
+                                                                                          retrain=True)
                 if classifier == 'logreg':
-                    (accuracy, precision, recall, f1, specificity, g_mean) = lr_call(y_train, y_test, x_train, x_test)
+                    (accuracy, precision, recall, f1, specificity, g_mean) = classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                           save_folder="../prediction_model_results",model_name="logistic_regression_model.pkl",retrain=True)
                 if classifier == 'SVM':
-                    (accuracy, precision, recall, f1, specificity, g_mean) = svm_call(y_train, y_test, x_train, x_test)
+                    (accuracy, precision, recall, f1, specificity, g_mean) = classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                           save_folder="../prediction_model_results",model_name="svm_model.pkl",retrain=True)
                 if classifier == 'KNN':
-                    (accuracy, precision, recall, f1, specificity, g_mean) = knn_call(y_train, y_test, x_train, x_test)
+                    # Implement Imbalance Sampling Technique ONLY FOR KNN. Need to think of better code implementation for this
+                    ros_x_train, ros_y_train = resample_ros(x_train, y_train, random_state)
+                    (accuracy, precision, recall, f1, specificity, g_mean) = classify_knn(ros_x_train, x_test, ros_y_train, y_test, random_state,
+                           save_folder="../prediction_model_results",model_name="knn_model.pkl",retrain=True)
                 if classifier == 'EGB':
-                    (accuracy, precision, recall, f1, specificity, g_mean) = ensemble_call(y_train, y_test, x_train, x_test)
+                    (accuracy, precision, recall, f1, specificity, g_mean) = classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, random_state,
+                                     save_folder="../prediction_model_results",model_name="ensemble_model.pkl", retrain = True)
 
                 # Storing each value in arrays
                 accuracy_model[i, k] = accuracy
@@ -200,6 +208,12 @@ if preference == 4:
     }
 
     plot_f1_scores_across_classifiers(offset_ranges, f1_score_dict, window_lengths)
+
+
+if preference == 5:
+    # Use this preference section to plot all metrics of specific saved models.
+    plot_saved_offset_models('RF')
+
 
 
 

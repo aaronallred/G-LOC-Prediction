@@ -7,6 +7,7 @@ from sklearn.metrics import f1_score, make_scorer
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import Lasso, LogisticRegression
+from sklearn.metrics import make_scorer, r2_score
 from sklearn.model_selection import GridSearchCV, KFold
 from feature_engine.selection import MRMR
 from sklearn.linear_model import ElasticNet
@@ -17,6 +18,8 @@ from feature_engine.selection import SelectByTargetMeanPerformance
 from feature_engine.selection import SelectBySingleFeaturePerformance
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn import svm
+from sklearn.preprocessing import StandardScaler
+
 from GLOC_classifier import *
 from skopt import BayesSearchCV
 from skopt.space import Real, Integer, Categorical
@@ -221,6 +224,13 @@ def feature_selection_elastic_net(x_train, x_test, y_train, all_features, random
 
     return x_train, x_test, selected_features
 
+def safe_r2(y_true, y_pred):
+    if np.isnan(y_pred).any():
+        print("NaNs detected in y_pred during scoring — replacing with zeros")
+        y_pred = np.nan_to_num(y_pred, nan=0.0)
+    return r2_score(y_true, y_pred)
+
+
 def feature_selection_ridge(x_train, x_test, y_train, all_features, n, random_state):
     """
     This function finds optimal ridge parameters and fits a ridge model to determine
@@ -248,12 +258,22 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features, n, random_st
     # ridge1.fit(x_train, y_train)
 
     # Define the hyperparameter search space
+    # previously it was:Real(0.00001, 100)
     search_spaces = {
         'alpha': Real(0.00001, 100),
     }
 
+    # ANOTHER DEBUG: Drop near-zero variance features
+    # vt = VarianceThreshold(threshold=1e-6)
+    # x_train = vt.fit_transform(x_train)
+    # x_test = vt.transform(x_test)
+    # all_features = np.array(all_features)[vt.get_support()]  # update feature names
+
     # Initializing the Model
     ridge = Ridge()
+
+    # # Changing scoring method for debug
+    # scoring = make_scorer(safe_r2)
 
     # Set up BayesSearchCV
     ridge_cv = BayesSearchCV(
@@ -262,8 +282,23 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features, n, random_st
         cv=3,
         random_state=random_state,
         n_jobs=-1,
-        verbose=1
+        verbose=1,
+        # scoring = scoring
     )
+
+    # # Sanity check for NaNs before fitting
+    # print("Checking for NaNs before RidgeCV fit...")
+    # print("x_train shape:", x_train.shape)
+    # print("y_train shape:", y_train.shape)
+    # print("NaNs in x_train:", np.isnan(x_train).sum())
+    # print("NaNs in y_train:", np.isnan(np.ravel(y_train)).sum())
+    #
+    #
+    # scaler = StandardScaler()
+    # x_train = scaler.fit_transform(x_train)
+    #
+    # # ANOTHER DEBUG: Clip extreme values after scaling
+    # x_train = np.clip(x_train, -1e6, 1e6)
 
     # Fit model
     ridge_cv.fit(x_train, np.ravel(y_train))
@@ -271,6 +306,9 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features, n, random_st
     # Get best model and coefficients
     best_ridge = ridge_cv.best_estimator_
     ridge1_coef = np.abs(best_ridge.coef_)
+
+    # # Sanitize coefficients to prevent NaNs from breaking selection
+    # ridge1_coef = np.nan_to_num(ridge1_coef, nan=0.0) # Maintains feature importance, NaNs will naturally be discluded
 
     # # Use optimal alpha value from CV
     # alpha_optimal = ridge_cv.best_params_['alpha']
@@ -784,7 +822,9 @@ def shuffle_methods(x_train, x_test, y_train, y_test, all_features, train_class,
 
 
 ## Attempts at speeding up mrmr
-from sklearn.feature_selection import mutual_info_classif
+from sklearn.feature_selection import mutual_info_classif, VarianceThreshold
+
+
 def feature_selection_mrmr_greedy(x_train, y_train, x_test, all_features, n):
     """
     Greedy mRMR (MIQ-style) feature selection using mutual information (relevance)
