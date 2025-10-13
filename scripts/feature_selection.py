@@ -2,6 +2,8 @@ import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
 import pandas as pd
+import sklearn
+from sklearn.metrics import f1_score, make_scorer
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import Lasso, LogisticRegression
@@ -370,19 +372,44 @@ def dimensionality_reduction_PCA(x_train, x_test, random_state):
 def feature_selection_shuffle(x_train, x_test, y_train, all_features, classifier_method, random_state):
     # Complete feature selection by shuffling for each classifier
     if classifier_method == 'logreg':
-        sbs = SelectByShuffling(LogisticRegression(random_state=random_state),cv=3,random_state=random_state)
+        sample_weight_flag = 1
+        mdl = LogisticRegression(random_state=random_state)
     elif classifier_method == 'rf':
-        sbs = SelectByShuffling(RandomForestClassifier(random_state=random_state), cv=3, random_state=random_state)
+        sample_weight_flag = 1
+        mdl = RandomForestClassifier(random_state=random_state)
     elif classifier_method == 'LDA':
-        sbs = SelectByShuffling(LinearDiscriminantAnalysis(), cv=3, random_state=random_state)
+        sample_weight_flag = 1
+        mdl = LinearDiscriminantAnalysis()
     elif classifier_method == 'KNN':
-        sbs = SelectByShuffling(KNeighborsClassifier(), cv=3, random_state=random_state)
+        sample_weight_flag = 0
+        mdl = KNeighborsClassifier()
     elif classifier_method == 'SVM':
-        sbs = SelectByShuffling(svm.SVC(random_state=random_state), cv=3, random_state=random_state)
+        sample_weight_flag = 1
+        mdl = svm.SVC(random_state=random_state)
     elif classifier_method == 'EGB':
-        sbs = SelectByShuffling(GradientBoostingClassifier(random_state=random_state), cv=3, random_state=random_state)
+        sample_weight_flag = 1
+        mdl = GradientBoostingClassifier(random_state=random_state)
 
-    # fit select by shuffling on the training data
+    if sample_weight_flag == 0:
+        sklearn.set_config(enable_metadata_routing=True)
+        # fit select by shuffling on the training data
+        sbs = SelectByShuffling(
+            estimator=mdl,
+            cv=3,
+            scoring=make_scorer(f1_score).set_score_request(sample_weight=True),
+            random_state=random_state,
+        ).set_fit_request(sample_weight=False)
+    else:
+        sklearn.set_config(enable_metadata_routing=False)
+        # fit select by shuffling on the training data
+        sbs = SelectByShuffling(
+            estimator=mdl,
+            cv=3,
+            scoring=make_scorer(f1_score),
+            random_state=random_state,
+        )
+
+    # Fit model
     sbs.fit(x_train, y_train)
 
     # Reduce train and test matrix
@@ -482,30 +509,30 @@ def target_mean_selection(x_train, x_test, y_train, all_features, random_state):
     # tmp_cv = GridSearchCV(tmp, param_grid=params, cv=10)
     # tmp_cv.fit(x_train, y_train)
 
-    # Define the hyperparameter search space
-    search_spaces = {
-        'threshold': Real(0.001, 1)
-    }
+    # # Define the hyperparameter search space
+    # search_spaces = {
+    #     'threshold': Real(0.001, 1)
+    # }
+    #
+    # # Initializing the Model
+    # tmp = SelectByTargetMeanPerformance()
 
-    # Initializing the Model
-    tmp = SelectByTargetMeanPerformance()
+    # # Set up BayesSearchCV
+    # tmp_cv = BayesSearchCV(
+    #     estimator=tmp,
+    #     search_spaces=search_spaces,
+    #     scoring='roc_auc',
+    #     cv=3,
+    #     random_state=random_state,
+    #     n_jobs=-1,
+    #     verbose=1
+    # )
 
-    # Set up BayesSearchCV
-    tmp_cv = BayesSearchCV(
-        estimator=tmp,
-        search_spaces=search_spaces,
-        scoring='roc_auc',
-        cv=3,
-        random_state=random_state,
-        n_jobs=-1,
-        verbose=1
-    )
-
-    # Fit model
-    tmp_cv.fit(x_train, y_train)
-
-    # Get best model and coefficients
-    best_tmp = tmp_cv.best_estimator_
+    # # Fit model
+    # tmp_cv.fit(x_train, y_train)
+    #
+    # # Get best model and coefficients
+    # best_tmp = tmp_cv.best_estimator_
 
     # # Use optimal value for threshold found in GridSearchCV
     # threshold_optimal = tmp_cv.best_params_['threshold']
@@ -517,17 +544,24 @@ def target_mean_selection(x_train, x_test, y_train, all_features, random_state):
     # tmp = SelectByTargetMeanPerformance(scoring="f1", threshold = 0.01, cv=10, regression=False)
     # tmp.fit_transform(x_train, y_train)
 
-    # find features to keep
-    features_to_keep = best_tmp.get_feature_names_out()
+    # Initialize selector
+    tmp = SelectByTargetMeanPerformance(
+        scoring="f1",
+        cv=3
+    )
 
-    # Convert feature output from selected_features_target_mean to index array and list of features
-    selected_features_index = [element[1:] for element in features_to_keep]
-    selected_features_index = np.array([int(x) for x in selected_features_index])
-    selected_features = [all_features[index] for index in selected_features_index]
+    # Fit target mean performance model on the training data
+    tmp.fit(x_train, y_train)
 
-    # Grab relevant feature columns from x_train and x_test
-    x_train = best_tmp.transform(x_train)
-    x_test = best_tmp.transform(x_test)
+    # Reduce train and test matrix
+    x_train = tmp.transform(x_train)
+    x_test = tmp.transform(x_test)
+
+    # Use features to drop to determine features to keep
+    features_to_drop = tmp.features_to_drop_
+    features_to_drop_index = [element[1:] for element in features_to_drop]
+    features_to_drop_index = np.array([int(x) for x in features_to_drop_index])
+    selected_features = [all_features[index] for index in range(len(all_features)) if index not in features_to_drop_index]
 
     # Example feature code
     # tmp_variables = tmp.variables_

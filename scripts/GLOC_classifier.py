@@ -133,9 +133,9 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_
     #     plt.ylabel('Predicted')
     #     plt.show()
 
-    # Save model
-    if retrain:
-        save_model_weights(logreg, save_folder, model_name)
+    # # Save model
+    # if retrain:
+    #     save_model_weights(logreg, save_folder, model_name)
 
     return accuracy, precision, recall, f1, specificity, g_mean
 
@@ -191,9 +191,9 @@ def classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, r
     # Create Confusion Matrix
     create_confusion_matrix(y_test, label_predictions, 'Random Forest')
 
-    # Save model
-    if retrain:
-        save_model_weights(rf, save_folder, model_name)
+    # # Save model
+    # if retrain:
+    #     save_model_weights(rf, save_folder, model_name)
 
     return accuracy, precision, recall, f1, tree_depth, specificity, g_mean
 
@@ -235,9 +235,9 @@ def classify_lda(x_train, x_test, y_train, y_test, random_state,
     # Create Confusion Matrix
     create_confusion_matrix(y_test, label_predictions, 'Linear Discriminant Analysis')
 
-    # Save model
-    if retrain:
-        save_model_weights(lda, save_folder, model_name)
+    # # Save model
+    # if retrain:
+    #     save_model_weights(lda, save_folder, model_name)
 
     return accuracy, precision, recall, f1, specificity, g_mean
 
@@ -279,9 +279,9 @@ def classify_knn(x_train, x_test, y_train, y_test, random_state,
     # Create Confusion Matrix
     create_confusion_matrix(y_test, label_predictions, 'kNN')
 
-    # Save model
-    if retrain:
-        save_model_weights(neigh, save_folder, model_name)
+    # # Save model
+    # if retrain:
+    #     save_model_weights(neigh, save_folder, model_name)
 
     return accuracy, precision, recall, f1, specificity, g_mean
 
@@ -323,9 +323,9 @@ def classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_stat
     # Create Confusion Matrix
     create_confusion_matrix(y_test, label_predictions, 'Support Vector Machine')
 
-    # Save model
-    if retrain:
-        save_model_weights(svm_class, save_folder, model_name)
+    # # Save model
+    # if retrain:
+    #     save_model_weights(svm_class, save_folder, model_name)
 
     return accuracy, precision, recall, f1, specificity, g_mean
 
@@ -367,9 +367,9 @@ def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, random_st
     # Create Confusion Matrix
     create_confusion_matrix(y_test, label_predictions, 'Gradient Boosting')
 
-    # Save model
-    if retrain:
-        save_model_weights(gb, save_folder, model_name)
+    # # Save model
+    # if retrain:
+    #     save_model_weights(gb, save_folder, model_name)
 
     return accuracy, precision, recall, f1, specificity, g_mean
 
@@ -411,9 +411,9 @@ def faster_classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, ra
     # Create Confusion Matrix
     create_confusion_matrix(y_test, label_predictions, 'Gradient Boosting')
 
-    # Save model
-    if retrain:
-        save_model_weights(gb, save_folder, model_name)
+    # # Save model
+    # if retrain:
+    #     save_model_weights(gb, save_folder, model_name)
 
     return accuracy, precision, recall, f1, specificity, g_mean
 
@@ -709,7 +709,7 @@ def classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
             n_iter=30,  # You can increase this for a more thorough search
             cv=3,
             scoring='f1',
-            random_state=0,
+            random_state=random_state,
             n_jobs=-1,
             verbose=1,
             error_score=np.nan  # 'nan' to silently skip failing configs
@@ -790,7 +790,7 @@ def classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
             n_iter=30,  # Customize as needed
             cv=3,
             scoring='f1',
-            random_state=0,
+            random_state=random_state,
             n_jobs=-1,
             verbose=1,
             error_score=np.nan  # 'nan' to silently skip failing configs
@@ -882,7 +882,7 @@ def classify_svm_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_
             n_iter=30,  # You can tune this
             cv=3,
             scoring='f1',
-            random_state=42,
+            random_state=random_state,
             n_jobs=-1,
             verbose=1,
             error_score=np.nan  # 'nan' to silently skip failing configs

@@ -23,7 +23,7 @@ if __name__ == "__main__":
     random_state = 42
 
     # troubleshoot mode | 0 = No, Proceed with full feature set , 1 = Yes, reduce feature set for testing/troubleshooting
-    trouble_shoot_mode = 0
+    trouble_shoot_mode = 1
 
     # Import Feature Matrix | 0 = No, Proceed with Baseline and Feature Extraction , 1 = Yes, Use Existing Pkl
     import_feature_matrix = 0
@@ -37,7 +37,7 @@ if __name__ == "__main__":
     train_class = True
 
     ## Sequential Optimization Mode | Pick 'none' 'imbalance' 'nan' 'sliding_window' or 'feature_reduction'
-    sequential_optimization_mode = 'none'
+    sequential_optimization_mode = 'feature_reduction'
 
     ## Imbalance Technique | Pick 'rus' 'ros' 'smote' 'cost_function' 'rus_cf' 'ros_cf' 'smote_cf' 'none' or 'all'
     # Note: Cost Function techniques ('cost_function' 'rus_cf' 'ros_cf' 'smote_cf') do not work for LDA, KNN, or Ens. Learner
@@ -46,18 +46,23 @@ if __name__ == "__main__":
 
     ## Feature Reduction | Pick 'lasso' 'enet' 'ridge' 'mrmr' 'pca' 'target_mean' 'performance' 'shuffle' 'none' or 'all'
     # Note: 'shuffle' does not work for KNN or LDA
-    feature_reduction_type = 'none'
+    feature_reduction_type = 'target_mean'
 
     # Data Handling Options
     remove_NaN_trials = True
     impute_type = 2
 
     ## Model Parameters
-    model_type = ['noAFE', 'explicit']
+    model_type = ['AFE', 'explicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                  'rawEEG', 'processedEEG', 'strain', 'demographics']
     if 'noAFE' in model_type and 'implicit' in model_type:
+        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
+    if 'AFE' in model_type and 'explicit' in model_type:
+        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
+                                 'rawEEG', 'processedEEG', 'strain', 'demographics']
+    if 'AFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
 
     baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
