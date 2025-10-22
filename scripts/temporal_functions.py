@@ -39,7 +39,7 @@ import matplotlib.pyplot as plt
 ###### A separate script will be used to train and work with the models.
 ###### Note for BRADY: This will only work if placed in the entire GLOC repo on Alien
 
-def data_with_prediction(backstep,data_rate, classifier_type):
+def data_with_prediction(backstep,data_rate, classifier_type,model_type):
 
       ################################################### USER INPUTS  ###################################################
         ## Data Folder Location
@@ -141,11 +141,11 @@ def data_with_prediction(backstep,data_rate, classifier_type):
 
 
         ## Model Parameters
-    model_type = ['noAFE', 'explicit']
-    if 'noAFE' in model_type and 'explicit' in model_type:
+    # model_type = ['noAFE', 'phys+']
+    if 'noAFE' in model_type and 'phys+' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                      'rawEEG', 'processedEEG', 'strain', 'demographics']
-    if 'noAFE' in model_type and 'implicit' in model_type:
+    if 'noAFE' in model_type and 'phys' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
             # feature_groups_to_analyze = ['ECG']
 
@@ -205,27 +205,10 @@ def data_with_prediction(backstep,data_rate, classifier_type):
               remove_all_nan_trials(gloc_data_reduced, all_features,
                                     features, features_phys, features_ecg, features_eeg, gloc))
 
-          ### Impute missing row data
-        # Impute type == 0 will result in errors unless performed on all variables. not just features.
-        if impute_type == 0:
-          # Remove rows with NaN
-          gloc, features, gloc_data_reduced = process_NaN_raw(gloc, features, gloc_data_reduced)
 
                 ### Impute missing row data
-        elif impute_type == 1:
-            if np.isnan(features).any():
-                print('features has nan')
-            else:
-                print('features has no nan')
-            print('Stepping into imputation for', backstep, 'backstep of classifier type:', classifier_type)
-            print("features shape:", features.shape)  # debugging
+        if impute_type == 1:
             features = faster_knn_impute(features, n_neighbors)
-            print('Exiting imputation for', backstep, 'backstep of classifier type:', classifier_type)
-            print("features shape:", features.shape)  # debugging
-            if np.isnan(features).any():
-                print('features has nan')
-            else:
-                print('features has no nan')
 
         ################################################## REDUCE MEMORY ##################################################
 
@@ -311,18 +294,12 @@ def data_with_prediction(backstep,data_rate, classifier_type):
         print('for', backstep, 'backstep... data was recovered from cache')  # debugging
 
     ###################################################### Prediction Offset ###############################################
-    # Flag to see if GLOC has any NaN in it
-    if np.isnan(gloc).any():
-        print('gloc has nan')
-    else:
-        print('gloc has no nan')
 
     # Function inputs
         # Backstep: number of seconds we are trying to predict in advance
         # data_rate: (hz) the data rate at which data is collected.
     gloc = y_prediction_offset(gloc,backstep,data_rate,trial_column) # Call function to shift gloc flags around
 
-    print('gloc offset complete for' ,backstep, '') # debugging
 
     ################################################ BASELINE ################################################
     """
@@ -387,15 +364,21 @@ def data_with_prediction(backstep,data_rate, classifier_type):
     impute_type = 2
     if impute_type == 2:
       # Remove rows with NaN (temporary solution-should replace with other method eventually)
-      print('Before ADDITIONAL imputing at a backstep of', backstep, '')  # debugging
-      print("IGNORE x_feature_matrix shape:", x_feature_matrix.shape)  # debugging
-      print("y_gloc_labels shape:", y_gloc_labels.shape)  # debugging
 
       y_gloc_labels, x_feature_matrix, all_features = process_NaN(y_gloc_labels, x_feature_matrix, all_features)
 
-      print('After ADDITIONAL imputing at a backstep of', backstep, '')  # debugging
-      print("IGNORE x_feature_matrix shape:", x_feature_matrix.shape)  # debugging
+      print('After process NaN at a backstep of', backstep, '')  # debugging
+      print(" x_feature_matrix shape:", x_feature_matrix.shape)  # debugging
       print("y_gloc_labels shape:", y_gloc_labels.shape)  # debugging
+
+    if np.isnan(x_feature_matrix).any():
+        print('features has nan')
+    else:
+        print('features has no nan')
+    if np.isnan(y_gloc_labels).any():
+        print('gloc has nan')
+    else:
+        print('gloc has no nan')
 
     ######################################################## FEATURE REDUCTION #######################################################
     # If statement evaluates if we have already done feature reduction of x matrix as is time intensive.
@@ -421,20 +404,10 @@ def data_with_prediction(backstep,data_rate, classifier_type):
         # Select by Target mean
         if feature_reduction_type == 'target_mean':
             # Implement feature reduction & assess performance of classifiers
-            x_feature_matrix, x_redundant, selected_features = (
+            _, x_feature_matrix, selected_features = (
                 target_mean_selection(x_feature_matrix, x_feature_matrix, y_gloc_labels,
                                                       all_features,random_state))
 
-        ########### DEBUGGING
-        if isinstance(x_feature_matrix, (pd.DataFrame, pd.Series)):
-            has_nan = np.isnan(x_feature_matrix.to_numpy()).any()
-        else:
-            has_nan = np.isnan(x_feature_matrix).any()
-
-        if has_nan:
-            print('x features has nan')
-        else:
-            print('x features has no nan')
 
         # Store generated features and reduced features at 0 seconds offset. FIX TO THIS for every other offset.
         # Need to name these files to specific classifiers
@@ -484,7 +457,7 @@ def data_with_prediction(backstep,data_rate, classifier_type):
     # Function call end
     return (x_feature_return, y_return)
 
-def plotting_offset_models(offset_ranges,accuracy_model,precision_model,recall_model,f1_model,specificity_model,gmean_model,classifier_name):
+def plotting_offset_models(offset_ranges,accuracy_model,precision_model,recall_model,f1_model,specificity_model,gmean_model,classifier_name,model_type):
 
     # Convert offset_ranges to a NumPy array for plotting
         offsets = np.array(offset_ranges)
@@ -532,11 +505,19 @@ def plotting_offset_models(offset_ranges,accuracy_model,precision_model,recall_m
             plt.suptitle(f'Metrics Across Offsets — Classifier: {classifier_name}', fontsize=16, fontweight='bold')
 
         plt.tight_layout()
-        plt.show()
 
-        ############################ Save each metric matrix as a .pkl file ############################
-        results_folder = './prediction_model_results'
+    ############################ Save each metric matrix as a .pkl file ############################
+        subfolder = get_model_subfolder(model_type)
+        results_folder = os.path.join('./prediction_model_metrics', subfolder)
         os.makedirs(results_folder, exist_ok=True)
+
+        # Saving image
+        plot_filename = f"metrics_plot_{classifier_name}.png"
+        plot_path = os.path.join(results_folder, plot_filename)
+        plt.savefig(plot_path)
+        print(f"Saved plot image to {plot_path}")
+
+        plt.show()
 
         metric_data = {
             'accuracy': accuracy_model,
@@ -709,3 +690,16 @@ def plot_saved_offset_models(classifier_name):
     plt.show()
 
     return None
+
+def get_model_subfolder(model_type):
+    # Function to simplify some naming
+    if model_type == ['noAFE', 'phys']:
+        return 'noAFE implicit'
+    elif model_type == ['noAFE', 'phys+']:
+        return 'noAFE explicit'
+    elif model_type == ['combined', 'phys']:
+        return 'combined implicit'
+    elif model_type == ['combined', 'phys+']:
+        return 'combined explicit'
+    else:
+        raise ValueError(f"Unrecognized model_type: {model_type}")

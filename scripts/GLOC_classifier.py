@@ -74,7 +74,7 @@ def stratified_kfold_split(Y, X, num_splits, kfold_ID, random_state=42):
 
 # Logistic Regression Classifier
 def classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                                 save_folder="../ModelSave",model_name="logistic_regression_model.pkl",retrain=True):
+                                 save_folder,model_name, retrain):
     """
     This function fits and assesses performance of a logistic regression ML classifier for the data
     specified. Within this function, a separate confusion matrix function is called. Additional
@@ -141,7 +141,7 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_
 
 # Random Forest Classifier
 def classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                           save_folder="../ModelSave",model_name="random_forest_model.pkl",retrain=True):
+                           save_folder,model_name, retrain):
     """
     This function fits and assesses performance of a random forest ML classifier for the data
     specified. Within this function, a separate confusion matrix function is called. Additional
@@ -199,7 +199,7 @@ def classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, r
 
 # Linear Discriminant Analysis
 def classify_lda(x_train, x_test, y_train, y_test, random_state,
-                 save_folder="../ModelSave",model_name="LDA_model.pkl",retrain=True):
+                 save_folder,model_name, retrain):
     """
     This function fits and assesses performance of a linear discriminant analysis ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
@@ -243,7 +243,7 @@ def classify_lda(x_train, x_test, y_train, y_test, random_state,
 
 # k Nearest Neighbors
 def classify_knn(x_train, x_test, y_train, y_test, random_state,
-                 save_folder="../ModelSave",model_name="KNN_model.pkl",retrain=True):
+                 save_folder,model_name, retrain):
     """
     This function fits and assesses performance of a K Nearest Neighbors ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
@@ -287,7 +287,7 @@ def classify_knn(x_train, x_test, y_train, y_test, random_state,
 
 # Support Vector Machine
 def classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                 save_folder="../ModelSave",model_name="svm_model.pkl", retrain = True):
+                 save_folder,model_name, retrain):
     """
     This function fits and assesses performance of a Support Vector Machine ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
@@ -331,7 +331,7 @@ def classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_stat
 
 # Ensemble Learner with Gradient Boost
 def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, random_state,
-                                     save_folder="../ModelSave",model_name="ensemble_model.pkl", retrain = True):
+                                     save_folder,model_name, retrain):
     """
     This function fits and assesses performance of an Ensemble Learner w/ Grad Boost ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
