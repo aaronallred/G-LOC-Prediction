@@ -56,7 +56,7 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
           Explore Feature Reduction Section of Sequential Optimization Framework
     """
     # Determine reduced feature set & transform x_train and x_test
-    classifier_to_use = 'EGB'
+    classifier_to_use = 'KNN'
     x_train, x_test, selected_features = feature_selection_performance(x_train, x_test, y_train, all_features,
                                                                        classifier_to_use, random_state)
 
