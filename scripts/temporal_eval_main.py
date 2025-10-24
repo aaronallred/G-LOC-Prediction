@@ -11,7 +11,7 @@ from scripts.GLOC_classifier import stratified_kfold_split, classify_logistic_re
     classify_lda, classify_svm, classify_knn, classify_ensemble_with_gradboost
 from scripts.imbalance_techniques import resample_ros
 from scripts.temporal_functions import plotting_offset_models, data_with_prediction, \
-    plot_f1_scores_across_classifiers, plot_saved_offset_models, get_model_subfolder
+    plot_f1_scores_across_classifiers, plot_saved_offset_models, get_model_subfolder, get_hyperparameters
 import pickle
 
 from imblearn.metrics import geometric_mean_score
@@ -35,34 +35,13 @@ random_state = 42
 class_weight_imb = None
 
 
-if preference == 2:
-    # This preference section will do feature selection on the non offset y data to scale down the features.
-    # This preference only needs to be run once. Takes about an hour to do the lasso
-    # The reduction results in a feature matrix only about 53 columns wide vs the some 30 thousand it was before?
-
-    # Load in the data
-    with open('all_features.pkl', 'rb') as file:
-        all_features = pickle.load(file)
-    with open('x_features.pkl', 'rb') as file:
-        x_feature_matrix = pickle.load(file)
-
-    # Call function to get y if there was zero offset, to do lasso on
-    (yy,x,allall_feats) = data_with_prediction(0,data_rate)
-
-    # Call lasso to get reduced x matrix and reassign to file.
-    (x_reduced,x_meaningless, selected_features) = feature_selection_lasso(x,x,yy,allall_feats, random_state)
-
-    # Save as new file to be used in new function calls
-    with open("x_features_lasso.pkl", 'wb') as file:
-        pickle.dump(x_reduced, file)
-
 if preference == 3:
     # This preference section will load in pkl files and train/validate models according to offset data
     # NOTE: This code sequence will throw an error as it starts about number of cores using to process
 
     # Can adjust this as needed to specify what classifiers we want to test
     # options are: SVM , EGB, KNN, logreg, RF , LDA
-    classifiers_to_test = ['EGB','logreg']
+    classifiers_to_test = ['RF']
 
     for m in range(len(classifiers_to_test)):
         # Initialize the arrays and class type
@@ -78,9 +57,13 @@ if preference == 3:
         specificity_model = np.zeros((len(offset_ranges), num_kfold))
         g_mean_model = np.zeros((len(offset_ranges), num_kfold))
 
+        # Preallocate some folders
         subfolder_name = get_model_subfolder(model_type)
         save_folder = os.path.join("../prediction_models", subfolder_name)
         os.makedirs(save_folder, exist_ok=True)
+
+        # Grab Optimized (median) hyperparameters for classifier
+        hyperparameters = get_hyperparameters(classifier, get_model_subfolder(model_type))
 
         print('Starting loop for ', classifier)  # debugging
 
@@ -133,7 +116,7 @@ if preference == 3:
             del y_train, y_test, x_train, x_test
 
         # Plotting the results, function also saves the data to a folder for one particular model, outside the loop
-        plotting_offset_models(offset_ranges, accuracy_model, precision_model, recall_model, f1_model, specificity_model, g_mean_model,classifier)
+        plotting_offset_models(offset_ranges, accuracy_model, precision_model, recall_model, f1_model, specificity_model, g_mean_model,classifier,model_type)
 
             # # Print performance metrics
             # print(f"\nLogistic Regression Performance Metrics for offset of {offset_ranges[i]}:")
@@ -188,38 +171,6 @@ if preference == 5:
     # Use this preference section to plot all metrics of specific saved models.
     plot_saved_offset_models('RF')
 
-
-if preference == 6:
-    # Section of the code to practice loading in model hyperparameters. Basically this stores the logic for how this will happen.
-    # Need to loop through all the folds/ iterations and save the params with the median score. Not the best, the median.
-
-    # Define base path relative to this script
-    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    MODEL_PATH = os.path.join(
-        BASE_DIR,
-        'ModelSave',
-        'CV',
-        'ExplicitV0-8HPO_SMOTE_LASSO_noNAN_all',
-        '1',
-        'random_forest_model.pkl'  # Adjust filename if needed
-    )
-
-    # Load the model
-    with open(MODEL_PATH, 'rb') as f:
-        rf_model = joblib.load(f)
-
-    # Store results
-    best_params = rf_model.best_params_
-    best_score = rf_model.best_score_
-
-    rf_reloaded = RandomForestClassifier(**best_params)
-
-    # Optional: fit it to your data
-    # rf_reloaded.fit(X_train, y_train)
-
-    print('Best score:', best_score)
-
-    # Section of the code to practice loading in model hyperparameters. Basically this stores the logic for how this will happen.
 
 
 

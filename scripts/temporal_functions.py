@@ -360,7 +360,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type):
     print('generation complete for', backstep, 'backstep')  # debugging
 
     # Always do NaN evaluation to make sure x and y are the same size
-    # Need to remove NAN or IMPUTE:
+    # Need to PROCESS NAN:
     impute_type = 2
     if impute_type == 2:
       # Remove rows with NaN (temporary solution-should replace with other method eventually)
@@ -703,3 +703,46 @@ def get_model_subfolder(model_type):
         return 'combined explicit'
     else:
         raise ValueError(f"Unrecognized model_type: {model_type}")
+
+def get_hyperparameters(classifier: str, model_type: str, fold_id: str = '1'):
+    """
+    Load hyperparameters from a saved model file.
+
+    Args:
+        classifier (str): Name of the classifier (e.g., 'random_forest').
+        model_type (str): Subfolder or experiment name.
+        fold_id (str): Fold identifier (default is '1').
+
+    Returns:
+        dict: Best hyperparameters from the saved model.
+    """
+
+    if classifier == 'RF':
+        classifier = 'random_forest'
+
+    # Define base path relative to this script
+    # This path is relative to how Models have been saved.
+    # FOR NOW: model_type has to be : "ExplicitV0-8HPO_SMOTE_LASSO_noNAN_all"
+    # Later this will be part of the file path specified by Nikki
+    model_type = 'ExplicitV0-8HPO_SMOTE_LASSO_noNAN_all'
+    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    MODEL_PATH = os.path.join(
+        BASE_DIR,
+        'ModelSave',
+        'CV',
+        model_type,
+        fold_id,
+        f'{classifier}_model.pkl'
+    )
+
+    # Load the model
+    with open(MODEL_PATH, 'rb') as f:
+        model = joblib.load(f)
+
+    # Store results
+    best_params = model.best_params_
+    best_score = model.best_score_
+
+    print('Best score:', best_score)
+
+    return best_params
