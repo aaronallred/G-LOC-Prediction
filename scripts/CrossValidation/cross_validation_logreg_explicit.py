@@ -115,6 +115,11 @@ if __name__ == "__main__":
                                      'rawEEG', 'processedEEG', 'strain', 'demographics']
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'processedEEG']
+    if 'combined' in model_type and 'explicit' in model_type:
+        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
+                                     'rawEEG', 'processedEEG', 'strain', 'demographics']
+    if 'combined' in model_type and 'implicit' in model_type:
+        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'processedEEG', 'AFE']
 
     baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
 
