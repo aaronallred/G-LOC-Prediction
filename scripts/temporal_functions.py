@@ -59,7 +59,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type):
         window_size = 12.5 # seconds - PULLED FROM NIKKI PAPER
         stride = 0.25 # seconds - PULLED FROM NIKKI PAPER
         imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
-        feature_reduction_type = 'target_mean' #- PULLED FROM NIKKI PAPER
+        feature_reduction_type = 'lasso' #- PULLED FROM NIKKI PAPER
         baseline_methods_to_use = ['v0', 'v1', 'v2','v5','v6','v7','v8'] #- PULLED FROM NIKKI PAPER
         impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
         n_neighbors = 5  # - PULLED FROM NIKKI PAPER
@@ -111,8 +111,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type):
         baseline_window = 46.25  # seconds - PULLED FROM NIKKI PAPER
         window_size = 12.5  # seconds - PULLED FROM NIKKI PAPER
         stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
-        feature_reduction_type = 'ridge'  # - PULLED FROM NIKKI PAPER
-        threshold = 100 # - PULLED FROM NIKKI PAPER
+        feature_reduction_type = 'lasso'  # - PULLED FROM NIKKI PAPER
         baseline_methods_to_use = ['v0', 'v1', 'v2','v5','v6','v7','v8']  # - PULLED FROM NIKKI PAPER
         imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
         impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
@@ -141,13 +140,18 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type):
 
 
         ## Model Parameters
-    # model_type = ['noAFE', 'phys+']
-    if 'noAFE' in model_type and 'phys+' in model_type:
+    # model_type = ['noAFE', 'explicit']
+    if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                      'rawEEG', 'processedEEG', 'strain', 'demographics']
-    if 'noAFE' in model_type and 'phys' in model_type:
+    if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
             # feature_groups_to_analyze = ['ECG']
+    if 'combined' in model_type and 'explicit' in model_type:
+        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
+                                         'rawEEG', 'processedEEG', 'strain', 'demographics']
+    if 'combined' in model_type and 'implicit' in model_type:
+        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'processedEEG', 'AFE']
 
         # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
     # baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
@@ -359,17 +363,11 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type):
 
     print('generation complete for', backstep, 'backstep')  # debugging
 
-    # Always do NaN evaluation to make sure x and y are the same size
-    # Need to PROCESS NAN:
-    impute_type = 2
-    if impute_type == 2:
-      # Remove rows with NaN (temporary solution-should replace with other method eventually)
+    ####################################### Process NAN after generation ##########################################
+    # Always need to process NaN after feature generation
+    y_gloc_labels, x_feature_matrix, all_features = process_NaN(y_gloc_labels, x_feature_matrix, all_features)
 
-      y_gloc_labels, x_feature_matrix, all_features = process_NaN(y_gloc_labels, x_feature_matrix, all_features)
-
-      print('After process NaN at a backstep of', backstep, '')  # debugging
-      print(" x_feature_matrix shape:", x_feature_matrix.shape)  # debugging
-      print("y_gloc_labels shape:", y_gloc_labels.shape)  # debugging
+    print('After process NaN at a backstep of', backstep, '')  # debugging
 
     if np.isnan(x_feature_matrix).any():
         print('features has nan')
@@ -701,6 +699,14 @@ def get_model_subfolder(model_type):
         return 'combined implicit'
     elif model_type == ['combined', 'phys+']:
         return 'combined explicit'
+    elif model_type == ['noAFE', 'explicit']:
+        return 'noAFE explicit'
+    elif model_type == ['combined', 'implicit']:
+        return 'combined implicit'
+    elif model_type == ['combined', 'explicit']:
+        return 'combined explicit'
+    elif model_type == ['noAFE', 'implicit']:
+        return 'combined implicit'
     else:
         raise ValueError(f"Unrecognized model_type: {model_type}")
 
