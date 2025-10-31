@@ -115,6 +115,8 @@ def main_loop(kfold_ID, num_splits, runname):
         features = np.delete(features, condition_idx, axis=1)
         all_features = [stream for stream in all_features if stream != 'condition']
 
+        gloc_data_reduced["AFE_indicator"] = afe_indicator_column    # Merge afe_indicators back into the predictor set
+
 
     ############################################### DATA CLEAN AND PREP ###############################################
     """ 
@@ -136,6 +138,8 @@ def main_loop(kfold_ID, num_splits, runname):
     time_column = gloc_data_reduced['Time (s)']
     event_validated_column = gloc_data_reduced['event_validated']
     subject_column = gloc_data_reduced['subject']
+    if "complete" in model_type:
+        afe_indicator_column = gloc_data_reduced["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1)
 
     del gloc_data_reduced
 
@@ -230,12 +234,13 @@ def main_loop(kfold_ID, num_splits, runname):
     # Remove constant columns (typically no constant columns)
     x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
 
-    # Merge afe_indicators back into the predictor set
-    if 'complete' in model_type:
-        # Insert indicator as second-to-last column
-        x_feature_matrix = np.insert(x_feature_matrix,
-        x_feature_matrix.shape[1] - 1,  # position: second-to-last. Last is reserved for trial ids
-        afe_indicator_column, axis=1)
+    # Add back in as 2nd to last column (needs to be 2nd to last for advanced - could be last for traditional)
+    if "complete" in model_type:
+        x_feature_matrix = np.hstack([
+            x_feature_matrix[:, :-1],
+            afe_indicator_column,
+            x_feature_matrix[:, -1:]
+        ])
 
     # List-wise deletion or clean any residual NaNs
     if impute_type == 2 or impute_type == 1:
