@@ -49,7 +49,8 @@ def main_loop(kfold_ID, num_splits, runname):
     load_impute = False  # skip impute and load from file?
 
     ## Model Parameters
-    model_type = ['noAFE', 'explicit']
+    model_type = ['complete', 'implicit']
+
     if 'noAFE' in model_type and 'explicit' in model_type:
         #feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
         #                             'rawEEG', 'demographics']
@@ -60,9 +61,12 @@ def main_loop(kfold_ID, num_splits, runname):
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG','BR','temp', 'eyetracking','rawEEG']
 
+    if 'complete' in model_type and 'implicit' in model_type:
+        feature_groups_to_analyze = ['ECG','BR','temp', 'eyetracking','AFE','processedEEG','rawEEG']
+
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
     # baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
-    baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
+    baseline_methods_to_use = ['v0','v1','v2','v5','v6']
 
     baseline_window = 32.5  # seconds
 
@@ -91,9 +95,25 @@ def main_loop(kfold_ID, num_splits, runname):
     gloc = label_gloc_events(gloc_data_reduced)
 
     # Reduce Dataset based on AFE / nonAFE condition
-    gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
-        afe_subset(model_type, gloc_data_reduced,all_features,
-                   features,features_phys, features_ecg, features_eeg, gloc))
+    if 'complete' not in model_type:
+        gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
+            afe_subset(model_type, gloc_data_reduced, all_features,
+                       features, features_phys, features_ecg, features_eeg, gloc))
+
+    ############################################# EEG Specific Imputation #############################################
+    if 'complete' in model_type:
+        # Compute AFE / NonAFE condition indicator column
+        condition_idx = all_features.index('condition')
+        afe_indicator_column = features[:, condition_idx]
+
+        # Impute (using mean) the value of the missing channels for each AFE condition
+        gloc_data_reduced, features, features_phys, features_eeg = (
+            eeg_condition_impute(gloc_data_reduced,
+                                 all_features, all_features_phys, all_features_eeg, afe_indicator_column))
+
+        # Set aside AFE / NonAFE condition indicator for now - to be incorporated back in later
+        features = np.delete(features, condition_idx, axis=1)
+        all_features = [stream for stream in all_features if stream != 'condition']
 
 
     ############################################### DATA CLEAN AND PREP ###############################################
@@ -105,7 +125,7 @@ def main_loop(kfold_ID, num_splits, runname):
     if remove_NaN_trials:
         gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc, nan_proportion_df = (
             remove_all_nan_trials(gloc_data_reduced, all_features,
-                                  features,features_phys, features_ecg, features_eeg, gloc))
+                                  features,features_phys, features_ecg, features_eeg, gloc, verbose=True))
 
 
     ################################################## REDUCE MEMORY ##################################################
@@ -210,6 +230,13 @@ def main_loop(kfold_ID, num_splits, runname):
     # Remove constant columns (typically no constant columns)
     x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
 
+    # Merge afe_indicators back into the predictor set
+    if 'complete' in model_type:
+        # Insert indicator as second-to-last column
+        x_feature_matrix = np.insert(x_feature_matrix,
+        x_feature_matrix.shape[1] - 1,  # position: second-to-last. Last is reserved for trial ids
+        afe_indicator_column, axis=1)
+
     # List-wise deletion or clean any residual NaNs
     if impute_type == 2 or impute_type == 1:
         # Remove rows with NaN (temporary solution-should replace with other method eventually)
@@ -217,7 +244,6 @@ def main_loop(kfold_ID, num_splits, runname):
                                                                                 all_features, trial_ints)
     else:
         y_gloc_labels_noNaN, x_feature_matrix_noNaN, trials_noNaN = y_gloc_labels, x_feature_matrix, trial_ints
-
 
 
     ################################################ TRAIN/TEST SPLIT  ################################################
@@ -319,7 +345,7 @@ if __name__ == "__main__":
     # Needed for proper debugging of CUDA errors
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-    runname = 'Trans_processed_final'
+    runname = 'Implicit_Complete'
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10

@@ -950,6 +950,7 @@ def plot_metrics_over_offsets(data_dict, group_key="horizon", error_type="std"):
         ax.set_xlabel(group_key.capitalize() + " (s)")
         ax.set_ylabel(metric.capitalize())
         ax.grid(True)
+        ax.set_ylim(bottom=0)
         ax.legend()
 
     # Remove unused subplots
@@ -1000,6 +1001,6 @@ if __name__ == "__main__":
         plot_bayes_tuning(clf)
 
     if plot_horizon == 1:
-        with open('../PerformanceSave/TemporalPrediction/Trans_forecast_horizons_CV/AllHorizons.pkl', 'rb') as f:
+        with open('../PerformanceSave/TemporalPrediction/Trans_forecast_horizons_CV/combined.pkl', 'rb') as f:
             clf = joblib.load(f)
         plot_metrics_over_offsets(clf)

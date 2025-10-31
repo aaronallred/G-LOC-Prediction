@@ -45,8 +45,8 @@ def main_loop(kfold_ID, num_splits, runname, param_path, impute_path, horizon):
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                      'rawEEG', 'processedEEG', 'demographics', 'strain']
 
-        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
-                                     'rawEEG', 'demographics', 'strain']
+        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
+        #                              'rawEEG', 'demographics', 'strain']
 
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG','BR','temp', 'eyetracking','rawEEG']
@@ -264,7 +264,7 @@ if __name__ == "__main__":
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
     # Naming run and save location for summary pkl files
-    runname = 'Trans_forecast_horizons_CV'
+    runname = 'Trans_forecast_horizons_CV_procEEG'
     summary_loc = "../PerformanceSave/TemporalPrediction"
 
     # For loading model parameters
@@ -274,14 +274,14 @@ if __name__ == "__main__":
     num_splits = 10
 
     # For loading model parameters
-    kfold_ID_Load = 6 # Median performer for Transformer
-    param_path = os.path.join("../ModelSave/CV", "Explicit_final", str(kfold_ID_Load))
+    kfold_ID_Load = 4 # Median performer for Transformer
+    param_path = os.path.join("../ModelSave/CV", "Trans_processed_final", str(kfold_ID_Load))
 
     # Define horizon range set
-    horizons = list(range(0, 401, 50))
+    horizons = list(range(0, 401, 25))
 
     # Define CV range set
-    kfold_IDs = list(range(0, 10, 2))
+    kfold_IDs = list(range(0, 10, 1))
 
     # Pre-Allocate Performance Summary Dictionary
     horizon_performance_summary = dict()
@@ -294,7 +294,7 @@ if __name__ == "__main__":
             method_key = f"fold{str(fold)}_h{str(horizon)}"
 
             # For loading imputation (if saved)
-            impute_path = os.path.join("../ModelSave/CV/Explicit_final", str(fold))
+            impute_path = os.path.join("../ModelSave/CV/Trans_processed_final", str(fold))
 
             # Run main loop
             single_run = main_loop(fold, num_splits, runname, param_path, impute_path, horizon)

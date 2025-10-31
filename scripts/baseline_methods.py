@@ -22,7 +22,7 @@ def baseline_data(baseline_methods_to_use, trial_column, time_column, event_vali
 
     # Load EEG baseline data once if needed
     eeg_baseline_data = {}
-    if any(method in baseline_methods_to_use for method in ['v7', 'v8']) and 'noAFE' in model_type:
+    if any(method in baseline_methods_to_use for method in ['v7', 'v8']) and 'noAFE' in model_type or 'complete' in model_type:
         eeg_labels = ['delta', 'theta', 'alpha', 'beta']
         for idx, label in enumerate(eeg_labels):
             eeg_baseline_data[label] = pd.read_csv(list_of_baseline_eeg_processed_files[idx])
@@ -40,11 +40,11 @@ def baseline_data(baseline_methods_to_use, trial_column, time_column, event_vali
         'v7': lambda: create_v7_baseline(baseline_window, trial_column, time_column, subject_column, features_eeg,
                                          eeg_baseline_data['delta'], eeg_baseline_data['theta'],
                                          eeg_baseline_data['alpha'], eeg_baseline_data['beta'], all_features_eeg)
-                if 'noAFE' in model_type else warnings.warn('EEG baseline methods not implemented for AFE conditions yet.'),
+                if 'noAFE' in model_type or 'complete' in model_type else warnings.warn('EEG baseline methods not implemented for AFE conditions yet.'),
         'v8': lambda: create_v8_baseline(baseline_window, trial_column, time_column, subject_column, features_eeg,
                                          eeg_baseline_data['delta'], eeg_baseline_data['theta'],
                                          eeg_baseline_data['alpha'], eeg_baseline_data['beta'], all_features_eeg)
-                if 'noAFE' in model_type else warnings.warn('EEG baseline methods not implemented for AFE conditions yet.')
+                if 'noAFE' in model_type or 'complete' in model_type  else warnings.warn('EEG baseline methods not implemented for AFE conditions yet.')
     }
 
     # Process only selected methods

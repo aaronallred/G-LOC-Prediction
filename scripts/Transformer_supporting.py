@@ -62,7 +62,7 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
     def objective(trial):
         # Hyperparameters
         baseline_method = trial.suggest_categorical("baseline_method", [0, 1, 2, 3, 4, 5])
-        batch_size = trial.suggest_categorical("batch_size", [64, 128])
+        batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
         optimizer_type = trial.suggest_categorical("optimizer_type", ['AdamW'])
         momentum = 0.9 if optimizer_type == "SGD" else None
         learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
@@ -72,11 +72,21 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         num_layers = trial.suggest_int("num_layers", 1, 3)
         dim_feedforward = trial.suggest_categorical("dim_feedforward", [128, 256, 512])
         dropout = trial.suggest_float("dropout", 0.1, 0.5) if num_layers > 1 else 0
-        sequence_length = trial.suggest_int("sequence_length", 25, 250)
+        sequence_length = trial.suggest_int("sequence_length", 25, 200)
         step_size = trial.suggest_int("step_size", 25, 75)
         threshold = trial.suggest_float('threshold', 0.1, 0.9)
 
+        # Cap batch size for long sequences
+        if sequence_length > 125:
+            batch_size = min(batch_size, 64)
+
         x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
+
+        # Should move this to function, but this is a means of stopping Optuna if the memory of device is not enough
+        # Rough GPU memory estimate (float32)
+        estimated_bytes = x_train_ds.shape[1] * batch_size * sequence_length * d_model * 4  # 4 bytes per float32
+        if estimated_bytes > 8 * 1024 ** 3:  # ~8 GB threshold, adjust to your GPU
+            raise optuna.TrialPruned()
 
         # Create training and validation sets from x_train/y_train
         train_dataset, val_dataset, train_windows_tensor, train_labels_tensor, val_windows_tensor, val_labels_tensor = (
@@ -140,6 +150,7 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
                 json.dump(metadata, f, indent=4)
 
         del model
+        del optimizer
         if device.type == "cuda":
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
@@ -378,5 +389,9 @@ def transformer_class_load(x_train, x_test, y_train, y_test, horizon, class_weig
     print("F1 Score: ", f1)
     print("Specificity: ", specificity)
     print("G-Mean: ", g_mean)
+
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
 
     return accuracy, precision, recall, f1, specificity, g_mean

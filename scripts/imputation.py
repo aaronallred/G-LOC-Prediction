@@ -6,6 +6,7 @@ from statsmodels.stats.multitest import multipletests
 from sklearn.model_selection import GridSearchCV, KFold
 import faiss
 from GLOC_classifier import groupedtrial_kfold_split
+from GLOC_data_processing import pull_eeg_sets
 
 def knn_impute(predictors, n_neighbors, scale_data=False):
     """
@@ -229,3 +230,54 @@ def faster_knn_impute_train_test(X, train_ind, test_ind, k=5, M=32, efSearch=64)
     X_imputed[test_ind] = X_test_imputed
 
     return X_imputed
+
+def eeg_condition_impute(gloc_data_reduced, all_features, all_features_phys, all_features_eeg, afe_indicator_column,
+                         verbose=True):
+    """
+        Ensures both AFE (1) and non-AFE (0) conditions have the same feature columns.
+        Missing columns are imputed with mean values in gloc_data_reduced and reflected in feature arrays.
+
+        Returns df, the imputed dataframe corresponding to gloc_data_reduced
+        Returns updated features, features_phys, and features_eeg that are affected by these imputations
+    """
+
+    # Create masks for each condition
+    df = gloc_data_reduced.copy()
+    afe_mask = afe_indicator_column == 1
+    nonafe_mask = afe_indicator_column == 0
+
+
+    # Pull columns that need to be imputed for each type
+    _, processed_eeg_afe_only, processed_eeg_nonafe_only, _, raw_eeg_afe_only, raw_eeg_nonafe_only = pull_eeg_sets()
+    afe_only_cols = processed_eeg_afe_only + raw_eeg_afe_only
+    nonafe_only_cols = processed_eeg_nonafe_only + raw_eeg_nonafe_only
+
+
+    # Impute AFE-only columns for non-AFE rows
+    for col in afe_only_cols:
+        if col in df.columns:
+            # Check if all values in this column for non-AFE rows are NaN
+            #if df.loc[nonafe_mask, col].isna().all():
+            mean_val = df.loc[afe_mask, col].mean(skipna=True)
+            n_missing = df.loc[nonafe_mask, col].isna().sum()
+            df.loc[nonafe_mask, col] = df.loc[nonafe_mask, col].fillna(mean_val)
+            if verbose:
+                print(f"Imputed {n_missing} values in '{col}' for non-AFE rows")
+
+    #  Impute non-AFE-only columns for AFE rows
+    for col in nonafe_only_cols:
+        if col in df.columns:
+            # Check if all values in this column for AFE rows are NaN
+            #if df.loc[afe_mask, col].isna().all():
+            mean_val = df.loc[nonafe_mask, col].mean(skipna=True)
+            n_missing = df.loc[afe_mask, col].isna().sum()
+            df.loc[afe_mask, col] = df.loc[afe_mask, col].fillna(mean_val)
+            if verbose:
+                print(f"Imputed {n_missing} values in '{col}' for AFE rows")
+
+    # Recreate feature arrays from the imputed DataFrame
+    features = df[all_features].to_numpy()
+    features_phys = df[[c for c in all_features_phys if c in df.columns]].to_numpy()
+    features_eeg = df[[c for c in all_features_eeg if c in df.columns]].to_numpy()
+
+    return df, features, features_phys, features_eeg
