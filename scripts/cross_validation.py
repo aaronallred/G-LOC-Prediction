@@ -236,11 +236,11 @@ def main_loop(kfold_ID, num_splits, runname):
 
     # Add back in as 2nd to last column (needs to be 2nd to last for advanced - could be last for traditional)
     if "complete" in model_type:
-        x_feature_matrix = np.hstack([
-            x_feature_matrix[:, :-1],
-            afe_indicator_column,
-            x_feature_matrix[:, -1:]
-        ])
+         x_feature_matrix = np.hstack([
+             x_feature_matrix[:, :-1],
+             afe_indicator_column,
+             x_feature_matrix[:, -1:]
+         ])
 
     # List-wise deletion or clean any residual NaNs
     if impute_type == 2 or impute_type == 1:
@@ -350,7 +350,7 @@ if __name__ == "__main__":
     # Needed for proper debugging of CUDA errors
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-    runname = 'Implicit_Complete'
+    runname = 'Implicit_Complete_noInd'
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10
