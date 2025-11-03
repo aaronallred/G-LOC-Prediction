@@ -26,9 +26,9 @@ from GLOC_data_processing import *
 from scripts.GLOC_classifier import stratified_kfold_split
 from scripts.feature_selection import feature_selection_lasso, target_mean_selection, feature_selection_performance, \
     feature_selection_ridge
-from scripts.features import feature_generation
+from scripts.features import feature_generation, sliding_window_max
 from scripts.imbalance_techniques import simple_smote, resample_ros
-from scripts.imputation import knn_impute, faster_knn_impute
+from scripts.imputation import knn_impute, faster_knn_impute, eeg_condition_impute
 import pickle
 from prediction import y_prediction_offset
 import matplotlib.pyplot as plt
@@ -147,11 +147,13 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type):
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
             # feature_groups_to_analyze = ['ECG']
-    if 'combined' in model_type and 'explicit' in model_type:
+    if 'complete' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                          'rawEEG', 'processedEEG', 'strain', 'demographics']
-    if 'combined' in model_type and 'implicit' in model_type:
+        baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6']
+    if 'complete' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'processedEEG', 'AFE']
+        baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6']
 
         # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
     # baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
@@ -193,11 +195,29 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type):
             # Create GLOC Categorical Vector
         gloc = label_gloc_events(gloc_data_reduced)
 
-            # Reduce Dataset based on AFE / nonAFE condition
-        gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
-                afe_subset(model_type, gloc_data_reduced,all_features,
-                           features,features_phys, features_ecg, features_eeg, gloc))
+        # Reduce Dataset based on AFE / nonAFE condition
+        if 'complete' not in model_type:
+            gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
+                afe_subset(model_type, gloc_data_reduced, all_features,
+                           features, features_phys, features_ecg, features_eeg, gloc))
 
+        if 'complete' in model_type:
+            # Grab AFE / NonAFE condition indicator column
+            condition_idx = all_features.index('condition')
+            afe_indicator_column = features[:, condition_idx]
+
+            # Impute raw (using mean) the value of the missing channels for each AFE condition
+            gloc_data_reduced, features, features_phys, features_eeg = (
+                eeg_condition_impute(gloc_data_reduced,
+                                        all_features, all_features_phys, all_features_eeg, afe_indicator_column))
+
+            # Set aside AFE / NonAFE condition indicator for now - to be incorporated back in later
+            features = np.delete(features, condition_idx, axis=1)
+            all_features = [stream for stream in all_features if stream != 'condition']
+
+            # Add indicator back in for trial and row removal during 'data clean and prep' (will be taken back out)
+            gloc_data_reduced[
+                "AFE_indicator"] = afe_indicator_column  # Merge afe_indicators back into the predictor set
 
         ############################################### DATA CLEAN AND Some Imputation ###############################################
         """ 
@@ -222,6 +242,10 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type):
         event_validated_column = gloc_data_reduced['event_validated']
         subject_column = gloc_data_reduced['subject']
 
+        # If complete condition, grab afe_indicator from cleaned dataframe
+        if 'complete' in model_type:
+            afe_indicator_column = gloc_data_reduced["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1)
+
         del gloc_data_reduced
 
         save_variables_to_folder(cache_folder, {
@@ -244,7 +268,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type):
             'event_validated_column': event_validated_column,
             'subject_column': subject_column,
             'nan_proportion_df': nan_proportion_df if remove_NaN_trials else None,
-            #'indicator_matrix': indicator_matrix if impute_type == 1 else None
+            'indicator_afe': afe_indicator_column if 'complete' in model_type else None
         })
 
         print('reduce memory complete for', backstep, 'backstep')
@@ -271,7 +295,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type):
             'event_validated_column',
             'subject_column',
             'nan_proportion_df',
-            # 'indicator_matrix'
+            'indicator_afe'
         ])
 
         # Unpack
@@ -294,7 +318,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type):
         event_validated_column = cached_vars['event_validated_column']
         subject_column = cached_vars['subject_column']
         nan_proportion_df = cached_vars['nan_proportion_df']
-        # indicator_matrix = cached_vars['indicator_matrix']
+        afe_indicator_column = cached_vars['indicator_afe']
         print('for', backstep, 'backstep... data was recovered from cache')  # debugging
 
     ###################################################### Prediction Offset ###############################################
@@ -348,9 +372,20 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type):
                          time_column,
                          combined_baseline_names, baseline_names_v0, baseline_v0, feature_groups_to_analyze))
 
-
         # Remove constant columns
         x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
+
+        # Compute a windowed indicator and add back in
+        if 'complete' in model_type:
+            afe_indicator_column_windowed, gloc_compare, _ = sliding_window_max(afe_indicator_column,
+                                                                                trial_column, time_column, gloc,
+                                                                                offset, stride, window_size, time_start)
+
+            # Add back in as last column for traditional pipeline (2nd to last for advanced)
+            x_feature_matrix = np.hstack([
+                x_feature_matrix,
+                afe_indicator_column_windowed
+            ])
 
 
     else:
@@ -366,8 +401,6 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type):
     ####################################### Process NAN after generation ##########################################
     # Always need to process NaN after feature generation
     y_gloc_labels, x_feature_matrix, all_features = process_NaN(y_gloc_labels, x_feature_matrix, all_features)
-
-    print('After process NaN at a backstep of', backstep, '')  # debugging
 
     if np.isnan(x_feature_matrix).any():
         print('features has nan')
@@ -707,6 +740,10 @@ def get_model_subfolder(model_type):
         return 'combined explicit'
     elif model_type == ['noAFE', 'implicit']:
         return 'combined implicit'
+    elif model_type == ['complete', 'implicit']:
+        return 'combined implicit'
+    elif model_type == ['complete', 'explicit']:
+        return 'combined explicit'
     else:
         raise ValueError(f"Unrecognized model_type: {model_type}")
 

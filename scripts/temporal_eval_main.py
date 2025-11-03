@@ -28,7 +28,7 @@ warnings.filterwarnings("ignore", message="Could not find the number of physical
 # 0.04 is the smallest step size we can have (this is 25hz step)
 # Does not work to have a .5 second step size.
 
-offset_ranges = np.arange(0,1,1) #FOR FULL RUNS: (0,21,1)
+offset_ranges = np.arange(0,2,1) #FOR FULL RUNS: (0,21,1)
 data_rate = 25 # (hz)
 preference = 3 # Which section of the code do we want to run
 random_state = 42
@@ -47,7 +47,7 @@ if preference == 3:
         # Initialize the arrays and class type
         start_time = time.time()
         classifier = classifiers_to_test[m]
-        model_type = ['noAFE','phys+'] # specify model type to run
+        model_type = ['complete','explicit'] # specify model type to run
 
         num_kfold = 3  # Number of kfolds we will use for validation, FOR FULL RUNS 10
         accuracy_model = np.zeros((len(offset_ranges), num_kfold))
@@ -63,7 +63,7 @@ if preference == 3:
         os.makedirs(save_folder, exist_ok=True)
 
         # Grab Optimized (median) hyperparameters for classifier
-        hyperparameters = get_hyperparameters(classifier, get_model_subfolder(model_type))
+        # hyperparameters = get_hyperparameters(classifier, get_model_subfolder(model_type))
 
         print('Starting loop for ', classifier)  # debugging
 
