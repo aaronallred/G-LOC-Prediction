@@ -117,19 +117,22 @@ if __name__ == "__main__":
     n_neighbors = 3
 
     ## Model Parameters
-    model_type = ['noAFE', 'implicit']
+    model_type = ['complete', 'implicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                      'rawEEG', 'processedEEG', 'strain', 'demographics']
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'processedEEG']
-    if 'combined' in model_type and 'explicit' in model_type:
+
+    baseline_methods_to_use = ['v0', 'v1', 'v2']
+
+    if 'complete' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                      'rawEEG', 'processedEEG', 'strain', 'demographics']
-    if 'combined' in model_type and 'implicit' in model_type:
+        baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6']
+    if 'complete' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'processedEEG', 'AFE']
-
-    baseline_methods_to_use = ['v0','v1','v2']
+        baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6']
 
     analysis_type = 2
 
@@ -162,11 +165,29 @@ if __name__ == "__main__":
     # Create GLOC Categorical Vector
     gloc = label_gloc_events(gloc_data_reduced)
 
-    # Reduce Dataset based on AFE / nonAFE condition
-    gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
-        afe_subset(model_type, gloc_data_reduced, all_features,
-                   features, features_phys, features_ecg, features_eeg, gloc))
+    ######################################### COMPLETE SPECIFIC PRE-PROCESSING #########################################
+    if 'complete' in model_type and 'explicit' in model_type:
+        # Grab AFE / NonAFE condition indicator column
+        condition_idx = all_features.index('condition')
+        afe_indicator_column = features[:, condition_idx]
 
+        # Impute raw (using mean) the value of the missing channels for each AFE condition
+        gloc_data_reduced, features, features_phys, features_eeg = (
+            eeg_condition_impute(gloc_data_reduced,
+                                 all_features, all_features_phys, all_features_eeg, afe_indicator_column))
+
+        # Set aside AFE / NonAFE condition indicator for now - to be incorporated back in later
+        features = np.delete(features, condition_idx, axis=1)
+        all_features = [stream for stream in all_features if stream != 'condition']
+
+        # Add indicator back in for trial and row removal during 'data clean and prep' (will be taken back out)
+        gloc_data_reduced[
+            "AFE_indicator"] = afe_indicator_column  # Merge afe_indicators back into the predictor set
+    else:
+        # Reduce Dataset based on AFE / nonAFE condition
+        gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
+            afe_subset(model_type, gloc_data_reduced, all_features,
+                       features, features_phys, features_ecg, features_eeg, gloc))
     ############################################### DATA CLEAN AND PREP ###############################################
     """ 
        Optional handling of raw NaN data, depending on 'remove_NaN_trials' 'impute_type' <= 1
@@ -194,6 +215,10 @@ if __name__ == "__main__":
     time_column = gloc_data_reduced['Time (s)']
     event_validated_column = gloc_data_reduced['event_validated']
     subject_column = gloc_data_reduced['subject']
+
+    # If complete condition, grab afe_indicator from cleaned dataframe
+    if 'complete' in model_type and 'explicit' in model_type:
+        afe_indicator_column = gloc_data_reduced["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1)
 
     del gloc_data_reduced
 
@@ -226,6 +251,18 @@ if __name__ == "__main__":
     # Remove constant columns
     x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
 
+    # Compute a windowed indicator and add back in
+    if 'complete' in model_type and 'explicit' in model_type:
+        afe_indicator_column_windowed, gloc_compare, _ = sliding_window_max(afe_indicator_column,
+                                                                            trial_column, time_column, gloc,
+                                                                            offset, stride, window_size, time_start)
+
+        # Add back in as last column for traditional pipeline (2nd to last for advanced)
+        x_feature_matrix = np.hstack([
+            x_feature_matrix,
+            afe_indicator_column_windowed
+        ])
+
     # Remove all NaN rows from x matrix before train/test split for method 2 & method 1 if there are remaining NaNs
     if impute_type == 2 or impute_type == 1:
         y_gloc_labels, x_feature_matrix, all_features = process_NaN(y_gloc_labels, x_feature_matrix, all_features)
@@ -234,7 +271,7 @@ if __name__ == "__main__":
     #################################################### CV LOOP #####################################################
     # Get time stamp for saving models
     # runname = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    runname = 'Implicit'
+    runname = 'Implicit complete'
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10
