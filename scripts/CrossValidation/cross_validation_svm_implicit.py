@@ -103,7 +103,7 @@ if __name__ == "__main__":
 
     ################################################### USER INPUTS  ###################################################
     ## Data Folder Location
-    datafolder = '../../'
+    datafolder = '../data/'
     # datafolder = '../data/'
 
     # Random State | 42 - Debug mode
