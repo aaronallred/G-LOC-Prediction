@@ -86,6 +86,10 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     if classifier_type == 'all_hpo':
         return performance_metric_summary_hpo
     else:
+        selected_features_path = os.path.join(save_folder, 'SelectedFeaturesKNN.pkl')
+        with open(selected_features_path, 'wb') as file:
+            pickle.dump(selected_features, file)
+
         return performance_metric_summary_single
 
 if __name__ == "__main__":

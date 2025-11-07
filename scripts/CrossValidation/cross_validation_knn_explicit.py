@@ -13,9 +13,9 @@ from openpyxl.styles.builtins import percent
 import os
 from datetime import datetime
 
+
 def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, random_state, all_features,
               classifier_type, train_class, class_weight_imb):
-
     # Define Loop Time
     loop_time = time.time()
 
@@ -25,7 +25,7 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     """
 
     # Training/Test Split
-    x_train, x_test, y_train, y_test = stratified_kfold_split(y_gloc_labels,x_feature_matrix,
+    x_train, x_test, y_train, y_test = stratified_kfold_split(y_gloc_labels, x_feature_matrix,
                                                               num_splits, kfold_ID)
 
     ################################################# IMPUTATION ####################################################
@@ -86,11 +86,11 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     if classifier_type == 'all_hpo':
         return performance_metric_summary_hpo
     else:
-        return {
-            'performance': performance_metric_summary_single,
-            'selected_features': selected_features,
-            'hyperparameters': None  # or add if available
-        }
+        selected_features_path = os.path.join(save_folder, 'SelectedFeaturesKNN.pkl')
+        with open(selected_features_path, 'wb') as file:
+            pickle.dump(selected_features, file)
+
+        return performance_metric_summary_single
 
 
 if __name__ == "__main__":
@@ -99,7 +99,7 @@ if __name__ == "__main__":
 
     ################################################### USER INPUTS  ###################################################
     ## Data Folder Location
-    datafolder = '../../'
+    datafolder = '../data/'
     # datafolder = '../data/'
 
     # Random State | 42 - Debug mode
@@ -165,7 +165,6 @@ if __name__ == "__main__":
     # Create GLOC Categorical Vector
     gloc = label_gloc_events(gloc_data_reduced)
 
-
     ######################################### COMPLETE SPECIFIC PRE-PROCESSING #########################################
     if 'complete' in model_type and 'explicit' in model_type:
         # Grab AFE / NonAFE condition indicator column
@@ -189,8 +188,6 @@ if __name__ == "__main__":
         gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
             afe_subset(model_type, gloc_data_reduced, all_features,
                        features, features_phys, features_ecg, features_eeg, gloc))
-
-
 
     ############################################### DATA CLEAN AND PREP ###############################################
     """ 
@@ -271,7 +268,6 @@ if __name__ == "__main__":
     if impute_type == 2 or impute_type == 1:
         y_gloc_labels, x_feature_matrix, all_features = process_NaN(y_gloc_labels, x_feature_matrix, all_features)
 
-
     #################################################### CV LOOP #####################################################
     # Get time stamp for saving models
     # runname = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -279,7 +275,7 @@ if __name__ == "__main__":
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10
-    kfold_ID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    kfold_ID = [3] # IDs run from 0-9
 
     # Pre-Allocate Performance Summary Dictionary
     kfold_performance_summary = dict()
@@ -288,16 +284,9 @@ if __name__ == "__main__":
     for i in range(len(kfold_ID)):
         # Loop through all train-test splits
         method_key = str(kfold_ID[i])
-        fold_result = main_loop(kfold_ID[i], num_splits, runname, y_gloc_labels.copy(),
+        kfold_performance_summary[method_key] = main_loop(kfold_ID[i], num_splits, runname, y_gloc_labels.copy(),
                                                           x_feature_matrix.copy(), random_state, all_features.copy(),
                                                           classifier_type, train_class, class_weight_imb)
-
-        # Store fold result with selected features
-        kfold_performance_summary[method_key] = {
-            'performance': fold_result['performance'],
-            'hyperparameters': fold_result['hyperparameters'],
-            'selected_features': fold_result['selected_features']
-        }
 
         # Save pkl summary for this iteration
         save_folder = os.path.join("../PerformanceSave/CrossValidation", classifier_type, runname, method_key)
@@ -324,6 +313,6 @@ if __name__ == "__main__":
         pickle.dump(kfold_performance_summary, file)
 
     plot_cross_val(kfold_performance_summary)
-	
+
     duration = time.time() - start_time
     print(duration)
