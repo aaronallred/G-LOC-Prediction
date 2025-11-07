@@ -86,6 +86,7 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     else:
         selected_features_path = os.path.join(save_folder, 'SelectedFeaturesRF.pkl')
         with open(selected_features_path, 'wb') as file:
+            selected_features = all_features
             pickle.dump(selected_features, file)
 
         return performance_metric_summary_single
