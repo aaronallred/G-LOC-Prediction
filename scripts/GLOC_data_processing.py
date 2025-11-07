@@ -1169,13 +1169,6 @@ def process_NaN(y_gloc_labels, x_feature_matrix, all_features):
     index_column_all_NaN = np.all(nan_test, axis=0)
     x_feature_matrix_noNaN_cols = x_feature_matrix[:, ~index_column_all_NaN]
 
-    # Debug print: confirm whether removed columns are fully NaN
-    if np.all(nan_test[:, index_column_all_NaN]):
-        print("Confirmed: all removed columns are FULL NaN")
-    else:
-        print("Warning: some removed columns are NOT full NaN")
-    #Debug end
-
     # Adjust all_features to only include columns that don't have all NaN
     all_features = [all_features[i] for i in range(len(all_features)) if ~index_column_all_NaN[i]]
 
