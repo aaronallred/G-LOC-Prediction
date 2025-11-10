@@ -74,7 +74,7 @@ def stratified_kfold_split(Y, X, num_splits, kfold_ID, random_state=42):
 
 # Logistic Regression Classifier
 def classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                                 save_folder="../ModelSave",model_name="logistic_regression_model.pkl",retrain=True):
+                                 save_folder,model_name, retrain, temporal = False, best_params = None):
     """
     This function fits and assesses performance of a logistic regression ML classifier for the data
     specified. Within this function, a separate confusion matrix function is called. Additional
@@ -87,8 +87,15 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_
         #weights = {0: 1.0, 1: 10.0}
         logreg = LogisticRegression(class_weight = class_weight_imb, random_state=random_state, max_iter=1000).fit(x_train, np.ravel(y_train))
     else:
-        model_path = os.path.join(save_folder, model_name)
-        logreg = joblib.load(model_path)
+
+        if temporal:
+            # If temporal flag is true, need to pull hyperparameters
+            # We fit for every iteration as each fold is different
+            logreg = LogisticRegression(**best_params, class_weight= class_weight_imb, random_state=random_state).fit(x_train, np.ravel(y_train))
+
+        else:
+            model_path = os.path.join(save_folder, model_name)
+            logreg = joblib.load(model_path)
 
     # Predict
     label_predictions = logreg.predict(x_test)
@@ -141,7 +148,7 @@ def classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_
 
 # Random Forest Classifier
 def classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                           save_folder="../ModelSave",model_name="random_forest_model.pkl",retrain=True):
+                           save_folder,model_name, retrain, temporal = False, best_params = None):
     """
     This function fits and assesses performance of a random forest ML classifier for the data
     specified. Within this function, a separate confusion matrix function is called. Additional
@@ -152,8 +159,15 @@ def classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, r
         # Use Default Parameters & Fit Model
         rf = RandomForestClassifier(class_weight= class_weight_imb, random_state=random_state).fit(x_train, np.ravel(y_train))
     else:
-        model_path = os.path.join(save_folder, model_name)
-        rf = joblib.load(model_path)
+
+        if temporal:
+            # If temporal flag is true, need to pull hyperparameters
+            # We fit for every iteration as each fold is different
+            rf = RandomForestClassifier(**best_params, class_weight= class_weight_imb, random_state=random_state).fit(x_train, np.ravel(y_train))
+
+        else:
+            model_path = os.path.join(save_folder, model_name)
+            rf = joblib.load(model_path)
 
     # Predict
     label_predictions = rf.predict(x_test)
@@ -199,7 +213,7 @@ def classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, r
 
 # Linear Discriminant Analysis
 def classify_lda(x_train, x_test, y_train, y_test, random_state,
-                 save_folder="../ModelSave",model_name="LDA_model.pkl",retrain=True):
+                 save_folder,model_name, retrain, temporal = False, best_params = None):
     """
     This function fits and assesses performance of a linear discriminant analysis ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
@@ -209,8 +223,15 @@ def classify_lda(x_train, x_test, y_train, y_test, random_state,
         # Use Default Parameters & Fit Model
         lda = LinearDiscriminantAnalysis().fit(x_train, np.ravel(y_train))
     else:
-        model_path = os.path.join(save_folder, model_name)
-        lda = joblib.load(model_path)
+
+        if temporal:
+            # If temporal flag is true, need to pull hyperparameters
+            # We fit for every iteration as each fold is different
+            lda = LinearDiscriminantAnalysis(**best_params).fit(x_train, np.ravel(y_train))
+
+        else:
+            model_path = os.path.join(save_folder, model_name)
+            lda = joblib.load(model_path)
 
     # Predict
     label_predictions = lda.predict(x_test)
@@ -243,7 +264,7 @@ def classify_lda(x_train, x_test, y_train, y_test, random_state,
 
 # k Nearest Neighbors
 def classify_knn(x_train, x_test, y_train, y_test, random_state,
-                 save_folder="../ModelSave",model_name="KNN_model.pkl",retrain=True):
+                 save_folder,model_name, retrain, temporal = False, best_params = None):
     """
     This function fits and assesses performance of a K Nearest Neighbors ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
@@ -253,8 +274,15 @@ def classify_knn(x_train, x_test, y_train, y_test, random_state,
         # Use Default Parameters & Fit Model
         neigh = KNeighborsClassifier().fit(x_train, np.ravel(y_train))
     else:
-        model_path = os.path.join(save_folder, model_name)
-        neigh = joblib.load(model_path)
+
+        if temporal:
+            # If temporal flag is true, need to pull hyperparameters
+            # We fit for every iteration as each fold is different
+            neigh = KNeighborsClassifier(**best_params).fit(x_train, np.ravel(y_train))
+
+        else:
+            model_path = os.path.join(save_folder, model_name)
+            neigh = joblib.load(model_path)
 
     # Predict
     label_predictions = neigh.predict(x_test)
@@ -287,7 +315,7 @@ def classify_knn(x_train, x_test, y_train, y_test, random_state,
 
 # Support Vector Machine
 def classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                 save_folder="../ModelSave",model_name="svm_model.pkl", retrain = True):
+                 save_folder,model_name, retrain, temporal = False, best_params = None):
     """
     This function fits and assesses performance of a Support Vector Machine ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
@@ -297,8 +325,14 @@ def classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_stat
         # Use Default Parameters & Fit Model
         svm_class = svm.SVC(class_weight=class_weight_imb).fit(x_train, np.ravel(y_train))
     else:
-        model_path = os.path.join(save_folder, model_name)
-        svm_class = joblib.load(model_path)
+
+        if temporal:
+            # If temporal flag is true, need to pull hyperparameters
+            # We fit for every iteration as each fold is different
+            svm_class = svm.SVC(**best_params, class_weight= class_weight_imb).fit(x_train, np.ravel(y_train))
+        else:
+            model_path = os.path.join(save_folder, model_name)
+            svm_class = joblib.load(model_path)
 
     # Predict
     label_predictions = svm_class.predict(x_test)
@@ -331,7 +365,7 @@ def classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_stat
 
 # Ensemble Learner with Gradient Boost
 def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, random_state,
-                                     save_folder="../ModelSave",model_name="ensemble_model.pkl", retrain = True):
+                                     save_folder,model_name, retrain, temporal = False, best_params = None):
     """
     This function fits and assesses performance of an Ensemble Learner w/ Grad Boost ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
@@ -341,8 +375,15 @@ def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, random_st
     if retrain:
         gb = GradientBoostingClassifier(random_state=random_state).fit(x_train, np.ravel(y_train))
     else:
-        model_path = os.path.join(save_folder, model_name)
-        gb = joblib.load(model_path)
+
+        if temporal:
+            # If temporal flag is true, need to pull hyperparameters
+            # We fit for every iteration as each fold is different
+            gb = GradientBoostingClassifier(**best_params, random_state=random_state).fit(x_train, np.ravel(y_train))
+
+        else:
+            model_path = os.path.join(save_folder, model_name)
+            gb = joblib.load(model_path)
 
     # Predict
     label_predictions = gb.predict(x_test)

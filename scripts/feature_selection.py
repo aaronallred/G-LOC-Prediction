@@ -224,11 +224,6 @@ def feature_selection_elastic_net(x_train, x_test, y_train, all_features, random
 
     return x_train, x_test, selected_features
 
-def safe_r2(y_true, y_pred):
-    if np.isnan(y_pred).any():
-        print("NaNs detected in y_pred during scoring — replacing with zeros")
-        y_pred = np.nan_to_num(y_pred, nan=0.0)
-    return r2_score(y_true, y_pred)
 
 
 def feature_selection_ridge(x_train, x_test, y_train, all_features, n, random_state):
@@ -272,8 +267,6 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features, n, random_st
     # Initializing the Model
     ridge = Ridge()
 
-    # # Changing scoring method for debug
-    # scoring = make_scorer(safe_r2)
 
     # Set up BayesSearchCV
     ridge_cv = BayesSearchCV(
@@ -283,7 +276,6 @@ def feature_selection_ridge(x_train, x_test, y_train, all_features, n, random_st
         random_state=random_state,
         n_jobs=-1,
         verbose=1,
-        # scoring = scoring
     )
 
     # # Sanity check for NaNs before fitting
@@ -591,9 +583,6 @@ def target_mean_selection(x_train, x_test, y_train, all_features, random_state):
     # Fit target mean performance model on the training data
     tmp.fit(x_train, y_train)
 
-    # Reduce train and test matrix
-    x_train = tmp.transform(x_train)
-    x_test = tmp.transform(x_test)
 
     # Use features to drop to determine features to keep
     features_to_drop = tmp.features_to_drop_

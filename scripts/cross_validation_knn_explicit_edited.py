@@ -55,37 +55,28 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     """ 
           Explore Feature Reduction Section of Sequential Optimization Framework
     """
-    x_train, x_test, selected_features = feature_selection_lasso(x_train, x_test, y_train, all_features, random_state)
-
-    # save selected features to pkl
-    selected_features_folder = os.path.join("../SelectedFeatures_noAFE", classifier_type, runname, str(kfold_ID))
-    selected_features_file = 'SelectedFeatures.pkl'
-    save_selected_features_path = os.path.join(selected_features_folder, selected_features_file)
-
-    # Ensure the save folder exists
-    if not os.path.exists(selected_features_folder):
-        os.makedirs(selected_features_folder)
-
-    with open(save_selected_features_path, 'wb') as file_to_save:
-        pickle.dump(selected_features, file_to_save)
+    # Determine reduced feature set & transform x_train and x_test
+    classifier_to_use = 'KNN'
+    x_train, x_test, selected_features = feature_selection_performance(x_train, x_test, y_train, all_features,
+                                                                       classifier_to_use, random_state)
 
     ################################################ CLASS IMBALANCE ################################################
 
-    # No imbalance technique | none
-    x_train, y_train = x_train, y_train
+    # Random Over Sampling | ros
+    x_train, y_train = resample_ros(x_train, y_train, random_state)
 
     ################################################ MACHINE LEARNING ################################################
     save_folder = os.path.join("../ModelSave/CV", runname, str(kfold_ID))
 
-    # Linear discriminant analysis HPO | LDA_hpo
-    if classifier_type == 'all_hpo' or classifier_type == 'LDA_hpo':
-        accuracy_lda_hpo, precision_lda_hpo, recall_lda_hpo, f1_lda_hpo, specificity_lda_hpo, g_mean_lda_hpo = (
-            classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
+    # K Nearest Neighbors HPO | KNN_hpo
+    if classifier_type == 'all_hpo' or classifier_type == 'KNN_hpo':
+        accuracy_knn_hpo, precision_knn_hpo, recall_knn_hpo, f1_knn_hpo, specificity_knn_hpo, g_mean_knn_hpo = (
+            classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
                              save_folder=save_folder, retrain=train_class))
 
         performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_lda_hpo, precision_lda_hpo, recall_lda_hpo, f1_lda_hpo,
-            specificity_lda_hpo, g_mean_lda_hpo, ['LDA'])
+            accuracy_knn_hpo, precision_knn_hpo, recall_knn_hpo, f1_knn_hpo,
+            specificity_knn_hpo, g_mean_knn_hpo, ['KNN'])
 
     loop_duration = time.time() - loop_time
     print(loop_duration)
@@ -95,11 +86,12 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     if classifier_type == 'all_hpo':
         return performance_metric_summary_hpo
     else:
-        selected_features_path = os.path.join(save_folder, 'SelectedFeaturesLDA.pkl')
+        selected_features_path = os.path.join(save_folder, 'SelectedFeatures.pkl')
         with open(selected_features_path, 'wb') as file:
             pickle.dump(selected_features, file)
 
         return performance_metric_summary_single
+
 
 if __name__ == "__main__":
     # Get start time
@@ -114,7 +106,7 @@ if __name__ == "__main__":
     random_state = 42
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
-    classifier_type = 'LDA_hpo'
+    classifier_type = 'KNN_hpo'
     train_class = True
     class_weight_imb = None
 
@@ -122,7 +114,7 @@ if __name__ == "__main__":
     remove_NaN_trials = True
 
     impute_type = 1
-    n_neighbors = 3
+    n_neighbors = 5
 
     ## Model Parameters
     model_type = ['complete', 'explicit']
@@ -137,6 +129,7 @@ if __name__ == "__main__":
     if 'complete' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                      'rawEEG', 'processedEEG', 'strain', 'demographics']
+        print('Correct')
         baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6']
     if 'complete' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'processedEEG', 'AFE']
@@ -145,7 +138,7 @@ if __name__ == "__main__":
     analysis_type = 2
 
     # Define Sliding Window Parameters to Use
-    baseline_window = 46.25
+    baseline_window = 32.5
     window_size = 15
     stride = 0.25
     offset = 0  # seconds
@@ -173,8 +166,10 @@ if __name__ == "__main__":
     # Create GLOC Categorical Vector
     gloc = label_gloc_events(gloc_data_reduced)
 
+
     ######################################### COMPLETE SPECIFIC PRE-PROCESSING #########################################
     if 'complete' in model_type and 'explicit' in model_type:
+        print('Correct')
         # Grab AFE / NonAFE condition indicator column
         condition_idx = all_features.index('condition')
         afe_indicator_column = features[:, condition_idx]
@@ -196,6 +191,8 @@ if __name__ == "__main__":
         gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
             afe_subset(model_type, gloc_data_reduced, all_features,
                        features, features_phys, features_ecg, features_eeg, gloc))
+
+
 
     ############################################### DATA CLEAN AND PREP ###############################################
     """ 
@@ -283,8 +280,8 @@ if __name__ == "__main__":
     runname = 'Explicit complete'
 
     # Test set identifier for 10-fold Model Validation
-    num_splits = 10
-    kfold_ID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    num_splits = 2
+    kfold_ID = [0, 1]
 
     # Pre-Allocate Performance Summary Dictionary
     kfold_performance_summary = dict()

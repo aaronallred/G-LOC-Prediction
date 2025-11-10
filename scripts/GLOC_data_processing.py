@@ -246,59 +246,33 @@ def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, dem
         cognitive_features = []
 
     if 'rawEEG' in feature_groups_to_analyze:
-        raw_eeg_shared_features = ['F1 - EEG', 'Fz - EEG', 'F3 - EEG', 'C3 - EEG', 'C4 - EEG',
-                                   'CP1 - EEG', 'CP2 - EEG', 'T8 - EEG', 'TP9 - EEG', 'TP10 - EEG',
-                                   'P7 - EEG', 'P8 - EEG']
+        _, _, _, raw_eeg_shared_features, raw_eeg_afe_only, raw_eeg_nonafe_only = pull_eeg_sets()
+
         if 'AFE' in model_type:
-            raw_eeg_condition_specific = ['F4 - EEG', 'T7 - EEG', 'O1 - EEG', 'O2 - EEG']
+            raw_eeg_condition_specific = raw_eeg_afe_only
         elif 'noAFE' in model_type:
-            raw_eeg_condition_specific = ['AFz - EEG', 'AF4 - EEG', 'FT9 - EEG', 'FT10 - EEG', 'FC5 - EEG',
-                                      'FC3 - EEG', 'FC1 - EEG', 'FC2 - EEG', 'FC4 - EEG', 'FC6 - EEG', 'C5 - EEG',
-                                      'Cz - EEG', 'CP5 - EEG', 'CP6 - EEG', 'P5 - EEG', 'P3 - EEG', 'P1 - EEG',
-                                      'Pz - EEG', 'P4 - EEG', 'P6 - EEG']
+            raw_eeg_condition_specific = raw_eeg_nonafe_only
+        else:
+            # raw_eeg_condition_specific = [] # Use only shared features
+            # Use full dataset
+            raw_eeg_condition_specific = raw_eeg_afe_only + raw_eeg_nonafe_only
+            raw_eeg_condition_specific = []
     else:
         raw_eeg_shared_features = []
         raw_eeg_condition_specific = []
 
     if 'processedEEG' in feature_groups_to_analyze:
-        processed_eeg_shared_features = ['F1_delta - EEG', 'F1_theta - EEG', 'F1_alpha - EEG', 'F1_beta - EEG',
-                                   'Fz_delta - EEG', 'Fz_theta - EEG', 'Fz_alpha - EEG', 'Fz_beta - EEG',
-                                   'F3_delta - EEG', 'F3_theta - EEG', 'F3_alpha - EEG', 'F3_beta - EEG',
-                                   'C3_delta - EEG', 'C3_theta - EEG', 'C3_alpha - EEG', 'C3_beta - EEG',
-                                   'C4_delta - EEG', 'C4_theta - EEG', 'C4_alpha - EEG', 'C4_beta - EEG',
-                                   'CP1_delta - EEG', 'CP1_theta - EEG', 'CP1_alpha - EEG', 'CP1_beta - EEG',
-                                   'CP2_delta - EEG', 'CP2_theta - EEG', 'CP2_alpha - EEG', 'CP2_beta - EEG',
-                                   'T8_delta - EEG', 'T8_theta - EEG', 'T8_alpha - EEG', 'T8_beta - EEG',
-                                   'TP9_delta - EEG', 'TP9_theta - EEG', 'TP9_alpha - EEG', 'TP9_beta - EEG',
-                                   'TP10_delta - EEG', 'TP10_theta - EEG', 'TP10_alpha - EEG', 'TP10_beta - EEG',
-                                   'P7_delta - EEG', 'P7_theta - EEG', 'P7_alpha - EEG', 'P7_beta - EEG',
-                                   'P8_delta - EEG', 'P8_theta - EEG', 'P8_alpha - EEG', 'P8_beta - EEG']
+        processed_eeg_shared_features, processed_eeg_afe_only, processed_eeg_nonafe_only, _, _, _ = pull_eeg_sets()
+
         if 'AFE' in model_type:
-            processed_eeg_condition_specific = ['F4_delta - EEG', 'F4_theta - EEG', 'F4_alpha - EEG', 'F4_beta - EEG',
-                                                'T7_delta - EEG', 'T7_theta - EEG', 'T7_alpha - EEG', 'T7_beta - EEG',
-                                                'O1_delta - EEG', 'O1_theta - EEG', 'O1_alpha - EEG', 'O1_beta - EEG',
-                                                'O2_delta - EEG', 'O2_theta - EEG', 'O2_alpha - EEG', 'O2_beta - EEG']
+            processed_eeg_condition_specific = processed_eeg_afe_only
         elif 'noAFE' in model_type:
-            processed_eeg_condition_specific = ['AFz_delta - EEG', 'AFz_theta - EEG', 'AFz_alpha - EEG', 'AFz_beta - EEG',
-                                                'AF4_delta - EEG', 'AF4_theta - EEG', 'AF4_alpha - EEG', 'AF4_beta - EEG',
-                                                'FT9_delta - EEG', 'FT9_theta - EEG', 'FT9_alpha - EEG', 'FT9_beta - EEG',
-                                                'FT10_delta - EEG', 'FT10_theta - EEG', 'FT10_alpha - EEG', 'FT10_beta - EEG',
-                                                'FC5_delta - EEG', 'FC5_theta - EEG', 'FC5_alpha - EEG', 'FC5_beta - EEG',
-                                                'FC3_delta - EEG', 'FC3_theta - EEG', 'FC3_alpha - EEG', 'FC3_beta - EEG',
-                                                'FC1_delta - EEG', 'FC1_theta - EEG', 'FC1_alpha - EEG', 'FC1_beta - EEG',
-                                                'FC2_delta - EEG', 'FC2_theta - EEG', 'FC2_alpha - EEG', 'FC2_beta - EEG',
-                                                'FC4_delta - EEG', 'FC4_theta - EEG', 'FC4_alpha - EEG', 'FC4_beta - EEG',
-                                                'FC6_delta - EEG', 'FC6_theta - EEG', 'FC6_alpha - EEG', 'FC6_beta - EEG',
-                                                'C5_delta - EEG', 'C5_theta - EEG', 'C5_alpha - EEG', 'C5_beta - EEG',
-                                                'Cz_delta - EEG', 'Cz_theta - EEG', 'Cz_alpha - EEG', 'Cz_beta - EEG',
-                                                'CP5_delta - EEG', 'CP5_theta - EEG', 'CP5_alpha - EEG', 'CP5_beta - EEG',
-                                                'CP6_delta - EEG', 'CP6_theta - EEG', 'CP6_alpha - EEG','CP6_beta - EEG',
-                                                'P5_delta - EEG', 'P5_theta - EEG', 'P5_alpha - EEG', 'P5_beta - EEG',
-                                                'P3_delta - EEG', 'P3_theta - EEG', 'P3_alpha - EEG', 'P3_beta - EEG',
-                                                'P1_delta - EEG', 'P1_theta - EEG', 'P1_alpha - EEG', 'P1_beta - EEG',
-                                                'Pz_delta - EEG', 'Pz_theta - EEG', 'Pz_alpha - EEG', 'Pz_beta - EEG',
-                                                'P4_delta - EEG', 'P4_theta - EEG', 'P4_alpha - EEG', 'P4_beta - EEG',
-                                                'P6_delta - EEG', 'P6_theta - EEG', 'P6_alpha - EEG', 'P6_beta - EEG']
+            processed_eeg_condition_specific = processed_eeg_nonafe_only
+        else:
+            # processed_eeg_condition_specific = []
+            # Use full dataset
+            processed_eeg_condition_specific = processed_eeg_afe_only + processed_eeg_nonafe_only
+            processed_eeg_condition_specific = []
     else:
         processed_eeg_shared_features = []
         processed_eeg_condition_specific = []
@@ -1195,13 +1169,6 @@ def process_NaN(y_gloc_labels, x_feature_matrix, all_features):
     index_column_all_NaN = np.all(nan_test, axis=0)
     x_feature_matrix_noNaN_cols = x_feature_matrix[:, ~index_column_all_NaN]
 
-    # Debug print: confirm whether removed columns are fully NaN
-    if np.all(nan_test[:, index_column_all_NaN]):
-        print("Confirmed: all removed columns are FULL NaN")
-    else:
-        print("Warning: some removed columns are NOT full NaN")
-    #Debug end
-
     # Adjust all_features to only include columns that don't have all NaN
     all_features = [all_features[i] for i in range(len(all_features)) if ~index_column_all_NaN[i]]
 
@@ -1582,6 +1549,62 @@ def process_swp_pkl():
 
     # Create the DataFrame with custom row labels
     egb_fast_results = pd.DataFrame(data_array, index=egb_fast_pkl.keys(), columns=column_names)
+
+def pull_eeg_sets():
+    # list of shared eeg channels
+    raw_eeg_shared_features = ['Fz - EEG', 'F3 - EEG', 'C3 - EEG', 'C4 - EEG',
+                                   'CP1 - EEG', 'CP2 - EEG', 'T8 - EEG', 'TP9 - EEG', 'TP10 - EEG',
+                                   'P7 - EEG', 'P8 - EEG']
+
+    processed_eeg_shared_features = ['Fz_delta - EEG', 'Fz_theta - EEG', 'Fz_alpha - EEG', 'Fz_beta - EEG',
+                                     'F3_delta - EEG', 'F3_theta - EEG', 'F3_alpha - EEG', 'F3_beta - EEG',
+                                     'C3_delta - EEG', 'C3_theta - EEG', 'C3_alpha - EEG', 'C3_beta - EEG',
+                                     'C4_delta - EEG', 'C4_theta - EEG', 'C4_alpha - EEG', 'C4_beta - EEG',
+                                     'CP1_delta - EEG', 'CP1_theta - EEG', 'CP1_alpha - EEG', 'CP1_beta - EEG',
+                                     'CP2_delta - EEG', 'CP2_theta - EEG', 'CP2_alpha - EEG', 'CP2_beta - EEG',
+                                     'T8_delta - EEG', 'T8_theta - EEG', 'T8_alpha - EEG', 'T8_beta - EEG',
+                                     'TP9_delta - EEG', 'TP9_theta - EEG', 'TP9_alpha - EEG', 'TP9_beta - EEG',
+                                     'TP10_delta - EEG', 'TP10_theta - EEG', 'TP10_alpha - EEG', 'TP10_beta - EEG',
+                                     'P7_delta - EEG', 'P7_theta - EEG', 'P7_alpha - EEG', 'P7_beta - EEG',
+                                     'P8_delta - EEG', 'P8_theta - EEG', 'P8_alpha - EEG', 'P8_beta - EEG']
+
+    # list of AFE only eeg channels
+    raw_eeg_afe_only = ['F4 - EEG', 'T7 - EEG', 'O1 - EEG', 'O2 - EEG']
+
+    processed_eeg_afe_only =['F4_delta - EEG', 'F4_theta - EEG', 'F4_alpha - EEG', 'F4_beta - EEG',
+                                                'T7_delta - EEG', 'T7_theta - EEG', 'T7_alpha - EEG', 'T7_beta - EEG',
+                                                'O1_delta - EEG', 'O1_theta - EEG', 'O1_alpha - EEG', 'O1_beta - EEG',
+                                                'O2_delta - EEG', 'O2_theta - EEG', 'O2_alpha - EEG', 'O2_beta - EEG']
+    # list of Non-AFE only eeg channels
+    raw_eeg_nonafe_only = ['F1 - EEG', 'AFz - EEG', 'AF4 - EEG', 'FT9 - EEG', 'FT10 - EEG', 'FC5 - EEG',
+                                      'FC3 - EEG', 'FC1 - EEG', 'FC2 - EEG', 'FC4 - EEG', 'FC6 - EEG', 'C5 - EEG',
+                                      'Cz - EEG', 'CP5 - EEG', 'CP6 - EEG', 'P5 - EEG', 'P3 - EEG', 'P1 - EEG',
+                                      'Pz - EEG', 'P4 - EEG', 'P6 - EEG']
+
+    processed_eeg_nonafe_only =['F1_delta - EEG', 'F1_theta - EEG', 'F1_alpha - EEG', 'F1_beta - EEG',
+                                                'AFz_delta - EEG', 'AFz_theta - EEG', 'AFz_alpha - EEG', 'AFz_beta - EEG',
+                                                'AF4_delta - EEG', 'AF4_theta - EEG', 'AF4_alpha - EEG', 'AF4_beta - EEG',
+                                                'FT9_delta - EEG', 'FT9_theta - EEG', 'FT9_alpha - EEG', 'FT9_beta - EEG',
+                                                'FT10_delta - EEG', 'FT10_theta - EEG', 'FT10_alpha - EEG', 'FT10_beta - EEG',
+                                                'FC5_delta - EEG', 'FC5_theta - EEG', 'FC5_alpha - EEG', 'FC5_beta - EEG',
+                                                'FC3_delta - EEG', 'FC3_theta - EEG', 'FC3_alpha - EEG', 'FC3_beta - EEG',
+                                                'FC1_delta - EEG', 'FC1_theta - EEG', 'FC1_alpha - EEG', 'FC1_beta - EEG',
+                                                'FC2_delta - EEG', 'FC2_theta - EEG', 'FC2_alpha - EEG', 'FC2_beta - EEG',
+                                                'FC4_delta - EEG', 'FC4_theta - EEG', 'FC4_alpha - EEG', 'FC4_beta - EEG',
+                                                'FC6_delta - EEG', 'FC6_theta - EEG', 'FC6_alpha - EEG', 'FC6_beta - EEG',
+                                                'C5_delta - EEG', 'C5_theta - EEG', 'C5_alpha - EEG', 'C5_beta - EEG',
+                                                'Cz_delta - EEG', 'Cz_theta - EEG', 'Cz_alpha - EEG', 'Cz_beta - EEG',
+                                                'CP5_delta - EEG', 'CP5_theta - EEG', 'CP5_alpha - EEG', 'CP5_beta - EEG',
+                                                'CP6_delta - EEG', 'CP6_theta - EEG', 'CP6_alpha - EEG','CP6_beta - EEG',
+                                                'P5_delta - EEG', 'P5_theta - EEG', 'P5_alpha - EEG', 'P5_beta - EEG',
+                                                'P3_delta - EEG', 'P3_theta - EEG', 'P3_alpha - EEG', 'P3_beta - EEG',
+                                                'P1_delta - EEG', 'P1_theta - EEG', 'P1_alpha - EEG', 'P1_beta - EEG',
+                                                'Pz_delta - EEG', 'Pz_theta - EEG', 'Pz_alpha - EEG', 'Pz_beta - EEG',
+                                                'P4_delta - EEG', 'P4_theta - EEG', 'P4_alpha - EEG', 'P4_beta - EEG',
+                                                'P6_delta - EEG', 'P6_theta - EEG', 'P6_alpha - EEG', 'P6_beta - EEG']
+
+    return (processed_eeg_shared_features, processed_eeg_afe_only, processed_eeg_nonafe_only,
+            raw_eeg_shared_features, raw_eeg_afe_only, raw_eeg_nonafe_only)
 
     with open("C:\\Users\\nicol\\Downloads\\Sequential_Optimization_Sliding_Window_dictionary_model_type_explicit_svm.pkl", 'rb') as file:
         svm_pkl = pickle.load(file)

@@ -826,3 +826,61 @@ def sliding_window_other_features(time_start, stride, window_size, trial_column,
      sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
      sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
      sliding_window_cognitive_ies_s2)
+
+
+def sliding_window_max(data_array, trial_column, time_column, label_array, offset, stride, window_size,time_start=0):
+    """
+    Compute sliding window max features and labels from a full array with a trial column.
+
+    Input:
+    - data_array: np.array of shape [num_rows, num_features] (all trials concatenated)
+    - trial_column: array-like of trial IDs per row
+    - time_column: array-like of timestamps per row
+    - time_start: start time of first window
+    - offset: offset for label window relative to feature window
+    - stride: step size between windows
+    - window_size: size of the sliding window
+
+    Output:
+    - all_features: np.array [total_windows, num_features]
+    - all_labels: np.array [total_windows]
+    - all_trials: np.array [total_windows] indicating which trial each window came from
+    """
+
+    trial_ids = np.unique(trial_column)
+
+    all_features = []
+    all_labels = []
+    all_trials = []
+
+    for trial_id in trial_ids:
+        # Select rows for this trial
+        trial_mask = (trial_column == trial_id)
+        trial_times = np.array(time_column[trial_mask])
+        trial_data = data_array[trial_mask, :]
+        trial_gloc = np.array(label_array[trial_mask])  # replace with label column if different
+
+        time_end = np.max(trial_times)
+        number_windows = int(((time_end - offset) // stride) - (window_size // stride - 1))
+
+        t = time_start
+        for w in range(number_windows):
+            # Feature window
+            window_mask = (t <= trial_times) & (trial_times < t + window_size)
+            window_features = np.nanmax(trial_data[window_mask, :], axis=0)
+
+            # G-LOC window
+            gloc_mask = ((t + offset) <= trial_times) & (trial_times < t + offset + window_size)
+            window_label = np.any(trial_gloc[gloc_mask])
+
+            all_features.append(window_features)
+            all_labels.append(window_label)
+            all_trials.append(trial_id)
+
+            t += stride
+
+    all_features = np.array(all_features)
+    all_labels = np.array(all_labels)
+    all_trials = np.array(all_trials)
+
+    return all_features, all_labels, all_trials
