@@ -1,3 +1,4 @@
+import numpy as np
 from GLOC_data_processing import *
 from imputation import *
 from baseline_methods import *
@@ -55,28 +56,33 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     """ 
           Explore Feature Reduction Section of Sequential Optimization Framework
     """
+    # Ridge Regression Feature Selection
+    # Set threshold range
+    percentile_threshold = 100
+
     # Determine reduced feature set & transform x_train and x_test
-    classifier_to_use = 'KNN'
-    x_train, x_test, selected_features = feature_selection_performance(x_train, x_test, y_train, all_features,
-                                                                       classifier_to_use, random_state)
+    x_train, x_test, selected_features = feature_selection_ridge(x_train, x_test,
+                                                                 y_train, all_features,
+                                                                 percentile_threshold,
+                                                                 random_state)
 
     ################################################ CLASS IMBALANCE ################################################
 
-    # Random Over Sampling | ros
-    x_train, y_train = resample_ros(x_train, y_train, random_state)
+    # No imbalance technique | none
+    x_train, y_train = x_train, y_train
 
     ################################################ MACHINE LEARNING ################################################
     save_folder = os.path.join("../ModelSave/CV", runname, str(kfold_ID))
 
-    # K Nearest Neighbors HPO | KNN_hpo
-    if classifier_type == 'all_hpo' or classifier_type == 'KNN_hpo':
-        accuracy_knn_hpo, precision_knn_hpo, recall_knn_hpo, f1_knn_hpo, specificity_knn_hpo, g_mean_knn_hpo = (
-            classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
-                             save_folder=save_folder, retrain=train_class))
+    # Ensemble with Gradient Boosting HPO | EGB_hpo
+    if classifier_type == 'all_hpo' or classifier_type == 'EGB_hpo':
+        accuracy_gb_hpo, precision_gb_hpo, recall_gb_hpo, f1_gb_hpo, specificity_gb_hpo, g_mean_gb_hpo = (
+            classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, random_state,
+                                                 save_folder=save_folder, retrain=train_class))
 
         performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_knn_hpo, precision_knn_hpo, recall_knn_hpo, f1_knn_hpo,
-            specificity_knn_hpo, g_mean_knn_hpo, ['KNN'])
+            accuracy_gb_hpo, precision_gb_hpo, recall_gb_hpo, f1_gb_hpo,
+            specificity_gb_hpo, g_mean_gb_hpo, ['Ensemble w/ GB'])
 
     loop_duration = time.time() - loop_time
     print(loop_duration)
@@ -86,12 +92,7 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     if classifier_type == 'all_hpo':
         return performance_metric_summary_hpo
     else:
-        selected_features_path = os.path.join(save_folder, 'SelectedFeatures.pkl')
-        with open(selected_features_path, 'wb') as file:
-            pickle.dump(selected_features, file)
-
         return performance_metric_summary_single
-
 
 if __name__ == "__main__":
     # Get start time
@@ -106,7 +107,7 @@ if __name__ == "__main__":
     random_state = 42
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
-    classifier_type = 'KNN_hpo'
+    classifier_type = 'EGB_hpo'
     train_class = True
     class_weight_imb = None
 
@@ -114,7 +115,7 @@ if __name__ == "__main__":
     remove_NaN_trials = True
 
     impute_type = 1
-    n_neighbors = 5
+    n_neighbors = 3
 
     ## Model Parameters
     model_type = ['complete', 'explicit']
@@ -124,22 +125,22 @@ if __name__ == "__main__":
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'processedEEG']
 
-    baseline_methods_to_use = ['v0', 'v1', 'v2']
+    baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
 
     if 'complete' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                      'rawEEG', 'processedEEG', 'strain', 'demographics']
-        print('Correct')
         baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6']
     if 'complete' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'processedEEG', 'AFE']
         baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6']
 
+
     analysis_type = 2
 
     # Define Sliding Window Parameters to Use
-    baseline_window = 32.5
-    window_size = 15
+    baseline_window = 46.25
+    window_size = 12.5
     stride = 0.25
     offset = 0  # seconds
     time_start = 0  # seconds
@@ -169,7 +170,6 @@ if __name__ == "__main__":
 
     ######################################### COMPLETE SPECIFIC PRE-PROCESSING #########################################
     if 'complete' in model_type and 'explicit' in model_type:
-        print('Correct')
         # Grab AFE / NonAFE condition indicator column
         condition_idx = all_features.index('condition')
         afe_indicator_column = features[:, condition_idx]
@@ -191,8 +191,6 @@ if __name__ == "__main__":
         gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
             afe_subset(model_type, gloc_data_reduced, all_features,
                        features, features_phys, features_ecg, features_eeg, gloc))
-
-
 
     ############################################### DATA CLEAN AND PREP ###############################################
     """ 
@@ -277,11 +275,11 @@ if __name__ == "__main__":
     #################################################### CV LOOP #####################################################
     # Get time stamp for saving models
     # runname = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    runname = 'Explicit complete'
+    runname = 'Explicit Combined'
 
     # Test set identifier for 10-fold Model Validation
-    num_splits = 2
-    kfold_ID = [0, 1]
+    num_splits = 10
+    kfold_ID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
     # Pre-Allocate Performance Summary Dictionary
     kfold_performance_summary = dict()
