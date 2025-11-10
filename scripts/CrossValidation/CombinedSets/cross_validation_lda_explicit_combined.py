@@ -260,6 +260,9 @@ if __name__ == "__main__":
             afe_indicator_column_windowed
         ])
 
+        # Add corresponding feature name
+        all_features.append('AFE_indicator_windowed')
+
     # Remove all NaN rows from x matrix before train/test split for method 2 & method 1 if there are remaining NaNs
     if impute_type == 2 or impute_type == 1:
         y_gloc_labels, x_feature_matrix, all_features = process_NaN(y_gloc_labels, x_feature_matrix, all_features)

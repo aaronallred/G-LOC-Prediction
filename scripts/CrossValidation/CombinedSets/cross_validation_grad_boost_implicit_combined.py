@@ -91,6 +91,9 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     if classifier_type == 'all_hpo':
         return performance_metric_summary_hpo
     else:
+        selected_features_path = os.path.join(save_folder, 'SelectedFeaturesEGB.pkl')
+        with open(selected_features_path, 'wb') as file:
+            pickle.dump(selected_features, file)
         return performance_metric_summary_single
 
 if __name__ == "__main__":
@@ -265,6 +268,9 @@ if __name__ == "__main__":
             x_feature_matrix,
             afe_indicator_column_windowed
         ])
+
+        # Add corresponding feature name
+        all_features.append('AFE_indicator_windowed')
 
     # Remove all NaN rows from x matrix before train/test split for method 2 & method 1 if there are remaining NaNs
     if impute_type == 2 or impute_type == 1:
