@@ -55,8 +55,15 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     """ 
           Explore Feature Reduction Section of Sequential Optimization Framework
     """
-    # None
-    selected_features = all_features
+    # Ridge Regression Feature Selection
+    # Set threshold range
+    percentile_threshold = 50
+
+    # Determine reduced feature set & transform x_train and x_test
+    x_train, x_test, selected_features = feature_selection_ridge(x_train, x_test,
+                                                                 y_train, all_features,
+                                                                 percentile_threshold,
+                                                                 random_state)
 
     # save selected features to pkl
     selected_features_folder = os.path.join("../SelectedFeatures_noAFE", classifier_type, runname, str(kfold_ID))
@@ -78,16 +85,15 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     ################################################ MACHINE LEARNING ################################################
     save_folder = os.path.join("../ModelSave/CV", runname, str(kfold_ID))
 
-    # Random Forest HPO | rf_hpo
-    if classifier_type == 'all_hpo' or classifier_type == 'rf_hpo':
-        accuracy_rf_hpo, precision_rf_hpo, recall_rf_hpo, f1_rf_hpo, tree_depth_hpo, specificity_rf_hpo, g_mean_rf_hpo  = (
-            classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                                       save_folder=save_folder, retrain=train_class))
+    # Ensemble with Gradient Boosting HPO | EGB_hpo
+    if classifier_type == 'all_hpo' or classifier_type == 'EGB_hpo':
+        accuracy_gb_hpo, precision_gb_hpo, recall_gb_hpo, f1_gb_hpo, specificity_gb_hpo, g_mean_gb_hpo = (
+            classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, random_state,
+                                                 save_folder=save_folder, retrain=train_class))
 
         performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_rf_hpo, precision_rf_hpo, recall_rf_hpo, f1_rf_hpo,
-            specificity_rf_hpo, g_mean_rf_hpo,['RF'])
-
+            accuracy_gb_hpo, precision_gb_hpo, recall_gb_hpo, f1_gb_hpo,
+            specificity_gb_hpo, g_mean_gb_hpo, ['Ensemble w/ GB'])
 
     loop_duration = time.time() - loop_time
     print(loop_duration)
@@ -112,7 +118,7 @@ if __name__ == "__main__":
     random_state = 42
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
-    classifier_type = 'rf_hpo'
+    classifier_type = 'EGB_hpo'
     train_class = True
     class_weight_imb = None
 
@@ -123,7 +129,7 @@ if __name__ == "__main__":
     n_neighbors = 3
 
     ## Model Parameters
-    model_type = ['noAFE', 'explicit']
+    model_type = ['noAFE', 'implicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                      'rawEEG', 'processedEEG', 'strain', 'demographics']
@@ -135,8 +141,8 @@ if __name__ == "__main__":
     analysis_type = 2
 
     # Define Sliding Window Parameters to Use
-    baseline_window = 18.75
-    window_size = 7.5
+    baseline_window = 46.25
+    window_size = 12.5
     stride = 0.25
     offset = 0  # seconds
     time_start = 0  # seconds
@@ -235,7 +241,7 @@ if __name__ == "__main__":
     #################################################### CV LOOP #####################################################
     # Get time stamp for saving models
     # runname = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    runname = 'Explicit'
+    runname = 'Implicit'
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10

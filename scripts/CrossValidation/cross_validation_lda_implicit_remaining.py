@@ -55,8 +55,7 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     """ 
           Explore Feature Reduction Section of Sequential Optimization Framework
     """
-    # None
-    selected_features = all_features
+    x_train, x_test, selected_features = feature_selection_lasso(x_train, x_test, y_train, all_features, random_state)
 
     # save selected features to pkl
     selected_features_folder = os.path.join("../SelectedFeatures_noAFE", classifier_type, runname, str(kfold_ID))
@@ -78,16 +77,15 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     ################################################ MACHINE LEARNING ################################################
     save_folder = os.path.join("../ModelSave/CV", runname, str(kfold_ID))
 
-    # Random Forest HPO | rf_hpo
-    if classifier_type == 'all_hpo' or classifier_type == 'rf_hpo':
-        accuracy_rf_hpo, precision_rf_hpo, recall_rf_hpo, f1_rf_hpo, tree_depth_hpo, specificity_rf_hpo, g_mean_rf_hpo  = (
-            classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                                       save_folder=save_folder, retrain=train_class))
+    # Linear discriminant analysis HPO | LDA_hpo
+    if classifier_type == 'all_hpo' or classifier_type == 'LDA_hpo':
+        accuracy_lda_hpo, precision_lda_hpo, recall_lda_hpo, f1_lda_hpo, specificity_lda_hpo, g_mean_lda_hpo = (
+            classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
+                             save_folder=save_folder, retrain=train_class))
 
         performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_rf_hpo, precision_rf_hpo, recall_rf_hpo, f1_rf_hpo,
-            specificity_rf_hpo, g_mean_rf_hpo,['RF'])
-
+            accuracy_lda_hpo, precision_lda_hpo, recall_lda_hpo, f1_lda_hpo,
+            specificity_lda_hpo, g_mean_lda_hpo, ['LDA'])
 
     loop_duration = time.time() - loop_time
     print(loop_duration)
@@ -112,7 +110,7 @@ if __name__ == "__main__":
     random_state = 42
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
-    classifier_type = 'rf_hpo'
+    classifier_type = 'LDA_hpo'
     train_class = True
     class_weight_imb = None
 
@@ -123,20 +121,20 @@ if __name__ == "__main__":
     n_neighbors = 3
 
     ## Model Parameters
-    model_type = ['noAFE', 'explicit']
+    model_type = ['noAFE', 'implicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                      'rawEEG', 'processedEEG', 'strain', 'demographics']
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'processedEEG']
 
-    baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
+    baseline_methods_to_use = ['v0','v1','v2']
 
     analysis_type = 2
 
     # Define Sliding Window Parameters to Use
-    baseline_window = 18.75
-    window_size = 7.5
+    baseline_window = 46.25
+    window_size = 15
     stride = 0.25
     offset = 0  # seconds
     time_start = 0  # seconds
@@ -235,11 +233,11 @@ if __name__ == "__main__":
     #################################################### CV LOOP #####################################################
     # Get time stamp for saving models
     # runname = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    runname = 'Explicit'
+    runname = 'Implicit'
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10
-    kfold_ID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    kfold_ID = [5, 6, 7, 8, 9]
 
     # Pre-Allocate Performance Summary Dictionary
     kfold_performance_summary = dict()

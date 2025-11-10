@@ -123,7 +123,7 @@ if __name__ == "__main__":
     n_neighbors = 3
 
     ## Model Parameters
-    model_type = ['noAFE', 'explicit']
+    model_type = ['noAFE', 'implicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                      'rawEEG', 'processedEEG', 'strain', 'demographics']
@@ -235,11 +235,11 @@ if __name__ == "__main__":
     #################################################### CV LOOP #####################################################
     # Get time stamp for saving models
     # runname = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    runname = 'Explicit'
+    runname = 'Implicit'
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10
-    kfold_ID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    kfold_ID = [6, 7, 8, 9]
 
     # Pre-Allocate Performance Summary Dictionary
     kfold_performance_summary = dict()

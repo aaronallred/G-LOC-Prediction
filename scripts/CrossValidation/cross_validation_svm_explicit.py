@@ -62,8 +62,19 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     # Determine reduced feature set & transform x_train and x_test
     x_train, x_test, selected_features = feature_selection_ridge(x_train, x_test,
                                                                  y_train, all_features,
-                                                                 percentile_threshold,
-                                                                 random_state)
+                                                                 percentile_threshold, random_state)
+
+    # save selected features to pkl
+    selected_features_folder = os.path.join("../SelectedFeatures_noAFE", classifier_type, runname, str(kfold_ID))
+    selected_features_file = 'SelectedFeatures.pkl'
+    save_selected_features_path = os.path.join(selected_features_folder, selected_features_file)
+
+    # Ensure the save folder exists
+    if not os.path.exists(selected_features_folder):
+        os.makedirs(selected_features_folder)
+
+    with open(save_selected_features_path, 'wb') as file_to_save:
+        pickle.dump(selected_features, file_to_save)
 
     ################################################ CLASS IMBALANCE ################################################
 
