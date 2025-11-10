@@ -55,7 +55,15 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     """ 
           Explore Feature Reduction Section of Sequential Optimization Framework
     """
-    x_train, x_test, selected_features = feature_selection_lasso(x_train, x_test, y_train, all_features, random_state)
+    # Ridge Regression Feature Selection
+    # Set threshold range
+    percentile_threshold = 50
+
+    # Determine reduced feature set & transform x_train and x_test
+    x_train, x_test, selected_features = feature_selection_ridge(x_train, x_test,
+                                                                 y_train, all_features,
+                                                                 percentile_threshold,
+                                                                 random_state)
 
     # save selected features to pkl
     selected_features_folder = os.path.join("../SelectedFeatures_noAFE", classifier_type, runname, str(kfold_ID))
@@ -77,15 +85,15 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     ################################################ MACHINE LEARNING ################################################
     save_folder = os.path.join("../ModelSave/CV", runname, str(kfold_ID))
 
-    # Linear discriminant analysis HPO | LDA_hpo
-    if classifier_type == 'all_hpo' or classifier_type == 'LDA_hpo':
-        accuracy_lda_hpo, precision_lda_hpo, recall_lda_hpo, f1_lda_hpo, specificity_lda_hpo, g_mean_lda_hpo = (
-            classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
-                             save_folder=save_folder, retrain=train_class))
+    # Ensemble with Gradient Boosting HPO | EGB_hpo
+    if classifier_type == 'all_hpo' or classifier_type == 'EGB_hpo':
+        accuracy_gb_hpo, precision_gb_hpo, recall_gb_hpo, f1_gb_hpo, specificity_gb_hpo, g_mean_gb_hpo = (
+            classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, random_state,
+                                                 save_folder=save_folder, retrain=train_class))
 
         performance_metric_summary_single = single_classifier_performance_summary(
-            accuracy_lda_hpo, precision_lda_hpo, recall_lda_hpo, f1_lda_hpo,
-            specificity_lda_hpo, g_mean_lda_hpo, ['LDA'])
+            accuracy_gb_hpo, precision_gb_hpo, recall_gb_hpo, f1_gb_hpo,
+            specificity_gb_hpo, g_mean_gb_hpo, ['Ensemble w/ GB'])
 
     loop_duration = time.time() - loop_time
     print(loop_duration)
@@ -95,10 +103,6 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     if classifier_type == 'all_hpo':
         return performance_metric_summary_hpo
     else:
-        selected_features_path = os.path.join(save_folder, 'SelectedFeaturesLDA.pkl')
-        with open(selected_features_path, 'wb') as file:
-            pickle.dump(selected_features, file)
-
         return performance_metric_summary_single
 
 if __name__ == "__main__":
@@ -107,14 +111,14 @@ if __name__ == "__main__":
 
     ################################################### USER INPUTS  ###################################################
     ## Data Folder Location
-    datafolder = '../data/'
+    datafolder = '../../'
     # datafolder = '../data/'
 
     # Random State | 42 - Debug mode
     random_state = 42
 
     ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB' or 'all'
-    classifier_type = 'LDA_hpo'
+    classifier_type = 'EGB_hpo'
     train_class = True
     class_weight_imb = None
 
@@ -125,28 +129,20 @@ if __name__ == "__main__":
     n_neighbors = 3
 
     ## Model Parameters
-    model_type = ['complete', 'explicit']
+    model_type = ['noAFE', 'implicit']
     if 'noAFE' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                      'rawEEG', 'processedEEG', 'strain', 'demographics']
     if 'noAFE' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'processedEEG']
 
-    baseline_methods_to_use = ['v0', 'v1', 'v2']
-
-    if 'complete' in model_type and 'explicit' in model_type:
-        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
-                                     'rawEEG', 'processedEEG', 'strain', 'demographics']
-        baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6']
-    if 'complete' in model_type and 'implicit' in model_type:
-        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'processedEEG', 'AFE']
-        baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6']
+    baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
 
     analysis_type = 2
 
     # Define Sliding Window Parameters to Use
     baseline_window = 46.25
-    window_size = 15
+    window_size = 12.5
     stride = 0.25
     offset = 0  # seconds
     time_start = 0  # seconds
@@ -173,29 +169,10 @@ if __name__ == "__main__":
     # Create GLOC Categorical Vector
     gloc = label_gloc_events(gloc_data_reduced)
 
-    ######################################### COMPLETE SPECIFIC PRE-PROCESSING #########################################
-    if 'complete' in model_type and 'explicit' in model_type:
-        # Grab AFE / NonAFE condition indicator column
-        condition_idx = all_features.index('condition')
-        afe_indicator_column = features[:, condition_idx]
-
-        # Impute raw (using mean) the value of the missing channels for each AFE condition
-        gloc_data_reduced, features, features_phys, features_eeg = (
-            eeg_condition_impute(gloc_data_reduced,
-                                 all_features, all_features_phys, all_features_eeg, afe_indicator_column))
-
-        # Set aside AFE / NonAFE condition indicator for now - to be incorporated back in later
-        features = np.delete(features, condition_idx, axis=1)
-        all_features = [stream for stream in all_features if stream != 'condition']
-
-        # Add indicator back in for trial and row removal during 'data clean and prep' (will be taken back out)
-        gloc_data_reduced[
-            "AFE_indicator"] = afe_indicator_column  # Merge afe_indicators back into the predictor set
-    else:
-        # Reduce Dataset based on AFE / nonAFE condition
-        gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
-            afe_subset(model_type, gloc_data_reduced, all_features,
-                       features, features_phys, features_ecg, features_eeg, gloc))
+    # Reduce Dataset based on AFE / nonAFE condition
+    gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
+        afe_subset(model_type, gloc_data_reduced, all_features,
+                   features, features_phys, features_ecg, features_eeg, gloc))
 
     ############################################### DATA CLEAN AND PREP ###############################################
     """ 
@@ -224,10 +201,6 @@ if __name__ == "__main__":
     time_column = gloc_data_reduced['Time (s)']
     event_validated_column = gloc_data_reduced['event_validated']
     subject_column = gloc_data_reduced['subject']
-
-    # If complete condition, grab afe_indicator from cleaned dataframe
-    if 'complete' in model_type and 'explicit' in model_type:
-        afe_indicator_column = gloc_data_reduced["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1)
 
     del gloc_data_reduced
 
@@ -260,18 +233,6 @@ if __name__ == "__main__":
     # Remove constant columns
     x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
 
-    # Compute a windowed indicator and add back in
-    if 'complete' in model_type and 'explicit' in model_type:
-        afe_indicator_column_windowed, gloc_compare, _ = sliding_window_max(afe_indicator_column,
-                                                                            trial_column, time_column, gloc,
-                                                                            offset, stride, window_size, time_start)
-
-        # Add back in as last column for traditional pipeline (2nd to last for advanced)
-        x_feature_matrix = np.hstack([
-            x_feature_matrix,
-            afe_indicator_column_windowed
-        ])
-
     # Remove all NaN rows from x matrix before train/test split for method 2 & method 1 if there are remaining NaNs
     if impute_type == 2 or impute_type == 1:
         y_gloc_labels, x_feature_matrix, all_features = process_NaN(y_gloc_labels, x_feature_matrix, all_features)
@@ -280,7 +241,7 @@ if __name__ == "__main__":
     #################################################### CV LOOP #####################################################
     # Get time stamp for saving models
     # runname = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    runname = 'Explicit complete'
+    runname = 'Implicit'
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10
