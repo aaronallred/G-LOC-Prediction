@@ -57,7 +57,7 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     """
     # Ridge Regression Feature Selection
     # Set threshold range
-    percentile_threshold = 100
+    percentile_threshold = 50
 
     # Determine reduced feature set & transform x_train and x_test
     x_train, x_test, selected_features = feature_selection_ridge(x_train, x_test,
