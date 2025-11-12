@@ -13,6 +13,9 @@ from openpyxl.styles.builtins import percent
 import os
 from datetime import datetime
 
+from scripts.feature_selection import feature_selection_ridge
+
+
 def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, random_state, all_features,
               classifier_type, train_class, class_weight_imb):
 
@@ -55,7 +58,13 @@ def main_loop(kfold_ID, num_splits, runname, y_gloc_labels, x_feature_matrix, ra
     """ 
           Explore Feature Reduction Section of Sequential Optimization Framework
     """
-    x_train, x_test, selected_features = target_mean_selection(x_train, x_test, y_train, all_features, random_state)
+
+    percentile_threshold = 60
+
+    x_train, x_test, selected_features = feature_selection_ridge(x_train, x_test,
+                                                                 y_train, all_features,
+                                                                 percentile_threshold,
+                                                                 random_state)
 
     ################################################ CLASS IMBALANCE ################################################
 
