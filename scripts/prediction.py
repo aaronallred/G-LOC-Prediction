@@ -56,5 +56,29 @@ def y_prediction_offset(y, backstep, data_rate, trial_set):
 
     return y
 
+def process_NaN_temporal(y_gloc_labels, x_feature_matrix, all_features):
+    """
+    This is a temporary function for removing all rows with NaN values. This can be replaced by
+    another method in the future, but is necessary for feeding into ML Classifiers.
+    """
+    # Find & remove columns if they have all NaN values
+    nan_test = np.isnan(x_feature_matrix)
+    index_column_all_NaN = np.all(nan_test, axis=0)
+    x_feature_matrix_noNaN_cols = x_feature_matrix[:, ~index_column_all_NaN]
+
+    # Adjust all_features to only include columns that don't have all NaN
+    all_features = [all_features[i] for i in range(len(all_features)) if ~index_column_all_NaN[i]]
+
+    # Identify rows with any NaNs
+    row_nan_mask = np.isnan(x_feature_matrix_noNaN_cols).any(axis=1)
+
+    # Save indices of removed rows
+    removed_row_indices = np.where(row_nan_mask)[0]
+
+    # Keep only rows without NaNs
+    x_feature_matrix_noNaN = x_feature_matrix_noNaN_cols[~row_nan_mask]
+    y_gloc_labels_noNaN = y_gloc_labels[~row_nan_mask]
+
+    return y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features, removed_row_indices
 
 

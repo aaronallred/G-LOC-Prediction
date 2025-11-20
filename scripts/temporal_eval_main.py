@@ -11,7 +11,9 @@ from scripts.GLOC_classifier import stratified_kfold_split, classify_logistic_re
     classify_lda, classify_svm, classify_knn, classify_ensemble_with_gradboost
 from scripts.imbalance_techniques import resample_ros
 from scripts.temporal_functions import plotting_offset_models, data_with_prediction, \
-    plot_f1_scores_across_classifiers, plot_saved_offset_models, get_model_subfolder, get_hyperparameters
+    plot_f1_scores_across_classifiers, get_model_subfolder, \
+    data_with_prediction_verification, get_median_hyperparameters, get_hyperparameters_from_json, \
+    plot_metrics_from_cache
 import pickle
 
 from imblearn.metrics import geometric_mean_score
@@ -28,7 +30,7 @@ warnings.filterwarnings("ignore", message="Could not find the number of physical
 # 0.04 is the smallest step size we can have (this is 25hz step)
 # Does not work to have a .5 second step size.
 
-offset_ranges = np.arange(0,2,1) #FOR FULL RUNS: (0,21,1)
+offset_ranges = np.arange(0,41,1) #FOR FULL RUNS: (0,21,1)
 data_rate = 25 # (hz)
 preference = 3 # Which section of the code do we want to run
 random_state = 42
@@ -37,19 +39,18 @@ class_weight_imb = None
 
 if preference == 3:
     # This preference section will load in pkl files and train/validate models according to offset data
-    # NOTE: This code sequence will throw an error as it starts about number of cores using to process
 
     # Can adjust this as needed to specify what classifiers we want to test
     # options are: SVM , EGB, KNN, logreg, RF , LDA
-    classifiers_to_test = ['RF']
+    classifiers_to_test = ['KNN']
 
     for m in range(len(classifiers_to_test)):
         # Initialize the arrays and class type
         start_time = time.time()
         classifier = classifiers_to_test[m]
-        model_type = ['complete','explicit'] # specify model type to run
+        model_type = ['noAFE','explicit'] # specify model type to run
 
-        num_kfold = 3  # Number of kfolds we will use for validation, FOR FULL RUNS 10
+        num_kfold = 10  # Number of kfolds we will use for validation, FOR FULL RUNS 10
         accuracy_model = np.zeros((len(offset_ranges), num_kfold))
         precision_model = np.zeros((len(offset_ranges), num_kfold))
         recall_model = np.zeros((len(offset_ranges), num_kfold))
@@ -63,14 +64,18 @@ if preference == 3:
         os.makedirs(save_folder, exist_ok=True)
 
         # Grab Optimized (median) hyperparameters for classifier
-        # hyperparameters = get_hyperparameters(classifier, get_model_subfolder(model_type))
+        get_median_hyperparameters(classifier, get_model_subfolder(model_type))
+        hyperparameters, select_features, foldID_check, score_check = get_hyperparameters_from_json(classifier,
+                                                                                                    get_model_subfolder(
+                                                                                                        model_type))
 
+        print('Score check at 0 ', score_check)  # debugging
         print('Starting loop for ', classifier)  # debugging
 
         for i in range(len(offset_ranges)):
 
             # Call prediction function to obtain x and y. All methods are implemented in this function
-            (x,y) = data_with_prediction(offset_ranges[i], data_rate, classifier,model_type)
+            (x,y) = data_with_prediction(offset_ranges[i], data_rate, classifier,model_type, select_features)
 
             # Start nested loop for each fold to be evaluated
             for k in range(num_kfold):
@@ -78,29 +83,28 @@ if preference == 3:
                 print('Splitting for Kfold k of', k)  # debugging
                 x_train, x_test, y_train, y_test = stratified_kfold_split(ravel(y),x,num_kfold, k,random_state)
 
-                print('Classifier call for k of', k)  # debugging
                 if classifier == 'RF':
                     (accuracy, precision, recall, f1, tree_depth, specificity, g_mean) = classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                           save_folder,model_name="random_forest_model_temporal.pkl",retrain=True)
+                           save_folder,model_name="random_forest_model_temporal.pkl",retrain=False,temporal=True,best_params=hyperparameters)
                 if classifier == 'LDA':
                     (accuracy, precision, recall, f1, specificity, g_mean) = classify_lda(x_train, x_test, y_train, y_test, random_state,
                                                                                           save_folder,
                                                                                           model_name="LDA_model_temporal.pkl",
-                                                                                          retrain=True)
+                                                                                          retrain=False,temporal=True,best_params=hyperparameters)
                 if classifier == 'logreg':
                     (accuracy, precision, recall, f1, specificity, g_mean) = classify_logistic_regression(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                           save_folder,model_name="logistic_regression_model_temporal.pkl",retrain=True)
+                           save_folder,model_name="logistic_regression_model_temporal.pkl",retrain=False,temporal=True,best_params=hyperparameters)
                 if classifier == 'SVM':
                     (accuracy, precision, recall, f1, specificity, g_mean) = classify_svm(x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                           save_folder,model_name="svm_model_temporal.pkl",retrain=True)
+                           save_folder,model_name="svm_model_temporal.pkl",retrain=False,temporal=True,best_params=hyperparameters)
                 if classifier == 'KNN':
                     # Implement Imbalance Sampling Technique ONLY FOR KNN. Need to think of better code implementation for this
                     ros_x_train, ros_y_train = resample_ros(x_train, y_train, random_state)
                     (accuracy, precision, recall, f1, specificity, g_mean) = classify_knn(ros_x_train, x_test, ros_y_train, y_test, random_state,
-                           save_folder,model_name="knn_model_temporal.pkl",retrain=True)
+                           save_folder,model_name="knn_model_temporal.pkl",retrain=False,temporal=True,best_params=hyperparameters)
                 if classifier == 'EGB':
                     (accuracy, precision, recall, f1, specificity, g_mean) = classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, random_state,
-                                     save_folder,model_name="ensemble_model_temporal.pkl", retrain = True)
+                                     save_folder,model_name="ensemble_model_temporal.pkl", retrain=False,temporal=True,best_params=hyperparameters)
 
                 # Storing each value in arrays
                 accuracy_model[i, k] = accuracy
@@ -134,42 +138,154 @@ if preference == 3:
 if preference == 4:
     # This code preference will work with already derived/stored data as needed.
 
-    # Folder where results are stored
-    results_folder = './prediction_model_results'
-
-    # List of classifier names
-    # just classifiers_to_test
-    classifiers_to_test = ['rf', 'LDA', 'SVM', 'EGB', 'KNN', 'logreg']
+    # List of classifiers to evaluate
+    classifiers_to_test = ['RF', 'LDA', 'SVM', 'KNN']
+    model_type = ['complete', 'explicit']  # specify model type to run
 
     # Load each F1 score file into a dictionary
     f1_score_dict = {}
+    model_subfolder = get_model_subfolder(model_type)
+    results_folder = os.path.join('./prediction_model_metrics', model_subfolder)
 
     for clf in classifiers_to_test:
         filename = f"f1_score_results_{clf}.pkl"
         filepath = os.path.join(results_folder, filename)
         if os.path.exists(filepath):
             with open(filepath, 'rb') as f:
-                f1_score_dict[clf] = pickle.load(f) # store f1 scores into a dictionary
+                f1_score_dict[clf] = pickle.load(f)
             print(f"Loaded F1 scores for {clf}")
         else:
             print(f"File not found: {filepath}")
 
-    # Now do window_lengths for each classifier type
+    # Define window lengths per classifier
     window_lengths = {
-        'logreg': 12.5, # FROM NIKKI PAPER
-        'rf': 7.5, # FROM NIKKI PAPER
-        'LDA': 15, # FROM NIKKI PAPER
-        'SVM': 15, # FROM NIKKI PAPER
-        'EGB': 12.5, # FROM NIKKI PAPER
-        'KNN': 15, # FROM NIKKI PAPER
+        'logreg': 12.5,
+        'RF': 7.5,
+        'LDA': 15,
+        'SVM': 15,
+        'EGB': 12.5,
+        'KNN': 15,
     }
 
     plot_f1_scores_across_classifiers(offset_ranges, f1_score_dict, window_lengths)
 
-
 if preference == 5:
     # Use this preference section to plot all metrics of specific saved models.
-    plot_saved_offset_models('RF')
+    model_type = ['complete', 'explicit']  # specify model type to run
+    plot_metrics_from_cache('SVM', model_type)
+
+if preference == 6:
+    # This part of the code will be used to verify pipeline with given F1 scores and hyperparameters
+    classifiers_to_test = ['LDA']
+    classifier = classifiers_to_test[0]
+    model_type = ['noAFE', 'explicit']  # specify model type to run
+
+    num_kfold = 10  # For validation RUNS = 10
+    kfold_ID = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    accuracy_model = np.zeros((len(offset_ranges), num_kfold))
+    precision_model = np.zeros((len(offset_ranges), num_kfold))
+    recall_model = np.zeros((len(offset_ranges), num_kfold))
+    f1_model = np.zeros((len(offset_ranges), num_kfold))
+    specificity_model = np.zeros((len(offset_ranges), num_kfold))
+    g_mean_model = np.zeros((len(offset_ranges), num_kfold))
+
+    # Preallocate some folders
+    subfolder_name = get_model_subfolder(model_type)
+    save_folder = os.path.join("../prediction_models", subfolder_name)
+    os.makedirs(save_folder, exist_ok=True)
+
+    # Grab Optimized (median) hyperparameters for classifier
+    hyperparameters, select_features, foldID_check,score_check = get_hyperparameters_from_json(classifier, get_model_subfolder(model_type))
+
+    offset_ranges = (0,1,1)
+    print('Starting loop for ', classifier)  # debugging
+
+    for i in range(len(offset_ranges)):
+
+        # Call models and collect performance data
+
+        # Call prediction function to obtain x and y. All methods are implemented in this function
+        x_train, x_test, y_train, y_test = data_with_prediction_verification(offset_ranges[i], data_rate, classifier, model_type, int(foldID_check), select_features)
+
+
+        print('Classifier call for k of', int(foldID_check))  # debugging
+        if classifier == 'RF':
+            (accuracy, precision, recall, f1, tree_depth, specificity, g_mean) = classify_random_forest(x_train,
+                                                                                                        x_test,
+                                                                                                        y_train,
+                                                                                                        y_test,
+                                                                                                        class_weight_imb,
+                                                                                                        random_state,
+                                                                                                        save_folder,
+                                                                                                        model_name="random_forest_model_temporal.pkl",
+                                                                                                        retrain=False,temporal=True,best_params=hyperparameters)
+        if classifier == 'LDA':
+            (accuracy, precision, recall, f1, specificity, g_mean) = classify_lda(x_train, x_test, y_train, y_test,
+                                                                                  random_state,
+                                                                                  save_folder,
+                                                                                  model_name="LDA_model_temporal.pkl",
+                                                                                  retrain=False,temporal=True,best_params=hyperparameters)
+        if classifier == 'logreg':
+            (accuracy, precision, recall, f1, specificity, g_mean) = classify_logistic_regression(x_train, x_test,
+                                                                                                  y_train, y_test,
+                                                                                                  class_weight_imb,
+                                                                                                  random_state,
+                                                                                                  save_folder,
+                                                                                                  model_name="logistic_regression_model_temporal.pkl",
+                                                                                                  retrain=False,temporal=True,best_params=hyperparameters)
+        if classifier == 'SVM':
+            (accuracy, precision, recall, f1, specificity, g_mean) = classify_svm(x_train, x_test, y_train, y_test,
+                                                                                  class_weight_imb, random_state,
+                                                                                  save_folder,
+                                                                                  model_name="svm_model_temporal.pkl",
+                                                                                  retrain=False,temporal=True,best_params=hyperparameters)
+        if classifier == 'KNN':
+            # Implement Imbalance Sampling Technique ONLY FOR KNN. Need to think of better code implementation for this
+            ros_x_train, ros_y_train = resample_ros(x_train, y_train, random_state)
+            (accuracy, precision, recall, f1, specificity, g_mean) = classify_knn(ros_x_train, x_test, ros_y_train,
+                                                                                  y_test, random_state,
+                                                                                  save_folder,
+                                                                                  model_name="knn_model_temporal.pkl",
+                                                                                  retrain=False,temporal=True,best_params=hyperparameters)
+        if classifier == 'EGB':
+            (accuracy, precision, recall, f1, specificity, g_mean) = classify_ensemble_with_gradboost(x_train,
+                                                                                                      x_test,
+                                                                                                      y_train,
+                                                                                                      y_test,
+                                                                                                      random_state,
+                                                                                                      save_folder,
+                                                                                                      model_name="ensemble_model_temporal.pkl",
+                                                                                                      retrain=False,temporal=True,best_params=hyperparameters)
+
+        # Storing each value in arrays
+        accuracy_model[i, k] = accuracy
+        precision_model[i, k] = precision
+        recall_model[i, k] = recall
+        f1_model[i, k] = f1
+        specificity_model[i, k] = specificity
+        g_mean_model[i, k] = g_mean
+
+        print('Success for offset of', offset_ranges[i], 'using classifier:', classifier)
+
+        # Clear variables at end of loop before reassignment on next iteration of loop
+        del y_train, y_test, x_train, x_test
+
+if preference == 7:
+    # Post-processing model data into median hyperparameters
+    # Only Works on completed (0-9 folds) of models
+    # RF EXPLICIT COMPLETE IS DONE
+    # KNN EXPLICIT COMPLETE IS DONE
+    # SVM EXPLICIT COMPLETE IS DONE
+    # RF EXPLICIT noAFE IS DONE
+    # KNN EXPLICIT noAFE IS DONE
+    # SVM EXPLICIT noAFE IS DONE
+    # LDA EXPLICIT COMPLETE IS DONE
+    # LDA EXPLICIT noAFE IS DONE
+    classifiers_to_test = ['RF']
+    classifier = classifiers_to_test[0]
+    model_type = ['noAFE', 'explicit']  # specify model type to run
+
+    get_median_hyperparameters(classifier, get_model_subfolder(model_type))
 
 
 
