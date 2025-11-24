@@ -182,7 +182,7 @@ if __name__ == "__main__":
         # Add indicator back in for trial and row removal during 'data clean and prep' (will be taken back out)
         gloc_data_reduced[
             "AFE_indicator"] = afe_indicator_column  # Merge afe_indicators back into the predictor set
-    else:
+    if 'noAFE' in model_type:
         # Reduce Dataset based on AFE / nonAFE condition
         gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
             afe_subset(model_type, gloc_data_reduced, all_features,
