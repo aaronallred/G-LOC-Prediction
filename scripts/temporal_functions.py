@@ -65,7 +65,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         feature_reduction_type = 'lasso' #- PULLED FROM NIKKI PAPER
         baseline_methods_to_use = ['v0', 'v1', 'v2','v5','v6','v7','v8'] #- PULLED FROM NIKKI PAPER
         impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-        n_neighbors = 5  # - PULLED FROM NIKKI PAPER
+        n_neighbors = 5  # -For imputation PULLED FROM NIKKI PAPER
 
 
 
@@ -79,7 +79,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         baseline_methods_to_use = ['v0', 'v1', 'v2','v5','v6','v7','v8']  # - PULLED FROM NIKKI PAPER
         imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
         impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-        n_neighbors = 3  # - PULLED FROM NIKKI PAPER
+        n_neighbors = 3  # -For imputation PULLED FROM NIKKI PAPER
         # Code for loading txt
 
 
@@ -92,7 +92,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         baseline_methods_to_use = ['v0', 'v1', 'v2']  # - PULLED FROM NIKKI PAPER
         imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
         impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-        n_neighbors = 3  # - PULLED FROM NIKKI PAPER
+        n_neighbors = 3  # -For imputation PULLED FROM NIKKI PAPER
         # Code for loading txt
 
 
@@ -105,7 +105,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         threshold = 10  # - PULLED FROM NIKKI PAPER
         baseline_methods_to_use = ['v0', 'v1', 'v2']  # - PULLED FROM NIKKI PAPER
         impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-        n_neighbors = 3  # - PULLED FROM NIKKI PAPER
+        n_neighbors = 3  # - For imputation PULLED FROM NIKKI PAPER
         imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
 
 
@@ -118,7 +118,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         baseline_methods_to_use = ['v0', 'v1', 'v2','v5','v6','v7','v8']  # - PULLED FROM NIKKI PAPER
         imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
         impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-        n_neighbors = 3  # - PULLED FROM NIKKI PAPER
+        n_neighbors = 3  # -For imputation PULLED FROM NIKKI PAPER
         # Code for loading txt
 
 
@@ -131,7 +131,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         baseline_methods_to_use = ['v0', 'v1', 'v2']  # - PULLED FROM NIKKI PAPER
         imbalance_type = 'ros' # - PULLED FROM NIKKI PAPER
         impute_type = 1 # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-        n_neighbors = 5 # - PULLED FROM NIKKI PAPER
+        n_neighbors = 5 # -For imputation PULLED FROM NIKKI PAPER
         # Code for loading txt
 
 
@@ -216,7 +216,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
             # Add indicator back in for trial and row removal during 'data clean and prep' (will be taken back out)
             gloc_data_reduced[
                 "AFE_indicator"] = afe_indicator_column  # Merge afe_indicators back into the predictor set
-        else:
+        if 'noAFE' in model_type:
             # Reduce Dataset based on AFE / nonAFE condition
             gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
                 afe_subset(model_type, gloc_data_reduced, all_features,
@@ -338,14 +338,6 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
 
         ################################################ Feature Reduction ################################################
 
-        # Convert feature matrix to DataFrame for column selection
-        x_feature_matrix = pd.DataFrame(x_feature_matrix, columns=all_features)
-        x_feature_matrix = x_feature_matrix[select_features]
-        x_feature_matrix = x_feature_matrix.to_numpy()
-
-        # Remove constant columns
-        x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, select_features)
-
         # Add windowed AFE indicator if required by model type
         if 'complete' in model_type and 'explicit' in model_type:
             afe_indicator_column_windowed, gloc_compare, _ = sliding_window_max(
@@ -353,6 +345,15 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
                 offset, stride, window_size, time_start
             )
             x_feature_matrix = np.hstack([x_feature_matrix, afe_indicator_column_windowed])
+            all_features.append('AFE_indicator_windowed')
+
+        # Convert feature matrix to DataFrame for column selection
+        x_feature_matrix = pd.DataFrame(x_feature_matrix, columns=all_features)
+        x_feature_matrix = x_feature_matrix[select_features]
+        x_feature_matrix = x_feature_matrix.to_numpy()
+
+        # Remove constant columns
+        x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, select_features)
 
         ################################################ NaN Processing ################################################
 
@@ -430,7 +431,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
       #return (x_feature_return, y_return)
     return (x_feature_return, y_return)
 
-def plotting_offset_models(offset_ranges,accuracy_model,precision_model,recall_model,f1_model,specificity_model,gmean_model,classifier_name,model_type):
+def plotting_offset_models(offset_ranges,accuracy_model,precision_model,recall_model,f1_model,specificity_model,gmean_model,classifier_name,model_type,subfolder2=None):
 
     if classifier_name == 'logreg':
         window_size = 12.5 # seconds - PULLED FROM NIKKI PAPER
@@ -500,8 +501,12 @@ def plotting_offset_models(offset_ranges,accuracy_model,precision_model,recall_m
 
     ############################ Save each metric matrix as a .pkl file ############################
     subfolder = get_model_subfolder(model_type)
-    results_folder = os.path.join('./prediction_model_metrics', subfolder)
-    os.makedirs(results_folder, exist_ok=True)
+    if subfolder2 is not None:
+        results_folder = os.path.join('./prediction_model_metrics', subfolder,subfolder2)
+        os.makedirs(results_folder, exist_ok=True)
+    else:
+        results_folder = os.path.join('./prediction_model_metrics', subfolder)
+        os.makedirs(results_folder, exist_ok=True)
 
     # Saving image
     plot_filename = f"metrics_plot_{classifier_name}.png"
@@ -639,17 +644,14 @@ def load_variables_from_folder(folder_path, variable_names):
 
 
 
-def plot_f1_scores_across_classifiers(offset_ranges, f1_score_dict, window_lengths):
+def plot_f1_scores_across_classifiers(f1_score_dict, window_lengths, model_type_name):
     """
     Plots F1 score curves for multiple classifiers in a shared panel.
 
     Parameters:
-    - offset_ranges: list of offset values
     - f1_score_dict: dict of {classifier_name: f1_score_matrix}
     - window_lengths: dict of {classifier_name: window size in seconds}
     """
-
-    offsets = np.array(offset_ranges)
 
     def summarize_range(metric_matrix):
         return (
@@ -658,7 +660,6 @@ def plot_f1_scores_across_classifiers(offset_ranges, f1_score_dict, window_lengt
             np.max(metric_matrix, axis=1)
         )
 
-    # Assign distinct colors for classifiers
     classifier_colors = {
         'RF': 'blue',
         'LDA': 'green',
@@ -675,9 +676,12 @@ def plot_f1_scores_across_classifiers(offset_ranges, f1_score_dict, window_lengt
         f1_matrix = f1_score_dict[classifier_name]
         mean_vals, min_vals, max_vals = summarize_range(f1_matrix)
 
+        # Infer offsets from number of rows
+        offsets = np.arange(f1_matrix.shape[0])
+
         ax = plt.subplot(2, 3, idx)
 
-        # Dashed vertical line at window length
+        # Optional vertical line at window length
         classifier_window = window_lengths.get(classifier_name, None)
         if classifier_window is not None:
             ax.axvline(x=classifier_window, color='black', linestyle='--', linewidth=1.5, label='Window Size')
@@ -691,13 +695,14 @@ def plot_f1_scores_across_classifiers(offset_ranges, f1_score_dict, window_lengt
         ax.set_title(f'F1 Score — {classifier_name}')
         ax.set_xlabel('Offset [s]')
         ax.set_ylabel('F1 Score')
-        ax.set_ylim(0.5, 1.0)  # Consistent y-axis across all plots
+        ax.set_ylim(0.5, 1.0)
         ax.grid(True)
         ax.legend()
 
-    plt.suptitle('F1 Score Across Offsets for All Classifiers', fontsize=18, fontweight='bold')
+    plt.suptitle(f'F1 Score Across Offsets for All Classifiers — {model_type_name}', fontsize=18, fontweight='bold')
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()
+
     return None
 
 def get_model_subfolder(model_type):
