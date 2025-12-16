@@ -67,6 +67,9 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
         n_neighbors = 5  # -For imputation PULLED FROM NIKKI PAPER
 
+        ## Investigating different windows per EVAN ANDERSON
+        #window_size = 8 # ~ 0.1 hit to f1 score
+
 
 
     if classifier_type == 'RF':
@@ -82,6 +85,9 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         n_neighbors = 3  # -For imputation PULLED FROM NIKKI PAPER
         # Code for loading txt
 
+        ## Investigating different windows per EVAN ANDERSON
+        #window_size = 5 # ~ 0.1 hit to f1 score
+
 
     if classifier_type == 'LDA':
         # Specifying Methods from Sequential optimization
@@ -94,6 +100,9 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
         n_neighbors = 3  # -For imputation PULLED FROM NIKKI PAPER
         # Code for loading txt
+
+        ## Investigating different windows per EVAN ANDERSON
+        #window_size = 10 # ~ 0.3 hit to f1 score
 
 
     if classifier_type == 'SVM':
@@ -108,6 +117,9 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         n_neighbors = 3  # - For imputation PULLED FROM NIKKI PAPER
         imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
 
+        ## Investigating different windows per EVAN ANDERSON
+        #window_size = 8 # ~ 0.2 hit to f1 score
+
 
     if classifier_type == 'EGB':
         # Specifying Methods from Sequential optimization
@@ -121,6 +133,9 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         n_neighbors = 3  # -For imputation PULLED FROM NIKKI PAPER
         # Code for loading txt
 
+        ## Investigating different windows per EVAN ANDERSON
+        #window_size = 8 # ~ 0.1 hit to f1 score
+
 
     if classifier_type == 'KNN':
         # Specifying Methods from Sequential optimization
@@ -133,6 +148,9 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         impute_type = 1 # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
         n_neighbors = 5 # -For imputation PULLED FROM NIKKI PAPER
         # Code for loading txt
+
+        ## Investigating different windows per EVAN ANDERSON
+        # window_size = 12 # ~ 0.1 hit to f1 score
 
 
     train_class = True
@@ -353,7 +371,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         x_feature_matrix = x_feature_matrix.to_numpy()
 
         # Remove constant columns
-        x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, select_features)
+        x_feature_matrix, select_features = remove_constant_columns(x_feature_matrix, select_features)
 
         ################################################ NaN Processing ################################################
 
@@ -424,8 +442,6 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         y_gloc_labels.to_numpy().ravel() if hasattr(y_gloc_labels, "to_numpy") else np.ravel(y_gloc_labels)
     )
 
-    print("x_feature_matrix shape:", x_feature_return.shape)  # debugging
-    print("y_gloc_labels shape:", y_return.shape)  # debugging
 
     # Function call end
       #return (x_feature_return, y_return)
@@ -435,16 +451,34 @@ def plotting_offset_models(offset_ranges,accuracy_model,precision_model,recall_m
 
     if classifier_name == 'logreg':
         window_size = 12.5 # seconds - PULLED FROM NIKKI PAPER
+
+        ## Investigating different windows per EVAN ANDERSON
+        window_size = 8 # ~ 0.1 hit to f1 score
     if classifier_name == 'RF':
         window_size = 7.5  # seconds - PULLED FROM NIKKI PAPER
+
+        ## Investigating different windows per EVAN ANDERSON
+        window_size = 5 # ~ 0.1 hit to f1 score
     if classifier_name == 'LDA':
         window_size = 15  # seconds - PULLED FROM NIKKI PAPER
+
+        ## Investigating different windows per EVAN ANDERSON
+        window_size = 10 # ~ 0.3 hit to f1 score
     if classifier_name == 'SVM':
         window_size = 15  # seconds - PULLED FROM NIKKI PAPER
+
+        ## Investigating different windows per EVAN ANDERSON
+        window_size = 8 # ~ 0.2 hit to f1 score
     if classifier_name == 'EGB':
         window_size = 12.5  # seconds - PULLED FROM NIKKI PAPER
+
+        ## Investigating different windows per EVAN ANDERSON
+        window_size = 8 # ~ 0.1 hit to f1 score
     if classifier_name == 'KNN':
         window_size = 15  # seconds - PULLED FROM NIKKI PAPER
+
+        ## Investigating different windows per EVAN ANDERSON
+        window_size = 12 # ~ 0.1 hit to f1 score
 
     # Convert offset_ranges to a NumPy array for plotting
     offsets = np.array(offset_ranges)
@@ -536,7 +570,7 @@ def plotting_offset_models(offset_ranges,accuracy_model,precision_model,recall_m
 
 def plot_metrics_from_cache(classifier_name, model_type):
     """
-    Loads stored metric matrices and offset ranges from disk and plots them.
+    Loads stored metric matrices and offset ranges from storage and plots them.
     Only requires classifier and model type.
     """
 
@@ -644,7 +678,7 @@ def load_variables_from_folder(folder_path, variable_names):
 
 
 
-def plot_f1_scores_across_classifiers(f1_score_dict, window_lengths, model_type_name):
+def plot_f1_scores_across_classifiers(f1_score_dict, window_lengths, model_type_name, shared_plot=False):
     """
     Plots F1 score curves for multiple classifiers in a shared panel.
 
@@ -660,50 +694,87 @@ def plot_f1_scores_across_classifiers(f1_score_dict, window_lengths, model_type_
             np.max(metric_matrix, axis=1)
         )
 
+    # --- Colors (unchanged) ---
     classifier_colors = {
-        'RF': 'blue',
-        'LDA': 'green',
-        'SVM': 'orange',
-        'KNN': 'purple',
-        'logreg': 'red',
-        'EGB': 'brown'
+        'logreg': '#440154',  # purple
+        'RF': '#3b528b',      # blue
+        'LDA': '#21918c',     # teal
+        'KNN': '#5ec962',     # green
+        'SVM': '#35b779',     # light green
+        'EGB': '#fde725'      # yellow
     }
 
-    plt.figure(figsize=(14, 10))
     classifier_names = list(f1_score_dict.keys())
 
-    for idx, classifier_name in enumerate(classifier_names, start=1):
-        f1_matrix = f1_score_dict[classifier_name]
-        mean_vals, min_vals, max_vals = summarize_range(f1_matrix)
+    if shared_plot:
+        # Single shared plot: no window length lines
+        plt.figure(figsize=(14, 10))
+        ax = plt.gca()
+        handles, labels = [], []
 
-        # Infer offsets from number of rows
-        offsets = np.arange(f1_matrix.shape[0])
+        for classifier_name in classifier_names:
+            f1_matrix = f1_score_dict[classifier_name]
+            mean_vals, min_vals, max_vals = summarize_range(f1_matrix)
+            offsets = np.arange(f1_matrix.shape[0])
 
-        ax = plt.subplot(2, 3, idx)
+            color = classifier_colors.get(classifier_name, 'gray')
 
-        # Optional vertical line at window length
-        classifier_window = window_lengths.get(classifier_name, None)
-        if classifier_window is not None:
-            ax.axvline(x=classifier_window, color='black', linestyle='--', linewidth=1.5, label='Window Size')
+            h_mean, = ax.plot(offsets, mean_vals, color=color, label=f'{classifier_name} F1')
+            ax.scatter(offsets, mean_vals, color=color, edgecolor='black', zorder=5)
+            # h_range = ax.fill_between(offsets, min_vals, max_vals, color='gray', alpha=0.3, label=f'{classifier_name} Range')
 
-        color = classifier_colors.get(classifier_name, 'gray')
+            handles.extend([h_mean])
+            labels.extend([f'{classifier_name} F1', f'{classifier_name} Range'])
 
-        ax.plot(offsets, mean_vals, color=color, label='F1 Score')
-        ax.scatter(offsets, mean_vals, color=color, edgecolor='black', zorder=5)
-        ax.fill_between(offsets, min_vals, max_vals, color='gray', alpha=0.3, label='Range (min–max)')
-
-        ax.set_title(f'F1 Score — {classifier_name}')
         ax.set_xlabel('Offset [s]')
         ax.set_ylabel('F1 Score')
         ax.set_ylim(0.5, 1.0)
+        ax.set_xlim(0, 20)
         ax.grid(True)
-        ax.legend()
+        ax.legend(loc='lower right')
 
-    plt.suptitle(f'F1 Score Across Offsets for All Classifiers — {model_type_name}', fontsize=18, fontweight='bold')
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.show()
+        plt.title(f'F1 Score Across Offsets for All Classifiers — {model_type_name}', fontsize=18, fontweight='bold')
+        plt.tight_layout()
+        plt.show()
+
+    else:
+        # Original behavior: individual subplots with window length lines
+        plt.figure(figsize=(14, 10))
+
+        for idx, classifier_name in enumerate(classifier_names, start=1):
+            f1_matrix = f1_score_dict[classifier_name]
+            mean_vals, min_vals, max_vals = summarize_range(f1_matrix)
+
+            # Infer offsets from number of rows
+            offsets = np.arange(f1_matrix.shape[0])
+
+            ax = plt.subplot(2, 3, idx)
+
+            # Optional vertical line at window length
+            classifier_window = window_lengths.get(classifier_name, None)
+            if classifier_window is not None:
+                ax.axvline(x=classifier_window, color='black', linestyle='--', linewidth=1.5, label='Window Size')
+
+            color = classifier_colors.get(classifier_name, 'gray')
+
+            ax.plot(offsets, mean_vals, color=color, label='F1 Score')
+            ax.scatter(offsets, mean_vals, color=color, edgecolor='black', zorder=5)
+            ax.fill_between(offsets, min_vals, max_vals, color='gray', alpha=0.3, label='Range (min–max)')
+
+            ax.set_title(f'F1 Score — {classifier_name}')
+            ax.set_xlabel('Offset [s]')
+            ax.set_ylabel('F1 Score')
+            ax.set_ylim(0.5, 1.0)
+            ax.grid(True)
+            ax.legend()
+
+        plt.suptitle(f'F1 Score Across Offsets for All Classifiers — {model_type_name}', fontsize=18, fontweight='bold')
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        plt.show()
 
     return None
+
+
 
 def get_model_subfolder(model_type):
     # Function to simplify some naming
@@ -808,7 +879,7 @@ def get_median_hyperparameters(classifier: str, model_type: str):
     elif classifier == 'KNN':
         model_path = os.path.join(BASE_DIR, 'ModelSave', 'CV', model_type, median_fold_id, 'KNN_model.pkl')
     elif classifier == 'EGB':
-        model_path = os.path.join(BASE_DIR, 'ModelSave', 'CV', model_type, median_fold_id, 'EGB_model.pkl')
+        model_path = os.path.join(BASE_DIR, 'ModelSave', 'CV', model_type, median_fold_id, 'ensemble_model.pkl')
     elif classifier == 'logreg':
         model_path = os.path.join(BASE_DIR, 'ModelSave', 'CV', model_type, median_fold_id, 'logistic_regression_model.pkl')
     elif classifier == 'SVM':

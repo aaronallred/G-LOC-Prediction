@@ -3,8 +3,10 @@ import os
 import joblib  # For saving the model
 from numpy import ravel
 import time
+import matplotlib.pyplot as plt
+from matplotlib_venn import venn2, venn3
+from upsetplot import from_contents, UpSet
 
-from sklearn.ensemble import RandomForestClassifier
 
 from GLOC_data_processing import *
 from scripts.GLOC_classifier import stratified_kfold_split, classify_logistic_regression, classify_random_forest, \
@@ -15,11 +17,6 @@ from scripts.temporal_functions import plotting_offset_models, data_with_predict
     data_with_prediction_verification, get_median_hyperparameters, get_hyperparameters_from_json, \
     plot_metrics_from_cache
 import pickle
-
-from imblearn.metrics import geometric_mean_score
-from sklearn.model_selection import train_test_split
-
-from feature_selection import feature_selection_lasso
 import warnings
 warnings.filterwarnings("ignore", message="Could not find the number of physical cores")
 
@@ -32,7 +29,7 @@ warnings.filterwarnings("ignore", message="Could not find the number of physical
 
 offset_ranges = np.arange(0,21,1) #FOR FULL RUNS: (0,21,1)
 data_rate = 25 # (hz)
-preference = 7 # Which section of the code do we want to run
+preference = 3 # Which section of the code do we want to run
 random_state = 42
 class_weight_imb = None
 
@@ -42,7 +39,7 @@ if preference == 3:
 
     # Can adjust this as needed to specify what classifiers we want to test
     # options are: SVM , EGB, KNN, logreg, RF , LDA
-    classifiers_to_test = ['KNN']
+    classifiers_to_test = ['logreg']
 
     for m in range(len(classifiers_to_test)):
         # Initialize the arrays and class type
@@ -65,7 +62,6 @@ if preference == 3:
         os.makedirs(save_folder, exist_ok=True)
 
         # Grab Optimized (median) hyperparameters for classifier
-        get_median_hyperparameters(classifier, get_model_subfolder(model_type))
         hyperparameters, select_features, foldID_check, score_check = get_hyperparameters_from_json(classifier,
                                                                                                     get_model_subfolder(
                                                                                                         model_type))
@@ -121,7 +117,7 @@ if preference == 3:
             del y_train, y_test, x_train, x_test
 
         # Plotting the results, function also saves the data to a folder for one particular model, outside the loop
-        plotting_offset_models(offset_ranges, accuracy_model, precision_model, recall_model, f1_model, specificity_model, g_mean_model,classifier,model_type)
+        plotting_offset_models(offset_ranges, accuracy_model, precision_model, recall_model, f1_model, specificity_model, g_mean_model,classifier,model_type,'WindowChange')
 
             # # Print performance metrics
             # print(f"\nLogistic Regression Performance Metrics for offset of {offset_ranges[i]}:")
@@ -140,7 +136,7 @@ if preference == 4:
     # This code preference will work with already derived/stored data as needed.
 
     # List of classifiers to evaluate
-    classifiers_to_test = ['RF', 'LDA', 'SVM', 'KNN', 'logreg']
+    classifiers_to_test = ['RF', 'LDA', 'SVM', 'KNN','logreg']
     model_type = ['complete', 'explicit']  # specify model type to run
 
     # Load each F1 score file into a dictionary
@@ -168,7 +164,17 @@ if preference == 4:
         'KNN': 15,
     }
 
-    plot_f1_scores_across_classifiers(f1_score_dict, window_lengths, get_model_subfolder(model_type))
+    # Adjusted window lengths
+    # window_lengths = {
+    #     'logreg': 8,
+    #     'RF': 5,
+    #     'LDA': 10,
+    #     'SVM': 8,
+    #     'EGB': 8,
+    #     'KNN': 12,
+    # }
+
+    plot_f1_scores_across_classifiers(f1_score_dict, window_lengths, get_model_subfolder(model_type),shared_plot=False)
 
 if preference == 5:
     # Use this preference section to plot all metrics of specific saved models.
@@ -272,18 +278,16 @@ if preference == 6:
         del y_train, y_test, x_train, x_test
 
 if preference == 7:
-    # Comparing feature space of different models.
+    # Comparing feature space of different models. Specifically used to investigate KNN
     # Ensure that classifiers have hyperparameters already saved into JSON
-    import matplotlib.pyplot as plt
-    from matplotlib_venn import venn2
 
-    offset_ranges = np.arange(0, 41, 1)  # FOR FULL RUNS: (0,21,1)
+    offset_ranges = np.arange(0, 201, 100)  # FOR FULL RUNS: (0,21,1)
 
     # Step 1: Load selected features from JSON
     model_type = ['noAFE', 'explicit']
 
-    # LDA
-    classifier = 'LDA'
+    # SVM
+    classifier = 'SVM'
     _, select_featuresLDA, _, _ = get_hyperparameters_from_json(classifier, get_model_subfolder(model_type))
 
     # KNN
@@ -291,16 +295,16 @@ if preference == 7:
     _, select_featuresKNN, _, _ = get_hyperparameters_from_json(classifier, get_model_subfolder(model_type))
 
     # Step 2: Compute shared and unique features
-    lda_set = set(select_featuresLDA)
+    other_set = set(select_featuresLDA)
     knn_set = set(select_featuresKNN)
-    shared_features = lda_set & knn_set
-    lda_unique = lda_set - knn_set
-    knn_unique = knn_set - lda_set
+    shared_features = other_set & knn_set
+    other_unique = other_set - knn_set
+    knn_unique = knn_set - other_set
 
     # Step 3: Visualize overlap
     plt.figure(figsize=(6, 5))
-    venn2([knn_set, lda_set], set_labels=('KNN', 'LDA'))
-    plt.title('Feature Overlap: KNN vs LDA')
+    venn2([knn_set, other_set], set_labels=('KNN', 'SVM'))
+    plt.title('Feature Overlap: KNN vs SVM')
     plt.show()
 
     # Step 4: Print feature breakdown
@@ -308,8 +312,8 @@ if preference == 7:
     for feat in sorted(shared_features):
         print(f"  - {feat}")
 
-    print(f"\n Features selected only by LDA ({len(lda_unique)}):")
-    for feat in sorted(lda_unique):
+    print(f"\n Features selected only by SVM ({len(other_unique)}):")
+    for feat in sorted(other_unique):
         print(f"  - {feat}")
 
     print(f"\n Features selected only by KNN ({len(knn_unique)}):")
@@ -325,8 +329,7 @@ if preference == 7:
 
     for classifier in classifiers_to_test:
         start_time = time.time()
-        model_type = ['noAFE', 'explicit']
-        num_kfold = 10
+        num_kfold = 3
 
         accuracy_model = np.zeros((len(offset_ranges), num_kfold))
         precision_model = np.zeros((len(offset_ranges), num_kfold))
@@ -339,7 +342,7 @@ if preference == 7:
         save_folder = os.path.join("../prediction_models_featureSHARE", subfolder_name)
         os.makedirs(save_folder, exist_ok=True)
 
-        get_median_hyperparameters(classifier, subfolder_name)
+
         hyperparameters, select_features, foldID_check, score_check = get_hyperparameters_from_json(classifier,
                                                                                                     subfolder_name)
 
@@ -409,7 +412,70 @@ if preference == 7:
         print(f"Total time for classifier '{classifier}': {end_time - start_time:.2f} seconds")
 
 
+def investigate_feature_space(model_type, classifiers):
+    """
+    Investigate feature space overlap across classifiers.
+    Automatically adapts visualization depending on number of classifiers.
+    """
+
+    # Step 1: Load selected features
+    features_dict = {}
+    for clf in classifiers:
+        _, selected, _, _ = get_hyperparameters_from_json(clf, get_model_subfolder(model_type))
+        features_dict[clf] = set(selected)
+
+    # Step 2: Compute shared + unique features
+    shared_features = set.intersection(*features_dict.values())
+    unique_features = {clf: feats - shared_features for clf, feats in features_dict.items()}
+
+    print(f"\nShared features across all ({len(shared_features)}):")
+    for feat in sorted(shared_features):
+        print(f"  - {feat}")
+
+    for clf, feats in unique_features.items():
+        print(f"\nFeatures unique to {clf} ({len(feats)}):")
+        for feat in sorted(feats):
+            print(f"  - {feat}")
+
+    # Step 3: Visualization
+    n = len(classifiers)
+
+    if n == 2:
+        clf1, clf2 = classifiers
+        plt.figure(figsize=(6, 5))
+        venn2([features_dict[clf1], features_dict[clf2]], set_labels=(clf1, clf2))
+        plt.title(f'Feature Overlap: {clf1} vs {clf2}')
+        plt.show()
+
+    elif n == 3:
+        clf1, clf2, clf3 = classifiers
+        plt.figure(figsize=(6, 5))
+        venn3([features_dict[clf1], features_dict[clf2], features_dict[clf3]],
+              set_labels=(clf1, clf2, clf3))
+        plt.title(f'Feature Overlap: {clf1} vs {clf2} vs {clf3}')
+        plt.show()
+
+    elif n >= 4:
+        upset_data = from_contents(features_dict)
+        UpSet(upset_data).plot()
+        plt.title('Feature Overlap Across Classifiers')
+        plt.show()
+
+    return shared_features, unique_features
 
 
+if preference == 8:
+
+    # Preference to plot overlap of features ONLY
+    # Agnostic to how every many classifiers we want to look at
+    model_type = ['noAFE', 'explicit']
+
+    # Try with all 6 classifiers
+    investigate_feature_space(model_type, ['KNN', 'LDA', 'logreg'])
 
 
+if preference == 9:
+    # Save Hyperparameters to JSON
+    model_type = ['noAFE', 'explicit']
+    classifier = 'logreg'
+    get_median_hyperparameters(classifier,get_model_subfolder(model_type))
