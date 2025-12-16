@@ -37,23 +37,28 @@ def main_loop(kfold_ID, num_splits, runname, param_path, impute_path, horizon):
     load_impute = True  # skip impute and load from file?
 
     ## Model Parameters
-    model_type = ['noAFE', 'explicit']
+    model_type = ['complete', 'explicit']
+
     if 'noAFE' in model_type and 'explicit' in model_type:
-        #feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
+        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
         #                             'rawEEG', 'demographics']
         # For processed explicit
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                      'rawEEG', 'processedEEG', 'demographics', 'strain']
 
-        # feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
-        #                              'rawEEG', 'demographics', 'strain']
-
     if 'noAFE' in model_type and 'implicit' in model_type:
-        feature_groups_to_analyze = ['ECG','BR','temp', 'eyetracking','rawEEG']
+        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG']
+
+    if 'complete' in model_type and 'implicit' in model_type:
+        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'processedEEG', 'rawEEG']
+
+    if 'complete' in model_type and 'explicit' in model_type:
+        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
+                                     'rawEEG', 'processedEEG', 'demographics', 'strain']
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
     # baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
-    baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
+    baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6']
 
     baseline_window = 32.5  # seconds
 
@@ -62,8 +67,7 @@ def main_loop(kfold_ID, num_splits, runname, param_path, impute_path, horizon):
     subject_to_analyze = '01'
     trial_to_analyze = '02'
 
-
-############################################# LOAD AND PROCESS DATA #############################################
+    ############################################# LOAD AND PROCESS DATA #############################################
     """ 
        Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze'
     """
@@ -76,16 +80,33 @@ def main_loop(kfold_ID, num_splits, runname, param_path, impute_path, horizon):
     (gloc_data_reduced, features, features_phys, features_ecg, features_eeg, all_features, all_features_phys,
      all_features_ecg, all_features_eeg) = (
         analysis_driven_csv_processing(analysis_type, filename, feature_groups_to_analyze, demographic_data_filename,
-                                       model_type,list_of_eeg_data_files,trial_to_analyze,subject_to_analyze))
+                                       model_type, list_of_eeg_data_files, trial_to_analyze, subject_to_analyze))
 
     # Create GLOC Categorical Vector
     gloc = label_gloc_events(gloc_data_reduced)
 
     # Reduce Dataset based on AFE / nonAFE condition
-    gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
-        afe_subset(model_type, gloc_data_reduced,all_features,
-                   features,features_phys, features_ecg, features_eeg, gloc))
+    if 'complete' not in model_type:
+        gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
+            afe_subset(model_type, gloc_data_reduced, all_features,
+                       features, features_phys, features_ecg, features_eeg, gloc))
 
+    ############################################# EEG Specific Imputation #############################################
+    if 'complete' in model_type:
+        # Compute AFE / NonAFE condition indicator column
+        condition_idx = all_features.index('condition')
+        afe_indicator_column = features[:, condition_idx]
+
+        # Impute (using mean) the value of the missing channels for each AFE condition
+        gloc_data_reduced, features, features_phys, features_eeg = (
+            eeg_condition_impute(gloc_data_reduced,
+                                 all_features, all_features_phys, all_features_eeg, afe_indicator_column))
+
+        # Set aside AFE / NonAFE condition indicator for now - to be incorporated back in later
+        features = np.delete(features, condition_idx, axis=1)
+        all_features = [stream for stream in all_features if stream != 'condition']
+
+        gloc_data_reduced["AFE_indicator"] = afe_indicator_column  # Merge afe_indicators back into the predictor set
 
     ############################################### DATA CLEAN AND PREP ###############################################
     """ 
@@ -96,8 +117,7 @@ def main_loop(kfold_ID, num_splits, runname, param_path, impute_path, horizon):
     if remove_NaN_trials:
         gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc, nan_proportion_df = (
             remove_all_nan_trials(gloc_data_reduced, all_features,
-                                  features,features_phys, features_ecg, features_eeg, gloc))
-
+                                  features, features_phys, features_ecg, features_eeg, gloc, verbose=True))
 
     ################################################## REDUCE MEMORY ##################################################
 
@@ -107,18 +127,19 @@ def main_loop(kfold_ID, num_splits, runname, param_path, impute_path, horizon):
     time_column = gloc_data_reduced['Time (s)']
     event_validated_column = gloc_data_reduced['event_validated']
     subject_column = gloc_data_reduced['subject']
+    if "complete" in model_type:
+        afe_indicator_column = gloc_data_reduced["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1)
 
     del gloc_data_reduced
 
-
     ################################################## Impute Missing ##################################################
     """
-        Imputes data using train/test split within the imputation to prevent data leakage
+        Imputes data using train / test split within imputation to prevent data leakage
     """
     ### Impute missing row data
     if impute_type == 1:
         # Set full path for imputed data
-        impute_path = os.path.join(impute_path, "imputed_data.pkl")
+        impute_path = os.path.join(save_folder, "imputed_data.pkl")
 
         # Grab train and test indices
         _, _, _, _, train_ind, test_ind = groupedtrial_kfold_split(gloc, features,
@@ -148,19 +169,17 @@ def main_loop(kfold_ID, num_splits, runname, param_path, impute_path, horizon):
         eeg_indices = [i for i, feature in enumerate(all_features) if (feature in all_features_eeg)]
         features_eeg = features[:, eeg_indices]
 
-
-
     ################################################## BASELINE DATA ##################################################
     """ 
         Baselines pre-feature data based on 'baseline_methods_to_use'
     """
 
-    combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0= (
-        baseline_data(baseline_methods_to_use, trial_column, time_column, event_validated_column, subject_column, features, all_features,
-                      gloc,baseline_window, features_phys, all_features_phys, features_ecg, all_features_ecg,
+    combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0 = (
+        baseline_data(baseline_methods_to_use, trial_column, time_column, event_validated_column, subject_column,
+                      features, all_features,
+                      gloc, baseline_window, features_phys, all_features_phys, features_ecg, all_features_ecg,
                       features_eeg, all_features_eeg, baseline_data_filename, list_of_baseline_eeg_processed_files,
                       model_type))
-
 
     ################################################ GENERATE FEATURES ################################################
     """
@@ -183,15 +202,14 @@ def main_loop(kfold_ID, num_splits, runname, param_path, impute_path, horizon):
     ]
 
     # Get new x_feature matrix
-    x_feature_matrix = x_feature_matrix[:,ue_indices]
+    x_feature_matrix = x_feature_matrix[:, ue_indices]
     trial_ints = convert_to_unique_ordered_integers(trial_column)
 
-    x_feature_matrix = np.hstack([x_feature_matrix,trial_ints])
+    x_feature_matrix = np.hstack([x_feature_matrix, trial_ints])
     y_gloc_labels = gloc
 
     all_features = combined_baseline_names
     all_features = [all_features[i] for i in ue_indices]
-
 
     ############################################# FEATURE CLEAN AND PREP ##############################################
     """ 
@@ -201,38 +219,45 @@ def main_loop(kfold_ID, num_splits, runname, param_path, impute_path, horizon):
     # Remove constant columns (typically no constant columns)
     x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
 
+    # Add back in as 2nd to last column (needs to be 2nd to last for advanced - could be last for traditional)
+    if "complete" in model_type:
+        x_feature_matrix = np.hstack([
+            x_feature_matrix[:, :-1],
+            afe_indicator_column,
+            x_feature_matrix[:, -1:]
+        ])
+
     # List-wise deletion or clean any residual NaNs
     if impute_type == 2 or impute_type == 1:
         # Remove rows with NaN (temporary solution-should replace with other method eventually)
-        y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features, trials_noNaN = process_NaN(y_gloc_labels, x_feature_matrix,
-                                                                                all_features, trial_ints)
+        y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features, trials_noNaN = process_NaN(y_gloc_labels,
+                                                                                              x_feature_matrix,
+                                                                                              all_features, trial_ints)
     else:
         y_gloc_labels_noNaN, x_feature_matrix_noNaN, trials_noNaN = y_gloc_labels, x_feature_matrix, trial_ints
 
-
-
     ################################################ TRAIN/TEST SPLIT  ################################################
     """ 
-          Split data into training/test for the optimization loop of the sequential optimization framework.
+          Split data into training/test for optimization loop of sequential optimization framework.
     """
 
     # Training/Test Split
-    x_train, x_test, y_train, y_test,_ , _ = groupedtrial_kfold_split(
-        y_gloc_labels_noNaN,x_feature_matrix_noNaN, trials_noNaN, num_splits, kfold_ID)
+    x_train, x_test, y_train, y_test, _, _ = groupedtrial_kfold_split(
+        y_gloc_labels_noNaN, x_feature_matrix_noNaN, trials_noNaN, num_splits, kfold_ID)
 
     # Grab trials as separate
-    x_train_trials = x_train[:,-1].reshape(-1, 1)
-    x_train = x_train[:,:-1]
+    x_train_trials = x_train[:, -1].reshape(-1, 1)
+    x_train = x_train[:, :-1]
     x_test_trials = x_test[:, -1].reshape(-1, 1)
     x_test = x_test[:, :-1]
 
     # And standardize based on training data
-    scaler  = StandardScaler()
+    scaler = StandardScaler()
     x_train = scaler.fit_transform(x_train)
-    x_test  = scaler.transform(x_test)
+    x_test = scaler.transform(x_test)
 
     # Add indices back as final column
-    x_train = np.hstack([x_train,x_train_trials])
+    x_train = np.hstack([x_train, x_train_trials])
     x_test = np.hstack([x_test, x_test_trials])
 
 
@@ -264,8 +289,8 @@ if __name__ == "__main__":
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
     # Naming run and save location for summary pkl files
-    runname = 'Trans_forecast_horizons_CV_procEEG'
-    summary_loc = "../PerformanceSave/TemporalPrediction"
+    runname = 'Trans'
+    summary_loc = "../PerformanceSave/TemporalPrediction_ExplicitComplete"
 
     # For loading model parameters
     # fold_load = 2
@@ -275,7 +300,7 @@ if __name__ == "__main__":
 
     # For loading model parameters
     kfold_ID_Load = 4 # Median performer for Transformer
-    param_path = os.path.join("../ModelSave/CV", "Trans_processed_final", str(kfold_ID_Load))
+    param_path = os.path.join("../ModelSave/CV", "Explicit_Complete_final", str(kfold_ID_Load))
 
     # Define horizon range set
     horizons = list(range(0, 401, 25))
@@ -294,7 +319,7 @@ if __name__ == "__main__":
             method_key = f"fold{str(fold)}_h{str(horizon)}"
 
             # For loading imputation (if saved)
-            impute_path = os.path.join("../ModelSave/CV/Trans_processed_final", str(fold))
+            impute_path = os.path.join("../ModelSave/CV/Explicit_Complete_final", str(fold))
 
             # Run main loop
             single_run = main_loop(fold, num_splits, runname, param_path, impute_path, horizon)

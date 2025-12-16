@@ -965,9 +965,9 @@ if __name__ == "__main__":
     # Plot Flags
     plot_data = 0       # flag to set whether plots should be generated (0 = no, 1 = yes)
     plot_pairwise = 0   # flag to set whether pairwise plots should be generated (0 = no, 1 = yes)
-    plot_cv = 0
+    plot_cv = 1
     plot_bayes = 0
-    plot_horizon = 1
+    plot_horizon = 0
 
     # Visualization of feature throughout trial
     if plot_data == 1:
@@ -984,7 +984,7 @@ if __name__ == "__main__":
     # Visualization of k-fold cross validation
     if plot_cv == 1:
 
-        with open('../PerformanceSave/CrossValidation/Implicit_final/CrossValidation.pkl', 'rb') as f:
+        with open('../PerformanceSave/CrossValidation/Explicit_Complete_final/CrossValidation.pkl', 'rb') as f:
             data_dict = pickle.load(f)
 
         plot_cross_val_sp(data_dict)

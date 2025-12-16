@@ -253,9 +253,9 @@ def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, dem
         elif 'noAFE' in model_type:
             raw_eeg_condition_specific = raw_eeg_nonafe_only
         else:
-            # raw_eeg_condition_specific = []
             # Use full dataset
             raw_eeg_condition_specific = raw_eeg_afe_only + raw_eeg_nonafe_only
+            raw_eeg_condition_specific = []
     else:
         raw_eeg_shared_features = []
         raw_eeg_condition_specific = []
@@ -269,10 +269,9 @@ def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, dem
         elif 'noAFE' in model_type:
             processed_eeg_condition_specific = processed_eeg_nonafe_only
         else:
-            # processed_eeg_condition_specific = []
             # Use full dataset
             processed_eeg_condition_specific = processed_eeg_afe_only + processed_eeg_nonafe_only
-
+            processed_eeg_condition_specific = []
     else:
         processed_eeg_shared_features = []
         processed_eeg_condition_specific = []

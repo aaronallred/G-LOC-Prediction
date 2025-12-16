@@ -255,7 +255,7 @@ def eeg_condition_impute(gloc_data_reduced, all_features, all_features_phys, all
 
     # Impute AFE-only columns for non-AFE rows
     for col in afe_only_cols:
-        if col in df.columns:
+        if col in all_features_eeg:
             # Check if all values in this column for non-AFE rows are NaN
             #if df.loc[nonafe_mask, col].isna().all():
             mean_val = df.loc[afe_mask, col].mean(skipna=True)
@@ -266,7 +266,7 @@ def eeg_condition_impute(gloc_data_reduced, all_features, all_features_phys, all
 
     #  Impute non-AFE-only columns for AFE rows
     for col in nonafe_only_cols:
-        if col in df.columns:
+        if col in  all_features_eeg:
             # Check if all values in this column for AFE rows are NaN
             #if df.loc[afe_mask, col].isna().all():
             mean_val = df.loc[nonafe_mask, col].mean(skipna=True)

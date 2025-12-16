@@ -36,7 +36,7 @@ def main_loop(kfold_ID, num_splits, runname):
     random_state = 42
 
     ## Classifier | Pick 'LogRegTS', 'LSTM', 'TCN', 'Trans', or 'all'
-    classifier_type = 'Trans'
+    classifier_type = 'all'
     train_class = True # not yet set up to test and not train (always trains)
     class_weight_imb = 'balanced'
 
@@ -49,7 +49,7 @@ def main_loop(kfold_ID, num_splits, runname):
     load_impute = False  # skip impute and load from file?
 
     ## Model Parameters
-    model_type = ['complete', 'implicit']
+    model_type = ['complete', 'explicit']
 
     if 'noAFE' in model_type and 'explicit' in model_type:
         #feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
@@ -63,6 +63,11 @@ def main_loop(kfold_ID, num_splits, runname):
 
     if 'complete' in model_type and 'implicit' in model_type:
         feature_groups_to_analyze = ['ECG','BR','temp', 'eyetracking','AFE','processedEEG','rawEEG']
+
+    if 'complete' in model_type and 'explicit' in model_type:
+
+        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
+                                     'rawEEG', 'processedEEG', 'demographics', 'strain']
 
     # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
     # baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
@@ -350,7 +355,7 @@ if __name__ == "__main__":
     # Needed for proper debugging of CUDA errors
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-    runname = 'Implicit_Complete_noInd'
+    runname = 'Explicit_Complete_final'
 
     # Test set identifier for 10-fold Model Validation
     num_splits = 10
