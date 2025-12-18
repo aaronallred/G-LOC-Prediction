@@ -288,7 +288,7 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
 
     return accuracy, precision, recall, f1, specificity, g_mean
 
-import forecasting_fun
+
 def transformer_class_load(x_train, x_test, y_train, y_test, horizon, class_weight_imb, random_state, all_features, param_path, save_folder):
     """
     Train a Transformer model directly from saved hyperparameters and metadata JSON files (skip Optuna).
@@ -321,7 +321,7 @@ def transformer_class_load(x_train, x_test, y_train, y_test, horizon, class_weig
     step_size = best_params["step_size"]
     threshold = best_params['threshold']
 
-    # Baseline feature selection
+    # Baseline method selection
     baseline_method = best_params["baseline_method"]
     x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
     x_test_ds, _ = baseline_down_select(x_test, all_features, baseline_method)
@@ -348,8 +348,10 @@ def transformer_class_load(x_train, x_test, y_train, y_test, horizon, class_weig
         dim_feedforward=best_params["dim_feedforward"],
         dropout=best_params["dropout"] if best_params["num_layers"] > 1 else 0
     )
+
     device = get_device()
     model.to(device)
+
     criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, momentum,
                                                      device, loss='BCE', optimizer_type=optimizer_type)
 
@@ -362,7 +364,7 @@ def transformer_class_load(x_train, x_test, y_train, y_test, horizon, class_weig
 
     # Save trained model
     os.makedirs(save_folder, exist_ok=True)
-    torch.save(model.state_dict(), os.path.join(save_folder, f"Trans_trained_model_from_json.pt"))
+    torch.save(model.state_dict(), os.path.join(save_folder, f"Trans_trained_model_from_json_h{horizon}.pt"))
 
     # Evaluate
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)

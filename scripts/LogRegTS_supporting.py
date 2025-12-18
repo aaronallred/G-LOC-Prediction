@@ -16,6 +16,7 @@ import joblib
 import json
 
 from GLOC_visualization import prediction_time_plot
+from scripts.forecasting_fun import train_test_split_trials_forecast
 
 # Build Time Series Logistic Regression architecture
 class LogisticRegressionTS(nn.Module):
@@ -244,5 +245,119 @@ def lrts_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     print("F1 Score: ", f1)
     print("Specificity: ", specificity)
     print("G-Mean: ", g_mean)
+
+    return accuracy, precision, recall, f1, specificity, g_mean
+
+def lrts_binary_class_load(x_train, x_test, y_train, y_test, horizon, class_weight_imb, random_state, all_features,
+                           param_path, save_folder):
+    """
+        Train an Autoregressive Logistic Regression model directly from saved hyperparameters and metadata JSON files
+    """
+
+    # Load best hyperparameters
+    params_path = os.path.join(param_path, "LogReg_best_params.json")
+    with open(params_path, "r") as f:
+        best_params = json.load(f)
+
+    metadata_path = os.path.join(param_path, "LogReg_best_trial_metadata.json")
+    if os.path.exists(metadata_path):
+        with open(metadata_path, "r") as f:
+            metadata = json.load(f)
+        num_epochs = max(metadata.get("best_epoch", 15), 15)
+    else:
+        num_epochs = 15
+
+    # Compute class weights to address imbalance (depending on class_weight_imb pass)
+    class_weights = compute_class_weight(class_weight_imb, classes=np.array([0, 1]), y=y_train)
+    class_weights = torch.tensor(class_weights, dtype=torch.float)
+
+    # Grab the hyperparameters from the best set
+    batch_size = best_params["batch_size"]
+    optimizer_type = best_params["optimizer_type"]
+    momentum = 0.9 if optimizer_type == "SGD" else None
+    learning_rate = best_params["lr"]
+    weight_decay = best_params["weight_decay"]
+    sequence_length = best_params["sequence_length"]
+    step_size = best_params["step_size"]
+    threshold = best_params["threshold"]
+
+    baseline_method = best_params["baseline_method"]
+    x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
+    x_test_ds, _ = baseline_down_select(x_test, all_features, baseline_method)
+
+    # Build datasets
+    train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
+        train_test_split_trials_forecast(
+            x_train_ds, y_train, sequence_length, step_size, test_ratio=None,
+            random_state=random_state, end_label=True, horizon=horizon)
+    )
+
+    test_dataset, _, test_windows_tensor, test_labels_tensor, _, _ = (
+        train_test_split_trials_forecast(
+            x_test_ds, y_test, sequence_length, step_size=10, test_ratio=None,
+            random_state=random_state, end_label=True, horizon=horizon)
+    )
+
+    # Flatten windows
+    train_windows_tensor = train_windows_tensor.view(train_windows_tensor.size(0), -1)
+    test_windows_tensor = test_windows_tensor.view(test_windows_tensor.size(0), -1)
+
+    # Build model
+    input_dim = train_windows_tensor.shape[1]
+    model = LogisticRegressionTS(input_dim)
+    device = get_device()
+    model.to(device)
+    criterion, optimizer = build_training_components(model, class_weights,
+                                                     learning_rate, weight_decay,
+                                                     momentum, device,
+                                                     loss='BCE',
+                                                     optimizer_type=optimizer_type)
+
+    # Prepare the data for training
+    sampler = build_sampler(train_labels_tensor, class_weights)
+    train_loader = DataLoader(TensorDataset(train_windows_tensor, train_labels_tensor),
+                              batch_size=batch_size, sampler=sampler)
+
+    # Train model
+    for epoch in range(num_epochs):
+        train(model, train_loader, criterion, optimizer, device, epoch, num_epochs)
+
+    # Save trained model
+    os.makedirs(save_folder, exist_ok=True)
+    torch.save(model.state_dict(),
+               os.path.join(save_folder, f"LogReg_trained_model_from_json_h{horizon}.pt"))
+
+    # Evaluate final model
+    test_loader = DataLoader(TensorDataset(test_windows_tensor, test_labels_tensor),
+                             batch_size=batch_size, shuffle=False)
+    all_preds, all_labels, predictors_over_time, _ = evaluate(
+        model, test_loader, threshold, device, criterion)
+
+    # Convert lists to numpy arrays
+    all_preds = np.array(all_preds)
+    all_labels = np.array(all_labels)
+    predictors_over_time = np.array(predictors_over_time)
+    # prediction_time_plot(all_labels, all_preds, predictors_over_time)
+
+    # Assess Performance
+    accuracy = metrics.accuracy_score(all_labels, all_preds)
+    precision = metrics.precision_score(all_labels, all_preds)
+    recall = metrics.recall_score(all_labels, all_preds)
+    f1 = metrics.f1_score(all_labels, all_preds)
+    specificity = metrics.recall_score(all_labels, all_preds, pos_label=0)
+    g_mean = geometric_mean_score(all_labels, all_preds)
+
+    # Print performance metrics
+    print("\nPerformance Metrics for LogReg (from JSON):")
+    print("Accuracy: ", accuracy)
+    print("Precision: ", precision)
+    print("Recall: ", recall)
+    print("F1 Score: ", f1)
+    print("Specificity: ", specificity)
+    print("G-Mean: ", g_mean)
+
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
 
     return accuracy, precision, recall, f1, specificity, g_mean
