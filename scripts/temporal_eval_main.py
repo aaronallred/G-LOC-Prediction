@@ -117,7 +117,7 @@ if preference == 3:
             del y_train, y_test, x_train, x_test
 
         # Plotting the results, function also saves the data to a folder for one particular model, outside the loop
-        plotting_offset_models(offset_ranges, accuracy_model, precision_model, recall_model, f1_model, specificity_model, g_mean_model,classifier,model_type,'WindowChange')
+        plotting_offset_models(offset_ranges, accuracy_model, precision_model, recall_model, f1_model, specificity_model, g_mean_model,classifier,model_type,subfolder2=None)
 
             # # Print performance metrics
             # print(f"\nLogistic Regression Performance Metrics for offset of {offset_ranges[i]}:")

@@ -30,77 +30,74 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 
-def plot_f1_violin(f1_results, usable_features_dict, streams_of_interest, model_type, subfolder2=None):
+def plot_f1_violin_by_stream(f1_results_by_stream, model_type, subfolder2=None):
     """
-    Plot horizontal violin plots of F1 scores for multiple classifiers.
-    Each violin is labeled with classifier name, stream combo, and number of usable features.
+    Create faceted violin plots of F1 scores per classifier, grouped by feature stream.
 
     Parameters
     ----------
-    f1_results : dict
-        Dictionary mapping classifier name -> 1D array/list of F1 scores.
-        Example: {"KNN": [...], "RF": [...], "EGB": [...]}
-    usable_features_dict : dict
-        Dictionary mapping classifier name -> list of usable features after restriction.
-        Example: {"KNN": ["HR_mean", "EEG_var"], "RF": [...], "EGB": [...]}
-    streams_of_interest : list of str
-        Streams used for feature restriction (e.g. ["EEG", "HR"]).
+    f1_results_by_stream : dict
+        Nested dict: classifier -> stream -> list of F1 scores.
+        Example: {
+            "KNN": {"EEG": [...], "HR": [...]},
+            "RF": {"EEG": [...], "HR": [...]},
+            "EGB": {"EEG": [...], "HR": [...]}
+        }
     model_type : list of str
         Model type specifier (e.g. ["complete", "explicit"]).
     subfolder2 : str, optional
         Extra subfolder name for saving results.
     """
+    import pandas as pd
+    import seaborn as sns
+    import matplotlib.pyplot as plt
 
-    # Prepare figure
-    plt.figure(figsize=(10, 6))
+    # Build long-format DataFrame
+    records = []
+    for clf, stream_dict in f1_results_by_stream.items():
+        for stream, f1_scores in stream_dict.items():
+            for score in f1_scores:
+                records.append({
+                    "Classifier": clf,
+                    "Stream": stream,
+                    "F1 Score": score
+                })
+    df = pd.DataFrame(records)
 
-    # Build labels with classifier + stream combo + feature count
-    stream_str = "-".join(streams_of_interest)
-    classifiers = [
-        f"{clf} ({stream_str}, n={len(usable_features_dict.get(clf, []))})"
-        for clf in f1_results.keys()
-    ]
-    data = [np.ravel(f1_results[clf]) for clf in f1_results.keys()]
+    # Plot using seaborn catplot (faceted violin plots)
+    g = sns.catplot(
+        data=df,
+        x="F1 Score",
+        y="Stream",
+        col="Classifier",
+        kind="violin",
+        orient="h",
+        inner="box",
+        hue="Stream",
+        palette="Set2",
+        legend = False,
+        sharex=True,
+        sharey=False,
+        height=5,
+        aspect=1.2,
+    )
 
-    # Plot violins horizontally
-    sns.violinplot(data=data, orient="h", inner="box", palette="Set2")
+    g.set(xlim=(0, 1))
 
-    # Set y-axis labels
-    plt.yticks(range(len(classifiers)), classifiers)
-
-    # Title
-    plt.title(f"F1 Score Distributions — Streams: {stream_str} | Model: {get_model_subfolder(model_type)}",
-              fontsize=14, fontweight="bold")
-
-    plt.xlabel("F1 Score")
-    plt.grid(True, axis="x")
-    plt.tight_layout()
+    g.fig.subplots_adjust(top=0.85)
+    g.fig.suptitle(f"F1 Score Distributions by Feature Stream | Model: {get_model_subfolder(model_type)}",
+                   fontsize=14, fontweight="bold")
 
     ############################ Save plot ############################
     subfolder = get_model_subfolder(model_type)
-    if subfolder2 is not None:
-        results_folder = os.path.join('./feature_study', subfolder, subfolder2)
-        os.makedirs(results_folder, exist_ok=True)
-    else:
-        results_folder = os.path.join('./feature_study', subfolder)
-        os.makedirs(results_folder, exist_ok=True)
+    results_folder = os.path.join('./feature_study', subfolder, subfolder2 or "")
+    os.makedirs(results_folder, exist_ok=True)
 
-    plot_filename = f"f1_violin_{stream_str}.png"
-    plot_path = os.path.join(results_folder, plot_filename)
-    plt.savefig(plot_path)
-    print(f"Saved F1 violin plot to {plot_path}")
+    plot_path = os.path.join(results_folder, "f1_violin_by_stream.png")
+    g.savefig(plot_path)
+    print(f"Saved faceted F1 violin plot to {plot_path}")
 
     plt.show()
-
-    ############################ Save raw F1 data ############################
-    for clf, values in f1_results.items():
-        filename = f"f1_results_{clf}_{stream_str}.pkl"
-        filepath = os.path.join(results_folder, filename)
-        with open(filepath, "wb") as f:
-            pickle.dump(values, f)
-        print(f"Saved F1 results for {clf} to {filepath}")
-
-    return None
 
 
 def restrict_feature_space(select_features, streams):
@@ -156,13 +153,40 @@ if preference == 7:
     _, select_featuresRF, _, _ = get_hyperparameters_from_json('RF', get_model_subfolder(model_type))
 
     # Define stream combinations to iterate through
+    # All different kinds: HR, ECG, EEG, Temperature, Pupil, Centrifuge, Strain, Participant
+    # Organized as follows:
+        # ECG: ECG + HR
+        # EEG: EEG
+        # Phys: HR + ECG + BR + Temperature (skin) + Pupil + EEG
+        # Non Phys: Centrifuge + Participant
+    # Further organized into specific data streams, sourced from same data
+        # ECG: ECG + HR + BR?
+        # EEG: EEG
+        # FNIRS: Pupil
+        # Temperature: Temperature
+        # Non phys: Centrifuge, Strain, Participant
     stream_combos = [
+        ['ECG', 'HR', 'BR'],
         ['EEG'],
-        ['HR']
-        # add more combos as needed
+        ['Pupil'],
+        ['Centrifuge', 'Strain', 'Participant', 'Temperature'],
+        ['ECG', 'HR', 'BR', 'EEG'],
+        ['ECG', 'HR', 'BR', 'Pupil'],
+        ['ECG', 'HR', 'BR', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
+        ['EEG', 'Pupil'],
+        ['EEG', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
+        ['Pupil', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
+        ['ECG', 'HR', 'BR', 'EEG', 'Pupil'],
+        ['ECG', 'HR', 'BR', 'EEG', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
+        ['ECG', 'HR', 'BR', 'Pupil', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
+        ['EEG', 'Pupil', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
+        ['ECG', 'HR', 'BR', 'EEG', 'Pupil', 'Centrifuge', 'Strain', 'Participant', 'Temperature']
     ]
 
-    classifiers_to_test = ['KNN', 'EGB', 'RF']
+    classifiers_to_test = ['KNN','EGB','RF']
+
+    # Nested dict: classifier -> stream -> F1 scores
+    f1_results_by_stream = {clf: {} for clf in classifiers_to_test}
 
     for streams_of_interest in stream_combos:
         print(f"\n=== Evaluating streams: {streams_of_interest} ===")
@@ -172,71 +196,65 @@ if preference == 7:
         usable_featuresRF = restrict_feature_space(select_featuresRF, streams_of_interest)
         usable_featuresEGB = restrict_feature_space(select_featuresEGB, streams_of_interest)
 
-        # Collect F1 results for plotting later
-        f1_results = {}
         usable_features_dict = {
             "KNN": usable_featuresKNN,
             "RF": usable_featuresRF,
             "EGB": usable_featuresEGB
         }
 
+        stream_str = "-".join(streams_of_interest)
+
         for classifier in classifiers_to_test:
             start_time = time.time()
             num_kfold = 10
 
-            f1_model = np.zeros((len(offset_ranges), num_kfold))
+            f1_model = np.zeros(num_kfold)
 
             subfolder_name = get_model_subfolder(model_type)
-            feature_subfolder = "-".join(streams_of_interest)
+            feature_subfolder = stream_str
 
             hyperparameters, select_features, _, _ = get_hyperparameters_from_json(classifier, subfolder_name)
 
             # Override features with restricted ones
-            if classifier == 'KNN':
-                select_features = usable_featuresKNN
-            elif classifier == 'RF':
-                select_features = usable_featuresRF
-            elif classifier == 'EGB':
-                select_features = usable_featuresEGB
+            select_features = usable_features_dict[classifier]
 
             print('Starting eval for ', classifier)
             save_folder = os.path.join("../RestrictedFeatureEval", subfolder_name)
             os.makedirs(save_folder, exist_ok=True)
 
-            for i in range(len(offset_ranges)):
-                x, y = data_with_prediction(offset_ranges[0], data_rate, classifier, model_type, select_features)
+            # Always pass offset=0
+            x, y = data_with_prediction(0, data_rate, classifier, model_type, select_features)
 
-                for k in range(num_kfold):
-                    x_train, x_test, y_train, y_test = stratified_kfold_split(ravel(y), x, num_kfold, k, random_state)
+            for k in range(num_kfold):
+                x_train, x_test, y_train, y_test = stratified_kfold_split(ravel(y), x, num_kfold, k, random_state)
 
-                    if classifier == 'RF':
-                        _, _, _, f1, _, _, _ = classify_random_forest(
-                            x_train, x_test, y_train, y_test, class_weight_imb, random_state,
-                            save_folder, model_name="rf_feature_study.pkl", retrain=False,
-                            temporal=True, best_params=hyperparameters)
-                    elif classifier == 'KNN':
-                        ros_x_train, ros_y_train = resample_ros(x_train, y_train, random_state)
-                        _, _, _, f1, _, _ = classify_knn(
-                            x_train, x_test, y_train, y_test, random_state,
-                            save_folder, model_name="knn_feature_study.pkl", retrain=False,
-                            temporal=True, best_params=hyperparameters)
-                    elif classifier == 'EGB':
-                        _, _, _, f1, _, _ = classify_ensemble_with_gradboost(
-                            x_train, x_test, y_train, y_test, random_state,
-                            save_folder, model_name="egb_feature_study.pkl", retrain=False,
-                            temporal=True, best_params=hyperparameters)
+                if classifier == 'RF':
+                    _, _, _, f1, _, _, _ = classify_random_forest(
+                        x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+                        save_folder, model_name="rf_feature_study.pkl", retrain=False,
+                        temporal=True, best_params=hyperparameters)
+                elif classifier == 'KNN':
+                    ros_x_train, ros_y_train = resample_ros(x_train, y_train, random_state)
+                    _, _, _, f1, _, _ = classify_knn(
+                        x_train, x_test, y_train, y_test, random_state,
+                        save_folder, model_name="knn_feature_study.pkl", retrain=False,
+                        temporal=True, best_params=hyperparameters)
+                elif classifier == 'EGB':
+                    _, _, _, f1, _, _ = classify_ensemble_with_gradboost(
+                        x_train, x_test, y_train, y_test, random_state,
+                        save_folder, model_name="egb_feature_study.pkl", retrain=False,
+                        temporal=True, best_params=hyperparameters)
 
-                    f1_model[i, k] = f1
+                f1_model[k] = f1
 
             print('Success for classifier:', classifier)
-            f1_results[classifier] = f1_model.flatten()  # flatten for violin plotting
+            f1_results_by_stream[classifier][stream_str] = f1_model.flatten()
 
             end_time = time.time()
             print(f"Total time for classifier '{classifier}': {end_time - start_time:.2f} seconds")
 
-        # Call plotting function with F1 results and usable features
-        plot_f1_violin(f1_results, usable_features_dict, streams_of_interest, model_type)
-
+    # Call new faceted plotting function
+    plot_f1_violin_by_stream(f1_results_by_stream, model_type, subfolder2="streamwise")
 
 
 def investigate_feature_space(model_type, classifiers):
@@ -295,6 +313,7 @@ if preference == 8:
 
     # Preference to plot overlap of features ONLY
     # Agnostic to how every many classifiers we want to look at
+    # Just ensure that saved hyperparameters and selected features are in JSON format
     model_type = ['noAFE', 'explicit']
 
     # Try with all 6 classifiers

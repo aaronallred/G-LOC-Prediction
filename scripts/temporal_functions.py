@@ -452,33 +452,39 @@ def plotting_offset_models(offset_ranges,accuracy_model,precision_model,recall_m
     if classifier_name == 'logreg':
         window_size = 12.5 # seconds - PULLED FROM NIKKI PAPER
 
-        ## Investigating different windows per EVAN ANDERSON
-        window_size = 8 # ~ 0.1 hit to f1 score
+        if subfolder2 is not None:
+            ## Investigating different windows per EVAN ANDERSON
+            window_size = 8 # ~ 0.1 hit to f1 score
     if classifier_name == 'RF':
         window_size = 7.5  # seconds - PULLED FROM NIKKI PAPER
 
-        ## Investigating different windows per EVAN ANDERSON
-        window_size = 5 # ~ 0.1 hit to f1 score
+        if subfolder2 is not None:
+            ## Investigating different windows per EVAN ANDERSON
+            window_size = 5 # ~ 0.1 hit to f1 score
     if classifier_name == 'LDA':
         window_size = 15  # seconds - PULLED FROM NIKKI PAPER
 
-        ## Investigating different windows per EVAN ANDERSON
-        window_size = 10 # ~ 0.3 hit to f1 score
+        if subfolder2 is not None:
+            ## Investigating different windows per EVAN ANDERSON
+            window_size = 10 # ~ 0.3 hit to f1 score
     if classifier_name == 'SVM':
         window_size = 15  # seconds - PULLED FROM NIKKI PAPER
 
-        ## Investigating different windows per EVAN ANDERSON
-        window_size = 8 # ~ 0.2 hit to f1 score
+        if subfolder2 is not None:
+            ## Investigating different windows per EVAN ANDERSON
+            window_size = 8 # ~ 0.2 hit to f1 score
     if classifier_name == 'EGB':
         window_size = 12.5  # seconds - PULLED FROM NIKKI PAPER
 
-        ## Investigating different windows per EVAN ANDERSON
-        window_size = 8 # ~ 0.1 hit to f1 score
+        if subfolder2 is not None:
+            ## Investigating different windows per EVAN ANDERSON
+            window_size = 8 # ~ 0.1 hit to f1 score
     if classifier_name == 'KNN':
         window_size = 15  # seconds - PULLED FROM NIKKI PAPER
 
-        ## Investigating different windows per EVAN ANDERSON
-        window_size = 12 # ~ 0.1 hit to f1 score
+        if subfolder2 is not None:
+            ## Investigating different windows per EVAN ANDERSON
+            window_size = 12 # ~ 0.1 hit to f1 score
 
     # Convert offset_ranges to a NumPy array for plotting
     offsets = np.array(offset_ranges)
