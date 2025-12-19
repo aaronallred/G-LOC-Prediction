@@ -32,7 +32,7 @@ import seaborn as sns
 
 offset_ranges = (0,1,1) # No longer doing any offset (no temporal eval)
 data_rate = 25 # (hz)
-preference = 8 # Which section of the code do we want to run
+preference = 7 # Which section of the code do we want to run
 random_state = 42
 class_weight_imb = None
 
