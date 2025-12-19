@@ -4,46 +4,21 @@ from collections import OrderedDict
 import numpy as np
 import os
 import joblib  # For saving the model
-from feature_engine.selection import SelectBySingleFeaturePerformance, SelectByTargetMeanPerformance
-from numpy import ravel
-from sklearn.linear_model import LogisticRegression, Ridge
-from sklearn.model_selection import train_test_split
-from sklearn import metrics
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.datasets import make_classification
-from sklearn.tree import plot_tree
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.inspection import DecisionBoundaryDisplay
-from sklearn import svm
-from sklearn.ensemble import GradientBoostingClassifier
-from skopt import BayesSearchCV
-from skopt.space import Real, Integer, Categorical
-from GLOC_visualization import create_confusion_matrix
-from sklearn.linear_model import Lasso
-from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold
-from itertools import islice
-from imblearn.metrics import geometric_mean_score
+
 from baseline_methods import baseline_data
 from GLOC_data_processing import *
-from scripts.GLOC_classifier import stratified_kfold_split
-from scripts.feature_selection import feature_selection_lasso, target_mean_selection, feature_selection_performance, \
-    feature_selection_ridge
+
 from scripts.features import feature_generation, sliding_window_max, sliding_window_mean_calc
-from scripts.imbalance_techniques import simple_smote, resample_ros
+
 from scripts.imputation import knn_impute, faster_knn_impute, eeg_condition_impute
 import pickle
 from prediction import y_prediction_offset, process_NaN_temporal
 import matplotlib.pyplot as plt
 
 
-
-###### This script will load data and make corrections to the GLOC labels for prediction.
-###### A separate script will be used to train and work with the models.
-###### Note for BRADY: This will only work if placed in the entire GLOC repo on Alien
-
 def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_features):
-
+    # This script will load data and make corrections to the GLOC labels for prediction.
+    # Note for BRADY: This will only work if placed in the entire GLOC repo on Alien
       ################################################### USER INPUTS  ###################################################
         ## Data Folder Location
         # datafolder = '../../'
@@ -665,7 +640,6 @@ def plot_metrics_from_cache(classifier_name, model_type):
     plt.show()
     return None
 
-
 def save_variables_to_folder(folder_path, variables_dict):
     os.makedirs(folder_path, exist_ok=True)
     for var_name, var_value in variables_dict.items():
@@ -682,17 +656,17 @@ def load_variables_from_folder(folder_path, variable_names):
             loaded_vars[var_name] = pickle.load(f)
     return loaded_vars
 
-
-
 def plot_f1_scores_across_classifiers(f1_score_dict, window_lengths, model_type_name, shared_plot=False):
     """
-    Plots F1 score curves for multiple classifiers in a shared panel.
+    Plots F1 score curves for multiple classifiers.
 
     Parameters:
-    - f1_score_dict: dict of {classifier_name: f1_score_matrix}
-    - window_lengths: dict of {classifier_name: window size in seconds}
+    - f1_score_dict: dict mapping classifier → F1 score matrix (offsets × folds)
+    - window_lengths: dict mapping classifier → window size (for vertical reference lines)
+    - shared_plot: if True, plot all classifiers in one panel; otherwise use subplots
     """
 
+    # Helper: summarize each offset by mean/min/max across folds
     def summarize_range(metric_matrix):
         return (
             np.mean(metric_matrix, axis=1),
@@ -700,7 +674,7 @@ def plot_f1_scores_across_classifiers(f1_score_dict, window_lengths, model_type_
             np.max(metric_matrix, axis=1)
         )
 
-    # --- Colors (unchanged) ---
+    # Color palette for consistent classifier coloring
     classifier_colors = {
         'logreg': '#440154',  # purple
         'RF': '#3b528b',      # blue
@@ -710,28 +684,37 @@ def plot_f1_scores_across_classifiers(f1_score_dict, window_lengths, model_type_
         'EGB': '#fde725'      # yellow
     }
 
+    # List of classifiers to plot
     classifier_names = list(f1_score_dict.keys())
 
+    # ----------------------------------------------------------------------
+    # SHARED PLOT MODE: all classifiers in one panel
+    # ----------------------------------------------------------------------
     if shared_plot:
-        # Single shared plot: no window length lines
         plt.figure(figsize=(14, 10))
         ax = plt.gca()
         handles, labels = [], []
 
         for classifier_name in classifier_names:
+            # Extract F1 matrix and compute summary curves
             f1_matrix = f1_score_dict[classifier_name]
             mean_vals, min_vals, max_vals = summarize_range(f1_matrix)
             offsets = np.arange(f1_matrix.shape[0])
 
+            # Choose classifier color
             color = classifier_colors.get(classifier_name, 'gray')
 
+            # Plot mean curve + scatter points
             h_mean, = ax.plot(offsets, mean_vals, color=color, label=f'{classifier_name} F1')
             ax.scatter(offsets, mean_vals, color=color, edgecolor='black', zorder=5)
-            # h_range = ax.fill_between(offsets, min_vals, max_vals, color='gray', alpha=0.3, label=f'{classifier_name} Range')
+
+            # (Optional range shading commented out)
+            # ax.fill_between(offsets, min_vals, max_vals, color='gray', alpha=0.3)
 
             handles.extend([h_mean])
             labels.extend([f'{classifier_name} F1', f'{classifier_name} Range'])
 
+        # Axis formatting
         ax.set_xlabel('Offset [s]')
         ax.set_ylabel('F1 Score')
         ax.set_ylim(0.5, 1.0)
@@ -739,34 +722,40 @@ def plot_f1_scores_across_classifiers(f1_score_dict, window_lengths, model_type_
         ax.grid(True)
         ax.legend(loc='lower right')
 
-        plt.title(f'F1 Score Across Offsets for All Classifiers — {model_type_name}', fontsize=18, fontweight='bold')
+        plt.title(f'F1 Score Across Offsets for All Classifiers — {model_type_name}',
+                  fontsize=18, fontweight='bold')
         plt.tight_layout()
         plt.show()
 
+    # ----------------------------------------------------------------------
+    # SUBPLOT MODE: one panel per classifier, with window-length reference line
+    # ----------------------------------------------------------------------
     else:
-        # Original behavior: individual subplots with window length lines
         plt.figure(figsize=(14, 10))
 
         for idx, classifier_name in enumerate(classifier_names, start=1):
             f1_matrix = f1_score_dict[classifier_name]
             mean_vals, min_vals, max_vals = summarize_range(f1_matrix)
 
-            # Infer offsets from number of rows
+            # Offsets inferred from number of rows
             offsets = np.arange(f1_matrix.shape[0])
 
             ax = plt.subplot(2, 3, idx)
 
-            # Optional vertical line at window length
+            # Optional vertical line marking the classifier's window size
             classifier_window = window_lengths.get(classifier_name, None)
             if classifier_window is not None:
-                ax.axvline(x=classifier_window, color='black', linestyle='--', linewidth=1.5, label='Window Size')
+                ax.axvline(x=classifier_window, color='black', linestyle='--',
+                           linewidth=1.5, label='Window Size')
 
+            # Plot mean curve + scatter + min–max shading
             color = classifier_colors.get(classifier_name, 'gray')
-
             ax.plot(offsets, mean_vals, color=color, label='F1 Score')
             ax.scatter(offsets, mean_vals, color=color, edgecolor='black', zorder=5)
-            ax.fill_between(offsets, min_vals, max_vals, color='gray', alpha=0.3, label='Range (min–max)')
+            ax.fill_between(offsets, min_vals, max_vals, color='gray', alpha=0.3,
+                            label='Range (min–max)')
 
+            # Axis formatting
             ax.set_title(f'F1 Score — {classifier_name}')
             ax.set_xlabel('Offset [s]')
             ax.set_ylabel('F1 Score')
@@ -774,13 +763,12 @@ def plot_f1_scores_across_classifiers(f1_score_dict, window_lengths, model_type_
             ax.grid(True)
             ax.legend()
 
-        plt.suptitle(f'F1 Score Across Offsets for All Classifiers — {model_type_name}', fontsize=18, fontweight='bold')
+        plt.suptitle(f'F1 Score Across Offsets for All Classifiers — {model_type_name}',
+                     fontsize=18, fontweight='bold')
         plt.tight_layout(rect=[0, 0, 1, 0.96])
         plt.show()
 
     return None
-
-
 
 def get_model_subfolder(model_type):
     # Function to simplify some naming
@@ -838,12 +826,20 @@ def sanitize_for_json(obj):
 def get_median_hyperparameters(classifier: str, model_type: str):
     # Function to find the median hyperparameters given the 10 folds of CV are completed
     # NOTE: Files should be stored as defined in this function
+
+    # Resolve project root directory
     BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+    # Will store (fold_id, f1_score) for all 10 folds
     fold_scores = []
 
+    # ------------------------------------------------------------
+    # Step 1: Load F1 scores from each fold's HPO summary
+    # ------------------------------------------------------------
     for fold_id in range(10):
         fold_str = str(fold_id)
 
+        # Build path to the fold summary depending on classifier type
         if classifier == 'RF':
             perf_path = os.path.join(BASE_DIR, 'PerformanceSave', 'CrossValidation', 'rf_hpo', model_type, fold_str,
                                      'FoldSummary.pkl')
@@ -865,21 +861,25 @@ def get_median_hyperparameters(classifier: str, model_type: str):
         else:
             raise ValueError(f"Unsupported classifier: {classifier}")
 
+        # Load fold summary and extract F1 score
         perf_dict = joblib.load(perf_path)
         perf_df = perf_dict[fold_str]
         f1_score = perf_df['f1-score'].iloc[0]
 
+        # Store fold result
         fold_scores.append({'fold_id': fold_str, 'f1_score': f1_score})
 
-
-
-    # Sort by f1_score and get median fold ID
-    fold_scores.sort(key=lambda x: x['f1_score'])
+    # ------------------------------------------------------------
+    # Step 2: Identify the median-performing fold
+    # ------------------------------------------------------------
+    fold_scores.sort(key=lambda x: x['f1_score'])  # sort by F1
     median_fold = fold_scores[len(fold_scores) // 2]
     median_fold_id = median_fold['fold_id']
     median_f1 = median_fold['f1_score']
 
-    # Load model and features for median fold
+    # ------------------------------------------------------------
+    # Step 3: Load model + selected features for the median fold
+    # ------------------------------------------------------------
     if classifier == 'RF':
         model_path = os.path.join(BASE_DIR, 'ModelSave', 'CV', model_type, median_fold_id, 'random_forest_model.pkl')
     elif classifier == 'KNN':
@@ -893,16 +893,22 @@ def get_median_hyperparameters(classifier: str, model_type: str):
     elif classifier == 'LDA':
         model_path = os.path.join(BASE_DIR, 'ModelSave', 'CV', model_type, median_fold_id, 'LDA_model.pkl')
 
+    # Default feature path
     features_path = os.path.join(BASE_DIR, 'ModelSave', 'CV', model_type, median_fold_id,
                                  f'SelectedFeatures{classifier}.pkl')
 
+    # Logistic regression uses a different filename convention
     if classifier == 'logreg':
         features_path = os.path.join(BASE_DIR, 'ModelSave', 'CV', model_type, median_fold_id,
                                      'SelectedFeaturesLR.pkl')
 
+    # Load model and selected features
     model = joblib.load(model_path)
     selected_features = joblib.load(features_path)
 
+    # ------------------------------------------------------------
+    # Step 4: Package and save median fold results
+    # ------------------------------------------------------------
     median_result = {
         'fold_id': median_fold_id,
         'f1_score': median_f1,
@@ -918,416 +924,5 @@ def get_median_hyperparameters(classifier: str, model_type: str):
     return None
 
 
-def data_with_prediction_verification(backstep, data_rate, classifier_type, model_type, k, select_features):
-    ################################################### USER INPUTS  ###################################################
-    ## Data Folder Location
-    # datafolder = '../../'
-    datafolder = '../data/'
 
-    # Random State | 42 - Debug mode
-    random_state = 42
-
-    ## Classifier | Pick 'logreg' 'rf' 'LDA' 'KNN' 'SVM' 'EGB'
-    # classifier_type = 'rf' # example of what would be fed into code
-    # Using specified class type, we pull out the txt file that contains hyperparameters and metrics
-
-    if classifier_type == 'logreg':
-        # Specifying Methods from Sequential optimization
-        baseline_window = 5  # seconds - PULLED FROM NIKKI PAPER
-        window_size = 12.5  # seconds - PULLED FROM NIKKI PAPER
-        stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
-        imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
-        feature_reduction_type = 'lasso'  # - PULLED FROM NIKKI PAPER
-        baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6', 'v7', 'v8']  # - PULLED FROM NIKKI PAPER
-        impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-        n_neighbors = 5  # - PULLED FROM NIKKI PAPER
-
-    if classifier_type == 'RF':
-        # Specifying Methods from Sequential optimization
-        baseline_window = 18.75  # seconds - PULLED FROM NIKKI PAPER
-        window_size = 7.5  # seconds - PULLED FROM NIKKI PAPER
-        stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
-        feature_reduction_type = 'none'  # - PULLED FROM NIKKI PAPER
-        threshold = 30  # - PULLED FROM NIKKI PAPER
-        baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6', 'v7', 'v8']  # - PULLED FROM NIKKI PAPER
-        imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
-        impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-        n_neighbors = 3  # - PULLED FROM NIKKI PAPER
-        # Code for loading txt
-
-    if classifier_type == 'LDA':
-        # Specifying Methods from Sequential optimization
-        baseline_window = 46.25  # seconds - PULLED FROM NIKKI PAPER
-        window_size = 15  # seconds - PULLED FROM NIKKI PAPER
-        stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
-        feature_reduction_type = 'lasso'  # - PULLED FROM NIKKI PAPER
-        baseline_methods_to_use = ['v0', 'v1', 'v2']  # - PULLED FROM NIKKI PAPER
-        imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
-        impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-        n_neighbors = 3  # - PULLED FROM NIKKI PAPER
-        # Code for loading txt
-
-    if classifier_type == 'SVM':
-        # Specifying Methods from Sequential optimization
-        baseline_window = 32.5  # seconds - PULLED FROM NIKKI PAPER
-        window_size = 15  # seconds - PULLED FROM NIKKI PAPER
-        stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
-        feature_reduction_type = 'ridge'  # - PULLED FROM NIKKI PAPER
-        threshold = 10  # - PULLED FROM NIKKI PAPER
-        baseline_methods_to_use = ['v0', 'v1', 'v2']  # - PULLED FROM NIKKI PAPER
-        impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-        n_neighbors = 3  # - PULLED FROM NIKKI PAPER
-        imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
-
-    if classifier_type == 'EGB':
-        # Specifying Methods from Sequential optimization
-        baseline_window = 46.25  # seconds - PULLED FROM NIKKI PAPER
-        window_size = 12.5  # seconds - PULLED FROM NIKKI PAPER
-        stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
-        feature_reduction_type = 'lasso'  # - PULLED FROM NIKKI PAPER
-        baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6', 'v7', 'v8']  # - PULLED FROM NIKKI PAPER
-        imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
-        impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-        n_neighbors = 3  # - PULLED FROM NIKKI PAPER
-        # Code for loading txt
-
-    if classifier_type == 'KNN':
-        # Specifying Methods from Sequential optimization
-        baseline_window = 32.5  # seconds - PULLED FROM NIKKI PAPER
-        window_size = 15  # seconds - PULLED FROM NIKKI PAPER
-        stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
-        feature_reduction_type = 'performance'  # - PULLED FROM NIKKI PAPER
-        baseline_methods_to_use = ['v0', 'v1', 'v2']  # - PULLED FROM NIKKI PAPER
-        imbalance_type = 'ros'  # - PULLED FROM NIKKI PAPER
-        impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-        n_neighbors = 5  # - PULLED FROM NIKKI PAPER
-        # Code for loading txt
-
-    train_class = True
-    class_weight_imb = None
-
-    # Data Handling Options
-    remove_NaN_trials = True  # Planning to always remove NaN for offset sequence
-
-    ## Model Parameters
-    # model_type = ['noAFE', 'explicit']
-    if 'noAFE' in model_type and 'explicit' in model_type:
-        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
-                                     'rawEEG', 'processedEEG', 'strain', 'demographics']
-    if 'noAFE' in model_type and 'implicit' in model_type:
-        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'processedEEG']
-        # feature_groups_to_analyze = ['ECG']
-    if 'complete' in model_type and 'explicit' in model_type:
-        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
-                                     'rawEEG', 'processedEEG', 'strain', 'demographics']
-        baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6']
-    if 'complete' in model_type and 'implicit' in model_type:
-        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'processedEEG', 'AFE']
-        baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6']
-
-        # baseline_methods_to_use = ['v0','v1','v2','v3','v4','v5','v6','v7','v8']
-    # baseline_methods_to_use = ['v0','v1','v2','v5','v6','v7','v8']
-
-    offset = 0  # seconds
-    time_start = 0  # seconds
-    training_ratio = 0.8
-
-    # Subject & Trial Information (only need to adjust this if doing analysis type 0,1)
-    subject_to_analyze = '01'
-    trial_to_analyze = '02'
-    analysis_type = 2
-
-    #### Making code more efficient by only running certain sections on first iteration. Data stored in cache
-    cache_folder = os.path.join('./cached_data', classifier_type)
-    os.makedirs(cache_folder, exist_ok=True)
-
-    # File names to save data .pkl as
-    feature_matrix_name = os.path.join(cache_folder, f'x_feature_matrix_method_{classifier_type}.pkl')
-    y_label_name = os.path.join(cache_folder, f'y_gloc_labels_method_{classifier_type}.pkl')
-    all_features_name = os.path.join(cache_folder, f'all_features_method_{classifier_type}.pkl')
-
-    if backstep == 0:
-        ############################################# LOAD AND PROCESS DATA #############################################
-        """ 
-               Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze'
-            """
-
-        # Grab Data File Locations
-        (filename, baseline_data_filename, demographic_data_filename,
-         list_of_eeg_data_files, list_of_baseline_eeg_processed_files) = data_locations(datafolder)
-
-        # Load Data
-        (gloc_data_reduced, features, features_phys, features_ecg, features_eeg, all_features, all_features_phys,
-         all_features_ecg, all_features_eeg) = (
-            analysis_driven_csv_processing(analysis_type, filename, feature_groups_to_analyze,
-                                           demographic_data_filename,
-                                           model_type, list_of_eeg_data_files, trial_to_analyze, subject_to_analyze))
-
-        # Create GLOC Categorical Vector
-        gloc = label_gloc_events(gloc_data_reduced)
-
-        if 'complete' in model_type and 'explicit' in model_type:
-            # Grab AFE / NonAFE condition indicator column
-            condition_idx = all_features.index('condition')
-            afe_indicator_column = features[:, condition_idx]
-
-            # Impute raw (using mean) the value of the missing channels for each AFE condition
-            gloc_data_reduced, features, features_phys, features_eeg = (
-                eeg_condition_impute(gloc_data_reduced,
-                                     all_features, all_features_phys, all_features_eeg, afe_indicator_column))
-
-            # Set aside AFE / NonAFE condition indicator for now - to be incorporated back in later
-            features = np.delete(features, condition_idx, axis=1)
-            all_features = [stream for stream in all_features if stream != 'condition']
-
-            # Add indicator back in for trial and row removal during 'data clean and prep' (will be taken back out)
-            gloc_data_reduced[
-                "AFE_indicator"] = afe_indicator_column  # Merge afe_indicators back into the predictor set
-        else:
-            # Reduce Dataset based on AFE / nonAFE condition
-            gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
-                afe_subset(model_type, gloc_data_reduced, all_features,
-                           features, features_phys, features_ecg, features_eeg, gloc))
-
-        ############################################### DATA CLEAN AND Some Imputation ###############################################
-        """ 
-               Optional handling of raw NaN data, depending on 'remove_NaN_trials' 'impute_type' <= 1
-            """
-        ### Remove full trials with NaN
-        if remove_NaN_trials:
-            gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc, nan_proportion_df = (
-                remove_all_nan_trials(gloc_data_reduced, all_features,
-                                      features, features_phys, features_ecg, features_eeg, gloc))
-
-            ### Impute missing row data
-        if impute_type == 1:
-            features = faster_knn_impute(features, n_neighbors)
-
-        ################################################## REDUCE MEMORY ##################################################
-
-        # Grab columns from gloc_data_reduced and remove gloc_data_reduced variable from memory
-        trial_column = gloc_data_reduced['trial_id']
-        time_column = gloc_data_reduced['Time (s)']
-        event_validated_column = gloc_data_reduced['event_validated']
-        subject_column = gloc_data_reduced['subject']
-
-        # If complete condition, grab afe_indicator from cleaned dataframe
-        if 'complete' in model_type and 'explicit' in model_type:
-            afe_indicator_column = gloc_data_reduced["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1)
-
-        del gloc_data_reduced
-
-        save_variables_to_folder(cache_folder, {
-            'filename': filename,
-            'baseline_data_filename': baseline_data_filename,
-            'demographic_data_filename': demographic_data_filename,
-            'list_of_eeg_data_files': list_of_eeg_data_files,
-            'list_of_baseline_eeg_processed_files': list_of_baseline_eeg_processed_files,
-            'features': features,
-            'features_phys': features_phys,
-            'features_ecg': features_ecg,
-            'features_eeg': features_eeg,
-            'all_features': all_features,
-            'all_features_phys': all_features_phys,
-            'all_features_ecg': all_features_ecg,
-            'all_features_eeg': all_features_eeg,
-            'gloc': gloc,
-            'trial_column': trial_column,
-            'time_column': time_column,
-            'event_validated_column': event_validated_column,
-            'subject_column': subject_column,
-            'nan_proportion_df': nan_proportion_df if remove_NaN_trials else None,
-            'indicator_afe': afe_indicator_column if 'complete' in model_type and 'explicit' in model_type else None
-        })
-
-        print('reduce memory complete for', backstep, 'backstep')
-
-    else:
-        # Load from cache
-        cached_vars = load_variables_from_folder(cache_folder, [
-            'filename',
-            'baseline_data_filename',
-            'demographic_data_filename',
-            'list_of_eeg_data_files',
-            'list_of_baseline_eeg_processed_files',
-            'features',
-            'features_phys',
-            'features_ecg',
-            'features_eeg',
-            'all_features',
-            'all_features_phys',
-            'all_features_ecg',
-            'all_features_eeg',
-            'gloc',
-            'trial_column',
-            'time_column',
-            'event_validated_column',
-            'subject_column',
-            'nan_proportion_df',
-            'indicator_afe'
-        ])
-
-        # Unpack
-        filename = cached_vars['filename']
-        baseline_data_filename = cached_vars['baseline_data_filename']
-        demographic_data_filename = cached_vars['demographic_data_filename']
-        list_of_eeg_data_files = cached_vars['list_of_eeg_data_files']
-        list_of_baseline_eeg_processed_files = cached_vars['list_of_baseline_eeg_processed_files']
-        features = cached_vars['features']
-        features_phys = cached_vars['features_phys']
-        features_ecg = cached_vars['features_ecg']
-        features_eeg = cached_vars['features_eeg']
-        all_features = cached_vars['all_features']
-        all_features_phys = cached_vars['all_features_phys']
-        all_features_ecg = cached_vars['all_features_ecg']
-        all_features_eeg = cached_vars['all_features_eeg']
-        gloc = cached_vars['gloc']
-        trial_column = cached_vars['trial_column']
-        time_column = cached_vars['time_column']
-        event_validated_column = cached_vars['event_validated_column']
-        subject_column = cached_vars['subject_column']
-        nan_proportion_df = cached_vars['nan_proportion_df']
-        afe_indicator_column = cached_vars['indicator_afe']
-        print('for', backstep, 'backstep... data was recovered from cache')  # debugging
-
-    ###################################################### Prediction Offset ###############################################
-
-    # Function inputs
-    # Backstep: number of seconds we are trying to predict in advance
-    # data_rate: (hz) the data rate at which data is collected.
-    gloc = y_prediction_offset(gloc, backstep, data_rate, trial_column)  # Call function to shift gloc flags around
-
-    ################################################ BASELINE ################################################
-    """
-            Computes baseline data 
-        """
-    #### Making code more efficient by only running certain sections on first iteration
-    if backstep == 0:
-        combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0 = (
-            baseline_data(baseline_methods_to_use, trial_column, time_column, event_validated_column, subject_column,
-                          features, all_features,
-                          gloc, baseline_window, features_phys, all_features_phys, features_ecg, all_features_ecg,
-                          features_eeg, all_features_eeg, baseline_data_filename, list_of_baseline_eeg_processed_files,
-                          model_type))
-
-        save_variables_to_folder(cache_folder, {
-            'combined_baseline': combined_baseline,
-            'combined_baseline_names': combined_baseline_names,
-            'baseline_v0': baseline_v0,
-            'baseline_names_v0': baseline_names_v0
-        })
-    else:
-        cached_vars2 = load_variables_from_folder(cache_folder, [
-            # existing variables...
-            'combined_baseline',
-            'combined_baseline_names',
-            'baseline_v0',
-            'baseline_names_v0'
-        ])
-        combined_baseline = cached_vars2['combined_baseline']
-        combined_baseline_names = cached_vars2['combined_baseline_names']
-        baseline_v0 = cached_vars2['baseline_v0']
-        baseline_names_v0 = cached_vars2['baseline_names_v0']
-
-    ###################################################### Feature Generation #####################################################
-    # Feature generation has to happen for each offset value, cannot make more efficient. Need to do it to window the gloc labels
-    if backstep == 0:
-        y_gloc_labels, x_feature_matrix, all_features = (
-            feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column,
-                               time_column,
-                               combined_baseline_names, baseline_names_v0, baseline_v0, feature_groups_to_analyze))
-
-        ################################################ Feature Reduction ###########################
-        # Feature reduction is embedded within generation for temporal runs
-        # This is because we use selected features and these columns are defined by strings
-        # After generation, we remove the strings and turn the feature space into an array.
-        # Reconstruct DataFrame with column names
-        x_feature_matrix = pd.DataFrame(x_feature_matrix, columns=all_features)
-        x_feature_matrix = x_feature_matrix[select_features]
-        # Convert back to NumPy array if needed
-        x_feature_matrix = x_feature_matrix.to_numpy()
-
-        # Remove constant columns
-        x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix,
-                                                                 select_features)  # Pass select features as 2nd arg, now that we reduced
-
-        # Compute a windowed indicator and add back in
-        if 'complete' in model_type and 'explicit' in model_type:
-            afe_indicator_column_windowed, gloc_compare, _ = sliding_window_max(afe_indicator_column,
-                                                                                trial_column, time_column, gloc,
-                                                                                offset, stride, window_size, time_start)
-
-            # Add back in as last column for traditional pipeline (2nd to last for advanced)
-            x_feature_matrix = np.hstack([
-                x_feature_matrix,
-                afe_indicator_column_windowed
-            ])
-
-
-    else:
-        #  normal outputs of x and all feats will be deleted later if not calculated at 0 offset
-        y_gloc_labels, x_feature_matrix, all_features = (
-            feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column,
-                               time_column,
-                               combined_baseline_names, baseline_names_v0, baseline_v0, feature_groups_to_analyze))
-
-    print('generation complete for', backstep, 'backstep')  # debugging
-
-    ####################################### Process NAN after generation #################################################
-    # Always need to process NaN after feature generation
-    y_gloc_labels, x_feature_matrix, all_features = process_NaN(y_gloc_labels, x_feature_matrix, all_features)
-
-    if np.isnan(y_gloc_labels).any():
-        print('gloc has nan')
-    else:
-        print('gloc has no nan')
-
-        ######################################################## FEATURE Saving #######################################################
-        # Fix X Matrix to the 0 offset case
-
-    if backstep == 0:
-        # Store generated features and reduced features at 0 seconds offset. FIX TO THIS for every other offset.
-        # Need to name these files to specific classifiers
-        with open(all_features_name, 'wb') as file:
-            pickle.dump(all_features, file)
-
-        print(f"Saved all_features to {all_features_name}, size={os.path.getsize(all_features_name)} bytes")
-
-        with open(feature_matrix_name, 'wb') as file:
-            pickle.dump(x_feature_matrix, file)
-
-        print(f"Saved x_features to {feature_matrix_name}, size={os.path.getsize(feature_matrix_name)} bytes")
-
-    else:
-        # If we have already reduced features at 0 backstep, just reopen.
-        del all_features
-        del x_feature_matrix
-        if os.path.getsize(all_features_name) == 0:
-            raise ValueError(f"File {all_features_name} is empty. Cannot load features.")
-        with open(all_features_name, 'rb') as file:
-            all_features = pickle.load(file)
-
-        if os.path.getsize(feature_matrix_name) == 0:
-            raise ValueError(f"File {feature_matrix_name} is empty. Cannot load feature matrix.")
-        with open(feature_matrix_name, 'rb') as file:
-            x_feature_matrix = pickle.load(file)
-        print('Files accessed for', backstep, 'backstep')  # debugging
-
-
-    ################################################ Get Outputs Ready ############################################
-    # Ensure x is 2D and y is 1D
-    x_feature_return = (
-        x_feature_matrix.to_numpy() if hasattr(x_feature_matrix, "to_numpy") else np.asarray(x_feature_matrix)
-    )
-    y_return = (
-        y_gloc_labels.to_numpy().ravel() if hasattr(y_gloc_labels, "to_numpy") else np.ravel(y_gloc_labels)
-    )
-
-    print('Splitting for Kfold k of', k)  # debugging
-    x_train, x_test, y_train, y_test = stratified_kfold_split(ravel(y_return), x_feature_return, 10, k,
-                                                              random_state)
-
-    # Function call end
-    # return (x_feature_return, y_return)
-    return x_train, x_test, y_train, y_test
 
