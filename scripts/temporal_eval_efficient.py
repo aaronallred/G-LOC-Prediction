@@ -390,17 +390,18 @@ def main_loop(kfold_ID, num_splits, param_path, impute_path, horizons, save_fold
 if __name__ == "__main__":
 
     ## Classifier | Pick 'LogRegTS', 'LSTM', 'TCN', 'Trans', or 'all'
-    classifier_type = 'TCN'
+    classifier_type = 'NAM'
 
-    # Model type (determines data subset) | Pick nonAFE/complete or implicit/explicit. Temporal is just explicit
+    # Model type (determines data subset) | Pick 'noAFE/complete' or 'implicit/explicit'. Temporal is just 'explicit'
     model_type = ['complete', 'explicit']
 
     # Naming run and save location for summary  files
-    run_name = 'TCNAllFolds'
+    run_name = 'NAMAllFolds'
     # Folder name where models and performance metrics will be saved
     subFolder = "TemporalPrediction_ExplicitComplete"
-    # Path to post-imputation data (speeds up code by skipping preprocessing)
-    root_impute_path = "../ModelSave/CV/Explicit_Complete_final"
+
+    # Root directory for loading hyperparams & post-imputation data
+    root_load_path = "../ModelSave/CV/Explicit_Complete_final"
 
     # Needed for proper debugging of CUDA errors, normally commented out
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
@@ -410,13 +411,16 @@ if __name__ == "__main__":
         kfold_ID_Load = 4  # Median performer for Transformer Explicit Complete
     elif classifier_type == 'TCN':
         kfold_ID_Load = 4  # Median performer for TCN Explicit Complete
+    elif classifier_type == 'LSTM':
+        kfold_ID_Load = 4  # Median performer for LSTM Explicit Complete
+    elif classifier_type == 'LogRegTS':
+        kfold_ID_Load = 3  # Median performer for LogRegTS Explicit Complete
+    elif classifier_type == 'NAM':
+        kfold_ID_Load = 4  # Median performer for LogRegTS Explicit Complete
     else:
         raise ValueError(
-            f"Unsupported classifier_type '{classifier_type}'. "
-            "Need to specify median fold to load hyperparameters."
-        )
-
-    param_path = os.path.join("../ModelSave/CV", "Explicit_Complete_final", str(kfold_ID_Load))
+            f"Unsupported classifier_type '{classifier_type}'." "Need to specify median fold to load hyperparameters.")
+    param_path = os.path.join(root_load_path, str(kfold_ID_Load))
 
     # Define horizon range set
     horizons = list(range(0, 501, 25))
@@ -443,7 +447,7 @@ if __name__ == "__main__":
         os.makedirs(model_save_folder, exist_ok=True)
 
         # For loading imputation (if saved) - caller provides full file path
-        impute_path = os.path.join(root_impute_path, str(kfold_ID), "imputed_data.pkl")
+        impute_path = os.path.join(root_load_path, str(kfold_ID), "imputed_data.pkl")
 
         # Run main loop (returns dict keyed by fold[X]_h[Y])
         fold_results = main_loop(kfold_ID, num_splits, param_path, impute_path, horizons, model_save_folder,

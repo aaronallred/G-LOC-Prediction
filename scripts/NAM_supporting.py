@@ -18,6 +18,87 @@ import json
 from GLOC_visualization import prediction_time_plot
 from scripts.forecasting_fun import train_test_split_trials_forecast
 
+
+import torch.nn.functional as F
+class FastNAM(nn.Module):
+    """
+    Vectorized NAM:
+      - still learns a separate MLP per feature (separate weights per feature)
+      - computes all features in parallel
+    """
+    def __init__(self, num_features, window_length, hidden_dim=4, num_layers=1, dropout=0.2):
+        super().__init__()
+        self.num_features = num_features
+        self.window_length = window_length
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        self.dropout = dropout
+
+        # Per-feature weights for each layer:
+        # Layer 0: 1 -> hidden
+        self.W0 = nn.Parameter(torch.empty(num_features, hidden_dim, 1))
+        self.b0 = nn.Parameter(torch.empty(num_features, hidden_dim))
+
+        # Hidden layers: hidden -> hidden
+        self.Wh = nn.ParameterList()
+        self.bh = nn.ParameterList()
+        for _ in range(num_layers - 1):
+            self.Wh.append(nn.Parameter(torch.empty(num_features, hidden_dim, hidden_dim)))
+            self.bh.append(nn.Parameter(torch.empty(num_features, hidden_dim)))
+
+        # Final: hidden -> 1
+        self.Wf = nn.Parameter(torch.empty(num_features, 1, hidden_dim))
+        self.bf = nn.Parameter(torch.empty(num_features, 1))
+
+        self.reset_parameters()
+        self.final_activation = nn.Sigmoid()
+
+    def reset_parameters(self):
+        # Kaiming init per-feature
+        nn.init.kaiming_uniform_(self.W0, a=5**0.5)
+        nn.init.zeros_(self.b0)
+        for W, b in zip(self.Wh, self.bh):
+            nn.init.kaiming_uniform_(W, a=5**0.5)
+            nn.init.zeros_(b)
+        nn.init.kaiming_uniform_(self.Wf, a=5**0.5)
+        nn.init.zeros_(self.bf)
+
+    def forward(self, x):
+        # x: (B, T, F)
+        B, T, F_ = x.shape
+        assert F_ == self.num_features, f"Expected {self.num_features} features, got {F_}"
+
+        # Flatten time+batch, keep feature axis
+        # x_flat: (BT, F, 1)
+        x_flat = x.reshape(B * T, F_, 1)
+
+        # Layer 0: (BT, F, H) = einsum over per-feature weights
+        # W0: (F, H, 1)
+        h = torch.einsum("bfi,fhi->bfh", x_flat, self.W0) + self.b0.unsqueeze(0)
+        h = F.relu(h)
+        if self.dropout > 0:
+            h = F.dropout(h, p=self.dropout, training=self.training)
+
+        # Hidden layers
+        for W, b in zip(self.Wh, self.bh):
+            # W: (F, H, H)
+            h = torch.einsum("bfh,foh->bfo", h, W) + b.unsqueeze(0)
+            h = F.relu(h)
+            if self.dropout > 0:
+                h = F.dropout(h, p=self.dropout, training=self.training)
+
+        # Final to 1: (BT, F, 1)
+        out = torch.einsum("bfh,fkh->bfk", h, self.Wf) + self.bf.unsqueeze(0)  # k=1
+
+        # Reshape back to (B, T, F)
+        out = out.squeeze(-1).reshape(B, T, F_)
+
+        # NAM combine: sum over features, mean over time
+        combined = out.sum(dim=2).mean(dim=1, keepdim=True)  # (B, 1)
+
+        return self.final_activation(combined)
+
+
 # Build Time Series Neural Additive Model architecture (Using GAMapprox below)
 class NAM(nn.Module):
     def __init__(self, num_features, window_length, hidden_dim=4, num_layers=1, dropout=0.2):
@@ -346,12 +427,10 @@ def nam_binary_class_load(x_train, x_test, y_train, y_test, horizon,class_weight
 
     # Build model
     input_dim = train_windows_tensor.shape[2]
-    model = NAM(input_dim, sequence_length,
-                hidden_dim=hidden_dim,
-                num_layers=num_layers,
-                dropout=dropout)
+    model = FastNAM(input_dim, sequence_length, hidden_dim=hidden_dim, num_layers=num_layers, dropout=dropout)
     device = get_device()
     model.to(device)
+
     criterion, optimizer = build_training_components(model, class_weights,
                                                      learning_rate, weight_decay,
                                                      momentum, device,
