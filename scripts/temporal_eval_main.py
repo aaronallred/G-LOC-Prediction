@@ -29,7 +29,7 @@ warnings.filterwarnings("ignore", message="Could not find the number of physical
 
 offset_ranges = np.arange(0,21,1) #FOR FULL RUNS: (0,21,1)
 data_rate = 25 # (hz)
-preference = 3 # Which section of the code do we want to run
+preference = 5 # Which section of the code do we want to run
 random_state = 42
 class_weight_imb = None
 
@@ -39,16 +39,16 @@ if preference == 3:
 
     # Can adjust this as needed to specify what classifiers we want to test
     # options are: SVM , EGB, KNN, logreg, RF , LDA
-    classifiers_to_test = ['logreg']
+    classifiers_to_test = ['EGB']
 
     for m in range(len(classifiers_to_test)):
         # Initialize the arrays and class type
         start_time = time.time()
         classifier = classifiers_to_test[m]
-        model_type = ['noAFE','explicit'] # specify model type to run
+        model_type = ['complete','explicit'] # specify model type to run
 
 
-        num_kfold = 10  # Number of kfolds we will use for validation, FOR FULL RUNS 10
+        num_kfold = 3  # Number of kfolds we will use for validation, FOR FULL RUNS 10
         accuracy_model = np.zeros((len(offset_ranges), num_kfold))
         precision_model = np.zeros((len(offset_ranges), num_kfold))
         recall_model = np.zeros((len(offset_ranges), num_kfold))
@@ -136,7 +136,7 @@ if preference == 4:
     # This code preference will work with already derived/stored data as needed.
 
     # List of classifiers to evaluate
-    classifiers_to_test = ['RF', 'LDA', 'SVM', 'KNN','logreg']
+    classifiers_to_test = ['RF', 'LDA', 'SVM', 'KNN','logreg','EGB']
     model_type = ['complete', 'explicit']  # specify model type to run
 
     # Load each F1 score file into a dictionary
@@ -174,12 +174,12 @@ if preference == 4:
     #     'KNN': 12,
     # }
 
-    plot_f1_scores_across_classifiers(f1_score_dict, window_lengths, get_model_subfolder(model_type),shared_plot=False)
+    plot_f1_scores_across_classifiers(f1_score_dict, window_lengths, get_model_subfolder(model_type),shared_plot=True)
 
 if preference == 5:
     # Use this preference section to plot all metrics of specific saved models.
-    model_type = ['complete', 'explicit']  # specify model type to run
-    plot_metrics_from_cache('SVM', model_type)
+    model_type = ['noAFE', 'explicit']  # specify model type to run
+    plot_metrics_from_cache('KNN', model_type)
 
 if preference == 7:
     # Comparing feature space of different models. Specifically used to investigate KNN

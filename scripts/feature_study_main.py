@@ -14,7 +14,7 @@ from scripts.GLOC_classifier import stratified_kfold_split, classify_logistic_re
 from scripts.imbalance_techniques import resample_ros
 from scripts.temporal_functions import plotting_offset_models, data_with_prediction, \
     plot_f1_scores_across_classifiers, get_model_subfolder, \
-    data_with_prediction_verification, get_median_hyperparameters, get_hyperparameters_from_json, \
+     get_median_hyperparameters, get_hyperparameters_from_json, \
     plot_metrics_from_cache
 import pickle
 import warnings
@@ -32,7 +32,7 @@ import seaborn as sns
 
 offset_ranges = (0,1,1) # No longer doing any offset (no temporal eval)
 data_rate = 25 # (hz)
-preference = 7 # Which section of the code do we want to run
+preference = 8 # Which section of the code do we want to run
 random_state = 42
 class_weight_imb = None
 
@@ -371,14 +371,14 @@ if preference == 8:
     Allows:
         - Loading all saved .pkl files
         - Viewing classifiers independently
-        - Selecting which streams to examine
+        - Selecting which streams to examine via group-combo batches
         - Re-plotting subsets of the results
     """
 
     # Define model type and locate the folder where preference 7 saved results
     model_type = ['complete', 'explicit']
     subfolder = get_model_subfolder(model_type)
-    results_folder = os.path.join('./feature_study', subfolder)
+    results_folder = os.path.join('./feature_study', subfolder, 'streamwise')
 
     # Classifiers whose results we expect to load
     classifiers = ['KNN', 'EGB', 'RF']
@@ -411,7 +411,9 @@ if preference == 8:
     print("\nAvailable classifiers:", classifiers)
 
     # User selects one or more classifiers (or "all")
-    clf_choice = input("Enter classifier(s) to inspect (e.g., 'KNN', 'KNN RF', 'KNN,EGB', or 'all'): ").strip()
+    clf_choice = input(
+        "Enter classifier(s) to inspect (e.g., 'KNN', 'KNN RF', 'KNN,EGB', or 'all'): "
+    ).strip()
 
     if clf_choice.lower() == "all":
         # User wants all classifiers
@@ -436,39 +438,112 @@ if preference == 8:
         for stream in f1_results_by_stream[clf].keys()
     })
 
-    # Display available streams
-    print("\nAvailable streams:")
-    for s in all_streams:
-        print("  ", s)
+    if len(all_streams) == 0:
+        print("\nNo streams found for the selected classifiers.")
+        raise SystemExit
 
-    # User selects one or more streams (or "all")
-    stream_choice = input(
-        "Enter stream(s) to inspect (e.g., 'EEG', 'EEG Pupil', 'EEG,Pupil', or 'all'): "
+    # -----------------------------------------
+    # STREAM GROUP DEFINITIONS
+    # -----------------------------------------
+
+    # Tokens used to detect group membership inside stream names
+    STREAM_GROUPS = {
+        1: ["ECG", "HR", "BR"],
+        2: ["EEG"],
+        3: ["Pupil"],
+        4: ["Strain", "Centrifuge", "Participant", "Temperature"]
+    }
+
+    print("\nStream Groups (detected by token presence in stream name):")
+    for gid, items in STREAM_GROUPS.items():
+        print(f"  {gid}: {', '.join(items)}")
+
+    # Map each stream name -> set of group IDs it belongs to
+    def groups_for_stream(stream_name: str) -> set:
+        s_lower = stream_name.lower()
+        groups = set()
+        for gid, tokens in STREAM_GROUPS.items():
+            for tok in tokens:
+                if tok.lower() in s_lower:
+                    groups.add(gid)
+                    break
+        return groups
+
+    stream_to_groups = {s: groups_for_stream(s) for s in all_streams}
+
+    # -----------------------------------------
+    # USER DEFINES BATCHES AS COMBINATIONS OF GROUP IDS
+    # -----------------------------------------
+
+    raw_input_str = input(
+        "\nEnter stream group batches (e.g., '1, 2, 3 4, 4'): "
     ).strip()
 
-    if stream_choice.lower() == "all":
-        # User wants all streams
-        selected_streams = all_streams
-    else:
-        # Normalize separators: convert commas to spaces
-        raw_parts = stream_choice.replace(",", " ").split()
+    if not raw_input_str:
+        print("\nNo batches specified.")
+        raise SystemExit
 
-        # Match each token to any stream name containing that token
-        selected_streams = []
-        for token in raw_parts:
-            token = token.strip()
-            matches = [s for s in all_streams if token.lower() in s.lower()]
-            selected_streams.extend(matches)
+    # Example: "1, 2, 3 4, 4" -> ["1", "2", "3 4", "4"]
+    batch_strings = [batch.strip() for batch in raw_input_str.split(",")]
 
-        # Remove duplicates and sort
-        selected_streams = sorted(list(set(selected_streams)))
+    # Build list of required group-sets for each batch
+    required_group_sets = []
 
-        # If no valid streams were matched, stop execution
-        if len(selected_streams) == 0:
-            print("\nNo valid streams selected. Available options:")
-            for s in all_streams:
-                print("  ", s)
+    for batch in batch_strings:
+        if not batch:
+            continue
+
+        if batch.lower() == "all":
+            # special case: means "any group set is acceptable"
+            # signal this with None and handle later
+            required_group_sets.append(None)
+            continue
+
+        try:
+            group_ids = [int(x) for x in batch.split()]
+        except ValueError:
+            print(f"\nInvalid group numbers in batch: '{batch}'")
             raise SystemExit
+
+        invalid = [g for g in group_ids if g not in STREAM_GROUPS]
+        if invalid:
+            print(f"\nInvalid group IDs {invalid} in batch '{batch}'")
+            raise SystemExit
+
+        required_group_sets.append(frozenset(group_ids))
+
+    # -----------------------------------------
+    # DETERMINE WHICH STREAMS TO INCLUDE
+    # -----------------------------------------
+
+    # If any batch was 'all', then we just take all streams
+    if any(rgs is None for rgs in required_group_sets):
+        selected_streams = list(all_streams)
+    else:
+        # A stream is included if its group-set exactly matches
+        # ANY of the batch group-sets
+        valid_group_sets = set(required_group_sets)
+        selected_streams = [
+            s for s, gset in stream_to_groups.items()
+            if frozenset(gset) in valid_group_sets
+        ]
+
+    selected_streams = sorted(selected_streams)
+
+    if len(selected_streams) == 0:
+        print("\nNo streams matched the specified group batches.")
+        print("Available streams and their group-sets:")
+        for s, gset in stream_to_groups.items():
+            print(f"  {s}: groups {sorted(gset) if gset else '[]'}")
+        raise SystemExit
+
+    print("\nSelected streams to plot (across all batches):")
+    for s in selected_streams:
+        print("  ", s)
+
+    # -----------------------------------------
+    # BUILD FILTERED RESULTS AND PLOT
+    # -----------------------------------------
 
     # Build a filtered dictionary containing only the selected classifiers and streams
     filtered_results = {
@@ -483,9 +558,14 @@ if preference == 8:
     # Remove classifiers that ended up with no matching streams
     filtered_results = {clf: d for clf, d in filtered_results.items() if len(d) > 0}
 
-    # Plot the selected subset using the faceted violin plot function
+    if len(filtered_results) == 0:
+        print("\nNo matching streams found for the selected classifiers after filtering.")
+        raise SystemExit
+
     print("\nPlotting selected results...")
     plot_f1_violin_by_stream(filtered_results, model_type, subfolder2="filtered")
+
+
 
 if preference == 9:
     # Preference to plot overlap of features ONLY
