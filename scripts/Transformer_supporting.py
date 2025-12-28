@@ -289,7 +289,8 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     return accuracy, precision, recall, f1, specificity, g_mean
 
 
-def transformer_class_load(x_train, x_test, y_train, y_test, horizon, class_weight_imb, random_state, all_features, param_path, save_folder):
+def transformer_class_load(x_train, x_test, y_train, y_test, horizon, class_weight_imb, random_state, all_features,
+                           param_path, save_folder, load_weights=False):
     """
     Train a Transformer model directly from saved hyperparameters and metadata JSON files (skip Optuna).
     """
@@ -355,16 +356,28 @@ def transformer_class_load(x_train, x_test, y_train, y_test, horizon, class_weig
     criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, momentum,
                                                      device, loss='BCE', optimizer_type=optimizer_type)
 
-    # Train
+    # Build Train Loader
     sampler = build_sampler(train_labels_tensor, class_weights)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=workers)
 
-    for epoch in range(num_epochs):
-        train(model, train_loader, criterion, optimizer, device, epoch, num_epochs)
 
-    # Save trained model
+    # Model Path (same for training and loading)
     os.makedirs(save_folder, exist_ok=True)
-    torch.save(model.state_dict(), os.path.join(save_folder, f"Trans_trained_model_from_json_h{horizon}.pt"))
+    model_path = os.path.join(
+        save_folder, f"Trans_trained_model_from_json_h{horizon}.pt"
+    )
+
+    # Load or Train and Save Model
+    if load_weights and os.path.exists(model_path):
+        print(f"Loading model weights from {model_path}")
+        model.load_state_dict(torch.load(model_path, map_location=device))
+    else:
+        print("Training model weights [fixed hyperparameters]")
+        for epoch in range(num_epochs):
+            train(model, train_loader, criterion, optimizer,
+                  device, epoch, num_epochs)
+
+        torch.save(model.state_dict(), model_path)
 
     # Evaluate
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)

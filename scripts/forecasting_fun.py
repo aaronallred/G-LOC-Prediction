@@ -64,6 +64,6 @@ def create_windows_forecast(sequence, labels, window_size, step_size, end_label=
         if end_label:
             window_labels.append(labels[end - 1 + horizon])  # label at horizon
         else:
-            window_labels.append(labels[start:end + horizon])  # extended labels
+            window_labels.append(labels[start + horizon : end + horizon])  # extended labels
 
     return windows, window_labels
