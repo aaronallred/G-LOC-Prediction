@@ -45,7 +45,7 @@ def main_loop(kfold_ID, num_splits, param_path, impute_path, horizons, save_fold
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG']
 
     if 'complete' in model_type and 'implicit' in model_type:
-        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'processedEEG', 'rawEEG']
+        feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG']
 
     if 'complete' in model_type and 'explicit' in model_type:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
@@ -393,30 +393,45 @@ if __name__ == "__main__":
     classifier_type = 'NAM'
 
     # Model type (determines data subset) | Pick 'noAFE/complete' or 'implicit/explicit'. Temporal is just 'explicit'
-    model_type = ['complete', 'explicit']
+    model_type = ['noAFE', 'explicit']
 
     # Naming run and save location for summary  files
     run_name = 'NAMAllFolds'
     # Folder name where models and performance metrics will be saved
-    subFolder = "TemporalPrediction_ExplicitComplete"
+    subFolder = "TemporalPrediction_ExplicitnonAFE"
 
     # Root directory for loading hyperparams & post-imputation data
-    root_load_path = "../ModelSave/CV/Explicit_Complete_final"
+    root_load_path = "../ModelSave/CV/Explicit_nonAFE_final"
 
     # Needed for proper debugging of CUDA errors, normally commented out
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
     # For loading model parameters from previously saved CV run (specify kfold_ID_Load for median performing fold)
     if classifier_type == 'Trans':
-        kfold_ID_Load = 4  # Median performer for Transformer Explicit Complete
+        if 'complete' in model_type:
+            kfold_ID_Load = 4  # Median performer for Transformer Explicit Complete
+        else:
+            kfold_ID_Load = 7
     elif classifier_type == 'TCN':
-        kfold_ID_Load = 4  # Median performer for TCN Explicit Complete
+        if 'complete' in model_type:
+            kfold_ID_Load = 4  # Median performer for TCN Explicit Complete
+        else:
+            kfold_ID_Load = 5
     elif classifier_type == 'LSTM':
-        kfold_ID_Load = 4  # Median performer for LSTM Explicit Complete
+        if 'complete' in model_type:
+            kfold_ID_Load = 4  # Median performer for LSTM Explicit Complete
+        else:
+            kfold_ID_Load = 3
     elif classifier_type == 'LogRegTS':
-        kfold_ID_Load = 3  # Median performer for LogRegTS Explicit Complete
+        if 'complete' in model_type:
+            kfold_ID_Load = 3  # Median performer for LogRegTS Explicit Complete
+        else:
+            kfold_ID_Load = 4
     elif classifier_type == 'NAM':
-        kfold_ID_Load = 4  # Median performer for LogRegTS Explicit Complete
+        if 'complete' in model_type:
+            kfold_ID_Load = 4  # Median performer for LogRegTS Explicit Complete
+        else:
+            kfold_ID_Load = 2
     else:
         raise ValueError(
             f"Unsupported classifier_type '{classifier_type}'." "Need to specify median fold to load hyperparameters.")

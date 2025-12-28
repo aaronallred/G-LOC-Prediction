@@ -9,6 +9,8 @@ import pickle
 import math
 import joblib
 from sklearn.metrics import roc_curve, auc
+import os
+from collections import defaultdict
 
 def initial_visualization(gloc_data_reduced, gloc, feature_baseline, all_features, time_variable):
     """
@@ -960,14 +962,198 @@ def plot_metrics_over_offsets(data_dict, group_key="horizon", error_type="std"):
     plt.tight_layout()
     plt.show()
 
+def plot_f1_over_horizon_all_classifiers(
+    performance_root="../PerformanceSave/TemporalPrediction_ExplicitComplete",
+    error_type="sem"
+):
+    """
+    One subplot per classifier showing F1 vs horizon (mean ± std),
+    plus a final subplot overlaying all classifiers.
+
+    Plot style and shading matches plot_metrics_over_offsets().
+    """
+
+    # ---------------------------------------------------------
+    # Load AllHorizons.pkl (one level below root)
+    # ---------------------------------------------------------
+    classifier_data = dict()
+
+    for subdir in os.listdir(performance_root):
+        subdir_path = os.path.join(performance_root, subdir)
+        if not os.path.isdir(subdir_path):
+            continue
+
+        pkl_path = os.path.join(subdir_path, "AllHorizons.pkl")
+        if not os.path.exists(pkl_path):
+            continue
+
+        with open(pkl_path, "rb") as f:
+            data = pickle.load(f)
+
+        combined_df = pd.concat(data.values(), ignore_index=True)
+
+        # Classifier name stored in DataFrame index
+        classifier = data[next(iter(data))].index[0]
+        classifier_data[classifier] = combined_df
+
+    if len(classifier_data) == 0:
+        raise FileNotFoundError("No AllHorizons.pkl files found.")
+
+    classifiers = list(classifier_data.keys())
+    n_cls = len(classifiers)
+
+    # ---------------------------------------------------------
+    # Classifier color map (consistent across plots)
+    # ---------------------------------------------------------
+    classifier_colors = {
+        "LogRegTS": "blue",
+        "NAM": "green",
+        "LSTM": "orange",
+        "TCN": "purple",
+        "Trans": "red"
+    }
+
+    # fallback colors if a classifier is missing from map
+    default_colors = plt.cm.tab10.colors
+
+    # ---------------------------------------------------------
+    # Figure layout: one per classifier + overlay
+    # ---------------------------------------------------------
+    n_plots = n_cls + 1
+    ncols = 3
+    nrows = int(np.ceil(n_plots / ncols))
+
+    fig, axes = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        figsize=(7 * ncols, 4 * nrows),
+        sharex=True
+    )
+    axes = axes.flatten()
+
+    # ---------------------------------------------------------
+    # Individual classifier subplots
+    # ---------------------------------------------------------
+    for i, clf in enumerate(classifiers):
+        ax = axes[i]
+        df = classifier_data[clf]
+
+        color = classifier_colors.get(clf, default_colors[i % len(default_colors)])
+
+        grouped = (
+            df.groupby("horizon")["f1-score"]
+            .agg(mean="mean", std="std", min="min", max="max", n="count")
+            .reset_index()
+        )
+
+        if error_type == "std":
+            lower = grouped["mean"] - grouped["std"]
+            upper = grouped["mean"] + grouped["std"]
+
+        elif error_type == "sem":
+            sem = grouped["std"] / np.sqrt(grouped["n"])
+            lower = grouped["mean"] - sem
+            upper = grouped["mean"] + sem
+
+        elif error_type == "range":
+            lower = grouped["min"]
+            upper = grouped["max"]
+
+        else:
+            raise ValueError("error_type must be 'std', 'sem', or 'range'")
+
+        x_vals = grouped["horizon"] / 25  # seconds
+
+        ax.plot(
+            x_vals, grouped["mean"],
+            color=color, marker="o", label=clf
+        )
+        ax.scatter(
+            x_vals, grouped["mean"],
+            color=color, edgecolor="black", zorder=5
+        )
+        ax.fill_between(
+            x_vals, lower, upper,
+            color="gray", alpha=0.3,
+            label=(
+                "±1 std" if error_type == "std"
+                else "±1 sem" if error_type == "sem"
+                else "Range"
+            )
+        )
+
+        ax.set_title(f"{clf} – F1 vs Horizon")
+        ax.set_ylabel("F1")
+        ax.set_ylim(bottom=0)
+        ax.grid(True)
+        ax.legend()
+
+    # ---------------------------------------------------------
+    # Overlay subplot (all classifiers together)
+    # ---------------------------------------------------------
+    ax = axes[n_cls]
+
+    for clf, df in classifier_data.items():
+        color = classifier_colors.get(clf, default_colors[i % len(default_colors)])
+
+        grouped = (
+            df.groupby("horizon")["f1-score"]
+            .agg(mean="mean", std="std", min="min", max="max", n="count")
+            .reset_index()
+        )
+
+        if error_type == "std":
+            lower = grouped["mean"] - grouped["std"]
+            upper = grouped["mean"] + grouped["std"]
+
+        elif error_type == "sem":
+            sem = grouped["std"] / np.sqrt(grouped["n"])
+            lower = grouped["mean"] - sem
+            upper = grouped["mean"] + sem
+
+        elif error_type == "range":
+            lower = grouped["min"]
+            upper = grouped["max"]
+
+        else:
+            raise ValueError("error_type must be 'std', 'sem', or 'range'")
+
+        x_vals = grouped["horizon"] / 25
+
+        ax.plot(
+            x_vals, grouped["mean"],
+            marker="o", color=color, label=clf
+        )
+        ax.fill_between(
+            x_vals, lower, upper,
+            color=color, alpha=0.15
+        )
+
+    ax.set_title("All Classifiers – F1 Comparison")
+    ax.set_xlabel("Horizon (s)")
+    ax.set_ylabel("F1")
+    ax.set_ylim(bottom=0)
+    ax.grid(True)
+    ax.legend()
+
+    # ---------------------------------------------------------
+    # Remove unused axes
+    # ---------------------------------------------------------
+    for j in range(n_cls + 1, len(axes)):
+        fig.delaxes(axes[j])
+
+    plt.tight_layout()
+    plt.show(block=False)
+
 if __name__ == "__main__":
 
     # Plot Flags
     plot_data = 0       # flag to set whether plots should be generated (0 = no, 1 = yes)
     plot_pairwise = 0   # flag to set whether pairwise plots should be generated (0 = no, 1 = yes)
-    plot_cv = 1
+    plot_cv = 0
     plot_bayes = 0
     plot_horizon = 0
+    plot_horizons_together = 1
 
     # Visualization of feature throughout trial
     if plot_data == 1:
@@ -1004,3 +1190,8 @@ if __name__ == "__main__":
         with open('../PerformanceSave/TemporalPrediction/Trans_forecast_horizons_CV/combined.pkl', 'rb') as f:
             clf = joblib.load(f)
         plot_metrics_over_offsets(clf)
+
+    if plot_horizons_together == 1:
+        plot_f1_over_horizon_all_classifiers(performance_root="../PerformanceSave/TemporalPrediction_ExplicitnonAFE")
+        plot_f1_over_horizon_all_classifiers(performance_root="../PerformanceSave/TemporalPrediction_ExplicitComplete")
+        plt.show()

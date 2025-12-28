@@ -198,7 +198,7 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
 
         # Build model
         input_dim = train_windows_tensor.shape[2]
-        model = NAM(input_dim,sequence_length, hidden_dim=hidden_dim, num_layers = num_layers, dropout=dropout)
+        model = FastNAM(input_dim,sequence_length, hidden_dim=hidden_dim, num_layers = num_layers, dropout=dropout)
         device = get_device()
         model.to(device)
         criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, momentum,
@@ -315,7 +315,7 @@ def nam_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
 
     # Build model
     input_dim = train_windows_tensor.shape[2]
-    model = NAM(input_dim,sequence_length, hidden_dim=hidden_dim, num_layers = num_layers, dropout=dropout)
+    model = FastNAM(input_dim,sequence_length, hidden_dim=hidden_dim, num_layers = num_layers, dropout=dropout)
     device = get_device()
     model.to(device)
     criterion, optimizer = build_training_components(model, class_weights, learning_rate, weight_decay, momentum,
