@@ -179,15 +179,16 @@ if __name__ == "__main__":
     """
 
     ## Classifier | Pick 'LogRegTS', 'LSTM', 'TCN', 'Trans', or 'all'
-    classifier_type = 'NAM'
+    classifier_type = 'LSTM'
 
     # Model type (determines data subset) | Pick 'noAFE/complete' or 'implicit/explicit'. Temporal is just 'explicit'
     model_type = ['complete', 'explicit']
 
-    # Folder name where models and performance metrics will be saved
+    # Folder name where models and performance metrics will be saved or loaded
     subFolder = "TemporalPrediction_ExplicitComplete"
+
     # Naming run and save location for summary  files
-    run_name = 'NAMAllFolds'
+    run_name = classifier_type+'AllFolds'
 
     # Root directory for loading hyperparams & post-imputation data
     root_load_path = "../ModelSave/CV/Explicit_Complete_final"
