@@ -174,16 +174,20 @@ def get_median_kfold_id(classifier_type, model_type):
 
 if __name__ == "__main__":
 
+    """
+        This Scripts Runs through horizons and train/test splits using pre-saved model hyperparameters and weights
+    """
+
     ## Classifier | Pick 'LogRegTS', 'LSTM', 'TCN', 'Trans', or 'all'
-    classifier_type = 'TCN'
+    classifier_type = 'NAM'
 
     # Model type (determines data subset) | Pick 'noAFE/complete' or 'implicit/explicit'. Temporal is just 'explicit'
     model_type = ['complete', 'explicit']
 
-    # Naming run and save location for summary  files
-    run_name = 'TCNAllFolds'
     # Folder name where models and performance metrics will be saved
     subFolder = "TemporalPrediction_ExplicitComplete"
+    # Naming run and save location for summary  files
+    run_name = 'NAMAllFolds'
 
     # Root directory for loading hyperparams & post-imputation data
     root_load_path = "../ModelSave/CV/Explicit_Complete_final"
@@ -200,9 +204,9 @@ if __name__ == "__main__":
     horizons = list(range(0, 501, 100))
 
     # Define folds to loop through
-    kfold_IDs = list(range(0, 3))
+    kfold_IDs = list(range(0, 1))
 
-    # Test set splits for 10-fold Model Validation (never changes)
+    # Test set splits for 10-fold Model Validation (doesn't typically change)
     num_splits = 10
 
     # Make Performance Save Folder

@@ -258,7 +258,7 @@ def lstm_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random
     return accuracy, precision, recall, f1, specificity, g_mean
 
 def lstm_binary_class_load(x_train, x_test, y_train, y_test, horizon, class_weight_imb, random_state, all_features,
-                           param_path, save_folder):
+                           param_path, save_folder, load_weights=False):
     """
         Train an LSTM model directly from saved hyperparameters and metadata JSON files
     """
@@ -316,26 +316,40 @@ def lstm_binary_class_load(x_train, x_test, y_train, y_test, horizon, class_weig
     # Build model
     input_dim = train_windows_tensor.shape[2]
     model = LSTMClassifier(input_dim, hidden_dim, 1, num_layers, dropout, bidirectional)
+
     device = get_device()
     model.to(device)
+
     criterion, optimizer = build_training_components(model, class_weights,
                                                      learning_rate, weight_decay,
                                                      momentum, device,
                                                      loss='BCE',
                                                      optimizer_type=optimizer_type)
 
-    # Train model
+    # Build Train Loader
     sampler = build_sampler(train_labels_tensor, class_weights)
     train_loader = DataLoader(train_dataset, batch_size=batch_size,
                               sampler=sampler, num_workers=workers)
 
-    for epoch in range(num_epochs):
-        train(model, train_loader, criterion, optimizer, device, epoch, num_epochs)
-
-    # Save trained model
+    # Model Path (same for training and loading)
     os.makedirs(save_folder, exist_ok=True)
-    torch.save(model.state_dict(),
-               os.path.join(save_folder, f"LSTM_trained_model_from_json_h{horizon}.pt"))
+    model_path = os.path.join(
+        save_folder, f"LSTM_trained_model_from_json_h{horizon}.pt"
+    )
+
+
+    # Load or Train and Save Model
+    if load_weights and os.path.exists(model_path):
+        print(f"Loading model weights from {model_path}")
+        model.load_state_dict(torch.load(model_path, map_location=device))
+    else:
+        print("Training model weights [fixed hyperparameters]")
+        for epoch in range(num_epochs):
+            train(model, train_loader, criterion, optimizer,
+                  device, epoch, num_epochs)
+
+        torch.save(model.state_dict(), model_path)
+
 
     # Evaluate final model
     test_loader = DataLoader(test_dataset, batch_size=batch_size,
