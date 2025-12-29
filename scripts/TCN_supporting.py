@@ -301,7 +301,7 @@ def tcn_binary_class(x_train, x_test, y_train, y_test, class_weight_imb, random_
 
 
 def tcn_binary_class_load(x_train, x_test, y_train, y_test, horizon, class_weight_imb, random_state, all_features,
-                          param_path, save_folder):
+                          param_path, save_folder, load_weights=False):
     """
     Train a TCN model directly from saved hyperparameters and metadata JSON files (skip Optuna)
     """
@@ -311,13 +311,14 @@ def tcn_binary_class_load(x_train, x_test, y_train, y_test, horizon, class_weigh
     with open(params_path, "r") as f:
         best_params = json.load(f)
 
+    # Load metadata (for best_epoch)
     metadata_path = os.path.join(param_path, "TCN_best_trial_metadata.json")
     if os.path.exists(metadata_path):
         with open(metadata_path, "r") as f:
             metadata = json.load(f)
         num_epochs = max(metadata.get("best_epoch", 15), 15)
     else:
-        num_epochs = 15
+        num_epochs = 15 # fallback if metadata file missing
 
     # Compute class weights
     class_weights = compute_class_weight(class_weight_imb, classes=np.array([0, 1]), y=y_train)
@@ -372,20 +373,31 @@ def tcn_binary_class_load(x_train, x_test, y_train, y_test, horizon, class_weigh
     criterion, optimizer = build_training_components(model,class_weights,learning_rate,weight_decay,momentum,
         device,loss="BCE",optimizer_type=optimizer_type)
 
-    # Train
+    # Build Train Loader
     sampler = build_sampler(train_labels_tensor, class_weights)
     train_loader = DataLoader(train_dataset,batch_size=batch_size,sampler=sampler,num_workers=workers)
 
-    for epoch in range(num_epochs):
-        train(model, train_loader, criterion, optimizer, device, epoch, num_epochs)
 
-    # Save model
+    # Model Path (same for training and loading)
     os.makedirs(save_folder, exist_ok=True)
-    torch.save(model.state_dict(), os.path.join(save_folder, f"TCN_trained_model_from_json_h{horizon}.pt"))
+    model_path = os.path.join(
+        save_folder, f"TCN_trained_model_from_json_h{horizon}.pt"
+    )
+
+    # Load or Train and Save Model
+    if load_weights and os.path.exists(model_path):
+        print(f"Loading model weights from {model_path}")
+        model.load_state_dict(torch.load(model_path, map_location=device))
+    else:
+        print("Training model weights [fixed hyperparameters]")
+        for epoch in range(num_epochs):
+            train(model, train_loader, criterion, optimizer,
+                  device, epoch, num_epochs)
+
+        torch.save(model.state_dict(), model_path)
 
     # Evaluate
     test_loader = DataLoader(test_dataset, batch_size=batch_size,shuffle=False,num_workers=workers)
-
     all_preds, all_labels, predictors_over_time, _ = evaluate(model, test_loader, threshold, device, criterion)
 
     all_preds = np.array(all_preds)

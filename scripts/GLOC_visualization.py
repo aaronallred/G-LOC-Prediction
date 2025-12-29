@@ -967,15 +967,11 @@ def plot_f1_over_horizon_all_classifiers(
     error_type="sem"
 ):
     """
-    One subplot per classifier showing F1 vs horizon (mean ± std),
+    One subplot per classifier showing F1 vs horizon (shaded by error_type),
     plus a final subplot overlaying all classifiers.
-
-    Plot style and shading matches plot_metrics_over_offsets().
     """
 
-    # ---------------------------------------------------------
     # Load AllHorizons.pkl (one level below root)
-    # ---------------------------------------------------------
     classifier_data = dict()
 
     for subdir in os.listdir(performance_root):
@@ -999,12 +995,7 @@ def plot_f1_over_horizon_all_classifiers(
     if len(classifier_data) == 0:
         raise FileNotFoundError("No AllHorizons.pkl files found.")
 
-    classifiers = list(classifier_data.keys())
-    n_cls = len(classifiers)
-
-    # ---------------------------------------------------------
     # Classifier color map (consistent across plots)
-    # ---------------------------------------------------------
     classifier_colors = {
         "LogRegTS": "blue",
         "NAM": "green",
@@ -1012,6 +1003,29 @@ def plot_f1_over_horizon_all_classifiers(
         "TCN": "purple",
         "Trans": "red"
     }
+
+    # Viridis color map (evenly spaced per classifier)
+    # Fixed viridis mapping per classifier
+    viridis = plt.cm.viridis
+
+    classifier_colors = {
+        "LogRegTS": viridis(0.10),
+        "NAM": viridis(0.30),
+        "LSTM": viridis(0.50),
+        "TCN": viridis(0.70),
+        "Trans": viridis(0.90),
+    }
+
+    classifier_order = {
+        "LogRegTS": 0.10,
+        "NAM": 0.30,
+        "LSTM": 0.50,
+        "TCN": 0.70,
+        "Trans": 0.90,
+    }
+
+    classifiers = sorted(classifier_data, key=lambda clf: classifier_order.get(clf, np.inf))
+    n_cls = len(classifiers)
 
     # fallback colors if a classifier is missing from map
     default_colors = plt.cm.tab10.colors
@@ -1026,14 +1040,12 @@ def plot_f1_over_horizon_all_classifiers(
     fig, axes = plt.subplots(
         nrows=nrows,
         ncols=ncols,
-        figsize=(7 * ncols, 4 * nrows),
+        figsize=(6 * ncols, 5 * nrows),
         sharex=True
     )
     axes = axes.flatten()
 
-    # ---------------------------------------------------------
     # Individual classifier subplots
-    # ---------------------------------------------------------
     for i, clf in enumerate(classifiers):
         ax = axes[i]
         df = classifier_data[clf]
@@ -1082,15 +1094,14 @@ def plot_f1_over_horizon_all_classifiers(
             )
         )
 
-        ax.set_title(f"{clf} – F1 vs Horizon")
+        #ax.set_title(f"{clf} – F1 vs Horizon")
         ax.set_ylabel("F1")
-        ax.set_ylim(bottom=0)
+        ax.set_xlabel("Horizon (s)")
+        ax.set_ylim(0, 0.6)
         ax.grid(True)
         ax.legend()
 
-    # ---------------------------------------------------------
     # Overlay subplot (all classifiers together)
-    # ---------------------------------------------------------
     ax = axes[n_cls]
 
     for clf, df in classifier_data.items():
@@ -1132,13 +1143,11 @@ def plot_f1_over_horizon_all_classifiers(
     ax.set_title("All Classifiers – F1 Comparison")
     ax.set_xlabel("Horizon (s)")
     ax.set_ylabel("F1")
-    ax.set_ylim(bottom=0)
+    ax.set_ylim(0,0.6)
     ax.grid(True)
     ax.legend()
 
-    # ---------------------------------------------------------
     # Remove unused axes
-    # ---------------------------------------------------------
     for j in range(n_cls + 1, len(axes)):
         fig.delaxes(axes[j])
 

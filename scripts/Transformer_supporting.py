@@ -294,6 +294,7 @@ def transformer_class_load(x_train, x_test, y_train, y_test, horizon, class_weig
     """
     Train a Transformer model directly from saved hyperparameters and metadata JSON files (skip Optuna).
     """
+
     # Load best hyperparameters
     params_path = os.path.join(param_path, "Trans_best_params.json")
     with open(params_path, "r") as f:
@@ -312,7 +313,7 @@ def transformer_class_load(x_train, x_test, y_train, y_test, horizon, class_weig
     class_weights = compute_class_weight(class_weight_imb, classes=np.array([0, 1]), y=y_train)
     class_weights = torch.tensor(class_weights, dtype=torch.float)
 
-    # Unpack key params
+    # Unpack key parameters
     batch_size = best_params["batch_size"]
     optimizer_type = best_params["optimizer_type"]
     momentum = 0.9 if optimizer_type == "SGD" else None
@@ -329,6 +330,7 @@ def transformer_class_load(x_train, x_test, y_train, y_test, horizon, class_weig
 
     # Build datasets
     workers = get_optimal_workers()
+
     train_dataset, _, train_windows_tensor, train_labels_tensor, _, _ = (
         train_test_split_trials_forecast(x_train_ds, y_train, sequence_length, step_size, test_ratio=None,
                                 random_state=random_state, end_label=True, horizon=horizon)
