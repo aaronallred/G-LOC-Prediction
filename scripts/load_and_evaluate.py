@@ -193,6 +193,7 @@ if __name__ == "__main__":
     # Root directory for loading hyperparams & post-imputation data
     root_load_path = "../ModelSave/CV/Explicit_Complete_final"
 
+
     # Needed for proper debugging of CUDA errors, normally commented out
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
@@ -228,15 +229,17 @@ if __name__ == "__main__":
         impute_path = os.path.join(root_load_path, str(kfold_ID), "imputed_data.pkl")
 
         # Run main loop (returns dictionary of results)
-        fold_results = main_loop(kfold_ID=kfold_ID,
-                                 num_splits=num_splits,
-                                 param_path=param_path,
-                                 impute_path=impute_path,
-                                 horizons=horizons,
-                                 save_folder=model_save_folder,
-                                 classifier_type=classifier_type,
-                                 model_type=model_type,
-                                 train_class=False)
+        fold_results = main_loop(
+            kfold_ID=kfold_ID,
+            num_splits=num_splits,
+            param_path=param_path,
+            impute_path=impute_path,
+            horizons=horizons,
+            save_folder=model_save_folder,
+            classifier_type=classifier_type,
+            model_type=model_type,
+            train_class=False,
+        )
 
         # Merge into master dict and preserve per-horizon saving behavior
         for method_key, single_run in fold_results.items():

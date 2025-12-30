@@ -1,8 +1,9 @@
 import pickle
 import time
 import os
-from matplotlib import pyplot as plt
 import pandas as pd
+from matplotlib import pyplot as plt
+from datetime import datetime
 
 from GLOC_data_pipeline import load_and_prepare_data_advanced
 from GLOC_data_processing import save_metrics_to_csv
@@ -14,7 +15,6 @@ from NAM_supporting import nam_binary_class
 from LSTM_supporting import lstm_binary_class
 from Transformer_supporting import transformer_class
 from TCN_supporting import tcn_binary_class
-
 
 
 # Module-level variables
@@ -44,22 +44,23 @@ def main_loop(model_type,
               random_state=DEFAULT_RANDOM_STATE,
               class_weight_imb=DEFAULT_CLASS_BALANCE):
     """
-    Function loops Through and Evaluations advanced classifiers
+    Function loops through folds, Train/Tests split, Hyperparameter Search via Validation subset of Train,
+    and Evaluates Advanced classifiers on Test split.
 
     Args:
         model_type --> A list of model type characteristics i.e. 'Complete/nonAFE' and 'explicit/implicit'
-        kfold_ID   --> The id of the train / test split. If num split is 10, kfold is [0, 9]
+        kfold_ID   --> The id of the train / test split. If num split is 10, kfold is in [0, 9]
         num_splits --> The number of splits of the training and test data set for K-fold CV. Nominally set to 10
         impute_path --> The path to the saved post-impute data (if saved)
         save_folder --> The path to where model results are saved
         classifier_type --> The type of classifier 'LogRegTS', 'NAM', 'LSTM', 'Trans', 'TCN', of 'all' to run all
 
-        random_state --> For stochastic processes, set to 42
+        random_state --> For stochastic processes, set to 42 for deterministic re-runs
         class_weight_imb --> Set to 'balanced' for oversampling minor class at a ratio of occurrence. Alt is None
 
     Mediating Args (these are set inside the function for data processing and do not change)
-        impute_type--> Sets the imputation method. Since Sequential, use impute type equal to 1 (input raw data)
-        n_neighbors--> Sets the KNN imputation # of neighbors. Since Sequential, use 4 neighbors
+        impute_type --> Sets the imputation method. Since Sequential, use impute type equal to 1 (input raw data)
+        n_neighbors --> Sets the KNN imputation # of neighbors. Since Sequential, use 4 neighbors
         baseline_window --> Sets the baseline window duration. Since Sequential, use 32.5 s
         datafolder --> location of AFRL provided data from the experiment: raw data that is processed
         remove_NaN_trials=True --> removes trials that have an all NaN sensor instead of imputing an all NaN array
@@ -132,6 +133,7 @@ def main_loop(model_type,
         # Augment dataframe with additional parameters for later analysis
         single_run["fold"] = kfold_ID
         single_run["classifier"] = clf
+        single_run["DateTime"] = str(datetime.now())
 
         # Save results from this fold and append the list
         save_metrics_to_csv(single_run, save_folder)
@@ -154,7 +156,7 @@ if __name__ == "__main__":
     ## Classifier | Pick 'LogRegTS', 'LSTM', 'TCN', 'Trans', or 'all'
     classifier_type = 'all'
 
-    # Model type (determines data subset) | Pick 'noAFE/complete' or 'implicit/explicit'. Temporal is just 'explicit'
+    # Model type (determines data subset) | Pick 'noAFE/complete' or 'implicit/explicit'
     model_type = ['complete', 'implicit']
 
     # Folder name where models and performance metrics will be saved or loaded
@@ -195,13 +197,14 @@ if __name__ == "__main__":
 
         # Run main loop (returns dictionary of results)
         method_key = str(kfold_ID)
-        kfold_performance_summary[method_key] = main_loop(kfold_ID=kfold_ID,
-                                 num_splits=num_splits,
-                                 impute_path=impute_path,
-                                 save_folder=model_save_folder,
-                                 classifier_type=classifier_type,
-                                 model_type=model_type)
-
+        kfold_performance_summary[method_key] = main_loop(
+            kfold_ID=kfold_ID,
+            num_splits=num_splits,
+            impute_path=impute_path,
+            save_folder=model_save_folder,
+            classifier_type=classifier_type,
+            model_type=model_type,
+        )
 
         # Save as the code loops through folds to ensure progress is saved if the code faults
         save_folder = os.path.join(summary_loc, run_name)

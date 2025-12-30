@@ -175,7 +175,7 @@ def get_median_kfold_id(classifier_type, model_type):
 if __name__ == "__main__":
 
     """
-        This script runs through horizons and train/test splits using pre-saved model hyperparameters and weights
+        This script loops through horizons and train/test splits using pre-saved model hyperparameters. Retrains.
     """
 
     ## Classifier | Pick 'LogRegTS', 'LSTM', 'TCN', 'Trans', or 'all'
@@ -228,15 +228,17 @@ if __name__ == "__main__":
         impute_path = os.path.join(root_load_path, str(kfold_ID), "imputed_data.pkl")
 
         # Run main loop (returns dictionary of results)
-        fold_results = main_loop(kfold_ID=kfold_ID,
-                                 num_splits=num_splits,
-                                 param_path=param_path,
-                                 impute_path=impute_path,
-                                 horizons=horizons,
-                                 save_folder=model_save_folder,
-                                 classifier_type=classifier_type,
-                                 model_type=model_type,
-                                 train_class=True)
+        fold_results = main_loop(
+            kfold_ID=kfold_ID,
+            num_splits=num_splits,
+            param_path=param_path,
+            impute_path=impute_path,
+            horizons=horizons,
+            save_folder=model_save_folder,
+            classifier_type=classifier_type,
+            model_type=model_type,
+            train_class=True
+        )
 
         # Merge into master dict and preserve per-horizon saving behavior
         for method_key, single_run in fold_results.items():

@@ -67,6 +67,10 @@ def load_and_prepare_data_advanced(
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                      'rawEEG', 'processedEEG', 'demographics', 'strain']
 
+    # NOTE:
+    # AFE indicator is required for EEG imputation in complete models,
+    # but is only included as a predictive feature for explicit models.
+
     # Set baseline characteristics. Depends on model type
     if 'noAFE' in model_type:
         baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6', 'v7', 'v8']
@@ -99,6 +103,11 @@ def load_and_prepare_data_advanced(
                        features, features_phys, features_ecg, features_eeg, gloc))
 
     ############################################# EEG Specific Imputation #############################################
+    ####
+    #  Note: This runs for 'complete' models, but because we are only using shared/overlapping EEG features for the
+    #      'complete' case, this block doesn't do anything. Imputation occurs only for non-shared EEG features are used.
+    #       This block requires 'AFE' to be an
+    ####
     if 'complete' in model_type:
         # Compute AFE / NonAFE condition indicator column
         condition_idx = all_features.index('condition')
@@ -225,8 +234,9 @@ def load_and_prepare_data_advanced(
     # Remove constant columns (typically no constant columns)
     x_feature_matrix, all_features = remove_constant_columns(x_feature_matrix, all_features)
 
-    # Add back in as 2nd to last column (needs to be 2nd to last for advanced - could be last for traditional)
-    if "complete" in model_type:
+    # Add back in as 2nd to last column for explicit only
+    # (needs to be 2nd to last for advanced pipeline - could be last for traditional)
+    if "complete" in model_type and "explicit" in model_type:
         x_feature_matrix = np.hstack([
             x_feature_matrix[:, :-1],
             afe_indicator_column,
