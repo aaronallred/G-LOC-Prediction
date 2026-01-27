@@ -15,7 +15,7 @@ from Transformer_supporting import transformer_class_load
 
 
 # Module-level variables
-CLASSIFIER_LOADERS = {
+CLASSIFIER_LOADERS = { # TODO: Add traditional classifiers here
         "LogRegTS": lrts_binary_class_load,
         "NAM": nam_binary_class_load,
         "LSTM": lstm_binary_class_load,
@@ -152,24 +152,26 @@ def main_loop(model_type,
 
 def get_median_kfold_id(classifier_type, model_type):
     """
-    Function grabs median kfold identifier from CV runs
+    Gives the K-fold identifier with the median F1 score from the cross-validation runs.
+
+    Parameters:
+        
     """
     is_complete = "complete" in model_type
 
-    if classifier_type == "Trans":
-        kfold_ID_Load = 4 if is_complete else 7
-    elif classifier_type == "TCN":
-        kfold_ID_Load = 4 if is_complete else 5
-    elif classifier_type == "LSTM":
-        kfold_ID_Load = 4 if is_complete else 3
-    elif classifier_type == "LogRegTS":
-        kfold_ID_Load = 3 if is_complete else 4
-    elif classifier_type == "NAM":
-        kfold_ID_Load = 4 if is_complete else 2
-    else:
-        raise ValueError(f"Unsupported classifier_type '{classifier_type}'")
+    match classifier_type:
+        case "SVM":      return 0 if is_complete else 2
+        case "EGB":      return 2 if is_complete else None # Missing median for nonAFE
+        case "LogReg":   return 5 if is_complete else 8
+        case "RF":       return 6 # Same median kfold identifier for both complete and nonAFE
+        case "LDA":      return 1 if is_complete else 6
+        case "LogRegTS": return 3 if is_complete else 4
+        case "LSTM":     return 4 if is_complete else 3
+        case "TCN":      return 4 if is_complete else 5
+        case "Trans":    return 4 if is_complete else 7
+        case "NAM":      return 4 if is_complete else 2
+        case _: raise ValueError(f"Unsupported classifier_type '{classifier_type}'")
 
-    return kfold_ID_Load
 
 
 if __name__ == "__main__":
@@ -178,7 +180,7 @@ if __name__ == "__main__":
         This script loops through horizons and train/test splits using pre-saved model hyperparameters. Retrains.
     """
 
-    ## Classifier | Pick 'LogRegTS', 'LSTM', 'TCN', 'Trans', or 'all'
+    ## Classifier | Pick 'SVM', 'EGB', 'logreg', 'RF', 'LDA', 'LogRegTS', 'LSTM', 'TCN', 'Trans', 'NAM', or 'all'
     classifier_type = 'LSTM'
 
     # Model type (determines data subset) | Pick 'noAFE/complete' or 'implicit/explicit'. Temporal is just 'explicit'
