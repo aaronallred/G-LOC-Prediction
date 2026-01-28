@@ -1,0 +1,39 @@
+{
+    "fold_id": "6",
+    "f1_score": 0.8517887563884157,
+    "best_params": {
+        "shrinkage": 1,
+        "solver": "lsqr",
+        "tol": 1.0109933107505569e-10
+    },
+    "selected_features": [
+        "Fz_theta - EEG_v0_mean_s1",
+        "F3_delta - EEG_v0_mean_s1",
+        "F1_theta - EEG_v0_stddev_s1",
+        "Fz_theta - EEG_v0_stddev_s1",
+        "TP9_alpha - EEG_v0_stddev_s1",
+        "FC5_delta - EEG_v0_stddev_s1",
+        "FC3_theta - EEG_v0_stddev_s1",
+        "FC1_theta - EEG_v0_stddev_s1",
+        "F1_delta - EEG_v0_max_s1",
+        "F3_beta - EEG_v0_max_s1",
+        "AFz_delta - EEG_v0_max_s1",
+        "FC3_alpha - EEG_v0_2derivative_max_s1",
+        "HR (bpm) - Equivital_v0_range_s1",
+        "magnitude - Centrifuge_v0_derivative_range_s1",
+        "FC3_alpha - EEG_v0_2derivative_range_s1",
+        "HR (bpm) - Equivital_v1_range_s1",
+        "HR_average - Equivital_v1_range_s1",
+        "FT9 - EEG_v1_range_s1",
+        "Cz - EEG_v1_range_s1",
+        "HR (bpm) - Equivital_v2_range_s1",
+        "HR_average - Equivital_v2_range_s1",
+        "FT9 - EEG_v2_range_s1",
+        "Cz - EEG_v2_range_s1",
+        "FT9 - EEG_v0_stddev_s2",
+        "C5_delta - EEG_v0_stddev_s2",
+        "FT9 - EEG_v0_range_s2",
+        "AF4_alpha - EEG_v0_derivative_range_s2",
+        "FC6_alpha - EEG_v0_derivative_range_s2"
+    ]
+}
