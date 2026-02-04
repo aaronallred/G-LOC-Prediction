@@ -1,8 +1,11 @@
+from tokenize import group
 import pandas as pd
 import numpy as np
 import os
 from sklearn.model_selection import StratifiedKFold, KFold
 import warnings
+
+from features import *
 
 class DataManager:
     def __init__(self, data_path = "../data/"):
@@ -73,7 +76,8 @@ class DataManager:
 
         ############################################# LOAD AND PROCESS DATA #############################################
         file_paths = self._get_data_locations()
-
+        gloc_data = self._load_data(file_paths)
+        gloc_data_reduced = self._filter_data_by_analysis_type(analysis_type, gloc_data, subject_to_analyze, trial_to_analyze)
         
 
     def _get_data_locations(self):
@@ -158,8 +162,7 @@ class DataManager:
         return file_paths
     
     def _load_data(self, file_paths):
-        # This function first checks for a pickle file to import (much quicker than loading csv). If the
-        # .pkl does not exist, it will create that and open it the next time.
+        """Load data from CSV or pickle files. If pickle does not exist, create it from CSV."""
 
         main_data_pickle_file = file_paths["main"].replace(".csv", ".pkl")
 
@@ -173,28 +176,69 @@ class DataManager:
         # Add GOR and EEG data from other files
         gloc_data = self.process_EEG_GOR(file_paths["eeg_list"], gloc_data)
 
+        # Adjust AFE condition column always
+        gloc_data.replace({"condition": "N"}, 0, inplace = True)
+        gloc_data.replace({"condition": "AFE"}, 1, inplace = True)
+
         # Convert float64 to float32 to save memory
         gloc_data = gloc_data.astype({col: "float32" for col in gloc_data.select_dtypes(include = "float64").columns})
         
         # Decouple from original dataframe to prevent unwanted modifications later on
-        gloc_data = gloc_data.copy()
-
-        return gloc_data
+        return gloc_data.copy()
 
     def _filter_data_by_analysis_type(self, analysis_type, gloc_data, subject_to_analyze = None, trial_to_analyze = None):
         # Analyze only section of gloc_data specified using analysis_type
         
-        if analysis_type == 0: 
-            # One Trial / One Subject
+        if analysis_type == 0: # One Trial / One Subject
             mask = (gloc_data["subject"] == subject_to_analyze) & (gloc_data["trial"] == trial_to_analyze)
-        elif analysis_type == 1: 
-            # All Trials for One Subject
+        elif analysis_type == 1: # All Trials for One Subject
             mask = (gloc_data["subject"] == subject_to_analyze)
-        else:
-            # All Trials for All Subjects
+        else: # All Trials for All Subjects
             return gloc_data
         
         return gloc_data[mask]
+
+    def _process_and_get_feature_names(self, gloc_data, feature_groups_to_analyze, model_type, file_names):
+        """Process data and extract feature names based on specified feature groups."""
+        # Defining which features go into which group of feature groups
+        GROUPS_OF_FEATURE_GROUPS = {
+            "Phys": {"ECG", "BR", "temp", "fnirs", "eyetracking", "rawEEG", "processedEEG", "G", "strain", "demographics"},
+            "ECG": {"ECG"},
+            "EEG": {"processedEEG"}
+        }
+
+        features = {
+            "All": [],
+            "Phys": [],
+            "ECG": [],
+            "EEG": []
+        }
+
+        for group_name in feature_groups_to_analyze:
+            if group_name not in FEATURE_REGISTRY:
+                print(f"Warning: Feature group '{group_name}' not recognized. Skipping.")
+                continue
+
+            processor = FEATURE_REGISTRY[group_name]
+
+            # Process data for the feature group
+            gloc_data = processor.process(gloc_data, file_names)
+
+            feature_names = processor.get_feature_names(model_type, file_names)
+
+            # Adding features to relevant groups
+            if group_name in GROUPS_OF_FEATURE_GROUPS["Phys"]:
+                features["Phys"].extend(feature_names)
+
+            if group_name in GROUPS_OF_FEATURE_GROUPS["ECG"]:
+                features["ECG"].extend(feature_names)
+
+            if group_name in GROUPS_OF_FEATURE_GROUPS["EEG"]:
+                features["EEG"].extend(feature_names)
+
+            features["All"].extend(feature_names)
+
+        return gloc_data, features
 
     # TODO: Change analysis type to an ENUM
     def _process_csv_by_analysis_type(self, analysis_type, file_paths, subject_to_analyze, trial_to_analyze):
