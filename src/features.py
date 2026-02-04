@@ -3,19 +3,6 @@ import pandas as pd
 import numpy as np
 import warnings
 
-FEATURE_REGISTRY = {
-
-}
-
-FEATURE_GROUPS_TO_FEATURE_NAMES = {
-    "ECG": ["HR (bpm) - Equivital", "ECG Lead 1 - Equivital", "ECG Lead 2 - Equivital", "HR_instant - Equivital","HR_average - Equivital", "HR_w_average - Equivital"],
-    "BR": ["BR (rpm) - Equivital"],
-    "temp": ["Skin Temperature - IR Thermometer (°C) - Equivital"],
-    "fnirs": ["HbO2 - fNIRS', 'Hbd - fNIRS", "HbO2 / Hbd"],
-    "eyetracking": ["Pupil position left X [HUCS mm] - Tobii", "Pupil position left Y [HUCS mm] - Tobii", "Pupil position left Z [HUCS mm] - Tobii", "Pupil position right X [HUCS mm] - Tobii",
-            "Pupil position right Y [HUCS mm] - Tobii", "Pupil position right Z [HUCS mm] - Tobii", "Pupil diameter left [mm] - Tobii", "Pupil diameter right [mm] - Tobii", "Pupil Difference [mm]"]
-}
-
 class BaseFeatureGroup(ABC):
     """Interface for all feature groups."""
 
@@ -833,3 +820,18 @@ class DemographicsGroup(BaseFeatureGroup):
         # Append all demographic data to gloc data reduced
         gloc_data_reduced = pd.concat([gloc_data_reduced, demographics_concat], axis=1)
         return gloc_data_reduced, demographics_names
+    
+FEATURE_REGISTRY = {
+    "ECG": ECGGroup(),
+    "BR": BRGroup(),
+    "temp": TempGroup(),
+    "fnirs": FnirsGroup(),
+    "eyetracking": EyeTrackingGroup(),
+    "AFE": AFEGroup(),
+    "G": GGroup(),
+    "cognitive": CognitiveGroup(),
+    "rawEEG": RawEEGGroup(),
+    "processedEEG": ProcessedEEGGroup(),
+    "strain": StrainGroup(),
+    "demographics": DemographicsGroup()
+}
