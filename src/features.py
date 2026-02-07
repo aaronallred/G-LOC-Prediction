@@ -11,7 +11,7 @@ class BaseFeatureGroup(ABC):
         """Returns the list of feature names for the given model type."""
         pass
 
-    def process(self, df, file_names): 
+    def process(self, df, file_paths): 
         """
         Optional: Perform specific manipulations of features in the dataframe.
         Default implementation does nothing.
@@ -36,7 +36,7 @@ class FnirsGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
         return ["HbO2 - fNIRS", "Hbd - fNIRS", "HbO2 / Hbd"]
     
-    def process(self, df):
+    def process(self, df, file_names):
         # HbO2/Hbd
         ox_deox_ratio = df["HbO2 - fNIRS"] / df["Hbd - fNIRS"]
         df["HbO2 / Hbd"] = ox_deox_ratio
@@ -60,7 +60,7 @@ class EyeTrackingGroup(BaseFeatureGroup):
             "Pupil Difference [mm]"
         ]
     
-    def process(self, df, file_names):
+    def process(self, df, file_paths):
         # Pupil Difference
         pupil_difference = df["Pupil diameter left [mm] - Tobii"] - df["Pupil diameter right [mm] - Tobii"]
         df["Pupil Difference [mm]"] = pupil_difference
@@ -81,8 +81,9 @@ class GGroup(BaseFeatureGroup):
         
         return ["magnitude - Centrifuge"]
 
-    def process(self, df, file_names):
+    def process(self, df, file_paths):
         # Process magnitude Centrifuge column to include 1.2g instead of NaN
+        print(df)
         df.fillna({"magnitude - Centrifuge": 1.2}, inplace = True)
 
         return df
@@ -91,7 +92,7 @@ class CognitiveGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
         return ["deviation - Cog", "RespTime - Cog", "Correct - Cog", "joystickPosMag - Cog", "joystickVelMag - Cog"]
     
-    def process(self, df, file_names):
+    def process(self, df, file_paths):
         # Adjust columns of data frame for feature
         df["Correct - Cog"].replace({
             "correct": 1,
@@ -220,9 +221,9 @@ class StrainGroup(BaseFeatureGroup):
         
         return ["Strain [0/1]"]
     
-    def process(self, df, file_names):
+    def process(self, df, file_paths):
         # Add missing strain during GOR labels based on GLOC Effectiveness Spreadsheet
-        df, gloc_trial = self.add_mising_strain(df)
+        df, gloc_trial = self.add_missing_strain(df)
 
         # Create Strain Vector
         event = df["event"].to_numpy()
@@ -248,7 +249,7 @@ class StrainGroup(BaseFeatureGroup):
 
         df["Strain [0/1]"] = strain_event
 
-    def add_mising_strain(self, gloc_data_reduced):
+    def add_missing_strain(self, gloc_data_reduced):
         ######### Add missing strain during GOR labels based on GLOC Effectiveness Spreadsheet #########
 
         # Add individual strain labels for trials where label was 'missed' (from column E of GLOC_Effectiveness spreadsheet)
@@ -256,6 +257,9 @@ class StrainGroup(BaseFeatureGroup):
         gloc_trial = gloc_data_reduced['trial_id']
         magnitude_g = gloc_data_reduced['magnitude - Centrifuge'].to_numpy()
         event = gloc_data_reduced['event']
+
+        print("SKIPPING ADDING MISSING STRAIN LABELS FOR NOW, AS THIS IS NOT A FEATURE USED IN IMPLICIT MODELS. SEE CODE FOR DETAILS.")
+        return gloc_data_reduced, gloc_trial
 
         ######## Trial 04-06 (GLOC_Effectiveness stain value of 6.1g) ########
         trial_individual_coding = '04-06'
@@ -675,9 +679,9 @@ class DemographicsGroup(BaseFeatureGroup):
 
         return self.demographic_names
 
-    def process(self, df, file_names):
+    def process(self, df, file_paths):
         # Read and process demographics data
-        df, demographic_names = self.read_and_process_demographics(file_names["demographic"], df)
+        df, demographic_names = self.read_and_process_demographics(file_paths["demographic"], df)
 
         # Save for when calling get_feature_names
         self.demographic_names = demographic_names
