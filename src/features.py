@@ -83,7 +83,6 @@ class GGroup(BaseFeatureGroup):
 
     def process(self, df, file_paths):
         # Process magnitude Centrifuge column to include 1.2g instead of NaN
-        print(df)
         df.fillna({"magnitude - Centrifuge": 1.2}, inplace = True)
 
         return df
@@ -105,6 +104,8 @@ class CognitiveGroup(BaseFeatureGroup):
         warnings.warn("Per information from Chris on 03/12/25, Cognitive data only collected right before and right after ROR.")
         # Note post 3/12 meeting: the target is stationary, while the participant moves the tracker
         # so this metric no longer makes sense
+
+        return df
 
 class RawEEGGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
@@ -190,6 +191,11 @@ class ProcessedEEGGroup(BaseFeatureGroup):
                 "FT9_delta - EEG", "FT9_theta - EEG", "FT9_alpha - EEG", "FT9_beta - EEG",
                 "FT10_delta - EEG", "FT10_theta - EEG", "FT10_alpha - EEG", "FT10_beta - EEG",
                 "FC5_delta - EEG", "FC5_theta - EEG", "FC5_alpha - EEG", "FC5_beta - EEG",
+                "FC3_delta - EEG", "FC3_theta - EEG", "FC3_alpha - EEG", "FC3_beta - EEG",
+                "FC1_delta - EEG", "FC1_theta - EEG", "FC1_alpha - EEG", "FC1_beta - EEG",
+                "FC2_delta - EEG", "FC2_theta - EEG", "FC2_alpha - EEG", "FC2_beta - EEG",
+                "FC4_delta - EEG", "FC4_theta - EEG", "FC4_alpha - EEG", "FC4_beta - EEG",
+                "FC6_delta - EEG", "FC6_theta - EEG", "FC6_alpha - EEG", "FC6_beta - EEG",
                 "C5_delta - EEG", "C5_theta - EEG", "C5_alpha - EEG", "C5_beta - EEG",
                 "Cz_delta - EEG", "Cz_theta - EEG", "Cz_alpha - EEG", "Cz_beta - EEG",
                 "CP5_delta - EEG", "CP5_theta - EEG", "CP5_alpha - EEG", "CP5_beta - EEG",
@@ -248,6 +254,8 @@ class StrainGroup(BaseFeatureGroup):
                 strain_event[strain_indices[i, 0]:end_gor_trial_index[0]] = 1
 
         df["Strain [0/1]"] = strain_event
+
+        return df
 
     def add_missing_strain(self, gloc_data_reduced):
         ######### Add missing strain during GOR labels based on GLOC Effectiveness Spreadsheet #########
@@ -695,7 +703,6 @@ class DemographicsGroup(BaseFeatureGroup):
         variables below. The column is filled by determining the participant for a specific
         trial and filling the entire trial with that participants demographic data.
         """
-
         # Import demographics spreadsheet
         demographics = pd.read_csv(demographic_data_filename)
         demographics = demographics.astype({col: 'float32' for col in demographics.select_dtypes(include='float64').columns})
