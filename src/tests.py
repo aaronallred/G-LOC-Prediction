@@ -10,6 +10,71 @@ import warnings
 from data_manager import DataManager
 
 class TestDataManager(unittest.TestCase):
+    def test_get_feature_groups(self):
+        IMPLICIT_FEATURE_GROUPS = {"ECG", "BR", "temp", "eyetracking", "rawEEG"}
+        EXPLICIT_FEATURE_GROUPS = IMPLICIT_FEATURE_GROUPS.union({"AFE", "G", "processedEEG", "demographics", "strain"})
+        COMPLETE_FEATURE_GROUPS = {"AFE"}
+
+        # Testing Complete and Explicit Feature Groups
+        model_type = ("Complete", "Explicit")
+
+        feature_groups_to_analyze = set()
+        if model_type[0] == "Complete":
+            feature_groups_to_analyze = COMPLETE_FEATURE_GROUPS
+
+        if model_type[1] == "Implicit":
+            feature_groups_to_analyze = feature_groups_to_analyze.union(IMPLICIT_FEATURE_GROUPS)
+        elif model_type[1] == "Explicit":
+            feature_groups_to_analyze = feature_groups_to_analyze.union(EXPLICIT_FEATURE_GROUPS)
+
+        true_feature_groups = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G', 'rawEEG', 'processedEEG', 'demographics', 'strain']
+        self.assertTrue(feature_groups_to_analyze == set(true_feature_groups))
+
+        # Testing Complete and Implicit Feature Groups
+        model_type = ("Complete", "Implicit")
+
+        feature_groups_to_analyze = set()
+        if model_type[0] == "Complete":
+            feature_groups_to_analyze = COMPLETE_FEATURE_GROUPS
+
+        if model_type[1] == "Implicit":
+            feature_groups_to_analyze = feature_groups_to_analyze.union(IMPLICIT_FEATURE_GROUPS)
+        elif model_type[1] == "Explicit":
+            feature_groups_to_analyze = feature_groups_to_analyze.union(EXPLICIT_FEATURE_GROUPS)
+
+        true_feature_groups = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'AFE']
+        self.assertTrue(feature_groups_to_analyze == set(true_feature_groups))
+
+        # Testing Non-AFE and Explicit Feature Groups
+        model_type = ("Non-AFE", "Explicit")
+
+        feature_groups_to_analyze = set()
+        if model_type[0] == "Complete":
+            feature_groups_to_analyze = COMPLETE_FEATURE_GROUPS
+
+        if model_type[1] == "Implicit":
+            feature_groups_to_analyze = feature_groups_to_analyze.union(IMPLICIT_FEATURE_GROUPS)
+        elif model_type[1] == "Explicit":
+            feature_groups_to_analyze = feature_groups_to_analyze.union(EXPLICIT_FEATURE_GROUPS)
+
+        true_feature_groups = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G', 'rawEEG', 'processedEEG', 'demographics', 'strain']
+        self.assertTrue(feature_groups_to_analyze == set(true_feature_groups))
+
+        # Testing Non-AFE and Implicit Feature Groups
+        model_type = ("Non-AFE", "Implicit")
+
+        feature_groups_to_analyze = set()
+        if model_type[0] == "Complete":
+            feature_groups_to_analyze = COMPLETE_FEATURE_GROUPS
+
+        if model_type[1] == "Implicit":
+            feature_groups_to_analyze = feature_groups_to_analyze.union(IMPLICIT_FEATURE_GROUPS)
+        elif model_type[1] == "Explicit":
+            feature_groups_to_analyze = feature_groups_to_analyze.union(EXPLICIT_FEATURE_GROUPS)
+
+        true_feature_groups = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG']
+        self.assertTrue(feature_groups_to_analyze == set(true_feature_groups))
+
     def test_getting_feature_names_complete_explicit(self):
         manager = DataManager()
         file_paths = manager._get_data_locations()
