@@ -1,5 +1,3 @@
-import unittest
-
 import pandas as pd
 import numpy as np
 import os
@@ -8,8 +6,9 @@ import json
 import warnings
 
 from data_manager import DataManager
+from features import RawEEGGroup, ProcessedEEGGroup
 
-class TestDataManager(unittest.TestCase):
+class TestDataManager:
     def test_get_feature_groups(self):
         IMPLICIT_FEATURE_GROUPS = {"ECG", "BR", "temp", "eyetracking", "rawEEG"}
         EXPLICIT_FEATURE_GROUPS = IMPLICIT_FEATURE_GROUPS.union({"AFE", "G", "processedEEG", "demographics", "strain"})
@@ -28,7 +27,7 @@ class TestDataManager(unittest.TestCase):
             feature_groups_to_analyze = feature_groups_to_analyze.union(EXPLICIT_FEATURE_GROUPS)
 
         true_feature_groups = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G', 'rawEEG', 'processedEEG', 'demographics', 'strain']
-        self.assertTrue(feature_groups_to_analyze == set(true_feature_groups))
+        assert feature_groups_to_analyze == set(true_feature_groups)
 
         # Testing Complete and Implicit Feature Groups
         model_type = ("Complete", "Implicit")
@@ -43,7 +42,7 @@ class TestDataManager(unittest.TestCase):
             feature_groups_to_analyze = feature_groups_to_analyze.union(EXPLICIT_FEATURE_GROUPS)
 
         true_feature_groups = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'AFE']
-        self.assertTrue(feature_groups_to_analyze == set(true_feature_groups))
+        assert feature_groups_to_analyze == set(true_feature_groups)
 
         # Testing Non-AFE and Explicit Feature Groups
         model_type = ("Non-AFE", "Explicit")
@@ -58,7 +57,7 @@ class TestDataManager(unittest.TestCase):
             feature_groups_to_analyze = feature_groups_to_analyze.union(EXPLICIT_FEATURE_GROUPS)
 
         true_feature_groups = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G', 'rawEEG', 'processedEEG', 'demographics', 'strain']
-        self.assertTrue(feature_groups_to_analyze == set(true_feature_groups))
+        assert feature_groups_to_analyze == set(true_feature_groups)
 
         # Testing Non-AFE and Implicit Feature Groups
         model_type = ("Non-AFE", "Implicit")
@@ -73,7 +72,7 @@ class TestDataManager(unittest.TestCase):
             feature_groups_to_analyze = feature_groups_to_analyze.union(EXPLICIT_FEATURE_GROUPS)
 
         true_feature_groups = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG']
-        self.assertTrue(feature_groups_to_analyze == set(true_feature_groups))
+        assert feature_groups_to_analyze == set(true_feature_groups)
 
     def test_getting_feature_names_complete_explicit(self):
         manager = DataManager()
@@ -901,22 +900,22 @@ class TestDataManager(unittest.TestCase):
         # Testing all features similarity
         all_features_set = set(features["All"])
         actual_all_features_set = set(actual_all_features)
-        self.assertTrue(all_features_set == actual_all_features_set, f"Missing features in actual_all_features: {all_features_set - actual_all_features_set}")
+        assert all_features_set == actual_all_features_set, f"Missing features in actual_all_features: {all_features_set - actual_all_features_set}"
 
         # Testing physiological features similarity
         features_phys_set = set(features["Phys"])
         actual_all_features_phys_set = set(actual_all_features_phys)
-        self.assertTrue(features_phys_set == actual_all_features_phys_set, f"Missing features in actual_all_features_phys: {features_phys_set - actual_all_features_phys_set}")
+        assert features_phys_set == actual_all_features_phys_set, f"Missing features in actual_all_features_phys: {features_phys_set - actual_all_features_phys_set}"
 
         # Testing ECG features similarity
         features_ecg_set = set(features["ECG"])
         actual_all_features_ecg_set = set(actual_all_features_ecg)
-        self.assertTrue(features_ecg_set == actual_all_features_ecg_set, f"Missing features in actual_all_features_ecg: {features_ecg_set - actual_all_features_ecg_set}")
+        assert features_ecg_set == actual_all_features_ecg_set, f"Missing features in actual_all_features_ecg: {features_ecg_set - actual_all_features_ecg_set}"
 
         # Testing EEG features similarity
         features_eeg_set = set(features["EEG"])
         actual_all_features_eeg_set = set(actual_all_features_eeg)
-        self.assertTrue(features_eeg_set == actual_all_features_eeg_set, f"Missing features in actual_all_features_eeg: {features_eeg_set - actual_all_features_eeg_set}")
+        assert features_eeg_set == actual_all_features_eeg_set, f"Missing features in actual_all_features_eeg: {features_eeg_set - actual_all_features_eeg_set}"
 
     def test_getting_feature_names_complete_implicit(self):
         manager = DataManager()
@@ -1744,22 +1743,22 @@ class TestDataManager(unittest.TestCase):
         # Testing all features similarity
         all_features_set = set(features["All"])
         actual_all_features_set = set(actual_all_features)
-        self.assertTrue(all_features_set == actual_all_features_set, f"Missing features in actual_all_features: {all_features_set - actual_all_features_set}")
+        assert all_features_set == actual_all_features_set, f"Missing features in actual_all_features: {all_features_set - actual_all_features_set}"
 
         # Testing physiological features similarity
         features_phys_set = set(features["Phys"])
         actual_all_features_phys_set = set(actual_all_features_phys)
-        self.assertTrue(features_phys_set == actual_all_features_phys_set, f"Missing features in actual_all_features_phys: {features_phys_set - actual_all_features_phys_set}")
+        assert features_phys_set == actual_all_features_phys_set, f"Missing features in actual_all_features_phys: {features_phys_set - actual_all_features_phys_set}"
 
         # Testing ECG features similarity
         features_ecg_set = set(features["ECG"])
         actual_all_features_ecg_set = set(actual_all_features_ecg)
-        self.assertTrue(features_ecg_set == actual_all_features_ecg_set, f"Missing features in actual_all_features_ecg: {features_ecg_set - actual_all_features_ecg_set}")
+        assert features_ecg_set == actual_all_features_ecg_set, f"Missing features in actual_all_features_ecg: {features_ecg_set - actual_all_features_ecg_set}"
 
         # Testing EEG features similarity
         features_eeg_set = set(features["EEG"])
         actual_all_features_eeg_set = set(actual_all_features_eeg)
-        self.assertTrue(features_eeg_set == actual_all_features_eeg_set, f"Missing features in actual_all_features_eeg: {features_eeg_set - actual_all_features_eeg_set}")
+        assert features_eeg_set == actual_all_features_eeg_set, f"Missing features in actual_all_features_eeg: {features_eeg_set - actual_all_features_eeg_set}"
 
     def test_getting_feature_names_noAFE_explicit(self):
         manager = DataManager()
@@ -2587,22 +2586,22 @@ class TestDataManager(unittest.TestCase):
         # Testing all features similarity
         all_features_set = set(features["All"])
         actual_all_features_set = set(actual_all_features)
-        self.assertTrue(all_features_set == actual_all_features_set, f"Missing features in actual_all_features: {all_features_set - actual_all_features_set}")
+        assert all_features_set == actual_all_features_set, f"Missing features in actual_all_features: {all_features_set - actual_all_features_set}"
 
         # Testing physiological features similarity
         features_phys_set = set(features["Phys"])
         actual_all_features_phys_set = set(actual_all_features_phys)
-        self.assertTrue(features_phys_set == actual_all_features_phys_set, f"Missing features in actual_all_features_phys: {features_phys_set - actual_all_features_phys_set}")
+        assert features_phys_set == actual_all_features_phys_set, f"Missing features in actual_all_features_phys: {features_phys_set - actual_all_features_phys_set}"
 
         # Testing ECG features similarity
         features_ecg_set = set(features["ECG"])
         actual_all_features_ecg_set = set(actual_all_features_ecg)
-        self.assertTrue(features_ecg_set == actual_all_features_ecg_set, f"Missing features in actual_all_features_ecg: {features_ecg_set - actual_all_features_ecg_set}")
+        assert features_ecg_set == actual_all_features_ecg_set, f"Missing features in actual_all_features_ecg: {features_ecg_set - actual_all_features_ecg_set}"
 
         # Testing EEG features similarity
         features_eeg_set = set(features["EEG"])
         actual_all_features_eeg_set = set(actual_all_features_eeg)
-        self.assertTrue(features_eeg_set == actual_all_features_eeg_set, f"Missing features in actual_all_features_eeg: {features_eeg_set - actual_all_features_eeg_set}")
+        assert features_eeg_set == actual_all_features_eeg_set, f"Missing features in actual_all_features_eeg: {features_eeg_set - actual_all_features_eeg_set}"
 
     def test_getting_feature_names_noAFE_implicit(self):
         manager = DataManager()
@@ -3430,22 +3429,22 @@ class TestDataManager(unittest.TestCase):
         # Testing all features similarity
         all_features_set = set(features["All"])
         actual_all_features_set = set(actual_all_features)
-        self.assertTrue(all_features_set == actual_all_features_set, f"Missing features in actual_all_features: {all_features_set - actual_all_features_set}")
+        assert all_features_set == actual_all_features_set, f"Missing features in actual_all_features: {all_features_set - actual_all_features_set}"
 
         # Testing physiological features similarity
         features_phys_set = set(features["Phys"])
         actual_all_features_phys_set = set(actual_all_features_phys)
-        self.assertTrue(features_phys_set == actual_all_features_phys_set, f"Missing features in actual_all_features_phys: {features_phys_set - actual_all_features_phys_set}")
+        assert features_phys_set == actual_all_features_phys_set, f"Missing features in actual_all_features_phys: {features_phys_set - actual_all_features_phys_set}"
 
         # Testing ECG features similarity
         features_ecg_set = set(features["ECG"])
         actual_all_features_ecg_set = set(actual_all_features_ecg)
-        self.assertTrue(features_ecg_set == actual_all_features_ecg_set, f"Missing features in actual_all_features_ecg: {features_ecg_set - actual_all_features_ecg_set}")
+        assert features_ecg_set == actual_all_features_ecg_set, f"Missing features in actual_all_features_ecg: {features_ecg_set - actual_all_features_ecg_set}"
 
         # Testing EEG features similarity
         features_eeg_set = set(features["EEG"])
         actual_all_features_eeg_set = set(actual_all_features_eeg)
-        self.assertTrue(features_eeg_set == actual_all_features_eeg_set, f"Missing features in actual_all_features_eeg: {features_eeg_set - actual_all_features_eeg_set}")
+        assert features_eeg_set == actual_all_features_eeg_set, f"Missing features in actual_all_features_eeg: {features_eeg_set - actual_all_features_eeg_set}"
 
     def test_gloc_labeling(self):
         manager = DataManager()
@@ -3471,7 +3470,7 @@ class TestDataManager(unittest.TestCase):
 
         gloc_labels = manager._label_gloc_events(gloc_data)
 
-        self.assertTrue(np.array_equal(gloc_labels, expected_gloc_labels), "The GLOC labels do not match the expected labels based on event_validated and trial_id.")
+        assert np.array_equal(gloc_labels, expected_gloc_labels), "The GLOC labels do not match the expected labels based on event_validated and trial_id."
 
     def test_afe_subset(self):
         def afe_subset(model_type, gloc_data, all_features, gloc_labels):
@@ -3535,8 +3534,138 @@ class TestDataManager(unittest.TestCase):
         actual_gloc_data, actual_gloc_labels = gloc_data.copy(), gloc_labels.copy()
         actual_gloc_data, actual_gloc_labels = afe_subset(model_type, gloc_data, features["All"], gloc_labels)
 
-        self.assertTrue(gloc_data.equals(actual_gloc_data), "The gloc_data after afe_subset does not match the expected gloc_data.")
-        self.assertTrue(np.array_equal(gloc_labels, actual_gloc_labels), "The gloc_labels after afe_subset does not match the expected gloc_labels.")
+        assert gloc_data.equals(actual_gloc_data), "The gloc_data after afe_subset does not match the expected gloc_data."
+        assert np.array_equal(gloc_labels, actual_gloc_labels), "The gloc_labels after afe_subset does not match the expected gloc_labels."
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_eeg_specific_imputation(self):
+        def pull_eeg_sets():
+            # list of shared eeg channels
+            raw_eeg_shared_features = ['Fz - EEG', 'F3 - EEG', 'C3 - EEG', 'C4 - EEG',
+                                        'CP1 - EEG', 'CP2 - EEG', 'T8 - EEG', 'TP9 - EEG', 'TP10 - EEG',
+                                        'P7 - EEG', 'P8 - EEG']
+
+            processed_eeg_shared_features = ['Fz_delta - EEG', 'Fz_theta - EEG', 'Fz_alpha - EEG', 'Fz_beta - EEG',
+                                            'F3_delta - EEG', 'F3_theta - EEG', 'F3_alpha - EEG', 'F3_beta - EEG',
+                                            'C3_delta - EEG', 'C3_theta - EEG', 'C3_alpha - EEG', 'C3_beta - EEG',
+                                            'C4_delta - EEG', 'C4_theta - EEG', 'C4_alpha - EEG', 'C4_beta - EEG',
+                                            'CP1_delta - EEG', 'CP1_theta - EEG', 'CP1_alpha - EEG', 'CP1_beta - EEG',
+                                            'CP2_delta - EEG', 'CP2_theta - EEG', 'CP2_alpha - EEG', 'CP2_beta - EEG',
+                                            'T8_delta - EEG', 'T8_theta - EEG', 'T8_alpha - EEG', 'T8_beta - EEG',
+                                            'TP9_delta - EEG', 'TP9_theta - EEG', 'TP9_alpha - EEG', 'TP9_beta - EEG',
+                                            'TP10_delta - EEG', 'TP10_theta - EEG', 'TP10_alpha - EEG', 'TP10_beta - EEG',
+                                            'P7_delta - EEG', 'P7_theta - EEG', 'P7_alpha - EEG', 'P7_beta - EEG',
+                                            'P8_delta - EEG', 'P8_theta - EEG', 'P8_alpha - EEG', 'P8_beta - EEG']
+
+            # list of AFE only eeg channels
+            raw_eeg_afe_only = ['F4 - EEG', 'T7 - EEG', 'O1 - EEG', 'O2 - EEG']
+
+            processed_eeg_afe_only =['F4_delta - EEG', 'F4_theta - EEG', 'F4_alpha - EEG', 'F4_beta - EEG',
+                                                        'T7_delta - EEG', 'T7_theta - EEG', 'T7_alpha - EEG', 'T7_beta - EEG',
+                                                        'O1_delta - EEG', 'O1_theta - EEG', 'O1_alpha - EEG', 'O1_beta - EEG',
+                                                        'O2_delta - EEG', 'O2_theta - EEG', 'O2_alpha - EEG', 'O2_beta - EEG']
+            # list of Non-AFE only eeg channels
+            raw_eeg_nonafe_only = ['F1 - EEG', 'AFz - EEG', 'AF4 - EEG', 'FT9 - EEG', 'FT10 - EEG', 'FC5 - EEG',
+                                            'FC3 - EEG', 'FC1 - EEG', 'FC2 - EEG', 'FC4 - EEG', 'FC6 - EEG', 'C5 - EEG',
+                                            'Cz - EEG', 'CP5 - EEG', 'CP6 - EEG', 'P5 - EEG', 'P3 - EEG', 'P1 - EEG',
+                                            'Pz - EEG', 'P4 - EEG', 'P6 - EEG']
+
+            processed_eeg_nonafe_only =['F1_delta - EEG', 'F1_theta - EEG', 'F1_alpha - EEG', 'F1_beta - EEG',
+                                                        'AFz_delta - EEG', 'AFz_theta - EEG', 'AFz_alpha - EEG', 'AFz_beta - EEG',
+                                                        'AF4_delta - EEG', 'AF4_theta - EEG', 'AF4_alpha - EEG', 'AF4_beta - EEG',
+                                                        'FT9_delta - EEG', 'FT9_theta - EEG', 'FT9_alpha - EEG', 'FT9_beta - EEG',
+                                                        'FT10_delta - EEG', 'FT10_theta - EEG', 'FT10_alpha - EEG', 'FT10_beta - EEG',
+                                                        'FC5_delta - EEG', 'FC5_theta - EEG', 'FC5_alpha - EEG', 'FC5_beta - EEG',
+                                                        'FC3_delta - EEG', 'FC3_theta - EEG', 'FC3_alpha - EEG', 'FC3_beta - EEG',
+                                                        'FC1_delta - EEG', 'FC1_theta - EEG', 'FC1_alpha - EEG', 'FC1_beta - EEG',
+                                                        'FC2_delta - EEG', 'FC2_theta - EEG', 'FC2_alpha - EEG', 'FC2_beta - EEG',
+                                                        'FC4_delta - EEG', 'FC4_theta - EEG', 'FC4_alpha - EEG', 'FC4_beta - EEG',
+                                                        'FC6_delta - EEG', 'FC6_theta - EEG', 'FC6_alpha - EEG', 'FC6_beta - EEG',
+                                                        'C5_delta - EEG', 'C5_theta - EEG', 'C5_alpha - EEG', 'C5_beta - EEG',
+                                                        'Cz_delta - EEG', 'Cz_theta - EEG', 'Cz_alpha - EEG', 'Cz_beta - EEG',
+                                                        'CP5_delta - EEG', 'CP5_theta - EEG', 'CP5_alpha - EEG', 'CP5_beta - EEG',
+                                                        'CP6_delta - EEG', 'CP6_theta - EEG', 'CP6_alpha - EEG','CP6_beta - EEG',
+                                                        'P5_delta - EEG', 'P5_theta - EEG', 'P5_alpha - EEG', 'P5_beta - EEG',
+                                                        'P3_delta - EEG', 'P3_theta - EEG', 'P3_alpha - EEG', 'P3_beta - EEG',
+                                                        'P1_delta - EEG', 'P1_theta - EEG', 'P1_alpha - EEG', 'P1_beta - EEG',
+                                                        'Pz_delta - EEG', 'Pz_theta - EEG', 'Pz_alpha - EEG', 'Pz_beta - EEG',
+                                                        'P4_delta - EEG', 'P4_theta - EEG', 'P4_alpha - EEG', 'P4_beta - EEG',
+                                                        'P6_delta - EEG', 'P6_theta - EEG', 'P6_alpha - EEG', 'P6_beta - EEG']
+
+            return (processed_eeg_shared_features, processed_eeg_afe_only, processed_eeg_nonafe_only,
+                    raw_eeg_shared_features, raw_eeg_afe_only, raw_eeg_nonafe_only)
+
+        def eeg_condition_impute(gloc_data_reduced, all_features_eeg, afe_indicator_column, verbose = True):
+            """
+                Ensures both AFE (1) and non-AFE (0) conditions have the same feature columns.
+                Missing columns are imputed with mean values in gloc_data_reduced and reflected in feature arrays.
+
+                Returns df, the imputed dataframe corresponding to gloc_data_reduced
+                Returns updated features, features_phys, and features_eeg that are affected by these imputations
+            """
+
+            # Create masks for each condition
+            df = gloc_data_reduced.copy()
+            afe_mask = afe_indicator_column == 1
+            nonafe_mask = afe_indicator_column == 0
+
+            # Pull columns that need to be imputed for each type
+            _, processed_eeg_afe_only, processed_eeg_nonafe_only, _, raw_eeg_afe_only, raw_eeg_nonafe_only = pull_eeg_sets()
+            afe_only_cols = processed_eeg_afe_only + raw_eeg_afe_only
+            nonafe_only_cols = processed_eeg_nonafe_only + raw_eeg_nonafe_only
+
+            # Impute AFE-only columns for non-AFE rows
+            for col in afe_only_cols:
+                if col in all_features_eeg:
+                    # Check if all values in this column for non-AFE rows are NaN
+                    #if df.loc[nonafe_mask, col].isna().all():
+                    mean_val = df.loc[afe_mask, col].mean(skipna=True)
+                    n_missing = df.loc[nonafe_mask, col].isna().sum()
+                    df.loc[nonafe_mask, col] = df.loc[nonafe_mask, col].fillna(mean_val)
+                    if verbose:
+                        print(f"Imputed {n_missing} values in '{col}' for non-AFE rows")
+
+            #  Impute non-AFE-only columns for AFE rows
+            for col in nonafe_only_cols:
+                if col in  all_features_eeg:
+                    # Check if all values in this column for AFE rows are NaN
+                    #if df.loc[afe_mask, col].isna().all():
+                    mean_val = df.loc[nonafe_mask, col].mean(skipna=True)
+                    n_missing = df.loc[afe_mask, col].isna().sum()
+                    df.loc[afe_mask, col] = df.loc[afe_mask, col].fillna(mean_val)
+                    if verbose:
+                        print(f"Imputed {n_missing} values in '{col}' for AFE rows")
+
+            return df
+
+        # Setup data
+        manager = DataManager()
+        file_paths = manager._get_data_locations()
+        gloc_data = manager._load_data(file_paths)
+        
+        feature_groups_to_analyze = {"ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE", "G", "processedEEG", "demographics", "strain"}
+        model_type = ("Complete", "Explicit")
+        gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
+        gloc_labels = manager._label_gloc_events(gloc_data)
+        gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
+
+
+
+        # Setup the actual result
+        actual_gloc_data = gloc_data.copy()
+
+        # Compute AFE / NonAFE condition indicator column
+        condition_idx = features["All"].index('condition')
+        afe_indicator_column = actual_gloc_data.iloc[:, condition_idx]
+
+        # Impute (using mean) the value of the missing channels for each AFE condition
+        actual_gloc_data = eeg_condition_impute(actual_gloc_data, features["EEG"], afe_indicator_column, verbose = False)
+        actual_gloc_data.rename(columns = {"condition": "AFE_indicator"}, inplace = True) # Rename condition column to AFE_indicator to maintain ordering of columns
+
+
+
+        # Setup data to compare to the actual
+        manager._eeg_specific_imputation(gloc_data, features)
+
+        print(gloc_data.columns[264], actual_gloc_data.columns[264])
+        pd.testing.assert_frame_equal(gloc_data, actual_gloc_data)
+        assert gloc_data.equals(actual_gloc_data), "The gloc_data after eeg_specific_imputation does not match the expected gloc_data."
