@@ -109,7 +109,29 @@ class CognitiveGroup(BaseFeatureGroup):
 
 class RawEEGGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
-        raw_eeg_features = {
+        raw_eeg_features = self.get_separated_feature_names()
+
+        # Pull condition-specific EEG streams
+        if model_type[0] == "AFE":
+            return raw_eeg_features["Shared"] + raw_eeg_features["AFE Only"]
+        elif model_type[0] == "noAFE":
+            return raw_eeg_features["Shared"] + raw_eeg_features["Non-AFE Only"]
+        else: # Use full dataset
+            return raw_eeg_features["Shared"] + raw_eeg_features["AFE Only"] + raw_eeg_features["Non-AFE Only"]
+
+    @staticmethod
+    def get_separated_feature_names():
+        """
+        Returns a dictionary with separate lists of shared, AFE-only, and non-AFE EEG features.
+
+        Parameters:
+            None
+
+        Returns:
+            dict: A dictionary with keys "Shared", "AFE Only", and "Non-AFE Only", each containing a list of corresponding EEG feature names.
+        """
+
+        return {
             "Shared": [
                 "Fz - EEG", 
                 "F3 - EEG", 
@@ -154,17 +176,21 @@ class RawEEGGroup(BaseFeatureGroup):
             ]
         }
 
-        # Pull condition-specific EEG streams
-        if model_type[0] == "AFE":
-            return raw_eeg_features["Shared"] + raw_eeg_features["AFE Only"]
-        elif model_type[0] == "noAFE":
-            return raw_eeg_features["Shared"] + raw_eeg_features["Non-AFE Only"]
-        else: # Use full dataset
-            return raw_eeg_features["Shared"] + raw_eeg_features["AFE Only"] + raw_eeg_features["Non-AFE Only"]
-    
 class ProcessedEEGGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
-        processed_eeg_features = {
+        processed_eeg_features = self.get_separated_feature_names()
+
+        # Pull condition-specific EEG streams
+        if model_type[0] == "AFE":
+            return processed_eeg_features["Shared"] + processed_eeg_features["AFE Only"]
+        elif model_type[0] == "noAFE":
+            return processed_eeg_features["Shared"] + processed_eeg_features["Non-AFE Only"]
+        else: # Use full dataset
+            return processed_eeg_features["Shared"] + processed_eeg_features["AFE Only"] + processed_eeg_features["Non-AFE Only"]
+        
+    @staticmethod
+    def get_separated_feature_names():
+        return {
             "Shared": [
                 "Fz_delta - EEG", "Fz_theta - EEG", "Fz_alpha - EEG", "Fz_beta - EEG",
                 "F3_delta - EEG", "F3_theta - EEG", "F3_alpha - EEG", "F3_beta - EEG",
@@ -209,14 +235,6 @@ class ProcessedEEGGroup(BaseFeatureGroup):
             ]
         }
 
-        # Pull condition-specific EEG streams
-        if model_type[0] == "AFE":
-            return processed_eeg_features["Shared"] + processed_eeg_features["AFE Only"]
-        elif model_type[0] == "noAFE":
-            return processed_eeg_features["Shared"] + processed_eeg_features["Non-AFE Only"]
-        else: # Use full dataset
-            return processed_eeg_features["Shared"] + processed_eeg_features["AFE Only"] + processed_eeg_features["Non-AFE Only"]
-        
 class StrainGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
         if model_type[1] == "Implicit":
