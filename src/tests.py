@@ -74,6 +74,104 @@ class TestDataManager:
         true_feature_groups = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG']
         assert feature_groups_to_analyze == set(true_feature_groups)
 
+    def test_getting_data_locations(self):
+        def data_locations(datafolder):
+            ## File Name & Path
+            # Data CSV
+            filename = os.path.join(datafolder,'all_trials_25_hz_stacked_null_str_filled_reduced.csv')
+
+            # Baseline Data (HR)
+            baseline_data_filename = os.path.join(datafolder,'ParticipantBaseline.csv')
+
+            # Modified Demographic Data (put in order of participant 1-13, removed excess calculations, and converted from .xlsx to .csv)
+            demographic_data_filename = os.path.join(datafolder,'GLOC_Effectiveness_Final.csv')
+
+            # Input GOR EEG data from separate files
+            list_of_eeg_data_files = [os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC2_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC3_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC2_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC3_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC2_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC3_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC2_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC3_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC2_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC3_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC4_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC6_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC2_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC4_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC6_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC3_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC2_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC5_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC6_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC2_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC4_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC5_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_11_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC5_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC1_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC3_25Hz_EEG_power_wMAR.xlsx'),
+                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC6_25Hz_EEG_power_wMAR.xlsx')]
+
+            # Input baseline EEG data from separate files
+            list_of_baseline_eeg_processed_files = [os.path.join(datafolder,'GLOC_EEG_baseline_delta_noAFE1.csv'),
+                                                    os.path.join(datafolder,'GLOC_EEG_baseline_theta_noAFE1.csv'),
+                                                    os.path.join(datafolder,'GLOC_EEG_baseline_alpha_noAFE1.csv'),
+                                                    os.path.join(datafolder,'GLOC_EEG_baseline_beta_noAFE1.csv')]
+
+            return filename, baseline_data_filename, demographic_data_filename, list_of_eeg_data_files, list_of_baseline_eeg_processed_files
+
+        manager = DataManager()
+        file_paths = manager._get_data_locations()
+
+        # Check if all expected keys are in the file paths
+        expected_keys = {"main", "baseline", "demographic", "eeg_list", "baseline_eeg_processed_list"}
+        assert set(file_paths.keys()) == expected_keys
+
+        # Check against the actual file paths
+        filename, baseline_data_filename, demographic_data_filename, list_of_eeg_data_files, list_of_baseline_eeg_processed_files = data_locations(manager.data_path)
+        assert file_paths["main"] == filename
+        assert file_paths["baseline"] == baseline_data_filename
+        assert file_paths["demographic"] == demographic_data_filename
+        assert file_paths["eeg_list"] == list_of_eeg_data_files
+        assert file_paths["baseline_eeg_processed_list"] == list_of_baseline_eeg_processed_files
+
+    def test_loading_data(self):
+        manager = DataManager()
+        file_paths = manager._get_data_locations()
+        gloc_data = manager._load_data(file_paths)
+
+        # pickle file name
+        pickle_filename = file_paths["main"]
+
+        # Check if pickle exists, if not create it
+        if not os.path.isfile(pickle_filename):
+            # Load CSV
+            gloc_data = pd.read_csv()
+            gloc_data = gloc_data.astype({col: 'float32' for col in gloc_data.select_dtypes(include='float64').columns})
+            gloc_data = gloc_data.copy()
+
+            # Save pickle file
+            gloc_data.to_pickle(pickle_filename)
+        else:
+            # Load Pickle file
+            gloc_data = pd.read_pickle(pickle_filename)
+
+        # Slot in GOR EEG data from other files
+        gloc_data = process_EEG_GOR(list_of_eeg_data_files, gloc_data)
+        gloc_data = gloc_data.astype({col: 'float32' for col in gloc_data.select_dtypes(include='float64').columns})
+        gloc_data = gloc_data.copy()
+
     def test_getting_feature_names_complete_explicit(self):
         manager = DataManager()
         file_paths = manager._get_data_locations()
@@ -193,7 +291,7 @@ class TestDataManager:
                 else:
                     # Use full dataset
                     raw_eeg_condition_specific = raw_eeg_afe_only + raw_eeg_nonafe_only
-                    # raw_eeg_condition_specific = []
+                    raw_eeg_condition_specific = []
             else:
                 raw_eeg_shared_features = []
                 raw_eeg_condition_specific = []
@@ -209,7 +307,7 @@ class TestDataManager:
                 else:
                     # Use full dataset
                     processed_eeg_condition_specific = processed_eeg_afe_only + processed_eeg_nonafe_only
-                    # processed_eeg_condition_specific = []
+                    processed_eeg_condition_specific = []
             else:
                 processed_eeg_shared_features = []
                 processed_eeg_condition_specific = []
@@ -1858,13 +1956,6 @@ class TestDataManager:
                     "Per information from Chris on 03/12/25, Cognitive data only collected right before and right after ROR.")
                 # Note post 3/12 meeting: the target is stationary, while the participant moves the tracker
                 # so this metric no longer makes sense
-                # ######### Generate additional cognitive task specific features #########
-                # # Deviation/Screen Pos
-                # deviation_wrt_target_position =  gloc_data_reduced['deviation - Cog'] / np.sqrt(gloc_data_reduced['tgtposX - Cog']**2 +  gloc_data_reduced['tgtposY - Cog']**2)
-                # gloc_data_reduced['Deviation wrt Target Position'] = deviation_wrt_target_position
-                #
-                # # append cognitive features
-                # cognitive_features.append('Deviation wrt Target Position')
             else:
                 cognitive_features = []
 
@@ -1879,7 +1970,7 @@ class TestDataManager:
                 else:
                     # Use full dataset
                     raw_eeg_condition_specific = raw_eeg_afe_only + raw_eeg_nonafe_only
-                    # raw_eeg_condition_specific = []
+                    raw_eeg_condition_specific = []
             else:
                 raw_eeg_shared_features = []
                 raw_eeg_condition_specific = []
@@ -1895,7 +1986,7 @@ class TestDataManager:
                 else:
                     # Use full dataset
                     processed_eeg_condition_specific = processed_eeg_afe_only + processed_eeg_nonafe_only
-                    # processed_eeg_condition_specific = []
+                    processed_eeg_condition_specific = []
             else:
                 processed_eeg_shared_features = []
                 processed_eeg_condition_specific = []
