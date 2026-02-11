@@ -116,8 +116,8 @@ class RawEEGGroup(BaseFeatureGroup):
             return raw_eeg_features["Shared"] + raw_eeg_features["AFE Only"]
         elif model_type[0] == "noAFE":
             return raw_eeg_features["Shared"] + raw_eeg_features["Non-AFE Only"]
-        else: # Use full dataset
-            return raw_eeg_features["Shared"] + raw_eeg_features["AFE Only"] + raw_eeg_features["Non-AFE Only"]
+        else: # Use shared features only
+            return raw_eeg_features["Shared"]
 
     @staticmethod
     def get_separated_feature_names():
@@ -185,8 +185,8 @@ class ProcessedEEGGroup(BaseFeatureGroup):
             return processed_eeg_features["Shared"] + processed_eeg_features["AFE Only"]
         elif model_type[0] == "noAFE":
             return processed_eeg_features["Shared"] + processed_eeg_features["Non-AFE Only"]
-        else: # Use full dataset
-            return processed_eeg_features["Shared"] + processed_eeg_features["AFE Only"] + processed_eeg_features["Non-AFE Only"]
+        else: # Use shared features
+            return processed_eeg_features["Shared"]
         
     @staticmethod
     def get_separated_feature_names():
