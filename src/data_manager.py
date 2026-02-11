@@ -61,8 +61,19 @@ class DataManager:
         file_paths = self._get_data_locations()
         gloc_data = self._load_data(file_paths)
         gloc_data = self._filter_data_by_analysis_type(analysis_type, gloc_data, subject_to_analyze, trial_to_analyze)
+        gloc_data, features = self._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
+        gloc_labels = self._label_gloc_events(gloc_data)
         if model_type[0] != "Complete":
-            gloc_data = gloc_data
+            gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
+
+        ############################################# EEG Specific Imputation #############################################
+        ####
+        #  Note: This runs for 'complete' models, but because we are only using shared/overlapping EEG features for the
+        #      'complete' case, this block doesn't do anything. Imputation occurs only for non-shared EEG features are used.
+        #       This block requires 'AFE' to be an
+        ####
+        if model_type[0] != "Complete":
+            self._eeg_specific_imputation(gloc_data, features)
 
     def _get_feature_groups_and_baseline_methods(self, model_type):
         FEATURE_GROUPS_BY_MODEL_TYPE = {
@@ -364,3 +375,53 @@ class DataManager:
         gloc_labels = gloc_labels[keep_mask]
 
         return gloc_data.copy(), gloc_labels.copy()
+    
+    def _eeg_specific_imputation(self, gloc_data, features):
+        # Compute AFE / NonAFE condition indicator column
+        afe_indicator_column = gloc_data["condition"]
+
+        # Impute (using mean) the value of the missing channels for each AFE condition
+        self._eeg_condition_impute(gloc_data, features, afe_indicator_column)
+
+        # Rename column for indicating AFE status
+        gloc_data.rename(columns = {"condition": "AFE_indicator"}, inplace = True)
+
+    def _eeg_condition_impute(self, gloc_data, features, afe_indicator_column, verbose = True):
+        """
+            Ensures both AFE (1) and non-AFE (0) conditions have the same feature columns.
+            Missing columns are imputed with mean values in gloc_data and reflected in feature arrays.
+
+            Modified the gloc_data DataFrame inplace
+        """
+        # Create masks for each condition
+        afe_mask = afe_indicator_column == 1
+        nonafe_mask = afe_indicator_column == 0
+
+        # Pull columns that need to be imputed for each type
+        raw_eeg_feature_names = RawEEGGroup.get_separated_feature_names()
+        processed_eeg_feature_names = ProcessedEEGGroup.get_separated_feature_names()
+        all_afe_only_cols = raw_eeg_feature_names["AFE Only"] + processed_eeg_feature_names["AFE Only"]
+        all_nonafe_only_cols = raw_eeg_feature_names["Non-AFE Only"] + processed_eeg_feature_names["Non-AFE Only"]
+        afe_only_cols = [col for col in all_afe_only_cols if col in features["EEG"]]
+        nonafe_only_cols = [col for col in all_nonafe_only_cols if col in features["EEG"]]
+
+        # Mean imputation processing
+        if afe_only_cols:
+            means = gloc_data.loc[afe_mask, afe_only_cols].mean(skipna = True)
+            missing_counts = gloc_data.loc[nonafe_mask, afe_only_cols].isna().sum()
+            gloc_data.loc[nonafe_mask, afe_only_cols] = gloc_data.loc[nonafe_mask, afe_only_cols].fillna(means)
+
+            # Show columns imputed and how many rows were imputed for each column
+            if verbose:
+                for col, n in missing_counts.items():
+                    print(f"Imputed {n} values in '{col}' for non-AFE rows")
+
+        if nonafe_only_cols:
+            means = gloc_data.loc[nonafe_mask, nonafe_only_cols].mean(skipna = True)
+            missing_counts = gloc_data.loc[afe_mask, nonafe_only_cols].isna().sum()
+            gloc_data.loc[afe_mask, nonafe_only_cols] = gloc_data.loc[afe_mask, nonafe_only_cols].fillna(means)
+
+            # Show columns imputed and how many rows were imputed for each column
+            if verbose:
+                for col, n in missing_counts.items():
+                    print(f"Imputed {n} values in '{col}' for AFE rows")
