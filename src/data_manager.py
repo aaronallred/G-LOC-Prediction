@@ -193,7 +193,7 @@ class DataManager:
             gloc_data = pd.read_pickle(main_data_pickle_file)
         
         # Add GOR and EEG data from other files
-        # gloc_data = self._process_EEG_GOR(file_paths["eeg_list"], gloc_data)
+        gloc_data = self._process_EEG_GOR(file_paths["eeg_list"], gloc_data)
 
         # Adjust AFE condition column always
         gloc_data["condition"] = gloc_data["condition"].map({"N": 0, "AFE": 1})
@@ -335,29 +335,37 @@ class DataManager:
 
             # Find first instance of 'begin GOR' in event_validated column for current trial
             event_validated_current_trial = np.array(current_trial_data['event_validated'])
-            index_begin_GOR = np.argwhere(event_validated_current_trial == 'begin GOR')[0]
+            indices = np.argwhere(event_validated_current_trial == "begin GOR")
+            if indices.size == 0:
+                print(f"Could not find 'begin GOR' for trial {current_key}")
+                continue
+            index_begin_GOR = indices[0]
 
             # Find end index of GOR EEG data
             index_end_GOR_eeg = index_begin_GOR + len(eeg_dict_delta[current_key])
 
             # Iterate through all columns & insert data from Excel file
+            start = index_begin_GOR[0]
+            end = index_end_GOR_eeg[0]
+
+            # build column names once
             column_names = eeg_dict_delta[current_key].columns
-            for col in range(len(column_names)):
+            cols_delta = [f"{c}_delta - EEG" for c in column_names]
+            cols_theta = [f"{c}_theta - EEG" for c in column_names]
+            cols_alpha = [f"{c}_alpha - EEG" for c in column_names]
+            cols_beta = [f"{c}_beta - EEG" for c in column_names]
 
-                # Get current column name
-                column_name = column_names[col]
+            # convert once
+            delta_vals = eeg_dict_delta[current_key].to_numpy(dtype=np.float32)
+            theta_vals = eeg_dict_theta[current_key].to_numpy(dtype=np.float32)
+            alpha_vals = eeg_dict_alpha[current_key].to_numpy(dtype=np.float32)
+            beta_vals = eeg_dict_beta[current_key].to_numpy(dtype=np.float32)
 
-                # Modify column name
-                modified_name_delta = column_name + '_delta' + ' - EEG'
-                modified_name_theta = column_name + '_theta' + ' - EEG'
-                modified_name_alpha = column_name + '_alpha' + ' - EEG'
-                modified_name_beta = column_name + '_beta' + ' - EEG'
-
-                # For each dictionary column, insert GOR EEG data in current_trial_data
-                current_trial_data.iloc[index_begin_GOR[0]:index_end_GOR_eeg[0], current_trial_data.columns.get_loc(modified_name_delta)] = eeg_dict_delta[current_key][column_name].astype(np.float32)
-                current_trial_data.iloc[index_begin_GOR[0]:index_end_GOR_eeg[0], current_trial_data.columns.get_loc(modified_name_theta)] = eeg_dict_theta[current_key][column_name].astype(np.float32)
-                current_trial_data.iloc[index_begin_GOR[0]:index_end_GOR_eeg[0], current_trial_data.columns.get_loc(modified_name_alpha)] = eeg_dict_alpha[current_key][column_name].astype(np.float32)
-                current_trial_data.iloc[index_begin_GOR[0]:index_end_GOR_eeg[0], current_trial_data.columns.get_loc(modified_name_beta)] = eeg_dict_beta[current_key][column_name].astype(np.float32)
+            # assign in blocks
+            current_trial_data.loc[current_trial_data.index[start:end], cols_delta] = delta_vals
+            current_trial_data.loc[current_trial_data.index[start:end], cols_theta] = theta_vals
+            current_trial_data.loc[current_trial_data.index[start:end], cols_alpha] = alpha_vals
+            current_trial_data.loc[current_trial_data.index[start:end], cols_beta] = beta_vals
 
             # Replace previously empty processed EEG data with current_trial_data
             gloc_data[gloc_data['trial_id'] == current_key] = current_trial_data
