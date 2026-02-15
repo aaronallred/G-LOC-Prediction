@@ -147,30 +147,134 @@ class TestDataManager:
         assert file_paths["baseline_eeg_processed_list"] == list_of_baseline_eeg_processed_files
 
     def test_loading_data(self):
+        def process_EEG_GOR(list_of_eeg_data_files, df):
+            """
+            This function slots in the GOR EEG data for the nonAFE condition based on the list of xlsx files.
+            The NaNs in the initial csv are replaced.
+            """
+            # Initialize EEG dictionaries
+            eeg_dict_delta = dict()
+            eeg_dict_theta = dict()
+            eeg_dict_alpha = dict()
+            eeg_dict_beta = dict()
+
+            # Iterate through all EEG files
+            for file in range(len(list_of_eeg_data_files)):
+
+                # Define current file
+                current_file = list_of_eeg_data_files[file]
+
+                # Grab corresponding trial based on file name
+                # corresponding_trial = current_file[47] + current_file[48] + '-0' + current_file[52]
+                corresponding_trial = current_file[-31] + current_file[-30] + '-0' + current_file[-26]
+
+                # Define data frame for delta, theta, alpha, and beta bands
+                df_delta = pd.read_excel(current_file, sheet_name='delta')
+                df_theta = pd.read_excel(current_file, sheet_name='theta')
+                df_alpha = pd.read_excel(current_file, sheet_name='alpha')
+                df_beta = pd.read_excel(current_file, sheet_name='beta')
+
+                # Remove time column from all spreadsheets that were read in
+                df_delta = df_delta.iloc[:, :-1]
+                df_theta = df_theta.iloc[:, :-1]
+                df_alpha = df_alpha.iloc[:, :-1]
+                df_beta = df_beta.iloc[:, :-1]
+
+                # Add each data frame to dictionary corresponding to the trial
+                eeg_dict_delta[corresponding_trial] = df_delta
+                eeg_dict_theta[corresponding_trial] = df_theta
+                eeg_dict_alpha[corresponding_trial] = df_alpha
+                eeg_dict_beta[corresponding_trial] = df_beta
+
+            # For each key in the dictionary, look at gloc_data_reduced for that trial
+            all_trial_dictionary = list(eeg_dict_delta.keys())
+            for key in range(len(all_trial_dictionary)):
+
+                # Find current trial's data in gloc_data
+                current_key = all_trial_dictionary[key]
+                current_trial_data = df[df['trial_id'] == current_key]
+
+                # Find first instance of 'begin GOR' in event_validated column for current trial
+                event_validated_current_trial = np.array(current_trial_data['event_validated'])
+                indices = np.argwhere(event_validated_current_trial == "begin GOR")
+                if indices.size == 0:
+                    continue  # or log warning / raise with more context
+                index_begin_GOR = indices[0]
+
+                # Find end index of GOR EEG data
+                index_end_GOR_eeg = index_begin_GOR + len(eeg_dict_delta[current_key])
+
+                # Iterate through all columns & insert data from Excel file
+                column_names = eeg_dict_delta[current_key].columns
+                for col in range(len(column_names)):
+
+                    # Get current column name
+                    column_name = column_names[col]
+
+                    # Modify column name
+                    modified_name_delta = column_name + '_delta' + ' - EEG'
+                    modified_name_theta = column_name + '_theta' + ' - EEG'
+                    modified_name_alpha = column_name + '_alpha' + ' - EEG'
+                    modified_name_beta = column_name + '_beta' + ' - EEG'
+
+                    # For each dictionary column, insert GOR EEG data in current_trial_data
+                    # current_trial_data[modified_name_delta][index_begin_GOR[0]:index_end_GOR_eeg[0]] = eeg_dict_delta[current_key][column_name]
+                    # current_trial_data.loc[index_begin_GOR[0]:index_end_GOR_eeg[0], modified_name_delta] = eeg_dict_delta[current_key][column_name].astype(np.float32)
+                    current_trial_data.iloc[index_begin_GOR[0]:index_end_GOR_eeg[0], current_trial_data.columns.get_loc(modified_name_delta)] = eeg_dict_delta[current_key][column_name].astype(np.float32)
+
+                    # current_trial_data[modified_name_theta][index_begin_GOR[0]:index_end_GOR_eeg[0]] = eeg_dict_theta[current_key][column_name]
+                    # current_trial_data.loc[index_begin_GOR[0]:index_end_GOR_eeg[0], modified_name_theta] = eeg_dict_theta[current_key][column_name].astype(np.float32)
+                    current_trial_data.iloc[index_begin_GOR[0]:index_end_GOR_eeg[0], current_trial_data.columns.get_loc(modified_name_theta)] = eeg_dict_theta[current_key][column_name].astype(np.float32)
+
+                    # current_trial_data[modified_name_alpha][index_begin_GOR[0]:index_end_GOR_eeg[0]] = eeg_dict_alpha[current_key][column_name]
+                    # current_trial_data.loc[index_begin_GOR[0]:index_end_GOR_eeg[0], modified_name_alpha] = eeg_dict_alpha[current_key][column_name].astype(np.float32)
+                    current_trial_data.iloc[index_begin_GOR[0]:index_end_GOR_eeg[0], current_trial_data.columns.get_loc(modified_name_alpha)] = eeg_dict_alpha[current_key][column_name].astype(np.float32)
+
+                    # current_trial_data[modified_name_beta][index_begin_GOR[0]:index_end_GOR_eeg[0]] = eeg_dict_beta[current_key][column_name]
+                    # current_trial_data.loc[index_begin_GOR[0]:index_end_GOR_eeg[0], modified_name_beta] = eeg_dict_beta[current_key][column_name].astype(np.float32)
+                    current_trial_data.iloc[index_begin_GOR[0]:index_end_GOR_eeg[0], current_trial_data.columns.get_loc(modified_name_beta)] = eeg_dict_beta[current_key][column_name].astype(np.float32)
+
+                # Replace previously empty processed EEG data with current_trial_data
+                df[df['trial_id'] == current_key] = current_trial_data
+
+            return df
+
         manager = DataManager()
         file_paths = manager._get_data_locations()
         gloc_data = manager._load_data(file_paths)
 
         # pickle file name
-        pickle_filename = file_paths["main"]
+        pickle_filename = file_paths["main"].replace("csv", "pkl")
 
         # Check if pickle exists, if not create it
         if not os.path.isfile(pickle_filename):
             # Load CSV
-            gloc_data = pd.read_csv()
-            gloc_data = gloc_data.astype({col: 'float32' for col in gloc_data.select_dtypes(include='float64').columns})
-            gloc_data = gloc_data.copy()
-
-            # Save pickle file
-            gloc_data.to_pickle(pickle_filename)
+            actual_gloc_data = pd.read_csv(file_paths["main"])
+            actual_gloc_data = actual_gloc_data.astype({col: 'float32' for col in actual_gloc_data.select_dtypes(include='float64').columns})
+            actual_gloc_data = actual_gloc_data.copy()
         else:
             # Load Pickle file
-            gloc_data = pd.read_pickle(pickle_filename)
+            actual_gloc_data = pd.read_pickle(pickle_filename)
 
         # Slot in GOR EEG data from other files
-        gloc_data = process_EEG_GOR(list_of_eeg_data_files, gloc_data)
-        gloc_data = gloc_data.astype({col: 'float32' for col in gloc_data.select_dtypes(include='float64').columns})
-        gloc_data = gloc_data.copy()
+        actual_gloc_data = process_EEG_GOR(file_paths["eeg_list"], actual_gloc_data)
+        
+        # Adjust AFE condition column always
+        actual_gloc_data["condition"] = actual_gloc_data["condition"].map({"N": 0, "AFE": 1})
+
+        # Convert float64 to float32 to save memory, and copy to defragment the DataFrame
+        actual_gloc_data = actual_gloc_data.astype({col: "float32" for col in actual_gloc_data.select_dtypes(include = "float64").columns}).copy()
+        
+        # Extracting actual_gloc_data and trial into separate columns
+        trial_ids = actual_gloc_data["trial_id"].to_numpy().astype("str")
+        trial_ids = np.array(np.char.split(trial_ids, "-").tolist())
+        actual_gloc_data["subject"] = trial_ids[:, 0]
+        actual_gloc_data["trial"] = trial_ids[:, 1]
+        actual_gloc_data = actual_gloc_data.copy()
+
+        # Check if loaded data matches expected data
+        pd.testing.assert_frame_equal(gloc_data, actual_gloc_data)
+        assert gloc_data.equals(actual_gloc_data)
 
     def test_getting_feature_names_complete_explicit(self):
         manager = DataManager()
@@ -1015,11 +1119,11 @@ class TestDataManager:
         actual_all_features_eeg_set = set(actual_all_features_eeg)
         assert features_eeg_set == actual_all_features_eeg_set, f"Missing features in actual_all_features_eeg: {features_eeg_set - actual_all_features_eeg_set}"
 
-    def test_getting_feature_names_complete_implicit(self):
+    def test_getting_feature_names_complete_implicit(self): ### Did not pass
         manager = DataManager()
         file_paths = manager._get_data_locations()
         gloc_data = manager._load_data(file_paths)
-        actual_gloc_data = manager._load_data(file_paths)
+        actual_gloc_data = gloc_data.copy()
 
         feature_groups_to_analyze, _ = manager._get_feature_groups_and_baseline_methods(("Complete", "Implicit"))
 
@@ -1134,7 +1238,7 @@ class TestDataManager:
                 else:
                     # Use full dataset
                     raw_eeg_condition_specific = raw_eeg_afe_only + raw_eeg_nonafe_only
-                    # raw_eeg_condition_specific = []
+                    raw_eeg_condition_specific = []
             else:
                 raw_eeg_shared_features = []
                 raw_eeg_condition_specific = []
@@ -1150,7 +1254,7 @@ class TestDataManager:
                 else:
                     # Use full dataset
                     processed_eeg_condition_specific = processed_eeg_afe_only + processed_eeg_nonafe_only
-                    # processed_eeg_condition_specific = []
+                    processed_eeg_condition_specific = []
             else:
                 processed_eeg_shared_features = []
                 processed_eeg_condition_specific = []
@@ -1841,22 +1945,22 @@ class TestDataManager:
         # Testing all features similarity
         all_features_set = set(features["All"])
         actual_all_features_set = set(actual_all_features)
-        assert all_features_set == actual_all_features_set, f"Missing features in actual_all_features: {all_features_set - actual_all_features_set}"
+        assert all_features_set == actual_all_features_set, f"Missing features in actual_all_features: {all_features_set - actual_all_features_set}, {actual_all_features_set - all_features_set}"
 
         # Testing physiological features similarity
         features_phys_set = set(features["Phys"])
         actual_all_features_phys_set = set(actual_all_features_phys)
-        assert features_phys_set == actual_all_features_phys_set, f"Missing features in actual_all_features_phys: {features_phys_set - actual_all_features_phys_set}"
+        assert features_phys_set == actual_all_features_phys_set, f"Missing features in actual_all_features_phys: {features_phys_set - actual_all_features_phys_set}, {actual_all_features_phys_set - features_phys_set}"
 
         # Testing ECG features similarity
         features_ecg_set = set(features["ECG"])
         actual_all_features_ecg_set = set(actual_all_features_ecg)
-        assert features_ecg_set == actual_all_features_ecg_set, f"Missing features in actual_all_features_ecg: {features_ecg_set - actual_all_features_ecg_set}"
+        assert features_ecg_set == actual_all_features_ecg_set, f"Missing features in actual_all_features_ecg: {features_ecg_set - actual_all_features_ecg_set}, {actual_all_features_ecg_set - features_ecg_set}"
 
         # Testing EEG features similarity
         features_eeg_set = set(features["EEG"])
         actual_all_features_eeg_set = set(actual_all_features_eeg)
-        assert features_eeg_set == actual_all_features_eeg_set, f"Missing features in actual_all_features_eeg: {features_eeg_set - actual_all_features_eeg_set}"
+        assert features_eeg_set == actual_all_features_eeg_set, f"Missing features in actual_all_features_eeg: {features_eeg_set - actual_all_features_eeg_set}, {actual_all_features_eeg_set - features_eeg_set}"
 
     def test_getting_feature_names_noAFE_explicit(self):
         manager = DataManager()
@@ -2813,7 +2917,7 @@ class TestDataManager:
                 else:
                     # Use full dataset
                     raw_eeg_condition_specific = raw_eeg_afe_only + raw_eeg_nonafe_only
-                    # raw_eeg_condition_specific = []
+                    raw_eeg_condition_specific = []
             else:
                 raw_eeg_shared_features = []
                 raw_eeg_condition_specific = []
@@ -2829,7 +2933,7 @@ class TestDataManager:
                 else:
                     # Use full dataset
                     processed_eeg_condition_specific = processed_eeg_afe_only + processed_eeg_nonafe_only
-                    # processed_eeg_condition_specific = []
+                    processed_eeg_condition_specific = []
             else:
                 processed_eeg_shared_features = []
                 processed_eeg_condition_specific = []
