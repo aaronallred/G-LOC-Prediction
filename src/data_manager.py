@@ -1,15 +1,24 @@
-from tokenize import group
 import pandas as pd
 import numpy as np
 import os
-from sklearn.model_selection import StratifiedKFold, KFold
-import warnings
 
 from features import *
 
 class DataManager:
+    FEATURE_GROUPS_BY_MODEL_TYPE = {
+        ("noAFE", "Explicit"): {"ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE", "G", "processedEEG", "demographics", "strain"},
+        ("noAFE", "Implicit"): {"ECG", "BR", "temp", "eyetracking", "rawEEG"},
+        ("Complete", "Explicit"): {"ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE", "G", "processedEEG", "demographics", "strain"},
+        ("Complete", "Implicit"): {"ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE"},
+    }
+    BASELINING_CHARACTERISTICS_BY_MODEL_TYPE = {
+        "noAFE": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
+        "Complete": ["v0", "v1", "v2", "v5", "v6"],
+    }
+
     def __init__(self, data_path = "../data/"):
         self.data_path = data_path
+        self._data_locations = None
 
     def get_data(
             self,
@@ -83,19 +92,8 @@ class DataManager:
             nan_proportion_df = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
 
     def _get_feature_groups_and_baseline_methods(self, model_type):
-        FEATURE_GROUPS_BY_MODEL_TYPE = {
-            ("noAFE", "Explicit"): {"ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE", "G", "processedEEG", "demographics", "strain"},
-            ("noAFE", "Implicit"): {"ECG", "BR", "temp", "eyetracking", "rawEEG"},
-            ("Complete", "Explicit"): {"ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE", "G", "processedEEG", "demographics", "strain"},
-            ("Complete", "Implicit"): {"ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE"} # AFE is removed downstream
-        }
-        BASELINING_CHARACTERISTICS_BY_MODEL_TYPE = {
-            "noAFE": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
-            "Complete": ["v0", "v1", "v2", "v5", "v6"]
-        }
-
-        feature_groups_to_analyze = FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
-        baseline_methods_to_use = BASELINING_CHARACTERISTICS_BY_MODEL_TYPE[model_type[0]]
+        feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
+        baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE[model_type[0]]
 
         # NOTE:
         # AFE indicator is required for EEG imputation in complete models,
@@ -118,6 +116,9 @@ class DataManager:
                 - "eeg_list": List of paths to individual EEG data files.
                 - "baseline_eeg_processed_list": List of paths to baseline EEG processed data files.   
         """
+        if self._data_locations is not None:
+            return self._data_locations
+
         # Data CSV
         print("USING REDUCED DATASET!!!!!!!!!!!!!!!")
         main_data_file_path = os.path.join(self.data_path, "all_trials_25_hz_stacked_null_str_filled_reduced.csv")
@@ -183,7 +184,8 @@ class DataManager:
             "baseline_eeg_processed_list": list_of_baseline_eeg_processed_file_paths
         }
 
-        return file_paths
+        self._data_locations = file_paths
+        return self._data_locations
     
     def _load_data(self, file_paths):
         """Load data from CSV or pickle files. If pickle does not exist, create it from CSV."""
@@ -206,7 +208,9 @@ class DataManager:
         gloc_data["condition"] = gloc_data["condition"].map({"N": 0, "AFE": 1})
 
         # Convert float64 to float32 to save memory, and copy to defragment the DataFrame
-        gloc_data = gloc_data.astype({col: "float32" for col in gloc_data.select_dtypes(include = "float64").columns}).copy()
+        float64_cols = gloc_data.select_dtypes(include="float64").columns
+        if len(float64_cols) > 0:
+            gloc_data = gloc_data.astype({col: "float32" for col in float64_cols}).copy()
         
         # Extracting subject and trial into separate columns
         trial_ids = gloc_data["trial_id"].to_numpy().astype("str")
@@ -215,7 +219,7 @@ class DataManager:
         gloc_data["trial"] = trial_ids[:, 1]
 
         # Decouple from original dataframe to prevent unwanted modifications later on
-        return gloc_data.copy()
+        return gloc_data
 
     def _filter_data_by_analysis_type(self, analysis_type, gloc_data, subject_to_analyze = None, trial_to_analyze = None):
         """Analyze only section of gloc_data specified using analysis_type"""
@@ -244,6 +248,10 @@ class DataManager:
             "ECG": [],
             "EEG": []
         }
+        features_all = features["All"]
+        features_phys = features["Phys"]
+        features_ecg = features["ECG"]
+        features_eeg = features["EEG"]
 
         for group_name in feature_groups_to_analyze:
             if group_name not in FEATURE_REGISTRY:
@@ -258,15 +266,15 @@ class DataManager:
 
             # Adding features to relevant groups
             if group_name in GROUPS_OF_FEATURE_GROUPS["Phys"]:
-                features["Phys"].extend(feature_names)
+                features_phys.extend(feature_names)
 
             if group_name in GROUPS_OF_FEATURE_GROUPS["ECG"]:
-                features["ECG"].extend(feature_names)
+                features_ecg.extend(feature_names)
 
             if group_name in GROUPS_OF_FEATURE_GROUPS["EEG"]:
-                features["EEG"].extend(feature_names)
+                features_eeg.extend(feature_names)
 
-            features["All"].extend(feature_names)
+            features_all.extend(feature_names)
 
         return gloc_data, features
 
@@ -298,27 +306,31 @@ class DataManager:
         This function slots in the GOR EEG data for the nonAFE condition based on the list of xlsx files.
         The NaNs in the initial csv are replaced.
         """
-        # Initialize EEG dictionaries
-        eeg_dict_delta = dict()
-        eeg_dict_theta = dict()
-        eeg_dict_alpha = dict()
-        eeg_dict_beta = dict()
+        trial_indices_map = gloc_data.groupby("trial_id", sort=False).indices
+        event_validated = gloc_data["event_validated"].to_numpy()
+        trial_ids = gloc_data["trial_id"].to_numpy()
+        begin_mask = event_validated == "begin GOR"
+        begin_idx = np.flatnonzero(begin_mask)
+        begin_trial_ids = trial_ids[begin_mask]
+        begin_idx_map = (
+            pd.Series(begin_idx, index=begin_trial_ids)
+            .groupby(level=0, sort=False)
+            .first()
+            .to_dict()
+        )
 
-        # Iterate through all EEG files
-        for file in range(len(list_of_eeg_data_files)):
-
-            # Define current file
-            current_file = list_of_eeg_data_files[file]
+        # Iterate through all EEG files and write directly to gloc_data
+        for current_file in list_of_eeg_data_files:
 
             # Grab corresponding trial based on file name
             # corresponding_trial = current_file[47] + current_file[48] + '-0' + current_file[52]
             corresponding_trial = current_file[-31] + current_file[-30] + '-0' + current_file[-26]
 
             # Define data frame for delta, theta, alpha, and beta bands
-            df_delta = pd.read_excel(current_file, sheet_name='delta')
-            df_theta = pd.read_excel(current_file, sheet_name='theta')
-            df_alpha = pd.read_excel(current_file, sheet_name='alpha')
-            df_beta = pd.read_excel(current_file, sheet_name='beta')
+            df_delta = pd.read_excel(current_file, sheet_name="delta")
+            df_theta = pd.read_excel(current_file, sheet_name="theta")
+            df_alpha = pd.read_excel(current_file, sheet_name="alpha")
+            df_beta = pd.read_excel(current_file, sheet_name="beta")
 
             # Remove time column from all spreadsheets that were read in
             df_delta = df_delta.iloc[:, :-1]
@@ -326,56 +338,39 @@ class DataManager:
             df_alpha = df_alpha.iloc[:, :-1]
             df_beta = df_beta.iloc[:, :-1]
 
-            # Add each data frame to dictionary corresponding to the trial
-            eeg_dict_delta[corresponding_trial] = df_delta
-            eeg_dict_theta[corresponding_trial] = df_theta
-            eeg_dict_alpha[corresponding_trial] = df_alpha
-            eeg_dict_beta[corresponding_trial] = df_beta
-
-        # For each key in the dictionary, look at gloc_data_reduced for that trial
-        all_trial_dictionary = list(eeg_dict_delta.keys())
-        for key in range(len(all_trial_dictionary)):
-
-            # Find current trial's data in gloc_data
-            current_key = all_trial_dictionary[key]
-            current_trial_data = gloc_data[gloc_data['trial_id'] == current_key]
-
-            # Find first instance of 'begin GOR' in event_validated column for current trial
-            event_validated_current_trial = np.array(current_trial_data['event_validated'])
-            indices = np.argwhere(event_validated_current_trial == "begin GOR")
-            if indices.size == 0:
-                print(f"Could not find 'begin GOR' for trial {current_key}")
+            trial_indices = trial_indices_map.get(corresponding_trial)
+            if trial_indices is None:
+                print(f"Could not find 'begin GOR' for trial {corresponding_trial}")
                 continue
-            index_begin_GOR = indices[0]
+
+            index_begin_GOR = begin_idx_map.get(corresponding_trial)
+            if index_begin_GOR is None:
+                print(f"Could not find 'begin GOR' for trial {corresponding_trial}")
+                continue
 
             # Find end index of GOR EEG data
-            index_end_GOR_eeg = index_begin_GOR + len(eeg_dict_delta[current_key])
+            start_pos = np.searchsorted(trial_indices, index_begin_GOR)
+            end_pos = start_pos + len(df_delta)
+            trial_indexer = trial_indices[start_pos:end_pos]
 
-            # Iterate through all columns & insert data from Excel file
-            start = index_begin_GOR[0]
-            end = index_end_GOR_eeg[0]
-
-            # build column names once
-            column_names = eeg_dict_delta[current_key].columns
+            # Build column names once
+            column_names = df_delta.columns
             cols_delta = [f"{c}_delta - EEG" for c in column_names]
             cols_theta = [f"{c}_theta - EEG" for c in column_names]
             cols_alpha = [f"{c}_alpha - EEG" for c in column_names]
             cols_beta = [f"{c}_beta - EEG" for c in column_names]
 
-            # convert once
-            delta_vals = eeg_dict_delta[current_key].to_numpy(dtype=np.float32)
-            theta_vals = eeg_dict_theta[current_key].to_numpy(dtype=np.float32)
-            alpha_vals = eeg_dict_alpha[current_key].to_numpy(dtype=np.float32)
-            beta_vals = eeg_dict_beta[current_key].to_numpy(dtype=np.float32)
+            # Convert once
+            delta_vals = df_delta.to_numpy(dtype=np.float32)
+            theta_vals = df_theta.to_numpy(dtype=np.float32)
+            alpha_vals = df_alpha.to_numpy(dtype=np.float32)
+            beta_vals = df_beta.to_numpy(dtype=np.float32)
 
-            # assign in blocks
-            current_trial_data.loc[current_trial_data.index[start:end], cols_delta] = delta_vals
-            current_trial_data.loc[current_trial_data.index[start:end], cols_theta] = theta_vals
-            current_trial_data.loc[current_trial_data.index[start:end], cols_alpha] = alpha_vals
-            current_trial_data.loc[current_trial_data.index[start:end], cols_beta] = beta_vals
-
-            # Replace previously empty processed EEG data with current_trial_data
-            gloc_data[gloc_data['trial_id'] == current_key] = current_trial_data
+            # Assign in blocks
+            gloc_data.loc[trial_indexer, cols_delta] = delta_vals
+            gloc_data.loc[trial_indexer, cols_theta] = theta_vals
+            gloc_data.loc[trial_indexer, cols_alpha] = alpha_vals
+            gloc_data.loc[trial_indexer, cols_beta] = beta_vals
 
         return gloc_data
 
@@ -389,7 +384,7 @@ class DataManager:
         gloc_data = gloc_data.loc[keep_mask].reset_index(drop = True)
         gloc_labels = gloc_labels[keep_mask]
 
-        return gloc_data.copy(), gloc_labels.copy()
+        return gloc_data, gloc_labels
     
     def _eeg_specific_imputation(self, gloc_data, features):
         # Compute AFE / NonAFE condition indicator column
@@ -417,13 +412,15 @@ class DataManager:
         processed_eeg_feature_names = ProcessedEEGGroup.get_separated_feature_names()
         all_afe_only_cols = raw_eeg_feature_names["AFE Only"] + processed_eeg_feature_names["AFE Only"]
         all_nonafe_only_cols = raw_eeg_feature_names["Non-AFE Only"] + processed_eeg_feature_names["Non-AFE Only"]
-        afe_only_cols = [col for col in all_afe_only_cols if col in features["EEG"]]
-        nonafe_only_cols = [col for col in all_nonafe_only_cols if col in features["EEG"]]
+        eeg_feature_set = set(features["EEG"])
+        afe_only_cols = [col for col in all_afe_only_cols if col in eeg_feature_set]
+        nonafe_only_cols = [col for col in all_nonafe_only_cols if col in eeg_feature_set]
 
         # Mean imputation processing
         if afe_only_cols:
             means = gloc_data.loc[afe_mask, afe_only_cols].mean(skipna = True)
-            missing_counts = gloc_data.loc[nonafe_mask, afe_only_cols].isna().sum()
+            if verbose:
+                missing_counts = gloc_data.loc[nonafe_mask, afe_only_cols].isna().sum()
             gloc_data.loc[nonafe_mask, afe_only_cols] = gloc_data.loc[nonafe_mask, afe_only_cols].fillna(means)
 
             # Show columns imputed and how many rows were imputed for each column
@@ -433,7 +430,8 @@ class DataManager:
 
         if nonafe_only_cols:
             means = gloc_data.loc[nonafe_mask, nonafe_only_cols].mean(skipna = True)
-            missing_counts = gloc_data.loc[afe_mask, nonafe_only_cols].isna().sum()
+            if verbose:
+                missing_counts = gloc_data.loc[afe_mask, nonafe_only_cols].isna().sum()
             gloc_data.loc[afe_mask, nonafe_only_cols] = gloc_data.loc[afe_mask, nonafe_only_cols].fillna(means)
 
             # Show columns imputed and how many rows were imputed for each column
@@ -447,56 +445,44 @@ class DataManager:
             Also returns a NaN proportionality table that says for each trial, what prop are NaN for each data stream
         """
         # All features and subject trial info to be put into a reduced dataframe from gloc_data
-        all_features_with_ids = features["All"] + ["subject", "trial"]
+        all_features = features["All"]
+        all_features_with_ids = all_features + ["subject", "trial"]
         reduced_data_frame = gloc_data[all_features_with_ids]
 
-        rows_to_remove = []
-        nan_proportion_table = []
+        nan_flags = reduced_data_frame[all_features].isna()
+        group_keys = [reduced_data_frame["subject"], reduced_data_frame["trial"]]
+        grouped = nan_flags.groupby(group_keys, sort=False)
 
-        N = 0 # number of trials total
-        M = 0 # number of trials with missing data streams
-        for (subject, trial), group in reduced_data_frame.groupby(["subject", "trial"], sort = False):
-            feature_block = group[features["All"]]
+        nan_proportion_df = grouped.mean()
+        all_nan_cols_df = grouped.all()
+        bad_trials = all_nan_cols_df.any(axis=1)
 
-            # Compute proportion of NaN values for each feature
-            nan_proportions = feature_block.isna().mean().to_dict()
-
-            # Store subject-trial and NaN proportions
-            nan_proportion_table.append({"subject-trial": f"{subject}-{trial}", **nan_proportions})
-
-            # Check if any of the columns in the trial data are entirely NaN
-            all_nan_cols = feature_block.isna().all()
-            if all_nan_cols.any():
-                # If so, add these indices to the list of rows to remove
-                rows_to_remove.append(group.index)
-
-                # Identify feature names that are completely NaN
-                nan_features = all_nan_cols[all_nan_cols].index.tolist()
-
-                # Print info about which trial and features were missing if verbose is true (default is false / no print)
-                if verbose:
+        if verbose and bad_trials.any():
+            for (subject, trial), is_bad in bad_trials.items():
+                if is_bad:
+                    nan_features = all_nan_cols_df.columns[all_nan_cols_df.loc[(subject, trial)]].tolist()
                     print(f"Subject {subject}, Trial {trial}: features entirely NaN → {nan_features}")
 
-                M += 1 # count missing trials
+        nan_proportion_df.insert(
+            0,
+            "subject-trial",
+            [f"{subject}-{trial}" for subject, trial in nan_proportion_df.index],
+        )
+        nan_proportion_df.reset_index(drop=True, inplace=True)
 
-            N += 1 # count trials
+        group_ids = reduced_data_frame.groupby(["subject", "trial"], sort=False).ngroup().to_numpy()
+        keep_mask = ~bad_trials.to_numpy()[group_ids]
 
-        # Flatten list of indices and remove them from the DataFrame
-        rows_to_remove = [item for sublist in rows_to_remove for item in sublist]
-
-        # Convert from a dict to a DF
-        nan_proportion_df = pd.DataFrame(nan_proportion_table)
-
-        # Get rid of rows in the DF and array (in place)
-        keep_mask = np.ones(len(gloc_data), dtype=bool)
-        keep_mask[rows_to_remove] = False
-
-        gloc_data.drop(rows_to_remove, inplace = True)
-        gloc_data.reset_index(drop = True, inplace = True)
+        rows_to_remove = gloc_data.index[~keep_mask]
+        gloc_data.drop(rows_to_remove, inplace=True)
+        gloc_data.reset_index(drop=True, inplace=True)
 
         kept_labels = gloc_labels[keep_mask]
-        gloc_labels.resize(kept_labels.shape, refcheck = False)
+        gloc_labels.resize(kept_labels.shape, refcheck=False)
         gloc_labels[:] = kept_labels
+
+        N = int(bad_trials.shape[0])
+        M = int(bad_trials.sum())
 
         # Print NaN findings
         print(f"There are {M} trials with all NaNs for at least one feature out of {N} trials. {N - M} trials remaining.")
