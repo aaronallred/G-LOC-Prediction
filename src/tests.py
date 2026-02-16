@@ -1,152 +1,147 @@
-import pandas as pd
-import numpy as np
 import os
-from pathlib import Path
-import json
 import warnings
 
+import numpy as np
+import pandas as pd
+import pytest
+
 from data_manager import DataManager
-from features import RawEEGGroup, ProcessedEEGGroup
+
+IMPLICIT_FEATURE_GROUPS = {"ECG", "BR", "temp", "eyetracking", "rawEEG"}
+EXPLICIT_FEATURE_GROUPS = IMPLICIT_FEATURE_GROUPS.union({"AFE", "G", "processedEEG", "demographics", "strain"})
+COMPLETE_FEATURE_GROUPS = {"AFE"}
+
+FEATURE_GROUPS_EXPLICIT = {
+    "ECG",
+    "BR",
+    "temp",
+    "eyetracking",
+    "rawEEG",
+    "AFE",
+    "G",
+    "processedEEG",
+    "demographics",
+    "strain",
+}
+
+def _build_feature_groups(model_type):
+    feature_groups_to_analyze = set()
+    if model_type[0] == "Complete":
+        feature_groups_to_analyze = COMPLETE_FEATURE_GROUPS
+
+    if model_type[1] == "Implicit":
+        feature_groups_to_analyze = feature_groups_to_analyze.union(IMPLICIT_FEATURE_GROUPS)
+    elif model_type[1] == "Explicit":
+        feature_groups_to_analyze = feature_groups_to_analyze.union(EXPLICIT_FEATURE_GROUPS)
+
+    return feature_groups_to_analyze
+
+def _expected_data_locations(datafolder):
+    filename = os.path.join(datafolder, "all_trials_25_hz_stacked_null_str_filled_reduced.csv")
+    baseline_data_filename = os.path.join(datafolder, "ParticipantBaseline.csv")
+    demographic_data_filename = os.path.join(datafolder, "GLOC_Effectiveness_Final.csv")
+
+    list_of_eeg_data_files = [
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC1_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC2_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC3_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC1_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC2_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC3_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC1_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC2_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC3_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC1_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC2_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC3_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC1_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC2_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC3_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC1_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC4_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC6_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC2_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC4_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC6_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC1_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC3_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC2_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC5_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC6_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC2_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC4_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC5_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_11_DC1_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC1_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC5_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC1_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC3_25Hz_EEG_power_wMAR.xlsx"),
+        os.path.join(datafolder, "GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC6_25Hz_EEG_power_wMAR.xlsx"),
+    ]
+
+    list_of_baseline_eeg_processed_files = [
+        os.path.join(datafolder, "GLOC_EEG_baseline_delta_noAFE1.csv"),
+        os.path.join(datafolder, "GLOC_EEG_baseline_theta_noAFE1.csv"),
+        os.path.join(datafolder, "GLOC_EEG_baseline_alpha_noAFE1.csv"),
+        os.path.join(datafolder, "GLOC_EEG_baseline_beta_noAFE1.csv"),
+    ]
+
+    return (
+        filename,
+        baseline_data_filename,
+        demographic_data_filename,
+        list_of_eeg_data_files,
+        list_of_baseline_eeg_processed_files,
+    )
+
+@pytest.fixture(scope = "session")
+def manager():
+    return DataManager()
+
+@pytest.fixture(scope = "session")
+def file_paths(manager):
+    return manager._get_data_locations()
+
+@pytest.fixture(scope = "session")
+def gloc_data(manager, file_paths):
+    return manager._load_data(file_paths)
+
+
 
 class TestDataManager:
-    def test_get_feature_groups(self):
-        IMPLICIT_FEATURE_GROUPS = {"ECG", "BR", "temp", "eyetracking", "rawEEG"}
-        EXPLICIT_FEATURE_GROUPS = IMPLICIT_FEATURE_GROUPS.union({"AFE", "G", "processedEEG", "demographics", "strain"})
-        COMPLETE_FEATURE_GROUPS = {"AFE"}
+    @pytest.mark.parametrize(
+        "model_type, expected",
+        [
+            (("Complete", "Explicit"), FEATURE_GROUPS_EXPLICIT),
+            (("Complete", "Implicit"), IMPLICIT_FEATURE_GROUPS.union({"AFE"})),
+            (("Non-AFE", "Explicit"), FEATURE_GROUPS_EXPLICIT),
+            (("Non-AFE", "Implicit"), IMPLICIT_FEATURE_GROUPS),
+        ],
+    )
+    def test_get_feature_groups(self, model_type, expected):
+        feature_groups_to_analyze = _build_feature_groups(model_type)
+        assert feature_groups_to_analyze == set(expected)
 
-        # Testing Complete and Explicit Feature Groups
-        model_type = ("Complete", "Explicit")
-
-        feature_groups_to_analyze = set()
-        if model_type[0] == "Complete":
-            feature_groups_to_analyze = COMPLETE_FEATURE_GROUPS
-
-        if model_type[1] == "Implicit":
-            feature_groups_to_analyze = feature_groups_to_analyze.union(IMPLICIT_FEATURE_GROUPS)
-        elif model_type[1] == "Explicit":
-            feature_groups_to_analyze = feature_groups_to_analyze.union(EXPLICIT_FEATURE_GROUPS)
-
-        true_feature_groups = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G', 'rawEEG', 'processedEEG', 'demographics', 'strain']
-        assert feature_groups_to_analyze == set(true_feature_groups)
-
-        # Testing Complete and Implicit Feature Groups
-        model_type = ("Complete", "Implicit")
-
-        feature_groups_to_analyze = set()
-        if model_type[0] == "Complete":
-            feature_groups_to_analyze = COMPLETE_FEATURE_GROUPS
-
-        if model_type[1] == "Implicit":
-            feature_groups_to_analyze = feature_groups_to_analyze.union(IMPLICIT_FEATURE_GROUPS)
-        elif model_type[1] == "Explicit":
-            feature_groups_to_analyze = feature_groups_to_analyze.union(EXPLICIT_FEATURE_GROUPS)
-
-        true_feature_groups = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'AFE']
-        assert feature_groups_to_analyze == set(true_feature_groups)
-
-        # Testing Non-AFE and Explicit Feature Groups
-        model_type = ("Non-AFE", "Explicit")
-
-        feature_groups_to_analyze = set()
-        if model_type[0] == "Complete":
-            feature_groups_to_analyze = COMPLETE_FEATURE_GROUPS
-
-        if model_type[1] == "Implicit":
-            feature_groups_to_analyze = feature_groups_to_analyze.union(IMPLICIT_FEATURE_GROUPS)
-        elif model_type[1] == "Explicit":
-            feature_groups_to_analyze = feature_groups_to_analyze.union(EXPLICIT_FEATURE_GROUPS)
-
-        true_feature_groups = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G', 'rawEEG', 'processedEEG', 'demographics', 'strain']
-        assert feature_groups_to_analyze == set(true_feature_groups)
-
-        # Testing Non-AFE and Implicit Feature Groups
-        model_type = ("Non-AFE", "Implicit")
-
-        feature_groups_to_analyze = set()
-        if model_type[0] == "Complete":
-            feature_groups_to_analyze = COMPLETE_FEATURE_GROUPS
-
-        if model_type[1] == "Implicit":
-            feature_groups_to_analyze = feature_groups_to_analyze.union(IMPLICIT_FEATURE_GROUPS)
-        elif model_type[1] == "Explicit":
-            feature_groups_to_analyze = feature_groups_to_analyze.union(EXPLICIT_FEATURE_GROUPS)
-
-        true_feature_groups = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG']
-        assert feature_groups_to_analyze == set(true_feature_groups)
-
-    def test_getting_data_locations(self):
-        def data_locations(datafolder):
-            ## File Name & Path
-            # Data CSV
-            filename = os.path.join(datafolder,'all_trials_25_hz_stacked_null_str_filled_reduced.csv')
-
-            # Baseline Data (HR)
-            baseline_data_filename = os.path.join(datafolder,'ParticipantBaseline.csv')
-
-            # Modified Demographic Data (put in order of participant 1-13, removed excess calculations, and converted from .xlsx to .csv)
-            demographic_data_filename = os.path.join(datafolder,'GLOC_Effectiveness_Final.csv')
-
-            # Input GOR EEG data from separate files
-            list_of_eeg_data_files = [os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC1_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC2_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC3_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC1_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC2_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC3_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC1_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC2_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC3_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC1_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC2_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC3_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC1_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC2_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC3_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC1_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC4_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC6_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC2_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC4_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC6_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC1_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC3_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC2_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC5_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC6_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC2_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC4_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC5_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_11_DC1_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC1_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC5_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC1_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC3_25Hz_EEG_power_wMAR.xlsx'),
-                                    os.path.join(datafolder,'GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC6_25Hz_EEG_power_wMAR.xlsx')]
-
-            # Input baseline EEG data from separate files
-            list_of_baseline_eeg_processed_files = [os.path.join(datafolder,'GLOC_EEG_baseline_delta_noAFE1.csv'),
-                                                    os.path.join(datafolder,'GLOC_EEG_baseline_theta_noAFE1.csv'),
-                                                    os.path.join(datafolder,'GLOC_EEG_baseline_alpha_noAFE1.csv'),
-                                                    os.path.join(datafolder,'GLOC_EEG_baseline_beta_noAFE1.csv')]
-
-            return filename, baseline_data_filename, demographic_data_filename, list_of_eeg_data_files, list_of_baseline_eeg_processed_files
-
-        manager = DataManager()
-        file_paths = manager._get_data_locations()
-
+    def test_getting_data_locations(self, manager, file_paths):
         # Check if all expected keys are in the file paths
         expected_keys = {"main", "baseline", "demographic", "eeg_list", "baseline_eeg_processed_list"}
         assert set(file_paths.keys()) == expected_keys
 
         # Check against the actual file paths
-        filename, baseline_data_filename, demographic_data_filename, list_of_eeg_data_files, list_of_baseline_eeg_processed_files = data_locations(manager.data_path)
+        (
+            filename,
+            baseline_data_filename,
+            demographic_data_filename,
+            list_of_eeg_data_files,
+            list_of_baseline_eeg_processed_files,
+        ) = _expected_data_locations(manager.data_path)
         assert file_paths["main"] == filename
         assert file_paths["baseline"] == baseline_data_filename
         assert file_paths["demographic"] == demographic_data_filename
         assert file_paths["eeg_list"] == list_of_eeg_data_files
         assert file_paths["baseline_eeg_processed_list"] == list_of_baseline_eeg_processed_files
 
-    def test_loading_data(self):
+    def test_loading_data(self, file_paths, gloc_data):
         def process_EEG_GOR(list_of_eeg_data_files, df):
             """
             This function slots in the GOR EEG data for the nonAFE condition based on the list of xlsx files.
@@ -239,54 +234,48 @@ class TestDataManager:
 
             return df
 
-        manager = DataManager()
-        file_paths = manager._get_data_locations()
-        gloc_data = manager._load_data(file_paths)
-
         # pickle file name
         pickle_filename = file_paths["main"].replace("csv", "pkl")
 
         # Check if pickle exists, if not create it
         if not os.path.isfile(pickle_filename):
             # Load CSV
-            actual_gloc_data = pd.read_csv(file_paths["main"])
-            actual_gloc_data = actual_gloc_data.astype({col: 'float32' for col in actual_gloc_data.select_dtypes(include='float64').columns})
-            actual_gloc_data = actual_gloc_data.copy()
+            expected_gloc_data = pd.read_csv(file_paths["main"])
+            expected_gloc_data = expected_gloc_data.astype({col: 'float32' for col in expected_gloc_data.select_dtypes(include='float64').columns})
+            expected_gloc_data = expected_gloc_data.copy()
         else:
             # Load Pickle file
-            actual_gloc_data = pd.read_pickle(pickle_filename)
+            expected_gloc_data = pd.read_pickle(pickle_filename)
 
         # Slot in GOR EEG data from other files
-        actual_gloc_data = process_EEG_GOR(file_paths["eeg_list"], actual_gloc_data)
+        expected_gloc_data = process_EEG_GOR(file_paths["eeg_list"], expected_gloc_data)
         
         # Adjust AFE condition column always
-        actual_gloc_data["condition"] = actual_gloc_data["condition"].map({"N": 0, "AFE": 1})
+        expected_gloc_data["condition"] = expected_gloc_data["condition"].map({"N": 0, "AFE": 1})
 
         # Convert float64 to float32 to save memory, and copy to defragment the DataFrame
-        actual_gloc_data = actual_gloc_data.astype({col: "float32" for col in actual_gloc_data.select_dtypes(include = "float64").columns}).copy()
+        expected_gloc_data = expected_gloc_data.astype({col: "float32" for col in expected_gloc_data.select_dtypes(include = "float64").columns}).copy()
         
-        # Extracting actual_gloc_data and trial into separate columns
-        trial_ids = actual_gloc_data["trial_id"].to_numpy().astype("str")
+        # Extracting expected_gloc_data and trial into separate columns
+        trial_ids = expected_gloc_data["trial_id"].to_numpy().astype("str")
         trial_ids = np.array(np.char.split(trial_ids, "-").tolist())
-        actual_gloc_data["subject"] = trial_ids[:, 0]
-        actual_gloc_data["trial"] = trial_ids[:, 1]
-        actual_gloc_data = actual_gloc_data.copy()
+        expected_gloc_data["subject"] = trial_ids[:, 0]
+        expected_gloc_data["trial"] = trial_ids[:, 1]
+        expected_gloc_data = expected_gloc_data.copy()
 
         # Check if loaded data matches expected data
-        pd.testing.assert_frame_equal(gloc_data, actual_gloc_data)
-        assert gloc_data.equals(actual_gloc_data)
+        pd.testing.assert_frame_equal(gloc_data, expected_gloc_data)
+        assert gloc_data.equals(expected_gloc_data)
 
-    def test_getting_feature_names_complete_explicit(self):
-        manager = DataManager()
-        file_paths = manager._get_data_locations()
-        gloc_data = manager._load_data(file_paths)
-        actual_gloc_data = manager._load_data(file_paths)
+    def test_getting_feature_names_complete_explicit(self, manager, file_paths, gloc_data):
+        gloc_data = gloc_data.copy()
+        expected_gloc_data = gloc_data.copy()
 
-        feature_groups_to_analyze = {"ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE", "G", "processedEEG", "demographics", "strain"}
+        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
 
         gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, ("Complete", "Explicit"), file_paths)
 
-        def get_actual_features(gloc_data_reduced, feature_groups_to_analyze, demographic_data_filename, model_type):
+        def get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demographic_data_filename, model_type):
             # Get feature columns
             if 'ECG' in feature_groups_to_analyze:
                 ecg_features = ['HR (bpm) - Equivital', 'ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital', 'HR_instant - Equivital','HR_average - Equivital', 'HR_w_average - Equivital']
@@ -1097,39 +1086,37 @@ class TestDataManager:
 
             return gloc_data_reduced, gloc_trial
 
-        _, _, _, _, _, actual_all_features, actual_all_features_phys, actual_all_features_ecg, actual_all_features_eeg = get_actual_features(actual_gloc_data, feature_groups_to_analyze, file_paths["demographic"] , ("complete", "explicit"))
+        _, _, _, _, _, expected_all_features, expected_all_features_phys, expected_all_features_ecg, expected_all_features_eeg = get_expected_features(expected_gloc_data, feature_groups_to_analyze, file_paths["demographic"] , ("complete", "explicit"))
 
         # Testing all features similarity
         all_features_set = set(features["All"])
-        actual_all_features_set = set(actual_all_features)
-        assert all_features_set == actual_all_features_set, f"Missing features in actual_all_features: {all_features_set - actual_all_features_set}"
+        expected_all_features_set = set(expected_all_features)
+        assert all_features_set == expected_all_features_set, f"Missing features in expected_all_features: {all_features_set - expected_all_features_set}"
 
         # Testing physiological features similarity
         features_phys_set = set(features["Phys"])
-        actual_all_features_phys_set = set(actual_all_features_phys)
-        assert features_phys_set == actual_all_features_phys_set, f"Missing features in actual_all_features_phys: {features_phys_set - actual_all_features_phys_set}"
+        expected_all_features_phys_set = set(expected_all_features_phys)
+        assert features_phys_set == expected_all_features_phys_set, f"Missing features in expected_all_features_phys: {features_phys_set - expected_all_features_phys_set}"
 
         # Testing ECG features similarity
         features_ecg_set = set(features["ECG"])
-        actual_all_features_ecg_set = set(actual_all_features_ecg)
-        assert features_ecg_set == actual_all_features_ecg_set, f"Missing features in actual_all_features_ecg: {features_ecg_set - actual_all_features_ecg_set}"
+        expected_all_features_ecg_set = set(expected_all_features_ecg)
+        assert features_ecg_set == expected_all_features_ecg_set, f"Missing features in expected_all_features_ecg: {features_ecg_set - expected_all_features_ecg_set}"
 
         # Testing EEG features similarity
         features_eeg_set = set(features["EEG"])
-        actual_all_features_eeg_set = set(actual_all_features_eeg)
-        assert features_eeg_set == actual_all_features_eeg_set, f"Missing features in actual_all_features_eeg: {features_eeg_set - actual_all_features_eeg_set}"
+        expected_all_features_eeg_set = set(expected_all_features_eeg)
+        assert features_eeg_set == expected_all_features_eeg_set, f"Missing features in expected_all_features_eeg: {features_eeg_set - expected_all_features_eeg_set}"
 
-    def test_getting_feature_names_complete_implicit(self): ### Did not pass
-        manager = DataManager()
-        file_paths = manager._get_data_locations()
-        gloc_data = manager._load_data(file_paths)
-        actual_gloc_data = gloc_data.copy()
+    def test_getting_feature_names_complete_implicit(self, manager, file_paths, gloc_data):
+        gloc_data = gloc_data.copy()
+        expected_gloc_data = gloc_data.copy()
 
         feature_groups_to_analyze, _ = manager._get_feature_groups_and_baseline_methods(("Complete", "Implicit"))
 
         gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, ("Complete", "Implicit"), file_paths)
 
-        def get_actual_features(gloc_data_reduced, feature_groups_to_analyze, demographic_data_filename, model_type):
+        def get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demographic_data_filename, model_type):
             # Get feature columns
             if 'ECG' in feature_groups_to_analyze:
                 ecg_features = ['HR (bpm) - Equivital', 'ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital', 'HR_instant - Equivital','HR_average - Equivital', 'HR_w_average - Equivital']
@@ -1940,39 +1927,37 @@ class TestDataManager:
 
             return gloc_data_reduced, gloc_trial
 
-        _, _, _, _, _, actual_all_features, actual_all_features_phys, actual_all_features_ecg, actual_all_features_eeg = get_actual_features(actual_gloc_data, feature_groups_to_analyze, file_paths["demographic"] , ("complete", "implicit"))
+        _, _, _, _, _, expected_all_features, expected_all_features_phys, expected_all_features_ecg, expected_all_features_eeg = get_expected_features(expected_gloc_data, feature_groups_to_analyze, file_paths["demographic"] , ("complete", "implicit"))
 
         # Testing all features similarity
         all_features_set = set(features["All"])
-        actual_all_features_set = set(actual_all_features)
-        assert all_features_set == actual_all_features_set, f"Missing features in actual_all_features: {all_features_set - actual_all_features_set}, {actual_all_features_set - all_features_set}"
+        expected_all_features_set = set(expected_all_features)
+        assert all_features_set == expected_all_features_set, f"Missing features in expected_all_features: {all_features_set - expected_all_features_set}, {expected_all_features_set - all_features_set}"
 
         # Testing physiological features similarity
         features_phys_set = set(features["Phys"])
-        actual_all_features_phys_set = set(actual_all_features_phys)
-        assert features_phys_set == actual_all_features_phys_set, f"Missing features in actual_all_features_phys: {features_phys_set - actual_all_features_phys_set}, {actual_all_features_phys_set - features_phys_set}"
+        expected_all_features_phys_set = set(expected_all_features_phys)
+        assert features_phys_set == expected_all_features_phys_set, f"Missing features in expected_all_features_phys: {features_phys_set - expected_all_features_phys_set}, {expected_all_features_phys_set - features_phys_set}"
 
         # Testing ECG features similarity
         features_ecg_set = set(features["ECG"])
-        actual_all_features_ecg_set = set(actual_all_features_ecg)
-        assert features_ecg_set == actual_all_features_ecg_set, f"Missing features in actual_all_features_ecg: {features_ecg_set - actual_all_features_ecg_set}, {actual_all_features_ecg_set - features_ecg_set}"
+        expected_all_features_ecg_set = set(expected_all_features_ecg)
+        assert features_ecg_set == expected_all_features_ecg_set, f"Missing features in expected_all_features_ecg: {features_ecg_set - expected_all_features_ecg_set}, {expected_all_features_ecg_set - features_ecg_set}"
 
         # Testing EEG features similarity
         features_eeg_set = set(features["EEG"])
-        actual_all_features_eeg_set = set(actual_all_features_eeg)
-        assert features_eeg_set == actual_all_features_eeg_set, f"Missing features in actual_all_features_eeg: {features_eeg_set - actual_all_features_eeg_set}, {actual_all_features_eeg_set - features_eeg_set}"
+        expected_all_features_eeg_set = set(expected_all_features_eeg)
+        assert features_eeg_set == expected_all_features_eeg_set, f"Missing features in expected_all_features_eeg: {features_eeg_set - expected_all_features_eeg_set}, {expected_all_features_eeg_set - features_eeg_set}"
 
-    def test_getting_feature_names_noAFE_explicit(self):
-        manager = DataManager()
-        file_paths = manager._get_data_locations()
-        gloc_data = manager._load_data(file_paths)
-        actual_gloc_data = manager._load_data(file_paths)
+    def test_getting_feature_names_noAFE_explicit(self, manager, file_paths, gloc_data):
+        gloc_data = gloc_data.copy()
+        expected_gloc_data = gloc_data.copy()
 
-        feature_groups_to_analyze = {"ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE", "G", "processedEEG", "demographics", "strain"}
+        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
 
         gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, ("noAFE", "Explicit"), file_paths)
 
-        def get_actual_features(gloc_data_reduced, feature_groups_to_analyze, demographic_data_filename, model_type):
+        def get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demographic_data_filename, model_type):
             # Get feature columns
             if 'ECG' in feature_groups_to_analyze:
                 ecg_features = ['HR (bpm) - Equivital', 'ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital', 'HR_instant - Equivital','HR_average - Equivital', 'HR_w_average - Equivital']
@@ -2776,39 +2761,37 @@ class TestDataManager:
 
             return gloc_data_reduced, gloc_trial
 
-        _, _, _, _, _, actual_all_features, actual_all_features_phys, actual_all_features_ecg, actual_all_features_eeg = get_actual_features(actual_gloc_data, feature_groups_to_analyze, file_paths["demographic"] , ("noAFE", "explicit"))
+        _, _, _, _, _, expected_all_features, expected_all_features_phys, expected_all_features_ecg, expected_all_features_eeg = get_expected_features(expected_gloc_data, feature_groups_to_analyze, file_paths["demographic"] , ("noAFE", "explicit"))
 
         # Testing all features similarity
         all_features_set = set(features["All"])
-        actual_all_features_set = set(actual_all_features)
-        assert all_features_set == actual_all_features_set, f"Missing features in actual_all_features: {all_features_set - actual_all_features_set}"
+        expected_all_features_set = set(expected_all_features)
+        assert all_features_set == expected_all_features_set, f"Missing features in expected_all_features: {all_features_set - expected_all_features_set}"
 
         # Testing physiological features similarity
         features_phys_set = set(features["Phys"])
-        actual_all_features_phys_set = set(actual_all_features_phys)
-        assert features_phys_set == actual_all_features_phys_set, f"Missing features in actual_all_features_phys: {features_phys_set - actual_all_features_phys_set}"
+        expected_all_features_phys_set = set(expected_all_features_phys)
+        assert features_phys_set == expected_all_features_phys_set, f"Missing features in expected_all_features_phys: {features_phys_set - expected_all_features_phys_set}"
 
         # Testing ECG features similarity
         features_ecg_set = set(features["ECG"])
-        actual_all_features_ecg_set = set(actual_all_features_ecg)
-        assert features_ecg_set == actual_all_features_ecg_set, f"Missing features in actual_all_features_ecg: {features_ecg_set - actual_all_features_ecg_set}"
+        expected_all_features_ecg_set = set(expected_all_features_ecg)
+        assert features_ecg_set == expected_all_features_ecg_set, f"Missing features in expected_all_features_ecg: {features_ecg_set - expected_all_features_ecg_set}"
 
         # Testing EEG features similarity
         features_eeg_set = set(features["EEG"])
-        actual_all_features_eeg_set = set(actual_all_features_eeg)
-        assert features_eeg_set == actual_all_features_eeg_set, f"Missing features in actual_all_features_eeg: {features_eeg_set - actual_all_features_eeg_set}"
+        expected_all_features_eeg_set = set(expected_all_features_eeg)
+        assert features_eeg_set == expected_all_features_eeg_set, f"Missing features in expected_all_features_eeg: {features_eeg_set - expected_all_features_eeg_set}"
 
-    def test_getting_feature_names_noAFE_implicit(self):
-        manager = DataManager()
-        file_paths = manager._get_data_locations()
-        gloc_data = manager._load_data(file_paths)
-        actual_gloc_data = manager._load_data(file_paths)
+    def test_getting_feature_names_noAFE_implicit(self, manager, file_paths, gloc_data):
+        gloc_data = gloc_data.copy()
+        expected_gloc_data = gloc_data.copy()
 
         feature_groups_to_analyze, _ = manager._get_feature_groups_and_baseline_methods(("noAFE", "Implicit"))
 
         gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, ("noAFE", "Implicit"), file_paths)
 
-        def get_actual_features(gloc_data_reduced, feature_groups_to_analyze, demographic_data_filename, model_type):
+        def get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demographic_data_filename, model_type):
             # Get feature columns
             if 'ECG' in feature_groups_to_analyze:
                 ecg_features = ['HR (bpm) - Equivital', 'ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital', 'HR_instant - Equivital','HR_average - Equivital', 'HR_w_average - Equivital']
@@ -3619,34 +3602,32 @@ class TestDataManager:
 
             return gloc_data_reduced, gloc_trial
 
-        _, _, _, _, _, actual_all_features, actual_all_features_phys, actual_all_features_ecg, actual_all_features_eeg = get_actual_features(actual_gloc_data, feature_groups_to_analyze, file_paths["demographic"] , ("noAFE", "implicit"))
+        _, _, _, _, _, expected_all_features, expected_all_features_phys, expected_all_features_ecg, expected_all_features_eeg = get_expected_features(expected_gloc_data, feature_groups_to_analyze, file_paths["demographic"] , ("noAFE", "implicit"))
 
         # Testing all features similarity
         all_features_set = set(features["All"])
-        actual_all_features_set = set(actual_all_features)
-        assert all_features_set == actual_all_features_set, f"Missing features in actual_all_features: {all_features_set - actual_all_features_set}"
+        expected_all_features_set = set(expected_all_features)
+        assert all_features_set == expected_all_features_set, f"Missing features in expected_all_features: {all_features_set - expected_all_features_set}"
 
         # Testing physiological features similarity
         features_phys_set = set(features["Phys"])
-        actual_all_features_phys_set = set(actual_all_features_phys)
-        assert features_phys_set == actual_all_features_phys_set, f"Missing features in actual_all_features_phys: {features_phys_set - actual_all_features_phys_set}"
+        expected_all_features_phys_set = set(expected_all_features_phys)
+        assert features_phys_set == expected_all_features_phys_set, f"Missing features in expected_all_features_phys: {features_phys_set - expected_all_features_phys_set}"
 
         # Testing ECG features similarity
         features_ecg_set = set(features["ECG"])
-        actual_all_features_ecg_set = set(actual_all_features_ecg)
-        assert features_ecg_set == actual_all_features_ecg_set, f"Missing features in actual_all_features_ecg: {features_ecg_set - actual_all_features_ecg_set}"
+        expected_all_features_ecg_set = set(expected_all_features_ecg)
+        assert features_ecg_set == expected_all_features_ecg_set, f"Missing features in expected_all_features_ecg: {features_ecg_set - expected_all_features_ecg_set}"
 
         # Testing EEG features similarity
         features_eeg_set = set(features["EEG"])
-        actual_all_features_eeg_set = set(actual_all_features_eeg)
-        assert features_eeg_set == actual_all_features_eeg_set, f"Missing features in actual_all_features_eeg: {features_eeg_set - actual_all_features_eeg_set}"
+        expected_all_features_eeg_set = set(expected_all_features_eeg)
+        assert features_eeg_set == expected_all_features_eeg_set, f"Missing features in expected_all_features_eeg: {features_eeg_set - expected_all_features_eeg_set}"
 
-    def test_gloc_labeling(self):
-        manager = DataManager()
-        file_paths = manager._get_data_locations()
-        gloc_data = manager._load_data(file_paths)
+    def test_gloc_labeling(self, manager, file_paths, gloc_data):
+        gloc_data = gloc_data.copy()
 
-        feature_groups_to_analyze = {"ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE", "G", "processedEEG", "demographics", "strain"}
+        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
         model_type = ("Complete", "Explicit")
         gloc_data, _ = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
 
@@ -3667,7 +3648,7 @@ class TestDataManager:
 
         assert np.array_equal(gloc_labels, expected_gloc_labels), "The GLOC labels do not match the expected labels based on event_validated and trial_id."
 
-    def test_afe_subset(self):
+    def test_afe_subset(self, manager, file_paths, gloc_data):
         def afe_subset(model_type, gloc_data, all_features, gloc_labels):
             """
                 Remove trials where there is atl east one data stream that is all NaN
@@ -3716,23 +3697,29 @@ class TestDataManager:
 
             return gloc_data, gloc_labels
 
-        manager = DataManager()
-        file_paths = manager._get_data_locations()
-        gloc_data = manager._load_data(file_paths)
+        # Data Setup
+        gloc_data = gloc_data.copy()
 
-        feature_groups_to_analyze = {"ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE", "G", "processedEEG", "demographics", "strain"}
-        model_type = ("Complete", "Explicit")
+        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
+        model_type = ("noAFE", "Explicit")
         gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
         gloc_labels = manager._label_gloc_events(gloc_data)
-        gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
 
-        actual_gloc_data, actual_gloc_labels = gloc_data.copy(), gloc_labels.copy()
-        actual_gloc_data, actual_gloc_labels = afe_subset(model_type, gloc_data, features["All"], gloc_labels)
 
-        assert gloc_data.equals(actual_gloc_data), "The gloc_data after afe_subset does not match the expected gloc_data."
-        assert np.array_equal(gloc_labels, actual_gloc_labels), "The gloc_labels after afe_subset does not match the expected gloc_labels."
 
-    def test_eeg_specific_imputation(self):
+        # Create Expected Copy
+        expected_gloc_data, expected_gloc_labels = gloc_data.copy(), gloc_labels.copy()
+        if model_type[0] != "Complete":
+            expected_gloc_data, expected_gloc_labels = afe_subset(model_type, gloc_data, features["All"], gloc_labels)
+
+        # Getting the actual output
+        if model_type[0] != "Complete":
+            gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
+
+        assert gloc_data.equals(expected_gloc_data), "The gloc_data after afe_subset does not match the expected gloc_data."
+        assert np.array_equal(gloc_labels, expected_gloc_labels), "The gloc_labels after afe_subset does not match the expected gloc_labels."
+
+    def test_eeg_specific_imputation(self, manager, file_paths, gloc_data):
         def pull_eeg_sets():
             # list of shared eeg channels
             raw_eeg_shared_features = ['Fz - EEG', 'F3 - EEG', 'C3 - EEG', 'C4 - EEG',
@@ -3833,34 +3820,111 @@ class TestDataManager:
             return df
 
         # Setup data
-        manager = DataManager()
-        file_paths = manager._get_data_locations()
-        gloc_data = manager._load_data(file_paths)
-        
-        feature_groups_to_analyze = {"ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE", "G", "processedEEG", "demographics", "strain"}
-        model_type = ("Complete", "Explicit")
+        gloc_data = gloc_data.copy()
+
+        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
+        model_type = ("noAFE", "Explicit")
         gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
         gloc_labels = manager._label_gloc_events(gloc_data)
-        gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
+        if model_type[0] != "Complete":
+            gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
 
 
 
-        # Setup the actual result
-        actual_gloc_data = gloc_data.copy()
+        # Setup expected result
+        expected_gloc_data = gloc_data.copy()
 
         # Compute AFE / NonAFE condition indicator column
         condition_idx = features["All"].index('condition')
-        afe_indicator_column = actual_gloc_data.iloc[:, condition_idx]
+        afe_indicator_column = expected_gloc_data.iloc[:, condition_idx]
 
         # Impute (using mean) the value of the missing channels for each AFE condition
-        actual_gloc_data = eeg_condition_impute(actual_gloc_data, features["EEG"], afe_indicator_column, verbose = False)
-        actual_gloc_data.rename(columns = {"condition": "AFE_indicator"}, inplace = True) # Rename condition column to AFE_indicator to maintain ordering of columns
+        expected_gloc_data = eeg_condition_impute(expected_gloc_data, features["EEG"], afe_indicator_column, verbose = False)
+        expected_gloc_data.rename(columns = {"condition": "AFE_indicator"}, inplace = True) # Rename condition column to AFE_indicator to maintain ordering of columns
 
-
-
-        # Setup data to compare to the actual
+        # Get actual output
         manager._eeg_specific_imputation(gloc_data, features)
 
-        print(gloc_data.columns[264], actual_gloc_data.columns[264])
-        pd.testing.assert_frame_equal(gloc_data, actual_gloc_data)
-        assert gloc_data.equals(actual_gloc_data), "The gloc_data after eeg_specific_imputation does not match the expected gloc_data."
+        assert gloc_data.equals(expected_gloc_data), "The gloc_data after eeg_specific_imputation does not match the expected gloc_data."
+
+    def test_remove_all_NaN_trials(self, manager, file_paths, gloc_data):
+        def remove_all_nan_trials(gloc_data_reduced, all_features, gloc, verbose = True):
+            """
+                Remove trials where there is at least one data stream that is all NaN
+                Also returns a NaN proportionality table that says for each trial, what prop are NaN for each data stream
+            """
+
+            # All features and subject trial info to be put into a reduced dataframe from gloc_data_reduced
+            all_features_with_ids = all_features + ['subject','trial']
+            reduced_data_frame = gloc_data_reduced[all_features_with_ids]
+
+            rows_to_remove = []
+            nan_proportion_table = []
+
+            N = 0 # number of trials total
+            M = 0 # number of trials with missing data streams
+            for (subject, trial), group in reduced_data_frame.groupby(['subject', 'trial']):
+                trial_data = reduced_data_frame[(reduced_data_frame['subject'] == subject) &
+                                                (reduced_data_frame['trial'] == trial)]
+
+                # Compute proportion of NaN values for each feature
+                nan_proportions = trial_data[all_features].isna().mean().to_dict()
+
+                # Store subject-trial and NaN proportions
+                nan_proportion_table.append({'subject-trial': f"{subject}-{trial}", **nan_proportions})
+
+                # Check if any of the columns in the trial data are entirely NaN
+                all_nan_cols = trial_data[all_features].isna().all()
+                if all_nan_cols.any():
+                    # If so, add these indices to the list of rows to remove
+                    rows_to_remove.append(trial_data.index)
+
+                    # Identify feature names that are completely NaN
+                    nan_features = all_nan_cols[all_nan_cols].index.tolist()
+
+                    # Print info about which trial and features were missing if verbose is true (default is false / no print)
+                    if verbose:
+                        print(f"Subject {subject}, Trial {trial}: features entirely NaN → {nan_features}")
+
+                    M += 1 # count missing trials
+
+                N += 1 # count trials
+
+            # Flatten list of indices and remove them from the DataFrame
+            rows_to_remove = [item for sublist in rows_to_remove for item in sublist]
+
+            # Convert from a dict to a DF
+            nan_proportion_df = pd.DataFrame(nan_proportion_table)
+
+            # Get rid of rows in the DF and array
+            gloc_data_reduced = gloc_data_reduced.drop(rows_to_remove)
+            gloc_data_reduced = gloc_data_reduced.reset_index(drop=True)
+            gloc = np.delete(gloc, rows_to_remove, axis=0)
+
+            # Print NaN findings
+            print("There are ", M, " trials with all NaNs for at least one feature out of ", N,
+                "trials. ", N - M, " trials remaining.")
+
+            return gloc_data_reduced, gloc, nan_proportion_df
+        
+        # Data Setup
+        gloc_data = gloc_data.copy()
+
+        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
+        model_type = ("Complete", "Explicit")
+        gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
+        gloc_labels = manager._label_gloc_events(gloc_data)
+        if model_type[0] != "Complete":
+            gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
+
+
+
+        # Create expected copy
+        expected_gloc_data, expected_gloc_labels = gloc_data.copy(), gloc_labels.copy()
+        expected_gloc_data, expected_gloc_labels, _ = remove_all_nan_trials(expected_gloc_data, features["All"], expected_gloc_labels, verbose = False)
+
+        # Get actual output
+        manager._remove_all_nan_trials(gloc_data, features, gloc_labels)
+
+        assert gloc_data.equals(expected_gloc_data), "The gloc_data after remove_all_nan_trials does not match the expected gloc_data."
+        assert np.array_equal(gloc_labels, expected_gloc_labels), "The gloc_labels after remove_all_nan_trials does not match the expected gloc_labels."
