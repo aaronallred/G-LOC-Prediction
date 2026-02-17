@@ -82,14 +82,20 @@ class DataManager:
         #       This block requires 'AFE' to be an
         ####
         if model_type[0] != "Complete":
-            self._eeg_specific_imputation(gloc_data, features)
+            gloc_data = self._eeg_specific_imputation(gloc_data, features)
 
         ############################################### MISSING DATA HANDLING ###############################################
         """
         Optional handling of raw NaN data, depending on 'remove_NaN_trials' 'impute_type' <= 1
         """
         if remove_NaN_trials:
-            nan_proportion_df = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
+            # This also returns a DataFrame with proportion of NaN values for each feature for each trial
+            # Also modifies gloc_data and gloc_labels to remove trials with all NaNs in at least one feature
+            # Note: DataFrame not used for the pipeline for memory purposes
+            gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
+
+        ################################################## REDUCE MEMORY ##################################################
+
 
     def _get_feature_groups_and_baseline_methods(self, model_type):
         feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
@@ -231,7 +237,7 @@ class DataManager:
         else: # All Trials for All Subjects
             return gloc_data
         
-        return gloc_data[mask].copy()
+        return gloc_data[mask]
 
     def _process_and_get_feature_names(self, gloc_data, feature_groups_to_analyze, model_type, file_names):
         """Process data and extract feature names based on specified feature groups."""
@@ -396,6 +402,8 @@ class DataManager:
         # Rename column for indicating AFE status
         gloc_data.rename(columns = {"condition": "AFE_indicator"}, inplace = True)
 
+        return gloc_data
+
     def _eeg_condition_impute(self, gloc_data, features, afe_indicator_column, verbose = True):
         """
             Ensures both AFE (1) and non-AFE (0) conditions have the same feature columns.
@@ -487,4 +495,4 @@ class DataManager:
         # Print NaN findings
         print(f"There are {M} trials with all NaNs for at least one feature out of {N} trials. {N - M} trials remaining.")
 
-        return nan_proportion_df
+        return gloc_data, gloc_labels, nan_proportion_df
