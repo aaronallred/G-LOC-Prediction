@@ -523,4 +523,4 @@ class DataManager:
 
             result.append(mapping[s])
 
-        return np.array(result, dtype = np.uint32).reshape(-1, 1)
+        return np.array(result, dtype = np.uint32)

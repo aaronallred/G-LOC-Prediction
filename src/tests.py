@@ -1589,7 +1589,7 @@ class TestDataManager:
                     current_id += 1
                 result.append(mapping[s])
 
-            return np.array(result,dtype=np.float32).reshape(-1, 1)
+            return np.array(result,dtype=np.float32)
 
         # Data Setup
         gloc_data = gloc_data.copy()
@@ -1616,6 +1616,9 @@ class TestDataManager:
 
         # Get actual output
         gloc_data = manager._reduce_memory(gloc_data, model_type, features)
+
+        print(gloc_data["trial_ints"].to_numpy())
+        print(trial_ints)
 
         # Check that relevant columns are the same in gloc_data
         assert np.array_equal(gloc_data["trial_id"].to_numpy(), trial_column.to_numpy()), "The 'trial_id' column in gloc_data does not match the expected 'trial_id' column."
