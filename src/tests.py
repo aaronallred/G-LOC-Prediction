@@ -807,10 +807,10 @@ def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demogra
         eyetracking_features = []
 
     # Adjust columns of data frame for feature always
-    gloc_data_reduced.replace({"condition": "N"}, 0, inplace=True)
-    gloc_data_reduced.replace({"condition": "AFE"}, 1, inplace=True)
+    gloc_data_reduced.replace({"AFE_indicator": "N"}, 0, inplace=True)
+    gloc_data_reduced.replace({"AFE_indicator": "AFE"}, 1, inplace=True)
     if "AFE" in feature_groups_to_analyze:
-        afe_features = ["condition"]
+        afe_features = ["AFE_indicator"]
 
     else:
         afe_features = []
@@ -1226,6 +1226,7 @@ class TestDataManager:
         
         # Adjust AFE condition column always
         expected_gloc_data["condition"] = expected_gloc_data["condition"].map({"N": 0, "AFE": 1})
+        expected_gloc_data = expected_gloc_data.rename(columns = {"condition": "AFE_indicator"})
 
         # Convert float64 to float32 to save memory, and copy to defragment the DataFrame
         expected_gloc_data = expected_gloc_data.astype({col: "float32" for col in expected_gloc_data.select_dtypes(include = "float64").columns}).copy()
@@ -1367,7 +1368,7 @@ class TestDataManager:
 
             # All features and subject trial info to be put into a reduced dataframe from gloc_data_reduced
             # add on 'condition' to always check | requires second '.any()' statement below in the condition
-            all_features_with_ids = all_features + ['condition','subject','trial']
+            all_features_with_ids = all_features + ['AFE_indicator','subject','trial']
             reduced_data_frame = gloc_data[all_features_with_ids]
 
             rows_to_remove = []
@@ -1380,7 +1381,7 @@ class TestDataManager:
 
 
                 # Check if the chosen AFE condition is violated at all during the trial
-                if trial_data['condition'].any().any() != cond:
+                if trial_data['AFE_indicator'].any().any() != cond:
                     # If so, add these indices to the list of rows to remove
                     rows_to_remove.append(trial_data.index)
                     M = M+1 # to be removed
@@ -1484,12 +1485,11 @@ class TestDataManager:
         expected_gloc_data = gloc_data.copy()
 
         # Compute AFE / NonAFE condition indicator column
-        condition_idx = features["All"].index('condition')
+        condition_idx = features["All"].index('AFE_indicator')
         afe_indicator_column = expected_gloc_data.iloc[:, condition_idx]
 
         # Impute (using mean) the value of the missing channels for each AFE condition
         expected_gloc_data = eeg_condition_impute(expected_gloc_data, features["EEG"], afe_indicator_column, verbose = False)
-        expected_gloc_data.rename(columns = {"condition": "AFE_indicator"}, inplace = True) # Rename condition column to AFE_indicator to maintain ordering of columns
 
         # Get actual output
         manager._eeg_specific_imputation(gloc_data, features)
@@ -1577,3 +1577,51 @@ class TestDataManager:
 
         assert gloc_data.equals(expected_gloc_data), "The gloc_data after remove_all_nan_trials does not match the expected gloc_data."
         assert np.array_equal(gloc_labels, expected_gloc_labels), "The gloc_labels after remove_all_nan_trials does not match the expected gloc_labels."
+
+    def test_reduce_memory(self, manager, file_paths, gloc_data):
+        def convert_to_unique_ordered_integers(strings):
+            mapping = {}
+            result = []
+            current_id = 1
+            for s in strings:
+                if s not in mapping:
+                    mapping[s] = current_id
+                    current_id += 1
+                result.append(mapping[s])
+
+            return np.array(result,dtype=np.float32).reshape(-1, 1)
+
+        # Data Setup
+        gloc_data = gloc_data.copy()
+
+        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
+        model_type = ("Complete", "Explicit")
+        gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
+        gloc_labels = manager._label_gloc_events(gloc_data)
+        if model_type[0] != "Complete":
+            gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
+
+        # Create expected copy
+        expected_gloc_data = gloc_data.copy()
+        # Grab columns from gloc_data_reduced and remove gloc_data_reduced variable from memory
+        trial_column = expected_gloc_data['trial_id']
+        trial_ints = convert_to_unique_ordered_integers(trial_column)
+        time_column = expected_gloc_data['Time (s)']
+        event_validated_column = expected_gloc_data['event_validated']
+        subject_column = expected_gloc_data['subject']
+        if "complete" in model_type:
+            afe_indicator_column = expected_gloc_data["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1)
+
+        del expected_gloc_data
+
+        # Get actual output
+        gloc_data = manager._reduce_memory(gloc_data, model_type, features)
+
+        # Check that relevant columns are the same in gloc_data
+        assert np.array_equal(gloc_data["trial_id"].to_numpy(), trial_column.to_numpy()), "The 'trial_id' column in gloc_data does not match the expected 'trial_id' column."
+        assert np.array_equal(gloc_data["trial_ints"].to_numpy(), trial_ints), "The 'trial_ints' column in gloc_data does not match the expected 'trial_ints' column."
+        assert np.array_equal(gloc_data["Time (s)"].to_numpy(), time_column.to_numpy()), "The 'Time (s)' column in gloc_data does not match the expected 'Time (s)' column."
+        assert np.array_equal(gloc_data["event_validated"].to_numpy(), event_validated_column.to_numpy()), "The 'event_validated' column in gloc_data does not match the expected 'event_validated' column."
+        assert np.array_equal(gloc_data["subject"].to_numpy(), subject_column.to_numpy()), "The 'subject' column in gloc_data does not match the expected 'subject' column."
+        if "complete" in model_type:
+            assert np.array_equal(gloc_data["AFE_indicator"].to_numpy().reshape(-1, 1), afe_indicator_column), "The 'AFE_indicator' column in gloc_data does not match the expected 'AFE_indicator' column."

@@ -97,6 +97,7 @@ class DataManager:
         ################################################## REDUCE MEMORY ##################################################
 
 
+
     def _get_feature_groups_and_baseline_methods(self, model_type):
         feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
         baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE[model_type[0]]
@@ -212,6 +213,7 @@ class DataManager:
 
         # Adjust AFE condition column always
         gloc_data["condition"] = gloc_data["condition"].map({"N": 0, "AFE": 1})
+        gloc_data = gloc_data.rename(columns = {"condition": "AFE_indicator"})
 
         # Convert float64 to float32 to save memory, and copy to defragment the DataFrame
         float64_cols = gloc_data.select_dtypes(include="float64").columns
@@ -384,7 +386,7 @@ class DataManager:
         """
             Remove any trial that contains AFE condition (condition == 1).
         """
-        trial_has_afe = gloc_data.groupby("trial")["condition"].transform("max") # Mark trial as all 1 if any are 1, otherwise 0
+        trial_has_afe = gloc_data.groupby("trial")["AFE_indicator"].transform("max") # Mark trial as all 1 if any are 1, otherwise 0
         keep_mask = trial_has_afe != 1
 
         gloc_data = gloc_data.loc[keep_mask].reset_index(drop = True)
@@ -394,13 +396,10 @@ class DataManager:
     
     def _eeg_specific_imputation(self, gloc_data, features):
         # Compute AFE / NonAFE condition indicator column
-        afe_indicator_column = gloc_data["condition"]
+        afe_indicator_column = gloc_data["AFE_indicator"]
 
         # Impute (using mean) the value of the missing channels for each AFE condition
         self._eeg_condition_impute(gloc_data, features, afe_indicator_column)
-
-        # Rename column for indicating AFE status
-        gloc_data.rename(columns = {"condition": "AFE_indicator"}, inplace = True)
 
         return gloc_data
 
@@ -496,3 +495,32 @@ class DataManager:
         print(f"There are {M} trials with all NaNs for at least one feature out of {N} trials. {N - M} trials remaining.")
 
         return gloc_data, gloc_labels, nan_proportion_df
+    
+    def _reduce_memory(self, gloc_data, model_type, features):
+        # Filter the needed columns
+        columns_to_keep = features["All"] + ["trial_id", "Time (s)", "event_validated", "subject"]
+        if "Complete" in model_type:
+            columns_to_keep.append("AFE_indicator")
+
+        gloc_data = gloc_data[columns_to_keep].astype(np.float32, errors = "ignore")
+        gloc_data["trial_ints"] = self._convert_to_unique_ordered_integers(gloc_data["trial_id"]) # uint32
+        gloc_data["AFE_indicator"] = gloc_data["AFE_indicator"].astype(np.bool_, errors = "ignore") # Convert to boolean
+
+        return gloc_data
+
+    def _convert_to_unique_ordered_integers(self, strings):
+        """
+            Convert a list of strings to unique integers in the order they appear.
+            For example, ['trial1', 'trial2', 'trial1'] would be converted to [1, 2, 1].
+        """
+        mapping = {}
+        result = []
+        current_id = 1
+        for s in strings:
+            if s not in mapping:
+                mapping[s] = current_id
+                current_id += 1
+
+            result.append(mapping[s])
+
+        return np.array(result, dtype = np.uint32).reshape(-1, 1)

@@ -69,7 +69,7 @@ class EyeTrackingGroup(BaseFeatureGroup):
     
 class AFEGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
-        return ["condition"]
+        return ["AFE_indicator"]
     
 class GGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
