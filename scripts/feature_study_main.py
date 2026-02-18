@@ -32,9 +32,160 @@ import seaborn as sns
 
 offset_ranges = (0,1,1) # No longer doing any offset (no temporal eval)
 data_rate = 25 # (hz)
-preference = 8 # Which section of the code do we want to run
+preference = 11 # Which section of the code do we want to run
 random_state = 42
 class_weight_imb = None
+
+def test_violin(f1_results_by_stream, model_type, subfolder2=None):
+    """
+    Create faceted violin plots with a 'checkbox' style matrix x-axis.
+    """
+    import pandas as pd
+    import seaborn as sns
+    import matplotlib.pyplot as plt
+    import matplotlib.gridspec as gridspec
+    import os
+
+    # ------------------------------------------------------------
+    # 1. Prepare the Data
+    # ------------------------------------------------------------
+    records = []
+    for clf, stream_dict in f1_results_by_stream.items():
+        for stream, f1_scores in stream_dict.items():
+            for score in f1_scores:
+                records.append({
+                    "Classifier": clf,
+                    "Stream": stream,
+                    "F1 Score": score
+                })
+    df = pd.DataFrame(records)
+
+    # Identify unique classifiers and streams
+    classifiers = df['Classifier'].unique()
+    unique_streams = df['Stream'].unique()  # Sort by length looks nice usually
+
+    # ------------------------------------------------------------
+    # 2. Build the Matrix Data (The "Checkbox" Grid)
+    # ------------------------------------------------------------
+    # Identify all unique individual components (e.g., 'ECG', 'EEG', 'Pupil')
+    components = set()
+    for s in unique_streams:
+        # Split by hyphen to get ingredients
+        parts = s.split('-')
+        components.update(parts)
+    sorted_components = sorted(list(components))
+
+    # Create a DataFrame where Index=Components, Columns=Stream Names
+    # 1 = component is present, 0 = absent
+    matrix_data = []
+    for comp in sorted_components:
+        row = []
+        for stream_name in unique_streams:
+            # Check if component is in the stream name
+            # (using precise split check to avoid partial matches)
+            is_present = 1 if comp in stream_name.split('-') else 0
+            row.append(is_present)
+        matrix_data.append(row)
+
+    matrix_df = pd.DataFrame(matrix_data, index=sorted_components, columns=unique_streams)
+
+    # ------------------------------------------------------------
+    # 3. Setup Custom Grid Layout
+    # ------------------------------------------------------------
+    # We need a column for each classifier.
+    # Inside each column, we need 2 rows: Top (Violin, ~80%), Bottom (Matrix, ~20%)
+    num_clfs = len(classifiers)
+
+    fig = plt.figure(figsize=(6 * num_clfs, 10))
+    # Add a global title slightly higher up
+    fig.suptitle(
+        f"F1 Score Distributions by Feature Stream | Model: {get_model_subfolder(model_type)}",
+        fontsize=16, fontweight="bold", y=0.95
+    )
+
+    # Create outer grid (1 row, N columns for classifiers)
+    outer_grid = gridspec.GridSpec(1, num_clfs, wspace=0.1)
+
+    for i, clf in enumerate(classifiers):
+        # Create an inner grid for this classifier (2 rows: plot & matrix)
+        inner_grid = gridspec.GridSpecFromSubplotSpec(
+            2, 1,
+            subplot_spec=outer_grid[i],
+            height_ratios=[4, 1.5],  # Adjust this to change relative height of matrix
+            hspace=0.05
+        )
+
+        ax_top = plt.Subplot(fig, inner_grid[0])
+        ax_bottom = plt.Subplot(fig, inner_grid[1])
+        fig.add_subplot(ax_top)
+        fig.add_subplot(ax_bottom)
+
+        # Filter data for this classifier
+        clf_data = df[df['Classifier'] == clf]
+
+        # --- A. TOP PLOT (Violin) ---
+        sns.violinplot(
+            data=clf_data,
+            x="Stream",
+            y="F1 Score",
+            order=unique_streams,  # CRITICAL: Ensure ordering matches matrix
+            ax=ax_top,
+            palette="Set2",
+            inner="box",
+            hue="Stream",
+            legend=False
+        )
+
+        # Styling Top
+        ax_top.set_title(clf, fontsize=14, fontweight='bold')
+        ax_top.set_xlabel('')
+        ax_top.set_xticklabels([])  # Hide x-text on top plot
+
+        # Only show Y labels for the first classifier (leftmost)
+        if i > 0:
+            ax_top.set_ylabel('')
+            ax_top.set_yticklabels([])
+        else:
+            ax_top.set_ylabel("F1 Score", fontsize=12)
+
+        # Force y-limits if needed
+        # ax_top.set_ylim(0.0, 1.0)
+
+        # --- B. BOTTOM PLOT (Matrix Heatmap) ---
+        # Draw the heatmap
+        sns.heatmap(
+            matrix_df,
+            ax=ax_bottom,
+            cbar=False,
+            cmap="Greens",  # White=0, Black=1 (or use 'Blues', etc)
+            linewidths=1,
+            linecolor='lightgray',
+            vmin=0, vmax=1.5  # Slight offset makes the '1's distinct grey/black
+        )
+
+        # Styling Bottom
+        ax_bottom.set_xlabel("Data Stream Combination", fontsize=10)
+        ax_bottom.set_xticklabels([])  # We don't need text labels on x, the dots represent them
+        ax_bottom.tick_params(left=False, bottom=False)  # Remove tick marks
+
+        # Only show Component names (rows) for the first classifier
+        if i > 0:
+            ax_bottom.set_yticklabels([])
+        else:
+            ax_bottom.set_yticklabels(sorted_components, rotation=0, fontsize=10)
+
+    # ------------------------------------------------------------
+    # Save the plot to the appropriate folder
+    # ------------------------------------------------------------
+    subfolder = get_model_subfolder(model_type)
+    results_folder = os.path.join('./feature_study', subfolder, subfolder2 or "")
+    os.makedirs(results_folder, exist_ok=True)
+
+    plot_path = os.path.join(results_folder, "f1_violin_by_stream.png")
+    fig.savefig(plot_path, bbox_inches='tight')
+    print(f"Saved faceted F1 violin plot to {plot_path}")
+
+    plt.show()
 
 def plot_f1_violin_by_stream(f1_results_by_stream, model_type, subfolder2=None):
     """
@@ -73,6 +224,7 @@ def plot_f1_violin_by_stream(f1_results_by_stream, model_type, subfolder2=None):
                     "F1 Score": score
                 })
     df = pd.DataFrame(records)
+    df['Stream'] = df['Stream'].str.replace('-', '\n')
 
     # ------------------------------------------------------------
     # Create faceted violin plots:
@@ -83,23 +235,24 @@ def plot_f1_violin_by_stream(f1_results_by_stream, model_type, subfolder2=None):
     # ------------------------------------------------------------
     g = sns.catplot(
         data=df,
-        x="F1 Score",
-        y="Stream",
+        x="Stream",
+        y="F1 Score",
         col="Classifier",
         kind="violin",
-        orient="h",
+        orient="v",
         inner="box",          # Adds a small boxplot inside each violin
         hue="Stream",         # Ensures consistent coloring across panels
         palette="Set2",
         legend=False,         # Avoid redundant legend (streams already on y-axis)
-        sharex=True,          # Lock x-axis across classifiers for comparability
-        sharey=False,         # Allow each classifier to show its own stream list
-        height=5,
+        sharex=False,          # Lock x-axis across classifiers for comparability
+        sharey=True,         # Allow each classifier to show its own stream list
+        height=6,
         aspect=1.2,
     )
 
     # Force all panels to use the full F1 range (0–1)
-    g.set(xlim=(0, 1))
+    # g.set(ylim=(0.7, 1))
+    # g.set_xticklabels(rotation=20, horizontalalignment='right')
 
     # Adjust spacing and add a global title
     g.fig.subplots_adjust(top=0.85)
@@ -119,6 +272,7 @@ def plot_f1_violin_by_stream(f1_results_by_stream, model_type, subfolder2=None):
     plot_path = os.path.join(results_folder, "f1_violin_by_stream.png")
     g.savefig(plot_path)
     print(f"Saved faceted F1 violin plot to {plot_path}")
+    plt.tight_layout()
 
     # Display the plot
     plt.show()
@@ -160,6 +314,20 @@ def restrict_feature_space(select_features, streams):
         if any(stream in feat_lower for stream in streams_lower):
             usable_features.append(feat)
 
+    for feat in usable_features:
+        feat_lower = feat.lower()
+        matches = [s for s in streams_lower if s in feat_lower]  # substring match
+        if len(matches) >= 2:
+            print(feat, "=>", matches)
+
+        # for s in streams_lower:
+        #     for feat in usable_features:
+        #         if s in feat:
+        #             test_stream = streams_lower.remove(s)
+        #             if any (stream in feat for stream in test_stream):
+        #                 print(feat)
+        #                 exit()
+
     # If no features matched the requested streams, notify the user.
     # This helps catch cases where stream names or feature names don't align.
     if not usable_features:
@@ -176,16 +344,30 @@ if preference == 7:
     # This defines which model folder to load hyperparameters from
     model_type = ['complete', 'explicit']
 
+    # Classifiers to evaluate for each stream combination
+    classifiers_to_test = ['EGB', 'KNN', 'RF']
+
+    # Defines which sensor ablation method to use - OPTIONS: 'manual', 'feature_select'
+    ablation_method = 'manual'
+
+    if ablation_method == 'manual':
+        sensor_features = ['RF', 'RF', 'RF'] # Use RF since it includes all features
+    elif ablation_method == 'feature_select':
+        sensor_features = classifiers_to_test # Use features selected in sequential optimization
+    else:
+        raise ValueError(f"Unknown ablation_method: {ablation_method}")
+
     # Load selected features from JSON for each classifier
     # These represent the *full* feature sets before restriction of data streams
-    _, select_featuresEGB, _, _ = get_hyperparameters_from_json('EGB', get_model_subfolder(model_type))
-    _, select_featuresKNN, _, _ = get_hyperparameters_from_json('KNN', get_model_subfolder(model_type))
-    _, select_featuresRF, _, _ = get_hyperparameters_from_json('RF', get_model_subfolder(model_type))
+    _, select_featuresEGB, _, _ = get_hyperparameters_from_json(sensor_features[0], get_model_subfolder(model_type))
+    _, select_featuresKNN, _, _ = get_hyperparameters_from_json(sensor_features[1], get_model_subfolder(model_type))
+    _, select_featuresRF, _, _ = get_hyperparameters_from_json(sensor_features[2], get_model_subfolder(model_type))
 
     # Define stream combinations to iterate through
     # Each entry is a list of data streams that will be used to restrict the feature space
     # These represent all combinations of the four source groups
     stream_combos = [
+        ['ECG', 'HR', 'BR', 'EEG', 'Pupil', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
         ['ECG', 'HR', 'BR'], # Source group 1
         ['EEG'], # Source group 2
         ['Pupil'], # Source group 3
@@ -203,9 +385,6 @@ if preference == 7:
         ['ECG', 'HR', 'BR', 'EEG', 'Pupil', 'Centrifuge', 'Strain', 'Participant', 'Temperature']
     ]
 
-    # Classifiers to evaluate for each stream combination
-    classifiers_to_test = ['KNN','EGB','RF']
-
     # Nested dict: classifier -> stream -> F1 scores
     # This will store all results for later plotting
     f1_results_by_stream = {clf: {} for clf in classifiers_to_test}
@@ -215,9 +394,10 @@ if preference == 7:
         print(f"\n=== Evaluating streams: {streams_of_interest} ===")
 
         # Restrict features per classifier based on the current stream subset
-        usable_featuresKNN = restrict_feature_space(select_featuresKNN, streams_of_interest)
+        # usable_featuresKNN = restrict_feature_space(select_featuresKNN, streams_of_interest)
         usable_featuresRF = restrict_feature_space(select_featuresRF, streams_of_interest)
-        usable_featuresEGB = restrict_feature_space(select_featuresEGB, streams_of_interest)
+        # usable_featuresEGB = restrict_feature_space(select_featuresEGB, streams_of_interest)
+        # exit()
 
         # Bundle restricted features for easy lookup
         usable_features_dict = {
@@ -565,16 +745,49 @@ if preference == 8:
     print("\nPlotting selected results...")
     plot_f1_violin_by_stream(filtered_results, model_type, subfolder2="filtered")
 
+    # # Median Results per Classifier Plot
+    # for clf in classifiers:
+    #     for stream in all_streams:
+    #         if stream in f1_results_by_stream[clf]:
+    #             print(f"Median F1 Score for {clf}, {stream}: {np.median(f1_results_by_stream[clf][stream])}")
+    #
+    # records = []
+    # for clf in classifiers:
+    #     for stream in all_streams:
+    #         if stream in f1_results_by_stream[clf]:
+    #             records.append({
+    #                 "Classifier": clf,
+    #                 "Stream": stream,
+    #                 "Median F1 Score": np.median(f1_results_by_stream[clf][stream])
+    #             })
+    # df = pd.DataFrame(records)
+    #
+    # print(df)
+    # plt.figure(figsize=(12, 6))
+    # sns.lineplot(
+    #     data=df,
+    #     x='Stream',
+    #     y='Median F1 Score',
+    #     hue='Classifier',
+    #     style='Classifier',
+    #     markers=True,
+    #     dashes=True
+    # )
+    # plt.xticks(rotation=15, ha='right')
+    # plt.grid(True, alpha=0.5)
+    # plt.tight_layout()
+    # plt.show()
+
 
 
 if preference == 9:
     # Preference to plot overlap of features ONLY
     # Agnostic to how every many classifiers we want to look at
     # Just ensure that saved hyperparameters and selected features are in JSON format
-    model_type = ['noAFE', 'explicit']
+    model_type = ['complete', 'explicit']
 
     # Try with all however many classifiers
-    investigate_feature_space(model_type, ['KNN', 'LDA', 'logreg'])
+    investigate_feature_space(model_type, ['KNN', 'EGB', 'RF'])
 
 
 if preference == 10:
@@ -582,3 +795,122 @@ if preference == 10:
     model_type = ['noAFE', 'explicit']
     classifier = 'logreg'
     get_median_hyperparameters(classifier,get_model_subfolder(model_type))
+
+if preference == 11:
+    """
+    Inspect previously saved F1 results from preference 7.
+    Allows:
+        - Loading all saved .pkl files
+        - Viewing classifiers independently
+        - Re-plotting subsets of the results
+    """
+
+    # Define model type and locate the folder where preference 7 saved results
+    model_type = ['complete', 'explicit']
+    subfolder = get_model_subfolder(model_type)
+    results_folder = os.path.join('./feature_study', subfolder, 'streamwise')
+
+    # Classifiers whose results we expect to load
+    classifiers = ['KNN', 'EGB', 'RF']
+
+    # Prepare nested dictionary:
+    # f1_results_by_stream[classifier][stream_name] = array_of_f1_scores
+    f1_results_by_stream = {clf: {} for clf in classifiers}
+
+    # Iterate through all files in the results folder and load matching .pkl files
+    for clf in classifiers:
+        for filename in os.listdir(results_folder):
+            # Only load files that match the naming pattern for this classifier
+            if filename.startswith(f"f1_results_{clf}_") and filename.endswith(".pkl"):
+                # Extract the stream name from the filename
+                stream_str = filename.replace(f"f1_results_{clf}_", "").replace(".pkl", "")
+                filepath = os.path.join(results_folder, filename)
+
+                # Load the stored F1 score array
+                with open(filepath, "rb") as f:
+                    f1_results_by_stream[clf][stream_str] = pickle.load(f)
+
+    # -------------------------------
+    # INTERACTIVE SELECTION SECTION
+    # -------------------------------
+
+    # Show available classifiers to the user
+    print("\nAvailable classifiers:", classifiers)
+
+    # User selects one or more classifiers (or "all")
+    clf_choice = input(
+        "Enter classifier(s) to inspect (e.g., 'KNN', 'KNN RF', 'KNN,EGB', or 'all'): "
+    ).strip()
+
+    if clf_choice.lower() == "all":
+        # User wants all classifiers
+        selected_classifiers = classifiers
+    else:
+        # Split user input on commas/spaces and keep only valid classifier names
+        selected_classifiers = [
+            c.strip()
+            for c in clf_choice.replace(",", " ").split()
+            if c.strip() in classifiers
+        ]
+
+        # If nothing valid was selected, stop execution
+        if len(selected_classifiers) == 0:
+            print("\nNo valid classifiers selected. Available options:", classifiers)
+            raise SystemExit
+
+    # Collect all stream names available for the selected classifiers
+    all_streams = {
+        stream
+        for clf in selected_classifiers
+        for stream in f1_results_by_stream[clf].keys()
+    }
+
+    if len(all_streams) == 0:
+        print("\nNo streams found for the selected classifiers.")
+        raise SystemExit
+
+    # -----------------------------------------
+    # SORT STREAMS BY MEDIAN F1 SCORE
+    # -----------------------------------------
+    stream_median_map = {}
+
+    for stream in all_streams:
+        combined_scores = []
+        for clf in selected_classifiers:
+            # Check if this classifier has data for this specific stream
+            if stream in f1_results_by_stream[clf]:
+                combined_scores.extend(f1_results_by_stream[clf][stream])
+
+        if combined_scores:
+            stream_median_map[stream] = np.median(combined_scores)
+
+    # Sort streams by median
+    sorted_streams = sorted(stream_median_map, key=stream_median_map.get, reverse=True)
+
+    # -----------------------------------------
+    # BUILD FILTERED RESULTS AND PLOT
+    # -----------------------------------------
+
+    # Build a filtered dictionary containing only the selected classifiers and streams
+    filtered_results = {
+        clf: {
+            # stream: f1_results_by_stream[clf][stream]
+            stream.replace('ECG-HR-BR-Temperature', 'ECG').replace('Participant', 'Demographics').replace('Centrifuge','G Force'): f1_results_by_stream[clf][stream]
+            for stream in sorted_streams
+            if stream in f1_results_by_stream[clf]
+        }
+        for clf in selected_classifiers
+    }
+
+    # Remove classifiers that ended up with no matching streams
+    filtered_results = {clf: d for clf, d in filtered_results.items() if len(d) > 0}
+
+    if len(filtered_results) == 0:
+        print("\nNo matching streams found for the selected classifiers after filtering.")
+        raise SystemExit
+
+    print("\nPlotting selected results...")
+    # plot_f1_violin_by_stream(filtered_results, model_type, subfolder2="filtered")
+    test_violin(filtered_results, model_type, subfolder2="filtered")
+
+
