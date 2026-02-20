@@ -314,19 +314,13 @@ def restrict_feature_space(select_features, streams):
         if any(stream in feat_lower for stream in streams_lower):
             usable_features.append(feat)
 
+    # Output any streams that have multiple keywords
+    # This was used to identify participant_HR
     for feat in usable_features:
         feat_lower = feat.lower()
         matches = [s for s in streams_lower if s in feat_lower]  # substring match
         if len(matches) >= 2:
             print(feat, "=>", matches)
-
-        # for s in streams_lower:
-        #     for feat in usable_features:
-        #         if s in feat:
-        #             test_stream = streams_lower.remove(s)
-        #             if any (stream in feat for stream in test_stream):
-        #                 print(feat)
-        #                 exit()
 
     # If no features matched the requested streams, notify the user.
     # This helps catch cases where stream names or feature names don't align.
@@ -367,22 +361,38 @@ if preference == 7:
     # Each entry is a list of data streams that will be used to restrict the feature space
     # These represent all combinations of the four source groups
     stream_combos = [
-        ['ECG', 'HR', 'BR', 'EEG', 'Pupil', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
-        ['ECG', 'HR', 'BR'], # Source group 1
-        ['EEG'], # Source group 2
-        ['Pupil'], # Source group 3
-        ['Centrifuge', 'Strain', 'Participant', 'Temperature'], # Source group 4
-        ['ECG', 'HR', 'BR', 'EEG'],
-        ['ECG', 'HR', 'BR', 'Pupil'],
-        ['ECG', 'HR', 'BR', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
+        ['ECG', 'HR', 'BR', 'Temperature'], # Equivital Data Stream
+        ['EEG'], # EEG Data Stream
+        ['Pupil'], # Tobii/Eye Tracking Data Stream
+        ['Centrifuge'], # Centrifuge/G Force Data Stream
+        ['Participant'], # Demographics Data Stream
+        ['Centrifuge', 'Participant'],
+        ['ECG', 'HR', 'BR', 'Temperature', 'EEG'],
+        ['ECG', 'HR', 'BR', 'Temperature', 'Pupil'],
+        ['ECG', 'HR', 'BR', 'Temperature', 'Centrifuge'],
+        ['ECG', 'HR', 'BR', 'Temperature', 'Participant'],
+        ['ECG', 'HR', 'BR', 'Temperature', 'Centrifuge', 'Participant'],
+        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil'],
+        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Centrifuge', 'Participant'],
+        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Centrifuge'],
+        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Participant'],
+        ['ECG', 'HR', 'BR', 'Temperature', 'Pupil', 'Centrifuge'],
+        ['ECG', 'HR', 'BR', 'Temperature', 'Pupil', 'Participant'],
+        ['ECG', 'HR', 'BR', 'Temperature', 'Pupil', 'Centrifuge', 'Participant'],
+        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil', 'Centrifuge', 'Participant'],
+        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil', 'Centrifuge'],
+        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil', 'Participant'],
         ['EEG', 'Pupil'],
-        ['EEG', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
-        ['Pupil', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
-        ['ECG', 'HR', 'BR', 'EEG', 'Pupil'],
-        ['ECG', 'HR', 'BR', 'EEG', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
-        ['ECG', 'HR', 'BR', 'Pupil', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
-        ['EEG', 'Pupil', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
-        ['ECG', 'HR', 'BR', 'EEG', 'Pupil', 'Centrifuge', 'Strain', 'Participant', 'Temperature']
+        ['EEG', 'Centrifuge', 'Participant'],
+        ['EEG', 'Centrifuge'],
+        ['EEG', 'Participant'],
+        ['EEG', 'Pupil', 'Centrifuge', 'Participant'],
+        ['EEG', 'Pupil', 'Centrifuge'],
+        ['EEG', 'Pupil', 'Participant'],
+        ['Pupil', 'Centrifuge', 'Participant'],
+        ['Pupil', 'Centrifuge'],
+        ['Pupil', 'Participant'],
+
     ]
 
     # Nested dict: classifier -> stream -> F1 scores
@@ -895,7 +905,7 @@ if preference == 11:
     filtered_results = {
         clf: {
             # stream: f1_results_by_stream[clf][stream]
-            stream.replace('ECG-HR-BR-Temperature', 'ECG').replace('Participant', 'Demographics').replace('Centrifuge','G Force'): f1_results_by_stream[clf][stream]
+            stream.replace('ECG-HR-BR-Temperature', 'Equivital').replace('Participant', 'Demographics').replace('Centrifuge','G Force'): f1_results_by_stream[clf][stream]
             for stream in sorted_streams
             if stream in f1_results_by_stream[clf]
         }
