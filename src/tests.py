@@ -4,6 +4,9 @@ import warnings
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.model_selection import StratifiedGroupKFold
+from itertools import islice
+import faiss
 
 from data_manager import DataManager
 
@@ -1000,7 +1003,7 @@ def _assert_feature_sets(features, expected_all_features, expected_all_features_
 
 @pytest.fixture(scope = "session")
 def manager():
-    return DataManager()
+    return DataManager(testing = True)
 
 @pytest.fixture(scope = "session")
 def file_paths(manager):
@@ -1009,6 +1012,28 @@ def file_paths(manager):
 @pytest.fixture(scope = "session")
 def gloc_data(manager, file_paths):
     return manager._load_data(file_paths)
+
+@pytest.fixture(scope = "session")
+def gloc_data_imputed(manager, file_paths):
+    gloc_data = manager._load_data(file_paths)
+    feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
+    model_type = ("Complete", "Explicit")
+    gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
+    gloc_labels = manager._label_gloc_events(gloc_data)
+    gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
+    gloc_data = manager._reduce_memory(gloc_data, model_type, features)
+
+    # Imputation details
+    impute_path = "test_imputation.pkl"
+    num_splits = 5
+    kfold_ID = 0
+    n_neighbors = 5
+    save_impute = False
+    load_impute = False
+
+    gloc_data = manager._impute_missing_data(gloc_data, gloc_labels, impute_path, save_impute, load_impute, num_splits, kfold_ID, n_neighbors)
+
+    return manager._impute_data(gloc_data)
 
 
 
@@ -1617,14 +1642,164 @@ class TestDataManager:
         # Get actual output
         gloc_data = manager._reduce_memory(gloc_data, model_type, features)
 
-        print(gloc_data["trial_ints"].to_numpy())
-        print(trial_ints)
-
         # Check that relevant columns are the same in gloc_data
         assert np.array_equal(gloc_data["trial_id"].to_numpy(), trial_column.to_numpy()), "The 'trial_id' column in gloc_data does not match the expected 'trial_id' column."
         assert np.array_equal(gloc_data["trial_ints"].to_numpy(), trial_ints), "The 'trial_ints' column in gloc_data does not match the expected 'trial_ints' column."
         assert np.array_equal(gloc_data["Time (s)"].to_numpy(), time_column.to_numpy()), "The 'Time (s)' column in gloc_data does not match the expected 'Time (s)' column."
         assert np.array_equal(gloc_data["event_validated"].to_numpy(), event_validated_column.to_numpy()), "The 'event_validated' column in gloc_data does not match the expected 'event_validated' column."
+        pd.testing.assert_series_equal(gloc_data["subject"], subject_column)
         assert np.array_equal(gloc_data["subject"].to_numpy(), subject_column.to_numpy()), "The 'subject' column in gloc_data does not match the expected 'subject' column."
         if "complete" in model_type:
             assert np.array_equal(gloc_data["AFE_indicator"].to_numpy().reshape(-1, 1), afe_indicator_column), "The 'AFE_indicator' column in gloc_data does not match the expected 'AFE_indicator' column."
+
+    @pytest.mark.filterwarnings("ignore:DeprecationWarning")
+    def test_impute_missing_data(self, manager, file_paths, gloc_data):
+        def groupedtrial_kfold_split(Y, X, trials, num_splits, kfold_ID):
+            """
+            This function splits the X and y matrix into training and test matrix.
+            """
+
+            # Grouped K-Fold setup
+            # Use random state to ensure repeatability across runs and classifiers
+            gkf = StratifiedGroupKFold(n_splits = num_splits, shuffle = False)
+
+            # Safety check to ensure that kfold_ID is within the fold indices
+            n_folds = gkf.get_n_splits()
+            if kfold_ID < 0 or kfold_ID >= n_folds:
+                raise ValueError(f"Fold index {kfold_ID} out of range (must be between 0 and {n_folds - 1})")
+
+            # Grab train and test indices given the skf generator format for a specific kfold_ID
+            train_index, test_index = next(islice(gkf.split(X, Y, trials), kfold_ID, kfold_ID + 1))
+
+            # Extract the corresponding data for the given kfold_ID
+            x_train, y_train = X.iloc[train_index], Y[train_index]
+            x_test, y_test = X.iloc[test_index], Y[test_index]
+
+            return x_train, x_test, y_train, y_test, train_index, test_index
+
+        def faster_knn_impute_train_test(X, train_ind, test_ind, k=5, M=32, efSearch=64):
+            """
+            Impute missing values in train and test sets using FAISS KNN with training data only.
+
+            Parameters:
+            - X: input array
+            - train_ind: the indices associated with the triaining dataset for this fold
+            - test_ind: the indices associated with the test dataset for this fold
+            - k: number of neighbors
+            - M, efSearch: HNSW graph parameters
+
+            Returns:
+            - X_imputed: imputed versions of input array
+            """
+            # Check that there are float32 columns to impute on
+            float32_columns = X.select_dtypes(include=[np.float32]).columns
+            if len(float32_columns) == 0:
+                raise ValueError("No float32 columns found in the input DataFrame for imputation.")
+
+            # Split into train and test
+            X_train = X.loc[train_ind, float32_columns].to_numpy()
+            X_test = X.loc[test_ind, float32_columns].to_numpy()
+
+            # Masks for missing values
+            mask_train = np.isnan(X_train)
+            mask_test = np.isnan(X_test)
+
+            # Temporary mean imputation to allow FAISS indexing
+            mean_vals = np.nanmean(X_train, axis = 0)
+            X_train_temp = np.where(mask_train, mean_vals, X_train)
+            X_test_temp = np.where(mask_test, mean_vals, X_test)
+
+            # Use one thread for deterministic behavior
+            # FAISS may use multiple threads by default which can lead to non-deterministic results
+            faiss.omp_set_num_threads(1)
+
+            # Build FAISS HNSW index on training data
+            d = X_train.shape[1]
+            index = faiss.IndexHNSWFlat(d, M)
+            index.hnsw.efSearch = efSearch
+            
+            # Create and assign RNG with seed BEFORE adding data
+            rng = faiss.RandomGenerator(42)
+            index.hnsw.rng = rng
+            
+            index.add(X_train_temp.astype(np.float32))
+
+            # Impute training data
+            distances, indices = index.search(X_train_temp.astype(np.float32), k + 1)
+            X_train_imputed = X_train.copy()
+            for i in range(X_train.shape[0]):
+                neighbors = indices[i, 1:]  # skip self
+                for j in range(X_train.shape[1]):
+                    if mask_train[i, j]:
+                        neighbor_values = X_train_temp[neighbors, j]
+                        X_train_imputed[i, j] = np.nanmean(neighbor_values)
+
+            # Impute test data
+            distances_test, indices_test = index.search(X_test_temp.astype(np.float32), k)
+            X_test_imputed = X_test.copy()
+            for i in range(X_test.shape[0]):
+                neighbors = indices_test[i]
+                for j in range(X_test.shape[1]):
+                    if mask_test[i, j]:
+                        neighbor_values = X_train_temp[neighbors, j]
+                        X_test_imputed[i, j] = np.nanmean(neighbor_values)
+
+            # Rebuild into single array
+            X_imputed = X.copy()
+            X_imputed.loc[train_ind, float32_columns] = X_train_imputed
+            X_imputed.loc[test_ind, float32_columns] = X_test_imputed
+
+            return X_imputed
+
+        # Setup Data
+        gloc_data = gloc_data.copy()
+
+        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
+        model_type = ("Complete", "Explicit")
+        gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
+        gloc_labels = manager._label_gloc_events(gloc_data)
+        if model_type[0] != "Complete":
+            gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
+        gloc_data = manager._reduce_memory(gloc_data, model_type, features)
+
+        # Create expected copy
+        expected_gloc_data, expected_gloc_labels = gloc_data.copy(), gloc_labels.copy()
+        impute_path = "test_imputation.pkl"
+        num_splits = 5
+        kfold_ID = 0
+        n_neighbors = 5
+        save_impute = False
+        load_impute = False
+
+        # Grab train and test indices
+        _, _, _, _, train_ind, test_ind = groupedtrial_kfold_split(expected_gloc_labels, expected_gloc_data,
+                                                                   expected_gloc_data["trial_ints"].to_numpy().reshape(-1, 1),
+                                                                   num_splits, kfold_ID)
+
+        # Load or compute imputed features
+        # NOTE: impute_path is PROVIDED by caller; do not overwrite it.
+        if load_impute and os.path.exists(impute_path):
+            print(f"Would load imputed data from {impute_path}")
+        else:
+            expected_gloc_data = faster_knn_impute_train_test(expected_gloc_data, train_ind, test_ind, n_neighbors)
+
+            if save_impute:
+                print(f"Would save imputed data to {impute_path}")
+
+        # Calculate new sub-feature arrays
+        phys_indices = [i for i, feature in enumerate(features["All"]) if (feature in features["Phys"])]
+        features_phys = expected_gloc_data.iloc[:, phys_indices]
+
+        ecg_indices = [i for i, feature in enumerate(features["All"]) if (feature in features["ECG"])]
+        features_ecg = expected_gloc_data.iloc[:, ecg_indices]
+
+        eeg_indices = [i for i, feature in enumerate(features["All"]) if (feature in features["EEG"])]
+        features_eeg = expected_gloc_data.iloc[:, eeg_indices]
+
+        # Get actual output
+        gloc_data = manager._impute_missing_data(gloc_data, gloc_labels, impute_path, save_impute, load_impute, num_splits, kfold_ID, n_neighbors)
+
+        assert gloc_data.equals(expected_gloc_data), "The gloc_data after impute_missing_data does not match the expected gloc_data."
+        assert gloc_data[features["Phys"]].equals(features_phys), "The physiological features in gloc_data after impute_missing_data do not match the expected physiological features."
+        assert gloc_data[features["ECG"]].equals(features_ecg), "The ECG features in gloc_data after impute_missing_data do not match the expected ECG features."
+        assert gloc_data[features["EEG"]].equals(features_eeg), "The EEG features in gloc_data after impute_missing_data do not match the expected EEG features."
