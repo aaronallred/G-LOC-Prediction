@@ -3,6 +3,10 @@ import numpy as np
 import os
 
 from features import *
+from sklearn.model_selection import StratifiedGroupKFold
+from itertools import islice
+import faiss
+import pickle
 
 class DataManager:
     FEATURE_GROUPS_BY_MODEL_TYPE = {
@@ -16,9 +20,11 @@ class DataManager:
         "Complete": ["v0", "v1", "v2", "v5", "v6"],
     }
 
-    def __init__(self, data_path = "../data/"):
+    def __init__(self, data_path = "../data/", testing = False, random_seed = 42):
         self.data_path = data_path
         self._data_locations = None
+        self.testing = testing
+        self.random_seed = random_seed
 
     def get_data(
             self,
@@ -95,8 +101,15 @@ class DataManager:
             gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
 
         ################################################## REDUCE MEMORY ##################################################
+        gloc_data = self._reduce_memory(gloc_data, model_type, features)
 
-
+        ################################################## Impute Missing ##################################################
+        """
+            Imputes data using train / test split within imputation to prevent data leakage
+        """
+        ### Impute missing row data
+        if impute_type == 1:
+            gloc_data = self._imput_missing_data(gloc_data, features, impute_path, num_splits, kfold_ID, n_neighbors, save_impute, load_impute)
 
     def _get_feature_groups_and_baseline_methods(self, model_type):
         feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
@@ -498,7 +511,7 @@ class DataManager:
     
     def _reduce_memory(self, gloc_data, model_type, features):
         # Filter the needed columns
-        columns_to_keep = features["All"] + ["trial_id", "Time (s)", "event_validated", "subject"]
+        columns_to_keep = features["All"] + ["Time (s)", "event_validated", "trial_id", "subject", "trial"]
         if "Complete" in model_type:
             columns_to_keep.append("AFE_indicator")
 
@@ -524,3 +537,130 @@ class DataManager:
             result.append(mapping[s])
 
         return np.array(result, dtype = np.uint32)
+    
+    def _impute_missing_data(self, gloc_data, gloc_labels, impute_path, save_impute, load_impute, num_splits, kfold_ID, n_neighbors):
+        # Load or compute imputed features
+        # NOTE: impute_path is PROVIDED by caller; do not overwrite it.
+        if load_impute and os.path.exists(impute_path):
+            with open(impute_path, 'rb') as f:
+                gloc_data = pickle.load(f)
+            print(f"Loaded imputed data from {impute_path}")
+        else:
+            # Only compute train/test indices when actually imputing
+            _, _, _, _, train_indices, test_indices = self._groupedtrial_kfold_split(gloc_data, gloc_labels, num_splits, kfold_ID)
+            gloc_data = self._faster_knn_impute_train_test(gloc_data, train_indices, test_indices, n_neighbors)
+
+            if save_impute:
+                os.makedirs(os.path.dirname(impute_path), exist_ok = True)
+                with open(impute_path, 'wb') as f:
+                    pickle.dump(gloc_data, f)
+                print(f"Saved imputed data to {impute_path}")
+
+        return gloc_data
+
+    def _groupedtrial_kfold_split(self, X, Y, num_splits, kfold_ID):
+        """
+        Split data into training and test sets using stratified group K-fold.
+        
+        Parameters:
+            Y: Labels (array)
+            X: Feature data (DataFrame)
+            trials: Trial identifiers for grouping
+            num_splits: Number of K-fold splits
+            kfold_ID: Which fold to use (0 to num_splits-1)
+            
+        Returns:
+            x_train, x_test: Split feature data
+            y_train, y_test: Split labels
+            train_index, test_index: Indices for the splits
+        """
+        # Grouped K-Fold setup (shuffle=False for reproducibility)
+        gkf = StratifiedGroupKFold(n_splits = num_splits, shuffle = False)
+
+        # Validate kfold_ID
+        n_folds = gkf.get_n_splits()
+        if kfold_ID < 0 or kfold_ID >= n_folds:
+            raise ValueError(f"Fold index {kfold_ID} out of range (must be between 0 and {n_folds - 1})")
+
+        # Get train and test indices for the specified fold
+        trials = X["trial_ints"].to_numpy().reshape(-1, 1)
+        train_index, test_index = next(islice(gkf.split(X, Y, trials), kfold_ID, kfold_ID + 1))
+
+        # Extract split data
+        x_train, y_train = X.iloc[train_index], Y[train_index]
+        x_test, y_test = X.iloc[test_index], Y[test_index]
+
+        return x_train, x_test, y_train, y_test, train_index, test_index
+
+    def _faster_knn_impute_train_test(self, X, train_ind, test_ind, k = 5, M = 32, efSearch = 64, testing = False):
+        """
+        Impute missing values using FAISS KNN, training on train set only to prevent data leakage.
+
+        Parameters:
+            X: Input DataFrame
+            train_ind: Training set indices
+            test_ind: Test set indices
+            k: Number of neighbors for KNN
+            M, efSearch: FAISS HNSW graph parameters
+
+        Returns:
+            X_imputed: DataFrame with imputed values
+        """
+        # Check that there are float32 columns to impute on
+        float32_columns = X.select_dtypes(include=[np.float32]).columns
+        if len(float32_columns) == 0:
+            raise ValueError("No float32 columns found in the input DataFrame for imputation.")
+
+        # Extract float32 columns as numpy arrays
+        X_train = X.loc[train_ind, float32_columns].to_numpy()
+        X_test = X.loc[test_ind, float32_columns].to_numpy()
+
+        # Identify missing values
+        mask_train = np.isnan(X_train)
+        mask_test = np.isnan(X_test)
+
+        # Temporary mean imputation for FAISS indexing
+        mean_vals = np.nanmean(X_train, axis = 0)
+        X_train_temp = np.where(mask_train, mean_vals, X_train)
+        X_test_temp = np.where(mask_test, mean_vals, X_test)
+
+        if self.testing:
+            faiss.omp_set_num_threads(1) # Use single thread for testing to ensure deterministic behavior (FAISS can be non-deterministic with multiple threads)
+
+        # Build FAISS HNSW index on training data
+        d = X_train.shape[1]
+        index = faiss.IndexHNSWFlat(d, M)
+        index.hnsw.efSearch = efSearch
+
+        # Set a fixed random seed for more reproducibility in HNSW graph construction
+        rng = faiss.RandomGenerator(self.random_seed)
+        index.hnsw.rng = rng
+        
+        index.add(X_train_temp.astype(np.float32))
+
+        # Impute training data
+        distances, indices = index.search(X_train_temp.astype(np.float32), k + 1)
+        X_train_imputed = X_train.copy()
+        for i in range(X_train.shape[0]):
+            neighbors = indices[i, 1:]  # skip self
+            for j in range(X_train.shape[1]):
+                if mask_train[i, j]:
+                    neighbor_values = X_train_temp[neighbors, j]
+                    X_train_imputed[i, j] = np.nanmean(neighbor_values)
+
+        # Impute test data
+        distances_test, indices_test = index.search(X_test_temp.astype(np.float32), k)
+        X_test_imputed = X_test.copy()
+        for i in range(X_test.shape[0]):
+            neighbors = indices_test[i]
+            for j in range(X_test.shape[1]):
+                if mask_test[i, j]:
+                    neighbor_values = X_train_temp[neighbors, j]
+                    X_test_imputed[i, j] = np.nanmean(neighbor_values)
+
+        # Rebuild into single array
+        X_imputed = X.copy()
+        X_imputed.loc[train_ind, float32_columns] = X_train_imputed
+        X_imputed.loc[test_ind, float32_columns] = X_test_imputed
+
+        return X_imputed
