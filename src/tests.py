@@ -2691,3 +2691,88 @@ class TestDataManager:
         assert np.array_equal(expected_all_features, features["All"]), "All features list does not match expected list."
         assert np.array_equal(expected_y_gloc_labels, gloc_labels_numpy), "GLOC labels do not match expected labels."
         assert np.array_equal(expected_trial_ints, experiment_metadata["trial_ints"]), "Trial IDs in metadata do not match expected trial IDs."
+
+    def test_feature_clean_and_prep(self, manager, gloc_data_imputed_tuple, file_paths):
+        def remove_constant_columns(x_feature_matrix_noNaN, all_features):
+            """
+            This function removes all constant columns before feeding into the ML classifiers.
+            """
+            # Find all constant columns
+            constant_columns = np.all(x_feature_matrix_noNaN == x_feature_matrix_noNaN[0,:], axis = 0)
+
+            # Remove all constant columns from data frame
+            x_feature_matrix_noNaN = x_feature_matrix_noNaN[:, ~constant_columns]
+
+            all_features = [all_features[i] for i in range(len(all_features)) if ~constant_columns[i]]
+
+            return x_feature_matrix_noNaN, all_features
+
+        def process_NaN(y_gloc_labels, x_feature_matrix, all_features, trials):
+            """
+            This is a temporary function for removing all rows with NaN values. This can be replaced by
+            another method in the future, but is necessary for feeding into ML Classifiers.
+            """
+            # Find & remove columns if they have all NaN values
+            nan_test = np.isnan(x_feature_matrix)
+            index_column_all_NaN = np.all(nan_test, axis=0)
+            x_feature_matrix_noNaN_cols = x_feature_matrix[:, ~index_column_all_NaN]
+
+            # Adjust all_features to only include columns that don't have all NaN
+            all_features = [all_features[i] for i in range(len(all_features)) if ~index_column_all_NaN[i]]
+
+            # Find & Remove rows in label array if they have NaN values
+            y_gloc_labels_noNaN = y_gloc_labels[~np.isnan(x_feature_matrix_noNaN_cols).any(axis=1)]
+
+            # Find & Remove rows in trial array if they have NaN values
+            trials_noNaN = trials[~np.isnan(x_feature_matrix_noNaN_cols).any(axis=1)]
+
+            # Find & Remove rows in X matrix if the features have any NaN values in that row
+            x_feature_matrix_noNaN = x_feature_matrix_noNaN_cols[~np.isnan(x_feature_matrix_noNaN_cols).any(axis=1)]
+
+            return y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features, trials_noNaN
+
+        # Setup data
+        gloc_data_all_features_imputed_numpy = gloc_data_imputed_tuple[0].copy()
+        gloc_labels_numpy = gloc_data_imputed_tuple[1].copy()
+        features = gloc_data_imputed_tuple[2].copy()
+        experiment_metadata = gloc_data_imputed_tuple[3].copy()
+
+        baseline_methods_to_use = ["v0", "v1", "v2", "v5", "v6"]
+        model_type = ("Complete", "Explicit")
+        baseline_window = 32.5
+        impute_type = 1
+
+        combined_baseline, combined_baseline_names = manager._get_combined_baseline_data(gloc_data_all_features_imputed_numpy, experiment_metadata, baseline_window, baseline_methods_to_use, features, file_paths, model_type)
+        x_feature_matrix, features["All"] = manager._generate_features(baseline_methods_to_use, combined_baseline, combined_baseline_names, experiment_metadata)
+
+        expected_x_feature_matrix, expected_all_features = x_feature_matrix.copy(), features["All"].copy()
+        expected_y_gloc_labels = gloc_labels_numpy.copy()
+        # Remove constant columns (typically no constant columns)
+        expected_x_feature_matrix, expected_all_features = remove_constant_columns(expected_x_feature_matrix, expected_all_features)
+
+        # Add back in as 2nd to last column for explicit only
+        # (needs to be 2nd to last for advanced pipeline - could be last for traditional)
+        model_kind, label_mode = model_type
+        if model_kind == "Complete" and label_mode == "Explicit":
+            expected_x_feature_matrix = np.hstack([
+                expected_x_feature_matrix[:, :-1],
+                experiment_metadata["AFE_indicator"].reshape(-1, 1),
+                expected_x_feature_matrix[:, -1:]
+            ])
+
+        # List-wise deletion or clean any residual NaNs
+        if impute_type == 2 or impute_type == 1:
+            # Remove rows with NaN (temporary solution-should replace with other method eventually)
+            expected_y_gloc_labels_noNaN, expected_x_feature_matrix_noNaN, expected_all_features, expected_trials_noNaN = process_NaN(expected_y_gloc_labels,
+                                                                                                expected_x_feature_matrix,
+                                                                                                expected_all_features, experiment_metadata["trial_ints"])
+        else:
+            expected_y_gloc_labels_noNaN, expected_x_feature_matrix_noNaN, expected_trials_noNaN = expected_y_gloc_labels, expected_x_feature_matrix, experiment_metadata["trial_ints"]
+
+        # Get actual returns
+        x_feature_matrix, y_gloc_labels, features["All"], experiment_metadata["trial_ints"] = manager._feature_clean_and_prep(x_feature_matrix, gloc_labels_numpy, features, experiment_metadata, model_type, impute_type)
+
+        assert np.array_equal(expected_x_feature_matrix_noNaN, x_feature_matrix), "Cleaned X feature matrix does not match expected matrix."
+        assert np.array_equal(expected_y_gloc_labels_noNaN, y_gloc_labels), "Cleaned GLOC labels do not match expected labels."
+        assert np.array_equal(expected_all_features, features["All"]), "Cleaned all features list does not match expected list."
+        assert np.array_equal(expected_trials_noNaN, experiment_metadata["trial_ints"]), "Cleaned trial IDs in metadata do not match expected trial IDs."
