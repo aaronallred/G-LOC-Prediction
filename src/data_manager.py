@@ -201,6 +201,12 @@ class DataManager:
         """
             Generates unengineered features from baseline data using same naming convention as traditional models
         """
+        x_feature_matrix, features["All"] = self._generate_features(baseline_methods_to_use, combined_baseline, combined_baseline_names, experiment_metadata)
+
+        ############################################# FEATURE CLEAN AND PREP ##############################################
+        """
+            Optional handling of raw NaN data
+        """
 
     def _get_feature_groups_and_baseline_methods(self, model_type):
         feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
@@ -878,3 +884,80 @@ class DataManager:
         
         # Check if suffix is a baseline method and stream is unengineered
         return suffix in baseline_suffixes and stream_candidate in self._UNENGINEERED_STREAMS
+
+    def _feature_clean_and_prep(self, x_feature_matrix, gloc_labels_numpy, features, experiment_metadata, model_type, impute_type):
+        """
+        Perform final cleaning and preparation of feature matrix before modeling.
+        
+        Steps:
+        - Remove features with zero variance
+        - Standardize features (zero mean, unit variance)
+        
+        Parameters:
+            x_feature_matrix (np.ndarray): Raw feature matrix
+            all_features (list): Corresponding feature names
+        """
+        # Remove constant columns (typically no constant columns)
+        x_feature_matrix, features["All"] = self._remove_constant_columns(x_feature_matrix, features["All"])
+
+        # Add back in as 2nd to last column for explicit only
+        # (needs to be 2nd to last for advanced pipeline - could be last for traditional)
+        model_kind, label_mode = model_type
+        if model_kind == "Complete" and label_mode == "Explicit":
+            x_feature_matrix = np.hstack([
+                x_feature_matrix[:, :-1],
+                experiment_metadata["AFE_indicator"].reshape(-1, 1),
+                x_feature_matrix[:, -1:]
+            ])
+
+        # List-wise deletion or clean any residual NaNs
+        if impute_type in (1, 2):
+            # Remove rows with NaN
+            x_feature_matrix_noNaN, y_gloc_labels_noNaN, all_features, trials_noNaN = self._process_NaN(
+                x_feature_matrix,
+                gloc_labels_numpy,
+                features["All"],
+                experiment_metadata["trial_ints"]
+            )
+        else:
+            x_feature_matrix_noNaN, y_gloc_labels_noNaN, trials_noNaN = x_feature_matrix, gloc_labels_numpy, experiment_metadata["trial_ints"]
+
+        return x_feature_matrix_noNaN, y_gloc_labels_noNaN, all_features, trials_noNaN
+
+    def _remove_constant_columns(self, x_feature_matrix_noNaN, all_features):
+        """
+        This function removes all constant columns before feeding into the ML classifiers.
+        """
+        # Find all constant columns
+        constant_columns = np.all(x_feature_matrix_noNaN == x_feature_matrix_noNaN[0,:], axis = 0)
+
+        # Remove all constant columns from data frame
+        x_feature_matrix_noNaN = x_feature_matrix_noNaN[:, ~constant_columns]
+
+        all_features = [all_features[i] for i in range(len(all_features)) if ~constant_columns[i]]
+
+        return x_feature_matrix_noNaN, all_features
+
+    def _process_NaN(self, x_feature_matrix, y_gloc_labels, all_features, trials):
+        """
+        This is a temporary function for removing all rows with NaN values. This can be replaced by
+        another method in the future, but is necessary for feeding into ML Classifiers.
+        """
+        nan_mask = np.isnan(x_feature_matrix)
+
+        # Find & remove columns if they have all NaN values
+        index_column_all_NaN = nan_mask.all(axis=0)
+        if index_column_all_NaN.any():
+            x_feature_matrix = x_feature_matrix[:, ~index_column_all_NaN]
+            all_features = [f for f, keep in zip(all_features, ~index_column_all_NaN) if keep]
+            nan_mask = nan_mask[:, ~index_column_all_NaN]
+
+        # Find & Remove rows in label/trial arrays if they have NaN values
+        row_has_nan = nan_mask.any(axis=1)
+        if row_has_nan.any():
+            keep_rows = ~row_has_nan
+            x_feature_matrix = x_feature_matrix[keep_rows]
+            y_gloc_labels = y_gloc_labels[keep_rows]
+            trials = trials[keep_rows]
+
+        return x_feature_matrix, y_gloc_labels, all_features, trials
