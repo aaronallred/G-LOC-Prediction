@@ -1031,7 +1031,6 @@ def gloc_data(manager, file_paths):
 
 @pytest.fixture(scope = "session")
 def gloc_data_imputed_tuple(manager, file_paths, gloc_data):
-    # Create expected copy
     impute_path = "./testing_temp/gloc_data_imputed.pkl"
     num_splits = 5
     kfold_ID = 0
@@ -1041,23 +1040,25 @@ def gloc_data_imputed_tuple(manager, file_paths, gloc_data):
 
     if os.path.exists(impute_path):
         with open(impute_path, 'rb') as f:
-            gloc_data_imputed = pickle.load(f)
+            gloc_data_all_features_imputed_numpy = pickle.load(f)
         with open("./testing_temp/features.pkl", 'rb') as f:
             features = pickle.load(f)
         with open("./testing_temp/gloc_labels.pkl", 'rb') as f:
-            gloc_labels = pickle.load(f)
+            gloc_labels_numpy = pickle.load(f)
+        with open("./testing_temp/experiment_metadata.pkl", 'rb') as f:
+            experiment_metadata = pickle.load(f)
         print(f"Loaded imputed data from {impute_path}")
     else:
         # Setup Data
-        gloc_data_imputed = gloc_data.copy()
+        gloc_data = gloc_data.copy()
 
         feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
         model_type = ("Complete", "Explicit")
-        gloc_data_imputed, features = manager._process_and_get_feature_names(gloc_data_imputed, feature_groups_to_analyze, model_type, file_paths)
-        gloc_labels = manager._label_gloc_events(gloc_data_imputed)
+        gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
+        gloc_labels = manager._label_gloc_events(gloc_data)
         if model_type[0] != "Complete":
-            gloc_data_imputed, gloc_labels = manager._afe_subset(gloc_data_imputed, gloc_labels)
-        gloc_data_imputed = manager._reduce_memory(gloc_data_imputed, model_type, features)
+            gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
+        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = manager._reduce_memory(gloc_data, gloc_labels, features)
 
         os.makedirs(os.path.dirname("./testing_temp/features.pkl"), exist_ok = True)
         with open("./testing_temp/features.pkl", 'wb') as f:
@@ -1066,14 +1067,18 @@ def gloc_data_imputed_tuple(manager, file_paths, gloc_data):
         
         os.makedirs(os.path.dirname("./testing_temp/gloc_labels.pkl"), exist_ok = True)
         with open("./testing_temp/gloc_labels.pkl", 'wb') as f:
-            pickle.dump(gloc_labels, f)
+            pickle.dump(gloc_labels_numpy, f)
         print(f"Saved gloc labels to {'./testing_temp/gloc_labels.pkl'}")
 
+        os.makedirs(os.path.dirname("./testing_temp/experiment_metadata.pkl"), exist_ok = True)
+        with open("./testing_temp/experiment_metadata.pkl", 'wb') as f:
+            pickle.dump(experiment_metadata, f)
+        print(f"Saved experiment metadata to {'./testing_temp/experiment_metadata.pkl'}")
 
         # Get actual output
-        gloc_data_imputed = manager._impute_missing_data(gloc_data_imputed, gloc_labels, impute_path, save_impute, load_impute, num_splits, kfold_ID, n_neighbors)
+        gloc_data_all_features_imputed_numpy = manager._impute_missing_data(gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata, impute_path, save_impute, load_impute, num_splits, kfold_ID, n_neighbors)
     
-    return (gloc_data_imputed, gloc_labels, features)
+    return (gloc_data_all_features_imputed_numpy, gloc_labels_numpy, features, experiment_metadata)
 
 
 
@@ -1667,30 +1672,30 @@ class TestDataManager:
             gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
 
         # Create expected copy
-        expected_gloc_data = gloc_data.copy()
+        expected_gloc_data, expected_gloc_labels = gloc_data.copy(), gloc_labels.copy()
         # Grab columns from gloc_data_reduced and remove gloc_data_reduced variable from memory
         trial_column = expected_gloc_data['trial_id']
         trial_ints = convert_to_unique_ordered_integers(trial_column)
         time_column = expected_gloc_data['Time (s)']
         event_validated_column = expected_gloc_data['event_validated']
         subject_column = expected_gloc_data['subject']
-        if "complete" in model_type:
-            afe_indicator_column = expected_gloc_data["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1)
+        afe_indicator_column = expected_gloc_data["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1)
+        expected_gloc_data_all_features_numpy = expected_gloc_data[features["All"]].to_numpy(dtype = np.float32)
 
         del expected_gloc_data
 
         # Get actual output
-        gloc_data = manager._reduce_memory(gloc_data, model_type, features)
+        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = manager._reduce_memory(gloc_data, gloc_labels, features)
 
         # Check that relevant columns are the same in gloc_data
-        assert np.array_equal(gloc_data["trial_id"].to_numpy(), trial_column.to_numpy()), "The 'trial_id' column in gloc_data does not match the expected 'trial_id' column."
-        assert np.array_equal(gloc_data["trial_ints"].to_numpy(), trial_ints), "The 'trial_ints' column in gloc_data does not match the expected 'trial_ints' column."
-        assert np.array_equal(gloc_data["Time (s)"].to_numpy(), time_column.to_numpy()), "The 'Time (s)' column in gloc_data does not match the expected 'Time (s)' column."
-        assert np.array_equal(gloc_data["event_validated"].to_numpy(), event_validated_column.to_numpy()), "The 'event_validated' column in gloc_data does not match the expected 'event_validated' column."
-        pd.testing.assert_series_equal(gloc_data["subject"], subject_column)
-        assert np.array_equal(gloc_data["subject"].to_numpy(), subject_column.to_numpy()), "The 'subject' column in gloc_data does not match the expected 'subject' column."
-        if "complete" in model_type:
-            assert np.array_equal(gloc_data["AFE_indicator"].to_numpy().reshape(-1, 1), afe_indicator_column), "The 'AFE_indicator' column in gloc_data does not match the expected 'AFE_indicator' column."
+        assert np.array_equal(trial_column, experiment_metadata["trial_id"]), "The trial_id column in the experiment metadata does not match the original trial_id column in gloc_data."
+        assert np.array_equal(trial_ints, experiment_metadata["trial_ints"]), "The trial_ints column in the experiment metadata does not match the expected trial_ints."
+        assert np.array_equal(time_column, experiment_metadata["Time (s)"]), "The time column in the experiment metadata does not match the original time column in gloc_data."
+        assert np.array_equal(event_validated_column, experiment_metadata["event_validated"]), "The event_validated column in the experiment metadata does not match the original event_validated column in gloc_data."
+        assert np.array_equal(subject_column, experiment_metadata["subject"]), "The subject column in the experiment metadata does not match the original subject column in gloc_data."
+        assert np.array_equal(afe_indicator_column, experiment_metadata["AFE_indicator"]), "The AFE_indicator column in the experiment metadata does not match the original AFE_indicator column in gloc_data."
+        assert np.array_equal(gloc_data_all_features_numpy, expected_gloc_data_all_features_numpy, equal_nan = True), "The gloc_data_all_features_numpy after reduce_memory does not match the expected gloc_data_all_features_numpy."
+        assert np.array_equal(gloc_labels_numpy, expected_gloc_labels), "The gloc_labels_numpy after reduce_memory does not match the expected gloc_labels_numpy."
 
     def test_impute_missing_data(self, manager, file_paths, gloc_data):
         def groupedtrial_kfold_split(Y, X, trials, num_splits, kfold_ID):
@@ -1711,8 +1716,8 @@ class TestDataManager:
             train_index, test_index = next(islice(gkf.split(X, Y, trials), kfold_ID, kfold_ID + 1))
 
             # Extract the corresponding data for the given kfold_ID
-            x_train, y_train = X.iloc[train_index], Y[train_index]
-            x_test, y_test = X.iloc[test_index], Y[test_index]
+            x_train, y_train = X[train_index], Y[train_index]
+            x_test, y_test = X[test_index], Y[test_index]
 
             return x_train, x_test, y_train, y_test, train_index, test_index
 
@@ -1730,14 +1735,9 @@ class TestDataManager:
             Returns:
             - X_imputed: imputed versions of input array
             """
-            # Check that there are float32 columns to impute on
-            float32_columns = X.select_dtypes(include=[np.float32]).columns
-            if len(float32_columns) == 0:
-                raise ValueError("No float32 columns found in the input DataFrame for imputation.")
-
             # Split into train and test
-            X_train = X.loc[train_ind, float32_columns].to_numpy()
-            X_test = X.loc[test_ind, float32_columns].to_numpy()
+            X_train = X[train_ind]
+            X_test = X[test_ind]
 
             # Masks for missing values
             mask_train = np.isnan(X_train)
@@ -1785,8 +1785,8 @@ class TestDataManager:
 
             # Rebuild into single array
             X_imputed = X.copy()
-            X_imputed.loc[train_ind, float32_columns] = X_train_imputed
-            X_imputed.loc[test_ind, float32_columns] = X_test_imputed
+            X_imputed[train_ind] = X_train_imputed
+            X_imputed[test_ind] = X_test_imputed
 
             return X_imputed
 
@@ -1799,10 +1799,11 @@ class TestDataManager:
         gloc_labels = manager._label_gloc_events(gloc_data)
         if model_type[0] != "Complete":
             gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
-        gloc_data = manager._reduce_memory(gloc_data, model_type, features)
+        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = manager._reduce_memory(gloc_data, gloc_labels, features)
 
         # Create expected copy
-        expected_gloc_data, expected_gloc_labels = gloc_data.copy(), gloc_labels.copy()
+        expected_gloc_data_all_features_numpy, expected_gloc_labels = gloc_data_all_features_numpy.copy(), gloc_labels_numpy.copy()
+        expected_experiment_metadata = experiment_metadata.copy()
         impute_path = "test_imputation.pkl"
         num_splits = 5
         kfold_ID = 0
@@ -1811,8 +1812,8 @@ class TestDataManager:
         load_impute = False
 
         # Grab train and test indices
-        _, _, _, _, train_ind, test_ind = groupedtrial_kfold_split(expected_gloc_labels, expected_gloc_data,
-                                                                   expected_gloc_data["trial_ints"].to_numpy().reshape(-1, 1),
+        _, _, _, _, train_ind, test_ind = groupedtrial_kfold_split(expected_gloc_labels, expected_gloc_data_all_features_numpy,
+                                                                   expected_experiment_metadata["trial_ints"],
                                                                    num_splits, kfold_ID)
 
         # Load or compute imputed features
@@ -1820,28 +1821,28 @@ class TestDataManager:
         if load_impute and os.path.exists(impute_path):
             print(f"Would load imputed data from {impute_path}")
         else:
-            expected_gloc_data = faster_knn_impute_train_test(expected_gloc_data, train_ind, test_ind, n_neighbors)
+            expected_gloc_data_all_features_numpy = faster_knn_impute_train_test(expected_gloc_data_all_features_numpy, train_ind, test_ind, n_neighbors)
 
             if save_impute:
                 print(f"Would save imputed data to {impute_path}")
 
         # Calculate new sub-feature arrays
         phys_indices = [i for i, feature in enumerate(features["All"]) if (feature in features["Phys"])]
-        features_phys = expected_gloc_data.iloc[:, phys_indices]
+        features_phys = expected_gloc_data_all_features_numpy[:, phys_indices]
 
         ecg_indices = [i for i, feature in enumerate(features["All"]) if (feature in features["ECG"])]
-        features_ecg = expected_gloc_data.iloc[:, ecg_indices]
+        features_ecg = expected_gloc_data_all_features_numpy[:, ecg_indices]
 
         eeg_indices = [i for i, feature in enumerate(features["All"]) if (feature in features["EEG"])]
-        features_eeg = expected_gloc_data.iloc[:, eeg_indices]
+        features_eeg = expected_gloc_data_all_features_numpy[:, eeg_indices]
 
         # Get actual output
-        gloc_data = manager._impute_missing_data(gloc_data, gloc_labels, impute_path, save_impute, load_impute, num_splits, kfold_ID, n_neighbors)
+        gloc_data_all_features_numpy = manager._impute_missing_data(gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata, impute_path, save_impute, load_impute, num_splits, kfold_ID, n_neighbors)
 
-        assert gloc_data.equals(expected_gloc_data), "The gloc_data after impute_missing_data does not match the expected gloc_data."
-        assert gloc_data[features["Phys"]].equals(features_phys), "The physiological features in gloc_data after impute_missing_data do not match the expected physiological features."
-        assert gloc_data[features["ECG"]].equals(features_ecg), "The ECG features in gloc_data after impute_missing_data do not match the expected ECG features."
-        assert gloc_data[features["EEG"]].equals(features_eeg), "The EEG features in gloc_data after impute_missing_data do not match the expected EEG features."
+        assert np.array_equal(gloc_data_all_features_numpy, expected_gloc_data_all_features_numpy, equal_nan = True), "The gloc_data_all_features_numpy after impute_missing_data does not match the expected gloc_data_all_features_numpy."
+        assert np.array_equal(gloc_data_all_features_numpy[:, phys_indices], features_phys, equal_nan = True), "The physiological features in gloc_data after impute_missing_data do not match the expected physiological features."
+        assert np.array_equal(gloc_data_all_features_numpy[:, ecg_indices], features_ecg, equal_nan = True), "The ECG features in gloc_data after impute_missing_data do not match the expected ECG features."
+        assert np.array_equal(gloc_data_all_features_numpy[:, eeg_indices], features_eeg, equal_nan = True), "The EEG features in gloc_data after impute_missing_data do not match the expected EEG features."
 
     # def test_same_imputed_data(self, manager, file_paths, gloc_data, gloc_data_imputed_tuple):
     #     gloc_data = gloc_data.copy()
@@ -1923,13 +1924,6 @@ class TestDataManager:
             combined_baseline, combined_baseline_names = combine_all_baseline(trial_column, baseline, baseline_derivative,
                                                                             baseline_second_derivative, baseline_names)
 
-            # baseline_v0 = baseline['v0']
-            # baseline_names_v0 = baseline_names['v0']
-
-            # Tabulate NaN
-            # NaN_table, NaN_proportion, NaN_gloc_proportion = tabulateNaN(baseline['v0'], all_features, gloc,
-            #                                                              gloc_data_reduced)
-
             return combined_baseline, combined_baseline_names, baseline['v0'], baseline_names['v0']
         
         def create_v0_baseline(trial_column, time_column, features, all_features):
@@ -1940,7 +1934,7 @@ class TestDataManager:
             output in a dictionary.
             """
             # Find Unique Trial ID
-            trial_id_in_data = trial_column.unique()
+            trial_id_in_data = np.unique(trial_column)
 
             # Build Dictionary for each trial_id
             baseline_v0 = dict()
@@ -1977,7 +1971,7 @@ class TestDataManager:
             """
 
             # Find Unique Trial ID
-            trial_id_in_data = trial_column.unique()
+            trial_id_in_data = np.unique(trial_column)
 
             # Build Dictionary for each trial_id
             baseline_v1 = dict()
@@ -2037,7 +2031,7 @@ class TestDataManager:
             """
 
             # Find Unique Trial ID
-            trial_id_in_data = trial_column.unique()
+            trial_id_in_data = np.unique(trial_column)
 
             # Build Dictionary for each trial_id
             baseline_v2 = dict()
@@ -2081,7 +2075,7 @@ class TestDataManager:
             """
 
             # Find Unique Trial ID
-            trial_id_in_data = trial_column.unique()
+            trial_id_in_data = np.unique(trial_column)
 
             # Build Dictionary for each trial_id
             baseline_v3 = dict()
@@ -2150,7 +2144,7 @@ class TestDataManager:
             """
 
             # Find Unique Trial ID
-            trial_id_in_data = trial_column.unique()
+            trial_id_in_data = np.unique(trial_column)
 
             # Build Dictionary for each trial_id
             baseline_v4 = dict()
@@ -2218,7 +2212,7 @@ class TestDataManager:
             """
 
             # Find Unique Trial ID
-            trial_id_in_data = trial_column.unique()
+            trial_id_in_data = np.unique(trial_column)
 
             # Build Dictionary for each trial_id
             baseline_v5 = dict()
@@ -2262,7 +2256,7 @@ class TestDataManager:
             """
 
             # Find Unique Trial ID
-            trial_id_in_data = trial_column.unique()
+            trial_id_in_data = np.unique(trial_column)
 
             # Build Dictionary for each trial_id
             baseline_v6 = dict()
@@ -2306,7 +2300,7 @@ class TestDataManager:
             output in a dictionary.
             """
             # Find Unique Trial ID
-            trial_id_in_data = trial_column.unique()
+            trial_id_in_data = np.unique(trial_column)
 
             # Build Dictionary for each trial_id
             baseline_v7 = dict()
@@ -2396,7 +2390,7 @@ class TestDataManager:
             output in a dictionary.
             """
             # Find Unique Trial ID
-            trial_id_in_data = trial_column.unique()
+            trial_id_in_data = np.unique(trial_column)
 
             # Build Dictionary for each trial_id
             baseline_v8 = dict()
@@ -2483,15 +2477,13 @@ class TestDataManager:
             """
 
             # Find Unique Trial ID
-            trial_id_in_data = trial_column.unique()
+            trial_id_in_data = np.unique(trial_column)
 
             # Preallocate the dictionary with NumPy arrays
             num_cols = 0
             for method in baseline.keys():
                 num_cols += baseline[method][trial_id_in_data[0]].shape[1]*3
             combined_baseline = {trial: np.empty((baseline[list(baseline.keys())[0]][trial].shape[0], num_cols), dtype=np.float32) for trial in trial_id_in_data}
-            # combined_baseline2 = {trial: np.empty((baseline[list(baseline.keys())[0]][trial].shape[0], 0)) for trial in
-            #                      trial_id_in_data}
 
             # Iterate through all unique trial_id & combine the baseline, baseline derivative, and baseline second derivative
             for trial in trial_id_in_data:
@@ -2511,40 +2503,45 @@ class TestDataManager:
             return combined_baseline, combined_baseline_names
 
         # Setup Data
-        gloc_data = gloc_data_imputed_tuple[0].copy()
-        gloc_labels = gloc_data_imputed_tuple[1].copy()
+        gloc_data_all_features_imputed_numpy = gloc_data_imputed_tuple[0].copy()
+        gloc_labels_numpy = gloc_data_imputed_tuple[1].copy()
         features = gloc_data_imputed_tuple[2].copy()
+        experiment_metadata = gloc_data_imputed_tuple[3].copy()
 
         baseline_methods_to_use = ["v0", "v1", "v2", "v5", "v6"]
         model_type = ("Complete", "Explicit")
         baseline_window = 32.5
 
-
+        # Get column indices for respective feature groups
+        phys_indices = [i for i, feature in enumerate(features["All"]) if feature in features["Phys"]]
+        ecg_indices = [i for i, feature in enumerate(features["All"]) if feature in features["ECG"]]
+        eeg_indices = [i for i, feature in enumerate(features["All"]) if feature in features["EEG"]]
 
         # Create expected copy
-        expected_gloc_data, expected_gloc_labels = gloc_data.copy(), gloc_labels.copy()
-        combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0 = (
+        expected_gloc_data_all_features_imputed_numpy, expected_gloc_labels_numpy = gloc_data_all_features_imputed_numpy.copy(), gloc_labels_numpy.copy()
+        expected_combined_baseline, expected_combined_baseline_names, baseline_v0, baseline_names_v0 = (
             baseline_data(
                 baseline_methods_to_use, 
-                expected_gloc_data["trial_id"], 
-                expected_gloc_data["Time (s)"], 
-                expected_gloc_data["event_validated"], 
-                expected_gloc_data["subject"],
-                expected_gloc_data[features["All"]], 
+                experiment_metadata["trial_id"], 
+                experiment_metadata["Time (s)"], 
+                experiment_metadata["event_validated"], 
+                experiment_metadata["subject"],
+                expected_gloc_data_all_features_imputed_numpy, 
                 features["All"],
-                expected_gloc_labels,
+                expected_gloc_labels_numpy,
                 baseline_window, 
-                expected_gloc_data[features["Phys"]], 
+                expected_gloc_data_all_features_imputed_numpy[:, phys_indices], 
                 features["Phys"], 
-                expected_gloc_data[features["ECG"]],
+                expected_gloc_data_all_features_imputed_numpy[:, ecg_indices],
                 features["ECG"],
-                expected_gloc_data[features["EEG"]], 
+                expected_gloc_data_all_features_imputed_numpy[:, eeg_indices], 
                 features["EEG"], 
                 file_paths["baseline"], 
                 file_paths["baseline_eeg_processed_list"],
                 model_type))
 
         # Get actual output
-        gloc_data = manager._get_combined_baseline_data(gloc_data, baseline_window, baseline_methods_to_use, features, file_paths, model_type)
+        combined_baseline, combined_baseline_names = manager._get_combined_baseline_data(gloc_data_all_features_imputed_numpy, experiment_metadata, baseline_window, baseline_methods_to_use, features, file_paths, model_type)
 
-        assert gloc_data.equals(combined_baseline), "The gloc_data after baseline_data does not match the expected gloc_data."
+        assert all(np.array_equal(expected_combined_baseline[trial_id], combined_baseline[trial_id]) for trial_id in expected_combined_baseline.keys()), "Combined baseline data does not match expected data."
+        assert np.array_equal(expected_combined_baseline_names, combined_baseline_names), "Combined baseline names do not match expected names."
