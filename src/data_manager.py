@@ -7,6 +7,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 from itertools import islice
 import faiss
 import pickle
+from baseline import BaselineContext, baseline_data, BaselineProcessor
 
 class DataManager:
     FEATURE_GROUPS_BY_MODEL_TYPE = {
@@ -101,7 +102,7 @@ class DataManager:
             gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
 
         ################################################## REDUCE MEMORY ##################################################
-        gloc_data = self._reduce_memory(gloc_data, model_type, features)
+        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data, model_type, features)
 
         ################################################## Impute Missing ##################################################
         """
@@ -109,7 +110,7 @@ class DataManager:
         """
         ### Impute missing row data
         if impute_type == 1:
-            gloc_data = self._imput_missing_data(gloc_data, features, impute_path, num_splits, kfold_ID, n_neighbors, save_impute, load_impute)
+            gloc_data_all_features_numpy = self._imput_missing_data(gloc_data_all_features_numpy, gloc_labels_numpy, features, impute_path, num_splits, kfold_ID, n_neighbors, save_impute, load_impute)
 
     def _get_feature_groups_and_baseline_methods(self, model_type):
         feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
@@ -242,6 +243,79 @@ class DataManager:
         # Decouple from original dataframe to prevent unwanted modifications later on
         return gloc_data
 
+    def _process_EEG_GOR(self, list_of_eeg_data_files, gloc_data):
+        """
+        This function slots in the GOR EEG data for the nonAFE condition based on the list of xlsx files.
+        The NaNs in the initial csv are replaced.
+        """
+        trial_indices_map = gloc_data.groupby("trial_id", sort=False).indices
+        event_validated = gloc_data["event_validated"].to_numpy()
+        trial_ids = gloc_data["trial_id"].to_numpy()
+        begin_mask = event_validated == "begin GOR"
+        begin_idx = np.flatnonzero(begin_mask)
+        begin_trial_ids = trial_ids[begin_mask]
+        begin_idx_map = (
+            pd.Series(begin_idx, index=begin_trial_ids)
+            .groupby(level=0, sort=False)
+            .first()
+            .to_dict()
+        )
+
+        # Iterate through all EEG files and write directly to gloc_data
+        for current_file in list_of_eeg_data_files:
+
+            # Grab corresponding trial based on file name
+            # corresponding_trial = current_file[47] + current_file[48] + '-0' + current_file[52]
+            corresponding_trial = current_file[-31] + current_file[-30] + '-0' + current_file[-26]
+
+            # Define data frame for delta, theta, alpha, and beta bands
+            df_delta = pd.read_excel(current_file, sheet_name="delta")
+            df_theta = pd.read_excel(current_file, sheet_name="theta")
+            df_alpha = pd.read_excel(current_file, sheet_name="alpha")
+            df_beta = pd.read_excel(current_file, sheet_name="beta")
+
+            # Remove time column from all spreadsheets that were read in
+            df_delta = df_delta.iloc[:, :-1]
+            df_theta = df_theta.iloc[:, :-1]
+            df_alpha = df_alpha.iloc[:, :-1]
+            df_beta = df_beta.iloc[:, :-1]
+
+            trial_indices = trial_indices_map.get(corresponding_trial)
+            if trial_indices is None:
+                print(f"Could not find 'begin GOR' for trial {corresponding_trial}")
+                continue
+
+            index_begin_GOR = begin_idx_map.get(corresponding_trial)
+            if index_begin_GOR is None:
+                print(f"Could not find 'begin GOR' for trial {corresponding_trial}")
+                continue
+
+            # Find end index of GOR EEG data
+            start_pos = np.searchsorted(trial_indices, index_begin_GOR)
+            end_pos = start_pos + len(df_delta)
+            trial_indexer = trial_indices[start_pos:end_pos]
+
+            # Build column names once
+            column_names = df_delta.columns
+            cols_delta = [f"{c}_delta - EEG" for c in column_names]
+            cols_theta = [f"{c}_theta - EEG" for c in column_names]
+            cols_alpha = [f"{c}_alpha - EEG" for c in column_names]
+            cols_beta = [f"{c}_beta - EEG" for c in column_names]
+
+            # Convert once
+            delta_vals = df_delta.to_numpy(dtype=np.float32)
+            theta_vals = df_theta.to_numpy(dtype=np.float32)
+            alpha_vals = df_alpha.to_numpy(dtype=np.float32)
+            beta_vals = df_beta.to_numpy(dtype=np.float32)
+
+            # Assign in blocks
+            gloc_data.loc[trial_indexer, cols_delta] = delta_vals
+            gloc_data.loc[trial_indexer, cols_theta] = theta_vals
+            gloc_data.loc[trial_indexer, cols_alpha] = alpha_vals
+            gloc_data.loc[trial_indexer, cols_beta] = beta_vals
+
+        return gloc_data
+
     def _filter_data_by_analysis_type(self, analysis_type, gloc_data, subject_to_analyze = None, trial_to_analyze = None):
         """Analyze only section of gloc_data specified using analysis_type"""
         
@@ -321,79 +395,6 @@ class DataManager:
                 gloc_labels[start:end] = 1
 
         return gloc_labels
-
-    def _process_EEG_GOR(self, list_of_eeg_data_files, gloc_data):
-        """
-        This function slots in the GOR EEG data for the nonAFE condition based on the list of xlsx files.
-        The NaNs in the initial csv are replaced.
-        """
-        trial_indices_map = gloc_data.groupby("trial_id", sort=False).indices
-        event_validated = gloc_data["event_validated"].to_numpy()
-        trial_ids = gloc_data["trial_id"].to_numpy()
-        begin_mask = event_validated == "begin GOR"
-        begin_idx = np.flatnonzero(begin_mask)
-        begin_trial_ids = trial_ids[begin_mask]
-        begin_idx_map = (
-            pd.Series(begin_idx, index=begin_trial_ids)
-            .groupby(level=0, sort=False)
-            .first()
-            .to_dict()
-        )
-
-        # Iterate through all EEG files and write directly to gloc_data
-        for current_file in list_of_eeg_data_files:
-
-            # Grab corresponding trial based on file name
-            # corresponding_trial = current_file[47] + current_file[48] + '-0' + current_file[52]
-            corresponding_trial = current_file[-31] + current_file[-30] + '-0' + current_file[-26]
-
-            # Define data frame for delta, theta, alpha, and beta bands
-            df_delta = pd.read_excel(current_file, sheet_name="delta")
-            df_theta = pd.read_excel(current_file, sheet_name="theta")
-            df_alpha = pd.read_excel(current_file, sheet_name="alpha")
-            df_beta = pd.read_excel(current_file, sheet_name="beta")
-
-            # Remove time column from all spreadsheets that were read in
-            df_delta = df_delta.iloc[:, :-1]
-            df_theta = df_theta.iloc[:, :-1]
-            df_alpha = df_alpha.iloc[:, :-1]
-            df_beta = df_beta.iloc[:, :-1]
-
-            trial_indices = trial_indices_map.get(corresponding_trial)
-            if trial_indices is None:
-                print(f"Could not find 'begin GOR' for trial {corresponding_trial}")
-                continue
-
-            index_begin_GOR = begin_idx_map.get(corresponding_trial)
-            if index_begin_GOR is None:
-                print(f"Could not find 'begin GOR' for trial {corresponding_trial}")
-                continue
-
-            # Find end index of GOR EEG data
-            start_pos = np.searchsorted(trial_indices, index_begin_GOR)
-            end_pos = start_pos + len(df_delta)
-            trial_indexer = trial_indices[start_pos:end_pos]
-
-            # Build column names once
-            column_names = df_delta.columns
-            cols_delta = [f"{c}_delta - EEG" for c in column_names]
-            cols_theta = [f"{c}_theta - EEG" for c in column_names]
-            cols_alpha = [f"{c}_alpha - EEG" for c in column_names]
-            cols_beta = [f"{c}_beta - EEG" for c in column_names]
-
-            # Convert once
-            delta_vals = df_delta.to_numpy(dtype=np.float32)
-            theta_vals = df_theta.to_numpy(dtype=np.float32)
-            alpha_vals = df_alpha.to_numpy(dtype=np.float32)
-            beta_vals = df_beta.to_numpy(dtype=np.float32)
-
-            # Assign in blocks
-            gloc_data.loc[trial_indexer, cols_delta] = delta_vals
-            gloc_data.loc[trial_indexer, cols_theta] = theta_vals
-            gloc_data.loc[trial_indexer, cols_alpha] = alpha_vals
-            gloc_data.loc[trial_indexer, cols_beta] = beta_vals
-
-        return gloc_data
 
     def _afe_subset(self, gloc_data, gloc_labels):
         """
@@ -509,17 +510,23 @@ class DataManager:
 
         return gloc_data, gloc_labels, nan_proportion_df
     
-    def _reduce_memory(self, gloc_data, model_type, features):
-        # Filter the needed columns
-        columns_to_keep = features["All"] + ["Time (s)", "event_validated", "trial_id", "subject", "trial"]
-        if "Complete" in model_type:
-            columns_to_keep.append("AFE_indicator")
+    def _reduce_memory(self, gloc_data, gloc_labels, features):
+        """"""
+        # Grab columns from gloc_data and remove gloc_data_reduced variable from memory
+        experiment_metadata = {
+            "trial_id": gloc_data["trial_id"].to_numpy(),
+            "trial_ints": self._convert_to_unique_ordered_integers(gloc_data["trial_id"].to_numpy()),
+            "Time (s)": gloc_data["Time (s)"].to_numpy(dtype = np.float32),
+            "event_validated": gloc_data["event_validated"].to_numpy(),
+            "subject": gloc_data["subject"].to_numpy(),
+            "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype = np.bool_).reshape(-1, 1)
+        }
+        gloc_data_all_features_numpy = gloc_data[features["All"]].to_numpy(dtype = np.float32)
+        gloc_labels_numpy = gloc_labels.astype(np.bool_)
 
-        gloc_data = gloc_data[columns_to_keep].astype(np.float32, errors = "ignore")
-        gloc_data["trial_ints"] = self._convert_to_unique_ordered_integers(gloc_data["trial_id"]) # uint32
-        gloc_data["AFE_indicator"] = gloc_data["AFE_indicator"].astype(np.bool_, errors = "ignore") # Convert to boolean
+        del gloc_data, gloc_labels
 
-        return gloc_data
+        return gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata
 
     def _convert_to_unique_ordered_integers(self, strings):
         """
@@ -538,27 +545,29 @@ class DataManager:
 
         return np.array(result, dtype = np.uint32)
     
-    def _impute_missing_data(self, gloc_data, gloc_labels, impute_path, save_impute, load_impute, num_splits, kfold_ID, n_neighbors):
+    def _impute_missing_data(self, gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata, impute_path, save_impute, load_impute, num_splits, kfold_ID, n_neighbors):
         # Load or compute imputed features
         # NOTE: impute_path is PROVIDED by caller; do not overwrite it.
         if load_impute and os.path.exists(impute_path):
             with open(impute_path, 'rb') as f:
-                gloc_data = pickle.load(f)
+                gloc_data_all_features_imputed_numpy = pickle.load(f)
             print(f"Loaded imputed data from {impute_path}")
         else:
             # Only compute train/test indices when actually imputing
-            _, _, _, _, train_indices, test_indices = self._groupedtrial_kfold_split(gloc_data, gloc_labels, num_splits, kfold_ID)
-            gloc_data = self._faster_knn_impute_train_test(gloc_data, train_indices, test_indices, n_neighbors)
+            _, _, _, _, train_indices, test_indices = self._groupedtrial_kfold_split(gloc_data_all_features_numpy, gloc_labels_numpy, num_splits, kfold_ID, experiment_metadata)
+            gloc_data_all_features_imputed_numpy = self._faster_knn_impute_train_test(gloc_data_all_features_numpy, train_indices, test_indices, n_neighbors)
+
+            del gloc_data_all_features_numpy # Free memory of original data after imputation
 
             if save_impute:
                 os.makedirs(os.path.dirname(impute_path), exist_ok = True)
                 with open(impute_path, 'wb') as f:
-                    pickle.dump(gloc_data, f)
+                    pickle.dump(gloc_data_all_features_imputed_numpy, f)
                 print(f"Saved imputed data to {impute_path}")
 
-        return gloc_data
+        return gloc_data_all_features_imputed_numpy
 
-    def _groupedtrial_kfold_split(self, X, Y, num_splits, kfold_ID):
+    def _groupedtrial_kfold_split(self, X, Y, num_splits, kfold_ID, experiment_metadata):
         """
         Split data into training and test sets using stratified group K-fold.
         
@@ -583,16 +592,16 @@ class DataManager:
             raise ValueError(f"Fold index {kfold_ID} out of range (must be between 0 and {n_folds - 1})")
 
         # Get train and test indices for the specified fold
-        trials = X["trial_ints"].to_numpy().reshape(-1, 1)
+        trials = experiment_metadata["trial_ints"].reshape(-1, 1)
         train_index, test_index = next(islice(gkf.split(X, Y, trials), kfold_ID, kfold_ID + 1))
 
         # Extract split data
-        x_train, y_train = X.iloc[train_index], Y[train_index]
-        x_test, y_test = X.iloc[test_index], Y[test_index]
+        x_train, y_train = X[train_index], Y[train_index]
+        x_test, y_test = X[test_index], Y[test_index]
 
         return x_train, x_test, y_train, y_test, train_index, test_index
 
-    def _faster_knn_impute_train_test(self, X, train_ind, test_ind, k = 5, M = 32, efSearch = 64, testing = False):
+    def _faster_knn_impute_train_test(self, X, train_ind, test_ind, k = 5, M = 32, efSearch = 64):
         """
         Impute missing values using FAISS KNN, training on train set only to prevent data leakage.
 
@@ -606,14 +615,9 @@ class DataManager:
         Returns:
             X_imputed: DataFrame with imputed values
         """
-        # Check that there are float32 columns to impute on
-        float32_columns = X.select_dtypes(include=[np.float32]).columns
-        if len(float32_columns) == 0:
-            raise ValueError("No float32 columns found in the input DataFrame for imputation.")
-
-        # Extract float32 columns as numpy arrays
-        X_train = X.loc[train_ind, float32_columns].to_numpy()
-        X_test = X.loc[test_ind, float32_columns].to_numpy()
+        # Split into train and test
+        X_train = X[train_ind]
+        X_test = X[test_ind]
 
         # Identify missing values
         mask_train = np.isnan(X_train)
@@ -660,7 +664,58 @@ class DataManager:
 
         # Rebuild into single array
         X_imputed = X.copy()
-        X_imputed.loc[train_ind, float32_columns] = X_train_imputed
-        X_imputed.loc[test_ind, float32_columns] = X_test_imputed
+        X_imputed[train_ind] = X_train_imputed
+        X_imputed[test_ind] = X_test_imputed
 
         return X_imputed
+
+    def _get_combined_baseline_data(self, gloc_data_all_features_imputed_numpy, experiment_metadata, baseline_window, baseline_methods_to_use, features, file_paths, model_type):        
+        # Load baseline data (if needed)
+        participant_baseline = pd.read_csv(file_paths["baseline"])
+        participant_baseline_rhr = participant_baseline["resting HR [seated]"][:-1]
+        participant_baseline_rhr.index = [f"{i:02d}" for i in range(1, 14)]
+        
+        # Load EEG baseline data (if needed)
+        eeg_baseline_data = {}
+        for filepath in file_paths["baseline_eeg_processed_list"]:
+            df = pd.read_csv(filepath)
+            df.index = [f"{i:02d}" for i in range(1, 14)]
+            band = filepath.split("_")[-1].split(".")[0]  # Extract band name from filename
+            eeg_baseline_data[band] = df
+        
+        # Organize features
+        phys_indices = [i for i, feature in enumerate(features["All"]) if feature in features["Phys"]]
+        ecg_indices = [i for i, feature in enumerate(features["All"]) if feature in features["ECG"]]
+        eeg_indices = [i for i, feature in enumerate(features["All"]) if feature in features["EEG"]]
+
+        data_by_features = {
+            "All": gloc_data_all_features_imputed_numpy,
+            "Phys": gloc_data_all_features_imputed_numpy[:, phys_indices],
+            "ECG": gloc_data_all_features_imputed_numpy[:, ecg_indices],
+            "EEG": gloc_data_all_features_imputed_numpy[:, eeg_indices],
+        }
+        
+        # Create context object
+        context = BaselineContext(
+            trial_column = experiment_metadata["trial_id"],
+            time_column = experiment_metadata["Time (s)"],
+            event_validated_column = experiment_metadata["event_validated"],
+            subject_column = experiment_metadata["subject"],
+            data_by_features = data_by_features,
+            features = features,
+            baseline_window = baseline_window,
+            model_type = model_type,
+            participant_baseline_data = participant_baseline_rhr,
+            eeg_baseline_data = eeg_baseline_data
+        )
+        
+        combined_baseline, combined_names, baseline_v0, baseline_v0_names = baseline_data(baseline_methods_to_use, context)
+        
+        # Result:
+        # - combined_baseline: Dict[trial_id -> baseline_array (n_samples x n_features*3)]
+        # - combined_names: List of feature names (base + derivative + 2nd derivative)
+        # - baseline_v0: Reference v0 baseline
+        # - baseline_v0_names: Feature names for v0
+        
+        return combined_baseline, combined_names
+        
