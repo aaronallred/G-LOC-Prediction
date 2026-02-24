@@ -2824,7 +2824,6 @@ class TestDataManager:
         # Get Expected Data
         expected_x_feature_matrix = x_feature_matrix.copy()
         expected_y_gloc_labels = y_gloc_labels.copy()
-        expected_all_features = features["All"].copy()
         expected_trial_ints = experiment_metadata["trial_ints"].copy()
 
         # Training/Test Split
@@ -2849,6 +2848,9 @@ class TestDataManager:
 
 
         # Get Actual Returns
-        x_train = manager._get_train_test_split(x_feature_matrix)
+        x_train, y_train, x_test, y_test = manager._get_train_test_split(x_feature_matrix, y_gloc_labels, experiment_metadata, num_splits, kfold_ID)
 
         assert np.array_equal(expected_x_train, x_train), "Training X matrix does not match expected training X matrix."
+        assert np.array_equal(expected_y_train, y_train), "Training Y vector does not match expected training Y vector."
+        assert np.array_equal(expected_x_test, x_test), "Test X matrix does not match expected test X matrix."
+        assert np.array_equal(expected_y_test, y_test), "Test Y vector does not match expected test Y vector."

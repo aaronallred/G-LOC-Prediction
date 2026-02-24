@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 import os
 
+from sklearn.discriminant_analysis import StandardScaler
+
 from features import *
 from sklearn.model_selection import StratifiedGroupKFold
 from itertools import islice
@@ -207,6 +209,15 @@ class DataManager:
         """
             Optional handling of raw NaN data
         """
+        x_feature_matrix, y_gloc_labels, features["All"], experiment_metadata["trial_ints"] = self._final_clean_and_prep(x_feature_matrix, gloc_labels_numpy, features["All"], experiment_metadata)
+
+        ################################################ TRAIN/TEST SPLIT  ################################################
+        """
+            Split data into training/test for optimization loop of sequential optimization framework.
+        """
+        x_train, y_train, x_test, y_test = self._train_test_split(x_feature_matrix, y_gloc_labels, experiment_metadata, num_splits, kfold_ID)
+
+        return x_train, y_train, x_test, y_test, features["All"]
 
     def _get_feature_groups_and_baseline_methods(self, model_type):
         feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
@@ -961,3 +972,53 @@ class DataManager:
             trials = trials[keep_rows]
 
         return x_feature_matrix, y_gloc_labels, all_features, trials
+
+    def _get_train_test_split(self, x_feature_matrix, y_gloc_labels, experiment_metadata, num_splits, kfold_ID):
+        """
+        Split data into training and test sets with standardized features.
+        
+        Performs stratified group k-fold splitting to separate the dataset while
+        maintaining trial integrity. Extracts trial indices from the last column,
+        standardizes features based on training data distribution, and reattaches
+        trial indices as the final column to preserve trial tracking through the
+        modeling pipeline.
+        
+        Parameters:
+            x_feature_matrix : np.ndarray
+                Feature matrix with trial indices as the last column.
+            y_gloc_labels : np.ndarray
+                Binary classification labels (GLOC vs non-GLOC).
+            trials : np.ndarray
+                Trial group identifiers for stratified splitting.
+            num_splits : int
+                Number of K-fold splits.
+            kfold_ID : int
+                Which fold to use (0-indexed).
+        
+        Returns:
+            tuple
+                (x_train, y_train, x_test, y_test) with features standardized and
+                trial indices preserved in the last column of x arrays.
+        """
+        # Perform stratified group k-fold split
+        x_train, x_test, y_train, y_test, _, _ = self._groupedtrial_kfold_split(
+            x_feature_matrix, y_gloc_labels, num_splits, kfold_ID, experiment_metadata)
+
+        # Extract trial indices from last column (use direct slicing for memory efficiency)
+        train_trials = x_train[:, -1:]
+        test_trials = x_test[:, -1:]
+        
+        # Remove trial column from features
+        x_train = x_train[:, :-1]
+        x_test = x_test[:, :-1]
+
+        # Standardize features based on training data distribution
+        scaler = StandardScaler()
+        x_train = scaler.fit_transform(x_train)
+        x_test = scaler.transform(x_test)
+
+        # Reattach trial indices as final column
+        x_train = np.hstack([x_train, train_trials])
+        x_test = np.hstack([x_test, test_trials])
+
+        return x_train, y_train, x_test, y_test
