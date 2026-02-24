@@ -4,6 +4,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.discriminant_analysis import StandardScaler
 from sklearn.model_selection import StratifiedGroupKFold
 from itertools import islice
 import faiss
@@ -2776,3 +2777,78 @@ class TestDataManager:
         assert np.array_equal(expected_y_gloc_labels_noNaN, y_gloc_labels), "Cleaned GLOC labels do not match expected labels."
         assert np.array_equal(expected_all_features, features["All"]), "Cleaned all features list does not match expected list."
         assert np.array_equal(expected_trials_noNaN, experiment_metadata["trial_ints"]), "Cleaned trial IDs in metadata do not match expected trial IDs."
+
+    def test_train_test_split(self, manager, gloc_data_imputed_tuple, file_paths):
+        def groupedtrial_kfold_split(Y, X, trials, num_splits, kfold_ID):
+            """
+            This function splits the X and y matrix into training and test matrix.
+            """
+
+            # Grouped K-Fold setup
+            # Use random state to ensure repeatability across runs and classifiers
+            gkf = StratifiedGroupKFold(n_splits=num_splits, shuffle=False)
+
+            # Safety check to ensure that kfold_ID is within the fold indices
+            n_folds = gkf.get_n_splits()
+            if kfold_ID < 0 or kfold_ID >= n_folds:
+                raise ValueError(f"Fold index {kfold_ID} out of range (must be between 0 and {n_folds - 1})")
+
+            # Grab train and test indices given the skf generator format for a specific kfold_ID
+            train_index, test_index = next(islice(gkf.split(X, Y, trials), kfold_ID, kfold_ID + 1))
+
+            # Extract the corresponding data for the given kfold_ID
+            x_train, y_train = X[train_index], Y[train_index]
+            x_test, y_test = X[test_index], Y[test_index]
+
+            return x_train, x_test, y_train, y_test, train_index, test_index
+        
+        # Setup Data
+        gloc_data_all_features_imputed_numpy = gloc_data_imputed_tuple[0].copy()
+        gloc_labels_numpy = gloc_data_imputed_tuple[1].copy()
+        features = gloc_data_imputed_tuple[2].copy()
+        experiment_metadata = gloc_data_imputed_tuple[3].copy()
+
+        baseline_methods_to_use = ["v0", "v1", "v2", "v5", "v6"]
+        model_type = ("Complete", "Explicit")
+        baseline_window = 32.5
+        impute_type = 1
+        num_splits = 5
+        kfold_ID = 0
+
+        combined_baseline, combined_baseline_names = manager._get_combined_baseline_data(gloc_data_all_features_imputed_numpy, experiment_metadata, baseline_window, baseline_methods_to_use, features, file_paths, model_type)
+        x_feature_matrix, features["All"] = manager._generate_features(baseline_methods_to_use, combined_baseline, combined_baseline_names, experiment_metadata)
+        x_feature_matrix, y_gloc_labels, features["All"], experiment_metadata["trial_ints"] = manager._feature_clean_and_prep(x_feature_matrix, gloc_labels_numpy, features, experiment_metadata, model_type, impute_type)
+
+
+
+        # Get Expected Data
+        expected_x_feature_matrix = x_feature_matrix.copy()
+        expected_y_gloc_labels = y_gloc_labels.copy()
+        expected_all_features = features["All"].copy()
+        expected_trial_ints = experiment_metadata["trial_ints"].copy()
+
+        # Training/Test Split
+        expected_x_train, expected_x_test, expected_y_train, expected_y_test, _, _ = groupedtrial_kfold_split(
+            expected_y_gloc_labels, expected_x_feature_matrix, expected_trial_ints, num_splits, kfold_ID)
+
+        # Grab trials as separate
+        expected_x_train_trials = expected_x_train[:, -1].reshape(-1, 1)
+        expected_x_train = expected_x_train[:, :-1]
+        expected_x_test_trials = expected_x_test[:, -1].reshape(-1, 1)
+        expected_x_test = expected_x_test[:, :-1]
+
+        # And standardize based on training data
+        scaler = StandardScaler()
+        expected_x_train = scaler.fit_transform(expected_x_train)
+        expected_x_test = scaler.transform(expected_x_test)
+
+        # Add indices back as final column
+        expected_x_train = np.hstack([expected_x_train, expected_x_train_trials])
+        expected_x_test = np.hstack([expected_x_test, expected_x_test_trials])
+
+
+
+        # Get Actual Returns
+        x_train = manager._get_train_test_split(x_feature_matrix)
+
+        assert np.array_equal(expected_x_train, x_train), "Training X matrix does not match expected training X matrix."
