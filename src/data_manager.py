@@ -1,15 +1,20 @@
-import pandas as pd
-import numpy as np
+import logging
 import os
-
-from sklearn.discriminant_analysis import StandardScaler
-
-from features import *
-from sklearn.model_selection import StratifiedGroupKFold
-from itertools import islice
-import faiss
 import pickle
-from baseline import BaselineContext, baseline_data, BaselineProcessor
+import re
+from itertools import islice
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+import faiss
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.preprocessing import StandardScaler
+
+from baseline import BaselineContext, baseline_data
+from features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
+
+logger = logging.getLogger(__name__)
 
 class DataManager:
     FEATURE_GROUPS_BY_MODEL_TYPE = {
@@ -23,84 +28,66 @@ class DataManager:
         "Complete": ["v0", "v1", "v2", "v5", "v6"],
     }
     
-    # Cache unengineered streams as a frozen set for O(1) lookups
-    _UNENGINEERED_STREAMS = frozenset([
-        'HR (bpm) - Equivital',
-        'ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital',
-        'HR_instant - Equivital', 'HR_average - Equivital', 'HR_w_average - Equivital',
-        'BR (rpm) - Equivital',
-        'Skin Temperature - IR Thermometer (°C) - Equivital',
+    # Mapping of participant -> DC trial numbers for GOR EEG data files
+    _EEG_PARTICIPANT_TRIALS = {
+        1: [1, 2, 3],  2: [1, 2, 3],  3: [1, 2, 3],  4: [1, 2, 3],  5: [1, 2, 3],
+        6: [1, 4, 6],  7: [2, 4, 6],  8: [1, 3],     9: [2, 5, 6],
+        10: [2, 4, 5], 11: [1],       12: [1, 5],     13: [1, 3, 6],
+    }
 
-        'Pupil position left X [HUCS mm] - Tobii', 'Pupil position left Y [HUCS mm] - Tobii',
-        'Pupil position left Z [HUCS mm] - Tobii', 'Pupil position right X [HUCS mm] - Tobii',
-        'Pupil position right Y [HUCS mm] - Tobii', 'Pupil position right Z [HUCS mm] - Tobii',
-        'Pupil diameter left [mm] - Tobii', 'Pupil diameter right [mm] - Tobii',
+    _EEG_BASELINE_BANDS = ["delta", "theta", "alpha", "beta"]
 
-        'F1 - EEG', 'Fz - EEG', 'F3 - EEG', 'C3 - EEG', 'C4 - EEG', 'CP1 - EEG', 'CP2 - EEG',
-        'T8 - EEG', 'TP9 - EEG', 'TP10 - EEG', 'P7 - EEG', 'P8 - EEG', 'AFz - EEG', 'AF4 - EEG',
-        'FT9 - EEG', 'FT10 - EEG', 'FC5 - EEG', 'FC3 - EEG', 'FC1 - EEG', 'FC2 - EEG', 'FC4 - EEG',
-        'FC6 - EEG', 'C5 - EEG', 'Cz - EEG', 'CP5 - EEG', 'CP6 - EEG', 'P5 - EEG', 'P3 - EEG',
-        'P1 - EEG', 'Pz - EEG', 'P4 - EEG', 'P6 - EEG',
+    # 32 raw EEG channel names (without " - EEG" suffix)
+    _RAW_EEG_CHANNELS = [
+        'F1', 'Fz', 'F3', 'C3', 'C4', 'CP1', 'CP2',
+        'T8', 'TP9', 'TP10', 'P7', 'P8', 'AFz', 'AF4',
+        'FT9', 'FT10', 'FC5', 'FC3', 'FC1', 'FC2', 'FC4',
+        'FC6', 'C5', 'Cz', 'CP5', 'CP6', 'P5', 'P3',
+        'P1', 'Pz', 'P4', 'P6',
+    ]
 
-        'magnitude - Centrifuge',
-        'Strain [0/1]',
-        'participant_gender', 'participant_age', 'participant_height',
-        'participant_weight', 'participant_BMI', 'participant_blood_volume',
-        'participant_SBP_seated', 'participant_SBP_stand', 'participant_SBP_exercise',
-        'participant_DBP_seated', 'participant_DBP_stand', 'participant_DBP_exercise',
-        'participant_MAP_seated', 'participant_MAP_stand', 'participant_MAP_exercise',
-        'participant_HR_seated', 'participant_HR_stand', 'participant_HR_exercise',
-        'participant_max_leg_strength', 'participant_largest_leg_circumference',
-        'participant_lower_leg_volume', 'participant_skinfolds_chest_avg',
-        'participant_skinfolds_abd_avg', 'participant_skinfolds_thigh_avg',
-        'participant_skinfolds_midax_avg', 'participant_skinfolds_subscap_avg',
-        'participant_skinfolds_tri_avg', 'participant_skinfolds_supra_avg',
-        'participant_skinfolds_sum', 'participant_percent_fat', 'participant_leg_length',
-        'participant_arm_length', 'participant_midline_neck_length',
-        'participant_lateral_neck_length', 'participant_torso_length_post',
-        'participant_torso_length_ax', 'participant_head_to_heart', 'participant_head_girth',
-        'participant_neck_girth', 'participant_chest_upper_girth', 'participant_chest_under_girth',
-        'participant_waist_girth', 'participant_hip_girth', 'participant_thigh_girth',
-        'participant_calf_girth', 'participant_biceps_girth_flex', 'participant_biceps_girth_relax',
-        'participant_neck_flexion', 'participant_neck_extension', 'participant_neck_right_rotation',
-        'participant_neck_left_rotation', 'participant_neck_left_lat_flex',
-        'participant_neck_right_lat_flex', 'participant_pred_vo2',
+    # Unengineered data streams used for feature selection in _generate_features.
+    # EEG entries (raw + processed band power) are generated from _RAW_EEG_CHANNELS × _EEG_BASELINE_BANDS.
+    _UNENGINEERED_STREAMS = frozenset(
+        [
+            'HR (bpm) - Equivital',
+            'ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital',
+            'HR_instant - Equivital', 'HR_average - Equivital', 'HR_w_average - Equivital',
+            'BR (rpm) - Equivital',
+            'Skin Temperature - IR Thermometer (°C) - Equivital',
+            'Pupil position left X [HUCS mm] - Tobii', 'Pupil position left Y [HUCS mm] - Tobii',
+            'Pupil position left Z [HUCS mm] - Tobii', 'Pupil position right X [HUCS mm] - Tobii',
+            'Pupil position right Y [HUCS mm] - Tobii', 'Pupil position right Z [HUCS mm] - Tobii',
+            'Pupil diameter left [mm] - Tobii', 'Pupil diameter right [mm] - Tobii',
+            'magnitude - Centrifuge',
+            'Strain [0/1]',
+            'participant_gender', 'participant_age', 'participant_height',
+            'participant_weight', 'participant_BMI', 'participant_blood_volume',
+            'participant_SBP_seated', 'participant_SBP_stand', 'participant_SBP_exercise',
+            'participant_DBP_seated', 'participant_DBP_stand', 'participant_DBP_exercise',
+            'participant_MAP_seated', 'participant_MAP_stand', 'participant_MAP_exercise',
+            'participant_HR_seated', 'participant_HR_stand', 'participant_HR_exercise',
+            'participant_max_leg_strength', 'participant_largest_leg_circumference',
+            'participant_lower_leg_volume', 'participant_skinfolds_chest_avg',
+            'participant_skinfolds_abd_avg', 'participant_skinfolds_thigh_avg',
+            'participant_skinfolds_midax_avg', 'participant_skinfolds_subscap_avg',
+            'participant_skinfolds_tri_avg', 'participant_skinfolds_supra_avg',
+            'participant_skinfolds_sum', 'participant_percent_fat', 'participant_leg_length',
+            'participant_arm_length', 'participant_midline_neck_length',
+            'participant_lateral_neck_length', 'participant_torso_length_post',
+            'participant_torso_length_ax', 'participant_head_to_heart', 'participant_head_girth',
+            'participant_neck_girth', 'participant_chest_upper_girth', 'participant_chest_under_girth',
+            'participant_waist_girth', 'participant_hip_girth', 'participant_thigh_girth',
+            'participant_calf_girth', 'participant_biceps_girth_flex', 'participant_biceps_girth_relax',
+            'participant_neck_flexion', 'participant_neck_extension', 'participant_neck_right_rotation',
+            'participant_neck_left_rotation', 'participant_neck_left_lat_flex',
+            'participant_neck_right_lat_flex', 'participant_pred_vo2',
+        ]
+        + [f'{ch} - EEG' for ch in _RAW_EEG_CHANNELS]
+        + [f'{ch}_{band} - EEG' for ch in _RAW_EEG_CHANNELS for band in ["delta", "theta", "alpha", "beta"]]
+    )
 
-        'F1_delta - EEG', 'F1_theta - EEG', 'F1_alpha - EEG', 'F1_beta - EEG',
-        'Fz_delta - EEG', 'Fz_theta - EEG', 'Fz_alpha - EEG', 'Fz_beta - EEG',
-        'F3_delta - EEG', 'F3_theta - EEG', 'F3_alpha - EEG', 'F3_beta - EEG',
-        'C3_delta - EEG', 'C3_theta - EEG', 'C3_alpha - EEG', 'C3_beta - EEG',
-        'C4_delta - EEG', 'C4_theta - EEG', 'C4_alpha - EEG', 'C4_beta - EEG',
-        'CP1_delta - EEG', 'CP1_theta - EEG', 'CP1_alpha - EEG', 'CP1_beta - EEG',
-        'CP2_delta - EEG', 'CP2_theta - EEG', 'CP2_alpha - EEG', 'CP2_beta - EEG',
-        'T8_delta - EEG', 'T8_theta - EEG', 'T8_alpha - EEG', 'T8_beta - EEG',
-        'TP9_delta - EEG', 'TP9_theta - EEG', 'TP9_alpha - EEG', 'TP9_beta - EEG',
-        'TP10_delta - EEG', 'TP10_theta - EEG', 'TP10_alpha - EEG', 'TP10_beta - EEG',
-        'P7_delta - EEG', 'P7_theta - EEG', 'P7_alpha - EEG', 'P7_beta - EEG',
-        'P8_delta - EEG', 'P8_theta - EEG', 'P8_alpha - EEG', 'P8_beta - EEG',
-        'AFz_delta - EEG', 'AFz_theta - EEG', 'AFz_alpha - EEG', 'AFz_beta - EEG',
-        'AF4_delta - EEG', 'AF4_theta - EEG', 'AF4_alpha - EEG', 'AF4_beta - EEG',
-        'FT9_delta - EEG', 'FT9_theta - EEG', 'FT9_alpha - EEG', 'FT9_beta - EEG',
-        'FT10_delta - EEG', 'FT10_theta - EEG', 'FT10_alpha - EEG', 'FT10_beta - EEG',
-        'FC5_delta - EEG', 'FC5_theta - EEG', 'FC5_alpha - EEG', 'FC5_beta - EEG',
-        'FC3_delta - EEG', 'FC3_theta - EEG', 'FC3_alpha - EEG', 'FC3_beta - EEG',
-        'FC1_delta - EEG', 'FC1_theta - EEG', 'FC1_alpha - EEG', 'FC1_beta - EEG',
-        'FC2_delta - EEG', 'FC2_theta - EEG', 'FC2_alpha - EEG', 'FC2_beta - EEG',
-        'FC4_delta - EEG', 'FC4_theta - EEG', 'FC4_alpha - EEG', 'FC4_beta - EEG',
-        'FC6_delta - EEG', 'FC6_theta - EEG', 'FC6_alpha - EEG', 'FC6_beta - EEG',
-        'C5_delta - EEG', 'C5_theta - EEG', 'C5_alpha - EEG', 'C5_beta - EEG',
-        'Cz_delta - EEG', 'Cz_theta - EEG', 'Cz_alpha - EEG', 'Cz_beta - EEG',
-        'CP5_delta - EEG', 'CP5_theta - EEG', 'CP5_alpha - EEG', 'CP5_beta - EEG',
-        'CP6_delta - EEG', 'CP6_theta - EEG', 'CP6_alpha - EEG', 'CP6_beta - EEG',
-        'P5_delta - EEG', 'P5_theta - EEG', 'P5_alpha - EEG', 'P5_beta - EEG',
-        'P3_delta - EEG', 'P3_theta - EEG', 'P3_alpha - EEG', 'P3_beta - EEG',
-        'P1_delta - EEG', 'P1_theta - EEG', 'P1_alpha - EEG', 'P1_beta - EEG',
-        'Pz_delta - EEG', 'Pz_theta - EEG', 'Pz_alpha - EEG', 'Pz_beta - EEG',
-        'P4_delta - EEG', 'P4_theta - EEG', 'P4_alpha - EEG', 'P4_beta - EEG',
-        'P6_delta - EEG', 'P6_theta - EEG', 'P6_alpha - EEG', 'P6_beta - EEG'
-    ])
-
-    def __init__(self, data_path = "../data/", testing = False, random_seed = 42):
+    def __init__(self, data_path: str = "../data/", testing: bool = False, random_seed: int = 42) -> None:
         self.data_path = data_path
         self._data_locations = None
         self.testing = testing
@@ -108,46 +95,40 @@ class DataManager:
 
     def get_data(
             self,
-            model_type,
-            num_splits,
-            kfold_ID,
-            impute_path,
-            subject_to_analyze = None,
-            trial_to_analyze = None,
-            impute_type = 1,
-            n_neighbors = 4,
-            baseline_window = 32.5,
-            datafolder = "../data/",
-            analysis_type = 2,
-            remove_NaN_trials = True,
-            save_impute = True,
-            load_impute = True
-        ):
+            model_type: Tuple[str, str],
+            num_splits: int,
+            kfold_ID: int,
+            impute_path: str,
+            subject_to_analyze: Optional[str] = None,
+            trial_to_analyze: Optional[str] = None,
+            impute_type: int = 1,
+            n_neighbors: int = 4,
+            baseline_window: float = 32.5,
+            analysis_type: int = 2,
+            remove_NaN_trials: bool = True,
+            save_impute: bool = True,
+            load_impute: bool = True
+        ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, List[str]]:
         """
-            Function Loads Raw data and Prepares the Predictor / Target Sets for Advanced Classifiers
+        Load raw data and prepare predictor / target sets for advanced classifiers.
 
-            Parameters:
-                model_type (tuple[str])  --> A list of model type characteristics i.e. 'Complete/nonAFE' and 'explicit/implicit'
-                num_splits (int)         --> The number of splits of the training and test data set for K-fold CV. Nominally set to 10
-                kfold_ID (int)           --> The id of the train / test split. If num split is 10, kfold is [0, 9]
-                impute_path (str)        --> The path to save/load the imputed data pickle file
-                subject_to_analyze (str) --> If analysis type is 1, the participant number to analyze
-                trial_to_analyze (str)   --> If analysis type is 0, the trial number to analyze
-                impute_type (int)        --> Sets the imputation method. Since Sequential, use impute type equal to 1 (input raw data)
-                n_neighbors (int)        --> Sets the KNN imputation # of neighbors. Since Sequential, use 4 neighbors
-                baseline_window (float)  --> Sets the baseline window duration. Since Sequential, use 32.5 s
-                datafolder (str)         --> Location of AFRL provided data from the experiment: raw data that is processed
-                analysis_type (int)      --> Determines what data to use. 2: all data. 1: one participant (set in function), 0: one trial
-                remove_NaN_trials (bool) --> Removes trials that have an all NaN sensor instead of imputing an all NaN array
-                save_impute (bool)       --> Dumps data post-impute into a pickle file (this is convenient as imputation has large compute)
-                load_impute (bool)       --> Checks if there is a saved impute pickle and loads it if available
+        Parameters:
+            model_type: Tuple[str, str] — (model_kind, label_mode) e.g. ('Complete', 'Explicit')
+            num_splits: Number of K-fold CV splits
+            kfold_ID: Which fold to use (0 to num_splits-1)
+            impute_path: Path to save/load the imputed data pickle file
+            subject_to_analyze: Participant number for single-subject analysis
+            trial_to_analyze: Trial number for single-trial analysis
+            impute_type: Imputation method (1 = KNN on raw data)
+            n_neighbors: Number of KNN imputation neighbors
+            baseline_window: Baseline window duration in seconds
+            analysis_type: 2=all data, 1=one participant, 0=one trial
+            remove_NaN_trials: Remove trials with all-NaN sensors
+            save_impute: Save imputed data to pickle
+            load_impute: Load imputed data from pickle if available
 
-            Returns:
-                x_train, x_test --> Array of predictors. rows are over time, columns are over predictors
-                    * Additional Note: The last column is the trial ID. Needed for the advanced classifier slicing
-                y_train, y_test --> An array of binary labels corresponding to GLOC or no GLOC (1 or 0, respectively)
-                    * Additional Note: Not shifted by horizon for advanced classifiers (happens in the data loader inside)
-                all_features    --> List of all feature names in x_train and x_test
+        Returns:
+            x_train, y_train, x_test, y_test, all_features
         """
         ################################################### FEATURES SETUP ###################################################
         feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type)
@@ -171,9 +152,7 @@ class DataManager:
             gloc_data = self._eeg_specific_imputation(gloc_data, features)
 
         ############################################### MISSING DATA HANDLING ###############################################
-        """
-        Optional handling of raw NaN data, depending on 'remove_NaN_trials' 'impute_type' <= 1
-        """
+        # Optional handling of raw NaN data, depending on remove_NaN_trials and impute_type
         if remove_NaN_trials:
             # This also returns a DataFrame with proportion of NaN values for each feature for each trial
             # Also modifies gloc_data and gloc_labels to remove trials with all NaNs in at least one feature
@@ -181,45 +160,41 @@ class DataManager:
             gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
 
         ################################################## REDUCE MEMORY ##################################################
-        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data, model_type, features)
+        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data, gloc_labels, features)
 
         ################################################## Impute Missing ##################################################
-        """
-            Imputes data using train / test split within imputation to prevent data leakage
-        """
-        ### Impute missing row data
         if impute_type == 1:
-            gloc_data_all_features_imputed_numpy = self._imput_missing_data(gloc_data_all_features_numpy, gloc_labels_numpy, features, impute_path, num_splits, kfold_ID, n_neighbors, save_impute, load_impute)
+            gloc_data_all_features_imputed_numpy = self._impute_missing_data(
+                gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata,
+                impute_path, save_impute, load_impute, num_splits, kfold_ID, n_neighbors
+            )
         else:
             gloc_data_all_features_imputed_numpy = gloc_data_all_features_numpy
 
         ################################################## BASELINE DATA ##################################################
-        """
-            Baselines pre-feature data based on 'baseline_methods_to_use'
-        """
-        combined_baseline, combined_baseline_names = self._get_combined_baseline(gloc_data_all_features_imputed_numpy, experiment_metadata, baseline_window, baseline_methods_to_use, features, file_paths, model_type)
+        combined_baseline, combined_baseline_names = self._get_combined_baseline_data(
+            gloc_data_all_features_imputed_numpy, experiment_metadata, baseline_window,
+            baseline_methods_to_use, features, file_paths, model_type
+        )
 
         ################################################ GENERATE FEATURES ################################################
-        """
-            Generates unengineered features from baseline data using same naming convention as traditional models
-        """
-        x_feature_matrix, features["All"] = self._generate_features(baseline_methods_to_use, combined_baseline, combined_baseline_names, experiment_metadata)
+        x_feature_matrix, features["All"] = self._generate_features(
+            baseline_methods_to_use, combined_baseline, combined_baseline_names, experiment_metadata
+        )
 
         ############################################# FEATURE CLEAN AND PREP ##############################################
-        """
-            Optional handling of raw NaN data
-        """
-        x_feature_matrix, y_gloc_labels, features["All"], experiment_metadata["trial_ints"] = self._final_clean_and_prep(x_feature_matrix, gloc_labels_numpy, features["All"], experiment_metadata)
+        x_feature_matrix, y_gloc_labels, features["All"], experiment_metadata["trial_ints"] = self._feature_clean_and_prep(
+            x_feature_matrix, gloc_labels_numpy, features, experiment_metadata, model_type, impute_type
+        )
 
         ################################################ TRAIN/TEST SPLIT  ################################################
-        """
-            Split data into training/test for optimization loop of sequential optimization framework.
-        """
-        x_train, y_train, x_test, y_test = self._train_test_split(x_feature_matrix, y_gloc_labels, experiment_metadata, num_splits, kfold_ID)
+        x_train, y_train, x_test, y_test = self._get_train_test_split(
+            x_feature_matrix, y_gloc_labels, experiment_metadata, num_splits, kfold_ID
+        )
 
         return x_train, y_train, x_test, y_test, features["All"]
 
-    def _get_feature_groups_and_baseline_methods(self, model_type):
+    def _get_feature_groups_and_baseline_methods(self, model_type: Tuple[str, str]) -> Tuple[Set[str], List[str]]:
         feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
         baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE[model_type[0]]
 
@@ -229,104 +204,51 @@ class DataManager:
 
         return feature_groups_to_analyze, baseline_methods_to_use
 
-    def _get_data_locations(self):
+    def _get_data_locations(self) -> Dict[str, Any]:
         """
-            Get the file locations for all relevant data files
-            
-            Parameters:
-                datafolder (str) --> location of AFRL provided data from the experiment: raw data that is processed
+        Get file locations for all relevant data files.
 
-            Returns:
-                dict: A dictionary containing file paths for the data with the following structure:
-                - "main": Path to the main data CSV file.
-                - "baseline": Path to the baseline data CSV file.
-                - "demographic": Path to the demographic data CSV file.
-                - "eeg_list": List of paths to individual EEG data files.
-                - "baseline_eeg_processed_list": List of paths to baseline EEG processed data files.   
+        Returns:
+            dict with keys: "main", "baseline", "demographic", "eeg_list", "baseline_eeg_processed_list"
         """
         if self._data_locations is not None:
             return self._data_locations
 
-        # Data CSV
-        print("USING REDUCED DATASET!!!!!!!!!!!!!!!")
-        main_data_file_path = os.path.join(self.data_path, "all_trials_25_hz_stacked_null_str_filled_reduced.csv")
+        logger.info("Using reduced dataset.")
 
-        # Baseline Data (HR)
-        baseline_data_file_path = os.path.join(self.data_path, "ParticipantBaseline.csv")
-
-        # Modified Demographic Data (put in order of participant 1-13, removed excess calculations, and converted from .xlsx to .csv)
-        demographic_data_file_path = os.path.join(self.data_path, "GLOC_Effectiveness_Final.csv")
-
-        # Input GOR EEG data from separate files
+        eeg_dir = "GLOC_GOR_EEG_data_participants_1-13"
         list_of_eeg_data_file_paths = [
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC1_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC2_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_01_DC3_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC1_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC2_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_02_DC3_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC1_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC2_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_03_DC3_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC1_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC2_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_04_DC3_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC1_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC2_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_05_DC3_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC1_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC4_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_06_DC6_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC2_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC4_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_07_DC6_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC1_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_08_DC3_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC2_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC5_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_09_DC6_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC2_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC4_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_10_DC5_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_11_DC1_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC1_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_12_DC5_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC1_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC3_25Hz_EEG_power_wMAR.xlsx"),
-            os.path.join(self.data_path, "GLOC_GOR_EEG_data_participants_1-13/GLOC_13_DC6_25Hz_EEG_power_wMAR.xlsx")
+            os.path.join(self.data_path, eeg_dir, f"GLOC_{p:02d}_DC{t}_25Hz_EEG_power_wMAR.xlsx")
+            for p, trials in self._EEG_PARTICIPANT_TRIALS.items()
+            for t in trials
         ]
 
-        # Input baseline EEG data from separate files
         list_of_baseline_eeg_processed_file_paths = [
-            os.path.join(self.data_path, "GLOC_EEG_baseline_delta_noAFE1.csv"),
-            os.path.join(self.data_path, "GLOC_EEG_baseline_theta_noAFE1.csv"),
-            os.path.join(self.data_path, "GLOC_EEG_baseline_alpha_noAFE1.csv"),
-            os.path.join(self.data_path, "GLOC_EEG_baseline_beta_noAFE1.csv")
+            os.path.join(self.data_path, f"GLOC_EEG_baseline_{band}_noAFE1.csv")
+            for band in self._EEG_BASELINE_BANDS
         ]
 
-        file_paths = {
-            "main": main_data_file_path,
-            "baseline": baseline_data_file_path,
-            "demographic": demographic_data_file_path,
+        self._data_locations = {
+            "main": os.path.join(self.data_path, "all_trials_25_hz_stacked_null_str_filled_reduced.csv"),
+            "baseline": os.path.join(self.data_path, "ParticipantBaseline.csv"),
+            "demographic": os.path.join(self.data_path, "GLOC_Effectiveness_Final.csv"),
             "eeg_list": list_of_eeg_data_file_paths,
-            "baseline_eeg_processed_list": list_of_baseline_eeg_processed_file_paths
+            "baseline_eeg_processed_list": list_of_baseline_eeg_processed_file_paths,
         }
-
-        self._data_locations = file_paths
         return self._data_locations
     
-    def _load_data(self, file_paths):
+    def _load_data(self, file_paths: Dict[str, Any]) -> pd.DataFrame:
         """Load data from CSV or pickle files. If pickle does not exist, create it from CSV."""
 
         main_data_pickle_file = file_paths["main"].replace(".csv", ".pkl")
 
         # Check if pickle exists, if not create it then save it
         if not os.path.isfile(main_data_pickle_file):
-            print(f"Pickle file not found at {main_data_pickle_file}. Loading from CSV and creating pickle file.")
+            logger.info("Pickle not found at %s. Loading from CSV and caching.", main_data_pickle_file)
             gloc_data = pd.read_csv(file_paths["main"])
             gloc_data.to_pickle(main_data_pickle_file)
         else:
-            print(f"Loading data from pickle file at {main_data_pickle_file}.")
+            logger.info("Loading data from pickle at %s.", main_data_pickle_file)
             gloc_data = pd.read_pickle(main_data_pickle_file)
         
         # Add GOR and EEG data from other files
@@ -350,82 +272,65 @@ class DataManager:
         # Decouple from original dataframe to prevent unwanted modifications later on
         return gloc_data
 
-    def _process_EEG_GOR(self, list_of_eeg_data_files, gloc_data):
-        """
-        This function slots in the GOR EEG data for the nonAFE condition based on the list of xlsx files.
-        The NaNs in the initial csv are replaced.
-        """
+    def _process_EEG_GOR(self, list_of_eeg_data_files: List[str], gloc_data: pd.DataFrame) -> pd.DataFrame:
+        """Slot in GOR EEG band power data from xlsx files, replacing NaNs in the main CSV."""
         trial_indices_map = gloc_data.groupby("trial_id", sort=False).indices
         event_validated = gloc_data["event_validated"].to_numpy()
         trial_ids = gloc_data["trial_id"].to_numpy()
         begin_mask = event_validated == "begin GOR"
-        begin_idx = np.flatnonzero(begin_mask)
-        begin_trial_ids = trial_ids[begin_mask]
         begin_idx_map = (
-            pd.Series(begin_idx, index=begin_trial_ids)
+            pd.Series(np.flatnonzero(begin_mask), index=trial_ids[begin_mask])
             .groupby(level=0, sort=False)
             .first()
             .to_dict()
         )
 
-        # Iterate through all EEG files and write directly to gloc_data
+        band_names = ["delta", "theta", "alpha", "beta"]
+
         for current_file in list_of_eeg_data_files:
+            # Parse trial ID from filename: e.g. "GLOC_01_DC1_..." -> "01-01"
+            match = re.search(r'GLOC_(\d{2})_DC(\d+)', os.path.basename(current_file))
+            if not match:
+                logger.warning("Could not parse trial ID from filename: %s", current_file)
+                continue
+            corresponding_trial = f"{match.group(1)}-0{match.group(2)}"
 
-            # Grab corresponding trial based on file name
-            # corresponding_trial = current_file[47] + current_file[48] + '-0' + current_file[52]
-            corresponding_trial = current_file[-31] + current_file[-30] + '-0' + current_file[-26]
-
-            # Define data frame for delta, theta, alpha, and beta bands
-            df_delta = pd.read_excel(current_file, sheet_name="delta")
-            df_theta = pd.read_excel(current_file, sheet_name="theta")
-            df_alpha = pd.read_excel(current_file, sheet_name="alpha")
-            df_beta = pd.read_excel(current_file, sheet_name="beta")
-
-            # Remove time column from all spreadsheets that were read in
-            df_delta = df_delta.iloc[:, :-1]
-            df_theta = df_theta.iloc[:, :-1]
-            df_alpha = df_alpha.iloc[:, :-1]
-            df_beta = df_beta.iloc[:, :-1]
+            # Read all band sheets and drop the time column
+            band_dfs = {
+                band: pd.read_excel(current_file, sheet_name=band).iloc[:, :-1]
+                for band in band_names
+            }
 
             trial_indices = trial_indices_map.get(corresponding_trial)
             if trial_indices is None:
-                print(f"Could not find 'begin GOR' for trial {corresponding_trial}")
+                logger.warning("Could not find trial %s in data.", corresponding_trial)
                 continue
 
             index_begin_GOR = begin_idx_map.get(corresponding_trial)
             if index_begin_GOR is None:
-                print(f"Could not find 'begin GOR' for trial {corresponding_trial}")
+                logger.warning("Could not find 'begin GOR' for trial %s.", corresponding_trial)
                 continue
 
-            # Find end index of GOR EEG data
             start_pos = np.searchsorted(trial_indices, index_begin_GOR)
-            end_pos = start_pos + len(df_delta)
-            trial_indexer = trial_indices[start_pos:end_pos]
+            n_rows = len(band_dfs["delta"])
+            trial_indexer = trial_indices[start_pos : start_pos + n_rows]
 
-            # Build column names once
-            column_names = df_delta.columns
-            cols_delta = [f"{c}_delta - EEG" for c in column_names]
-            cols_theta = [f"{c}_theta - EEG" for c in column_names]
-            cols_alpha = [f"{c}_alpha - EEG" for c in column_names]
-            cols_beta = [f"{c}_beta - EEG" for c in column_names]
-
-            # Convert once
-            delta_vals = df_delta.to_numpy(dtype=np.float32)
-            theta_vals = df_theta.to_numpy(dtype=np.float32)
-            alpha_vals = df_alpha.to_numpy(dtype=np.float32)
-            beta_vals = df_beta.to_numpy(dtype=np.float32)
-
-            # Assign in blocks
-            gloc_data.loc[trial_indexer, cols_delta] = delta_vals
-            gloc_data.loc[trial_indexer, cols_theta] = theta_vals
-            gloc_data.loc[trial_indexer, cols_alpha] = alpha_vals
-            gloc_data.loc[trial_indexer, cols_beta] = beta_vals
+            # Build column names and assign values for each band
+            column_names = band_dfs["delta"].columns
+            for band in band_names:
+                cols = [f"{c}_{band} - EEG" for c in column_names]
+                gloc_data.loc[trial_indexer, cols] = band_dfs[band].to_numpy(dtype=np.float32)
 
         return gloc_data
 
-    def _filter_data_by_analysis_type(self, analysis_type, gloc_data, subject_to_analyze = None, trial_to_analyze = None):
-        """Analyze only section of gloc_data specified using analysis_type"""
-        
+    @staticmethod
+    def _filter_data_by_analysis_type(
+            analysis_type: int,
+            gloc_data: pd.DataFrame,
+            subject_to_analyze: Optional[str] = None,
+            trial_to_analyze: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Analyze only section of gloc_data specified using analysis_type."""
         if analysis_type == 0: # One Trial / One Subject
             mask = (gloc_data["subject"] == subject_to_analyze) & (gloc_data["trial"] == trial_to_analyze)
         elif analysis_type == 1: # All Trials for One Subject
@@ -435,7 +340,13 @@ class DataManager:
         
         return gloc_data[mask]
 
-    def _process_and_get_feature_names(self, gloc_data, feature_groups_to_analyze, model_type, file_names):
+    def _process_and_get_feature_names(
+            self,
+            gloc_data: pd.DataFrame,
+            feature_groups_to_analyze: Set[str],
+            model_type: Tuple[str, str],
+            file_names: Dict[str, Any],
+    ) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
         """Process data and extract feature names based on specified feature groups."""
         # Defining which features go into which group of feature groups
         GROUPS_OF_FEATURE_GROUPS = {
@@ -457,7 +368,7 @@ class DataManager:
 
         for group_name in feature_groups_to_analyze:
             if group_name not in FEATURE_REGISTRY:
-                print(f"Warning: Feature group '{group_name}' not recognized. Skipping.")
+                logger.warning("Feature group '%s' not recognized. Skipping.", group_name)
                 continue
 
             processor = FEATURE_REGISTRY[group_name]
@@ -480,7 +391,7 @@ class DataManager:
 
         return gloc_data, features
 
-    def _label_gloc_events(self, gloc_data):
+    def _label_gloc_events(self, gloc_data: pd.DataFrame) -> np.ndarray:
         """
         This function creates a g-loc label for the data based on the event_validated column. The event
         is labeled as 1 between GLOC and Return to Consciousness.
@@ -503,7 +414,7 @@ class DataManager:
 
         return gloc_labels
 
-    def _afe_subset(self, gloc_data, gloc_labels):
+    def _afe_subset(self, gloc_data: pd.DataFrame, gloc_labels: np.ndarray) -> Tuple[pd.DataFrame, np.ndarray]:
         """
             Remove any trial that contains AFE condition (condition == 1).
         """
@@ -515,22 +426,13 @@ class DataManager:
 
         return gloc_data, gloc_labels
     
-    def _eeg_specific_imputation(self, gloc_data, features):
-        # Compute AFE / NonAFE condition indicator column
-        afe_indicator_column = gloc_data["AFE_indicator"]
-
-        # Impute (using mean) the value of the missing channels for each AFE condition
-        self._eeg_condition_impute(gloc_data, features, afe_indicator_column)
-
+    def _eeg_specific_imputation(self, gloc_data: pd.DataFrame, features: Dict[str, List[str]]) -> pd.DataFrame:
+        """Mean-impute EEG channels that are exclusive to one AFE condition."""
+        self._eeg_condition_impute(gloc_data, features, gloc_data["AFE_indicator"])
         return gloc_data
 
-    def _eeg_condition_impute(self, gloc_data, features, afe_indicator_column, verbose = True):
-        """
-            Ensures both AFE (1) and non-AFE (0) conditions have the same feature columns.
-            Missing columns are imputed with mean values in gloc_data and reflected in feature arrays.
-
-            Modified the gloc_data DataFrame inplace
-        """
+    def _eeg_condition_impute(self, gloc_data: pd.DataFrame, features: Dict[str, List[str]], afe_indicator_column: pd.Series, verbose: bool = True) -> None:
+        """Mean-impute condition-specific EEG columns so both AFE/non-AFE have all features. Modifies gloc_data in-place."""
         # Create masks for each condition
         afe_mask = afe_indicator_column == 1
         nonafe_mask = afe_indicator_column == 0
@@ -554,7 +456,7 @@ class DataManager:
             # Show columns imputed and how many rows were imputed for each column
             if verbose:
                 for col, n in missing_counts.items():
-                    print(f"Imputed {n} values in '{col}' for non-AFE rows")
+                    logger.debug("Imputed %d values in '%s' for non-AFE rows.", n, col)
 
         if nonafe_only_cols:
             means = gloc_data.loc[nonafe_mask, nonafe_only_cols].mean(skipna = True)
@@ -565,13 +467,16 @@ class DataManager:
             # Show columns imputed and how many rows were imputed for each column
             if verbose:
                 for col, n in missing_counts.items():
-                    print(f"Imputed {n} values in '{col}' for AFE rows")
+                    logger.debug("Imputed %d values in '%s' for AFE rows.", n, col)
 
-    def _remove_all_nan_trials(self, gloc_data, features, gloc_labels, verbose = True):
-        """
-            Remove trials where there is at least one data stream that is all NaN
-            Also returns a NaN proportionality table that says for each trial, what prop are NaN for each data stream
-        """
+    def _remove_all_nan_trials(
+            self,
+            gloc_data: pd.DataFrame,
+            features: Dict[str, List[str]],
+            gloc_labels: np.ndarray,
+            verbose: bool = True,
+    ) -> Tuple[pd.DataFrame, np.ndarray, pd.DataFrame]:
+        """Remove trials where at least one feature is entirely NaN. Returns NaN proportion table."""
         # All features and subject trial info to be put into a reduced dataframe from gloc_data
         all_features = features["All"]
         all_features_with_ids = all_features + ["subject", "trial"]
@@ -589,7 +494,7 @@ class DataManager:
             for (subject, trial), is_bad in bad_trials.items():
                 if is_bad:
                     nan_features = all_nan_cols_df.columns[all_nan_cols_df.loc[(subject, trial)]].tolist()
-                    print(f"Subject {subject}, Trial {trial}: features entirely NaN → {nan_features}")
+                    logger.info("Subject %s, Trial %s: features entirely NaN → %s", subject, trial, nan_features)
 
         nan_proportion_df.insert(
             0,
@@ -613,52 +518,62 @@ class DataManager:
         M = int(bad_trials.sum())
 
         # Print NaN findings
-        print(f"There are {M} trials with all NaNs for at least one feature out of {N} trials. {N - M} trials remaining.")
+        logger.info("%d trials with all NaNs for at least one feature out of %d trials. %d remaining.", M, N, N - M)
 
         return gloc_data, gloc_labels, nan_proportion_df
     
-    def _reduce_memory(self, gloc_data, gloc_labels, features):
-        """"""
-        # Grab columns from gloc_data and remove gloc_data_reduced variable from memory
+    def _reduce_memory(
+            self,
+            gloc_data: pd.DataFrame,
+            gloc_labels: np.ndarray,
+            features: Dict[str, List[str]],
+    ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+        """Extract numpy arrays from DataFrame and free the DataFrame to reduce memory usage.
+        
+        Returns:
+            gloc_data_all_features_numpy: float32 feature matrix
+            gloc_labels_numpy: boolean label array
+            experiment_metadata: dict of metadata arrays
+        """
+        trial_id_arr = gloc_data["trial_id"].to_numpy()
         experiment_metadata = {
-            "trial_id": gloc_data["trial_id"].to_numpy(),
-            "trial_ints": self._convert_to_unique_ordered_integers(gloc_data["trial_id"].to_numpy()),
-            "Time (s)": gloc_data["Time (s)"].to_numpy(dtype = np.float32),
+            "trial_id": trial_id_arr,
+            "trial_ints": self._convert_to_unique_ordered_integers(trial_id_arr),
+            "Time (s)": gloc_data["Time (s)"].to_numpy(dtype=np.float32),
             "event_validated": gloc_data["event_validated"].to_numpy(),
             "subject": gloc_data["subject"].to_numpy(),
-            "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype = np.bool_).reshape(-1, 1)
+            "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype=np.bool_).reshape(-1, 1),
         }
-        gloc_data_all_features_numpy = gloc_data[features["All"]].to_numpy(dtype = np.float32)
+        gloc_data_all_features_numpy = gloc_data[features["All"]].to_numpy(dtype=np.float32)
         gloc_labels_numpy = gloc_labels.astype(np.bool_)
 
         del gloc_data, gloc_labels
-
         return gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata
 
-    def _convert_to_unique_ordered_integers(self, strings):
-        """
-            Convert a list of strings to unique integers in the order they appear.
-            For example, ['trial1', 'trial2', 'trial1'] would be converted to [1, 2, 1].
-        """
-        mapping = {}
-        result = []
-        current_id = 1
-        for s in strings:
-            if s not in mapping:
-                mapping[s] = current_id
-                current_id += 1
-
-            result.append(mapping[s])
-
-        return np.array(result, dtype = np.uint32)
+    @staticmethod
+    def _convert_to_unique_ordered_integers(strings: np.ndarray) -> np.ndarray:
+        """Convert strings to 1-based integers preserving first-appearance order."""
+        codes, _ = pd.factorize(strings, sort=False)
+        return (codes + 1).astype(np.uint32)
     
-    def _impute_missing_data(self, gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata, impute_path, save_impute, load_impute, num_splits, kfold_ID, n_neighbors):
+    def _impute_missing_data(
+            self,
+            gloc_data_all_features_numpy: np.ndarray,
+            gloc_labels_numpy: np.ndarray,
+            experiment_metadata: Dict[str, Any],
+            impute_path: str,
+            save_impute: bool,
+            load_impute: bool,
+            num_splits: int,
+            kfold_ID: int,
+            n_neighbors: int,
+    ) -> np.ndarray:
         # Load or compute imputed features
         # NOTE: impute_path is PROVIDED by caller; do not overwrite it.
         if load_impute and os.path.exists(impute_path):
             with open(impute_path, 'rb') as f:
                 gloc_data_all_features_imputed_numpy = pickle.load(f)
-            print(f"Loaded imputed data from {impute_path}")
+            logger.info("Loaded imputed data from %s.", impute_path)
         else:
             # Only compute train/test indices when actually imputing
             _, _, _, _, train_indices, test_indices = self._groupedtrial_kfold_split(gloc_data_all_features_numpy, gloc_labels_numpy, num_splits, kfold_ID, experiment_metadata)
@@ -670,26 +585,19 @@ class DataManager:
                 os.makedirs(os.path.dirname(impute_path), exist_ok = True)
                 with open(impute_path, 'wb') as f:
                     pickle.dump(gloc_data_all_features_imputed_numpy, f)
-                print(f"Saved imputed data to {impute_path}")
+                logger.info("Saved imputed data to %s.", impute_path)
 
         return gloc_data_all_features_imputed_numpy
 
-    def _groupedtrial_kfold_split(self, X, Y, num_splits, kfold_ID, experiment_metadata):
-        """
-        Split data into training and test sets using stratified group K-fold.
-        
-        Parameters:
-            Y: Labels (array)
-            X: Feature data (DataFrame)
-            trials: Trial identifiers for grouping
-            num_splits: Number of K-fold splits
-            kfold_ID: Which fold to use (0 to num_splits-1)
-            
-        Returns:
-            x_train, x_test: Split feature data
-            y_train, y_test: Split labels
-            train_index, test_index: Indices for the splits
-        """
+    def _groupedtrial_kfold_split(
+            self,
+            X: np.ndarray,
+            Y: np.ndarray,
+            num_splits: int,
+            kfold_ID: int,
+            experiment_metadata: Dict[str, Any],
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Split data into train/test using stratified group K-fold on trial groups."""
         # Grouped K-Fold setup (shuffle=False for reproducibility)
         gkf = StratifiedGroupKFold(n_splits = num_splits, shuffle = False)
 
@@ -708,20 +616,16 @@ class DataManager:
 
         return x_train, x_test, y_train, y_test, train_index, test_index
 
-    def _faster_knn_impute_train_test(self, X, train_ind, test_ind, k = 5, M = 32, efSearch = 64):
-        """
-        Impute missing values using FAISS KNN, training on train set only to prevent data leakage.
-
-        Parameters:
-            X: Input DataFrame
-            train_ind: Training set indices
-            test_ind: Test set indices
-            k: Number of neighbors for KNN
-            M, efSearch: FAISS HNSW graph parameters
-
-        Returns:
-            X_imputed: DataFrame with imputed values
-        """
+    def _faster_knn_impute_train_test(
+            self,
+            X: np.ndarray,
+            train_ind: np.ndarray,
+            test_ind: np.ndarray,
+            k: int = 5,
+            M: int = 32,
+            efSearch: int = 64,
+    ) -> np.ndarray:
+        """Impute missing values via FAISS KNN, training on train set only to prevent leakage."""
         # Split into train and test
         X_train = X[train_ind]
         X_test = X[test_ind]
@@ -749,25 +653,23 @@ class DataManager:
         
         index.add(X_train_temp.astype(np.float32))
 
-        # Impute training data
-        distances, indices = index.search(X_train_temp.astype(np.float32), k + 1)
+        # Impute training data using vectorized operations
+        _, nn_indices = index.search(X_train_temp.astype(np.float32), k + 1)
         X_train_imputed = X_train.copy()
-        for i in range(X_train.shape[0]):
-            neighbors = indices[i, 1:]  # skip self
-            for j in range(X_train.shape[1]):
-                if mask_train[i, j]:
-                    neighbor_values = X_train_temp[neighbors, j]
-                    X_train_imputed[i, j] = np.nanmean(neighbor_values)
+        rows_miss, cols_miss = np.where(mask_train)
+        if len(rows_miss) > 0:
+            neighbor_idx = nn_indices[rows_miss, 1:]  # (M, k) — skip self
+            vals = X_train_temp[neighbor_idx, cols_miss[:, None]]  # (M, k)
+            X_train_imputed[rows_miss, cols_miss] = np.nanmean(vals, axis=1)
 
-        # Impute test data
-        distances_test, indices_test = index.search(X_test_temp.astype(np.float32), k)
+        # Impute test data using vectorized operations
+        _, nn_indices_test = index.search(X_test_temp.astype(np.float32), k)
         X_test_imputed = X_test.copy()
-        for i in range(X_test.shape[0]):
-            neighbors = indices_test[i]
-            for j in range(X_test.shape[1]):
-                if mask_test[i, j]:
-                    neighbor_values = X_train_temp[neighbors, j]
-                    X_test_imputed[i, j] = np.nanmean(neighbor_values)
+        rows_miss_t, cols_miss_t = np.where(mask_test)
+        if len(rows_miss_t) > 0:
+            neighbor_idx_t = nn_indices_test[rows_miss_t]  # (M, k)
+            vals_t = X_train_temp[neighbor_idx_t, cols_miss_t[:, None]]  # (M, k)
+            X_test_imputed[rows_miss_t, cols_miss_t] = np.nanmean(vals_t, axis=1)
 
         # Rebuild into single array
         X_imputed = X.copy()
@@ -776,70 +678,63 @@ class DataManager:
 
         return X_imputed
 
-    def _get_combined_baseline_data(self, gloc_data_all_features_imputed_numpy, experiment_metadata, baseline_window, baseline_methods_to_use, features, file_paths, model_type):        
-        # Load baseline data (if needed)
+    def _get_combined_baseline_data(
+            self,
+            gloc_data_all_features_imputed_numpy: np.ndarray,
+            experiment_metadata: Dict[str, Any],
+            baseline_window: float,
+            baseline_methods_to_use: List[str],
+            features: Dict[str, List[str]],
+            file_paths: Dict[str, Any],
+            model_type: Tuple[str, str],
+    ) -> Tuple[Dict[str, np.ndarray], List[str]]:
+        """Compute baselines for all specified methods and combine into a single feature set."""
         participant_baseline = pd.read_csv(file_paths["baseline"])
         participant_baseline_rhr = participant_baseline["resting HR [seated]"][:-1]
         participant_baseline_rhr.index = [f"{i:02d}" for i in range(1, 14)]
-        
-        # Load EEG baseline data (if needed)
+
         eeg_baseline_data = {}
         for filepath in file_paths["baseline_eeg_processed_list"]:
             df = pd.read_csv(filepath)
             df.index = [f"{i:02d}" for i in range(1, 14)]
-            band = filepath.split("_")[-1].split(".")[0]  # Extract band name from filename
+            band = filepath.split("_")[-1].split(".")[0]
             eeg_baseline_data[band] = df
-        
-        # Organize features
-        phys_indices = [i for i, feature in enumerate(features["All"]) if feature in features["Phys"]]
-        ecg_indices = [i for i, feature in enumerate(features["All"]) if feature in features["ECG"]]
-        eeg_indices = [i for i, feature in enumerate(features["All"]) if feature in features["EEG"]]
 
-        data_by_features = {
-            "All": gloc_data_all_features_imputed_numpy,
-            "Phys": gloc_data_all_features_imputed_numpy[:, phys_indices],
-            "ECG": gloc_data_all_features_imputed_numpy[:, ecg_indices],
-            "EEG": gloc_data_all_features_imputed_numpy[:, eeg_indices],
-        }
-        
-        # Create context object
+        # Build feature-group index arrays using set lookups for O(1) membership
+        phys_set, ecg_set, eeg_set = set(features["Phys"]), set(features["ECG"]), set(features["EEG"])
+        phys_indices = [i for i, f in enumerate(features["All"]) if f in phys_set]
+        ecg_indices = [i for i, f in enumerate(features["All"]) if f in ecg_set]
+        eeg_indices = [i for i, f in enumerate(features["All"]) if f in eeg_set]
+
         context = BaselineContext(
-            trial_column = experiment_metadata["trial_id"],
-            time_column = experiment_metadata["Time (s)"],
-            event_validated_column = experiment_metadata["event_validated"],
-            subject_column = experiment_metadata["subject"],
-            data_by_features = data_by_features,
-            features = features,
-            baseline_window = baseline_window,
-            model_type = model_type,
-            participant_baseline_data = participant_baseline_rhr,
-            eeg_baseline_data = eeg_baseline_data
+            trial_column=experiment_metadata["trial_id"],
+            time_column=experiment_metadata["Time (s)"],
+            event_validated_column=experiment_metadata["event_validated"],
+            subject_column=experiment_metadata["subject"],
+            data_by_features={
+                "All": gloc_data_all_features_imputed_numpy,
+                "Phys": gloc_data_all_features_imputed_numpy[:, phys_indices],
+                "ECG": gloc_data_all_features_imputed_numpy[:, ecg_indices],
+                "EEG": gloc_data_all_features_imputed_numpy[:, eeg_indices],
+            },
+            features=features,
+            baseline_window=baseline_window,
+            model_type=model_type,
+            participant_baseline_data=participant_baseline_rhr,
+            eeg_baseline_data=eeg_baseline_data,
         )
-        
-        combined_baseline, combined_names, baseline_v0, baseline_v0_names = baseline_data(baseline_methods_to_use, context)
-        
-        # Result:
-        # - combined_baseline: Dict[trial_id -> baseline_array (n_samples x n_features*3)]
-        # - combined_names: List of feature names (base + derivative + 2nd derivative)
-        # - baseline_v0: Reference v0 baseline
-        # - baseline_v0_names: Feature names for v0
-        
+
+        combined_baseline, combined_names, _, _ = baseline_data(baseline_methods_to_use, context)
         return combined_baseline, combined_names
         
-    def _generate_features(self, baseline_methods_to_use, combined_baseline, combined_baseline_names, experiment_metadata):
-        """
-        Generate feature matrices from baseline data using only unengineered data streams.
-        
-        Parameters:
-            baseline_methods_to_use (list): Baseline methods applied (e.g., ["v0", "v1", "v2"])
-            combined_baseline (dict): Dictionary mapping trial_id -> feature array
-            combined_names (list): Feature names from baseline processing
-            experiment_metadata (dict): Metadata including trial_id information
-            
-        Returns:
-            x_feature_matrix (np.ndarray): Feature matrix with trial indices appended
-            all_features (list): Names of selected features
-        """
+    def _generate_features(
+            self,
+            baseline_methods_to_use: List[str],
+            combined_baseline: Dict[str, np.ndarray],
+            combined_baseline_names: List[str],
+            experiment_metadata: Dict[str, Any],
+    ) -> Tuple[np.ndarray, List[str]]:
+        """Generate feature matrices from baseline data using only unengineered data streams."""
         # Concatenate trial arrays along first axis (handles variable sample counts per trial)
         trial_ids = list(combined_baseline.keys())
         x_feature_matrix = np.concatenate(
@@ -871,17 +766,8 @@ class DataManager:
         
         return x_feature_matrix, all_features
     
-    def _is_baselined_stream(self, feature_name, baseline_suffixes):
-        """
-        Check if feature name matches pattern stream_suffix for any unengineered stream.
-        
-        Parameters:
-            feature_name (str): Feature name to check
-            baseline_suffixes (frozenset): Baseline method names
-            
-        Returns:
-            bool: True if feature matches baselined stream pattern
-        """
+    def _is_baselined_stream(self, feature_name: str, baseline_suffixes: frozenset) -> bool:
+        """Check if feature_name matches '{unengineered_stream}_{baseline_method}' pattern."""
         # Early exit if feature doesn't contain underscore (optimization)
         if '_' not in feature_name:
             return False
@@ -896,18 +782,16 @@ class DataManager:
         # Check if suffix is a baseline method and stream is unengineered
         return suffix in baseline_suffixes and stream_candidate in self._UNENGINEERED_STREAMS
 
-    def _feature_clean_and_prep(self, x_feature_matrix, gloc_labels_numpy, features, experiment_metadata, model_type, impute_type):
-        """
-        Perform final cleaning and preparation of feature matrix before modeling.
-        
-        Steps:
-        - Remove features with zero variance
-        - Standardize features (zero mean, unit variance)
-        
-        Parameters:
-            x_feature_matrix (np.ndarray): Raw feature matrix
-            all_features (list): Corresponding feature names
-        """
+    def _feature_clean_and_prep(
+            self,
+            x_feature_matrix: np.ndarray,
+            gloc_labels_numpy: np.ndarray,
+            features: Dict[str, List[str]],
+            experiment_metadata: Dict[str, Any],
+            model_type: Tuple[str, str],
+            impute_type: int,
+    ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
+        """Remove constant columns, optionally add AFE indicator, and remove NaN rows."""
         # Remove constant columns (typically no constant columns)
         x_feature_matrix, features["All"] = self._remove_constant_columns(x_feature_matrix, features["All"])
 
@@ -931,14 +815,16 @@ class DataManager:
                 experiment_metadata["trial_ints"]
             )
         else:
-            x_feature_matrix_noNaN, y_gloc_labels_noNaN, trials_noNaN = x_feature_matrix, gloc_labels_numpy, experiment_metadata["trial_ints"]
+            x_feature_matrix_noNaN = x_feature_matrix
+            y_gloc_labels_noNaN = gloc_labels_numpy
+            all_features = features["All"]
+            trials_noNaN = experiment_metadata["trial_ints"]
 
         return x_feature_matrix_noNaN, y_gloc_labels_noNaN, all_features, trials_noNaN
 
-    def _remove_constant_columns(self, x_feature_matrix_noNaN, all_features):
-        """
-        This function removes all constant columns before feeding into the ML classifiers.
-        """
+    @staticmethod
+    def _remove_constant_columns(x_feature_matrix_noNaN: np.ndarray, all_features: List[str]) -> Tuple[np.ndarray, List[str]]:
+        """Remove columns with zero variance (constant across all rows)."""
         # Find all constant columns
         constant_columns = np.all(x_feature_matrix_noNaN == x_feature_matrix_noNaN[0,:], axis = 0)
 
@@ -949,11 +835,14 @@ class DataManager:
 
         return x_feature_matrix_noNaN, all_features
 
-    def _process_NaN(self, x_feature_matrix, y_gloc_labels, all_features, trials):
-        """
-        This is a temporary function for removing all rows with NaN values. This can be replaced by
-        another method in the future, but is necessary for feeding into ML Classifiers.
-        """
+    @staticmethod
+    def _process_NaN(
+            x_feature_matrix: np.ndarray,
+            y_gloc_labels: np.ndarray,
+            all_features: List[str],
+            trials: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
+        """Remove all-NaN columns and any rows containing NaN values."""
         nan_mask = np.isnan(x_feature_matrix)
 
         # Find & remove columns if they have all NaN values
@@ -973,33 +862,15 @@ class DataManager:
 
         return x_feature_matrix, y_gloc_labels, all_features, trials
 
-    def _get_train_test_split(self, x_feature_matrix, y_gloc_labels, experiment_metadata, num_splits, kfold_ID):
-        """
-        Split data into training and test sets with standardized features.
-        
-        Performs stratified group k-fold splitting to separate the dataset while
-        maintaining trial integrity. Extracts trial indices from the last column,
-        standardizes features based on training data distribution, and reattaches
-        trial indices as the final column to preserve trial tracking through the
-        modeling pipeline.
-        
-        Parameters:
-            x_feature_matrix : np.ndarray
-                Feature matrix with trial indices as the last column.
-            y_gloc_labels : np.ndarray
-                Binary classification labels (GLOC vs non-GLOC).
-            trials : np.ndarray
-                Trial group identifiers for stratified splitting.
-            num_splits : int
-                Number of K-fold splits.
-            kfold_ID : int
-                Which fold to use (0-indexed).
-        
-        Returns:
-            tuple
-                (x_train, y_train, x_test, y_test) with features standardized and
-                trial indices preserved in the last column of x arrays.
-        """
+    def _get_train_test_split(
+            self,
+            x_feature_matrix: np.ndarray,
+            y_gloc_labels: np.ndarray,
+            experiment_metadata: Dict[str, Any],
+            num_splits: int,
+            kfold_ID: int,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Split into train/test, standardize features, and preserve trial indices in the last column."""
         # Perform stratified group k-fold split
         x_train, x_test, y_train, y_test, _, _ = self._groupedtrial_kfold_split(
             x_feature_matrix, y_gloc_labels, num_splits, kfold_ID, experiment_metadata)
