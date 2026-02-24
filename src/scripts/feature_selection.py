@@ -15,7 +15,7 @@ from feature_engine.selection import SelectByTargetMeanPerformance
 from feature_engine.selection import SelectBySingleFeaturePerformance
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn import svm
-from GLOC_classifier import *
+from .GLOC_classifier import *
 from skopt import BayesSearchCV
 from skopt.space import Real, Integer, Categorical
 

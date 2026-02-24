@@ -1,4 +1,4 @@
-from DL_supporting import *
+from .DL_supporting import *
 import torch
 import torch.nn as nn
 from sklearn.model_selection import train_test_split
@@ -14,7 +14,7 @@ import optuna
 import pickle
 from pygam import LogisticGAM, s, f
 
-from GLOC_visualization import prediction_time_plot
+from .GLOC_visualization import prediction_time_plot
 
 def extract_feature_summary(dataset):
     features, labels = [], []

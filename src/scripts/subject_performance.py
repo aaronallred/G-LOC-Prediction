@@ -1,9 +1,9 @@
 from threading import main_thread
 
-from GLOC_data_processing import *
-from GLOC_visualization import *
-from GLOC_classifier import *
-from features import *
+from .GLOC_data_processing import *
+from .GLOC_visualization import *
+from .GLOC_classifier import *
+from .features import *
 import numpy as np
 import pandas as pd
 

@@ -1,18 +1,18 @@
-from imputation import *
-from baseline_methods import *
-from GLOC_classifier import *
-from GLOC_visualization import *
-from imbalance_techniques import *
+from .imputation import *
+from .baseline_methods import *
+from .GLOC_classifier import *
+from .GLOC_visualization import *
+from .imbalance_techniques import *
 import pickle
 import time
 import os
 from sklearn.preprocessing import StandardScaler
 
-from LogRegTS_supporting import lrts_binary_class_load
-from NAM_supporting import nam_binary_class_load
-from LSTM_supporting import lstm_binary_class_load
-from TCN_supporting import tcn_binary_class_load
-from Transformer_supporting import transformer_class_load
+from .LogRegTS_supporting import lrts_binary_class_load
+from .NAM_supporting import nam_binary_class_load
+from .LSTM_supporting import lstm_binary_class_load
+from .TCN_supporting import tcn_binary_class_load
+from .Transformer_supporting import transformer_class_load
 
 
 def main_loop(kfold_ID, num_splits, param_path, impute_path, horizons, save_folder, classifier_type, model_type):

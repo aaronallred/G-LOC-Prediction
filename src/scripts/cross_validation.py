@@ -1,11 +1,11 @@
-from GLOC_data_processing import *
-from imputation import *
-from baseline_methods import *
-from features import *
-from feature_selection import *
-from GLOC_classifier import *
-from GLOC_visualization import *
-from imbalance_techniques import *
+from .GLOC_data_processing import *
+from .imputation import *
+from .baseline_methods import *
+from .features import *
+from .feature_selection import *
+from .GLOC_classifier import *
+from .GLOC_visualization import *
+from .imbalance_techniques import *
 import pickle
 import time
 import pandas as pd
@@ -14,13 +14,13 @@ from openpyxl.styles.builtins import percent
 import os
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
-from LogRegTS_supporting import lrts_binary_class
-from NAM_supporting import nam_binary_class
-from LSTM_supporting import lstm_binary_class
-from Transformer_supporting import transformer_class
-from TCN_supporting import tcn_binary_class
+from .LogRegTS_supporting import lrts_binary_class
+from .NAM_supporting import nam_binary_class
+from .LSTM_supporting import lstm_binary_class
+from .Transformer_supporting import transformer_class
+from .TCN_supporting import tcn_binary_class
 
-from GAM_supporting import gam_binary_class
+from .GAM_supporting import gam_binary_class
 
 def main_loop(kfold_ID, num_splits, runname):
     start_time = time.time()

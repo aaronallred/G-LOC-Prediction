@@ -1,4 +1,4 @@
-from DL_supporting import *
+from .DL_supporting import *
 import torch
 import torch.nn as nn
 from sklearn.model_selection import train_test_split
@@ -15,7 +15,7 @@ import gc
 import joblib
 import json
 
-from GLOC_visualization import prediction_time_plot
+from .GLOC_visualization import prediction_time_plot
 from scripts.forecasting_fun import train_test_split_trials_forecast
 
 

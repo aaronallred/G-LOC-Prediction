@@ -1,11 +1,11 @@
-from GLOC_data_processing import *
-from imputation import *
-from baseline_methods import *
-from features import *
-from feature_selection import *
-from GLOC_classifier import *
-from GLOC_visualization import *
-from imbalance_techniques import *
+from .GLOC_data_processing import *
+from .imputation import *
+from .baseline_methods import *
+from .features import *
+from .feature_selection import *
+from .GLOC_classifier import *
+from .GLOC_visualization import *
+from .imbalance_techniques import *
 import pickle
 import time
 from numpy import number

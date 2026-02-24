@@ -2,10 +2,10 @@ import pickle
 import os
 from sklearn.preprocessing import StandardScaler
 
-from imputation import *
-from baseline_methods import *
-from GLOC_classifier import *
-from imbalance_techniques import *
+from .imputation import *
+from .baseline_methods import *
+from .GLOC_classifier import *
+from .imbalance_techniques import *
 
 def load_and_prepare_data_advanced(
         model_type,

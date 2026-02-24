@@ -15,13 +15,13 @@ from sklearn import svm
 from sklearn.ensemble import GradientBoostingClassifier
 from skopt import BayesSearchCV
 from skopt.space import Real, Integer, Categorical
-from GLOC_visualization import create_confusion_matrix
+from .GLOC_visualization import create_confusion_matrix
 from sklearn.linear_model import Lasso
 from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold, GroupKFold, StratifiedGroupKFold
 from itertools import islice
 from imblearn.metrics import geometric_mean_score
-from GLOC_data_processing import *
-from GLOC_visualization import create_confusion_matrix
+from .GLOC_data_processing import *
+from .GLOC_visualization import create_confusion_matrix
 
 def check_event_columns(gloc_data):
     """

@@ -3,15 +3,15 @@ import time
 import os
 from matplotlib import pyplot as plt
 
-from GLOC_data_pipeline import load_and_prepare_data_advanced
-from GLOC_classifier import single_classifier_performance_summary
-from GLOC_visualization import plot_metrics_over_offsets
+from .GLOC_data_pipeline import load_and_prepare_data_advanced
+from .GLOC_classifier import single_classifier_performance_summary
+from .GLOC_visualization import plot_metrics_over_offsets
 
-from LogRegTS_supporting import lrts_binary_class_load
-from NAM_supporting import nam_binary_class_load
-from LSTM_supporting import lstm_binary_class_load
-from TCN_supporting import tcn_binary_class_load
-from Transformer_supporting import transformer_class_load
+from .LogRegTS_supporting import lrts_binary_class_load
+from .NAM_supporting import nam_binary_class_load
+from .LSTM_supporting import lstm_binary_class_load
+from .TCN_supporting import tcn_binary_class_load
+from .Transformer_supporting import transformer_class_load
 
 
 # Module-level variables

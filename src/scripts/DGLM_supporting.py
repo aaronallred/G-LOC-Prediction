@@ -1,4 +1,4 @@
-from DL_supporting import *
+from .DL_supporting import *
 import numpy as np
 import os
 import torch
@@ -14,7 +14,7 @@ from pyro.infer import SVI, Trace_ELBO
 from pyro.optim import Adam
 
 import optuna
-from GLOC_visualization import prediction_time_plot
+from .GLOC_visualization import prediction_time_plot
 
 
 class DGLM(PyroModule):

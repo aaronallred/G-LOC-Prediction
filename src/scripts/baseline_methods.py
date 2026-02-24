@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import warnings
-from GLOC_data_processing import tabulateNaN
+from .GLOC_data_processing import tabulateNaN
 
 def baseline_data(baseline_methods_to_use, trial_column, time_column, event_validated_column, subject_column, features, all_features, gloc, baseline_window,
                   features_phys, all_features_phys, features_ecg, all_features_ecg, features_eeg, all_features_eeg,

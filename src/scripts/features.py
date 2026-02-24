@@ -1,5 +1,5 @@
 import numpy as np
-from GLOC_data_processing import unpack_dict
+from .GLOC_data_processing import unpack_dict
 
 def feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column,
                        combined_baseline_names,baseline_names_v0, baseline_v0, feature_groups_to_analyze):
