@@ -198,10 +198,19 @@ def faster_knn_impute_train_test(X, train_ind, test_ind, k=5, M=32, efSearch=64)
     X_train_temp = np.where(mask_train, mean_vals, X_train)
     X_test_temp = np.where(mask_test, mean_vals, X_test)
 
+    # Use one thread for deterministic behavior
+    # FAISS may use multiple threads by default which can lead to non-deterministic results
+    faiss.omp_set_num_threads(1)
+
     # Build FAISS HNSW index on training data
     d = X_train.shape[1]
     index = faiss.IndexHNSWFlat(d, M)
     index.hnsw.efSearch = efSearch
+
+    # Create and assign RNG with seed BEFORE adding data
+    rng = faiss.RandomGenerator(42)
+    index.hnsw.rng = rng
+
     index.add(X_train_temp.astype(np.float32))
 
     # Impute training data
