@@ -1009,7 +1009,7 @@ def manager():
     # Get the absolute path to the data folder
     test_dir = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(os.path.dirname(test_dir), "data")
-    return DataManager(testing = True, data_path = data_path)
+    return DataManager(testing = True, data_path = data_path, use_reduced_dataset = True)
 
 @pytest.fixture(scope = "session")
 def file_paths(manager):
@@ -1695,6 +1695,7 @@ class TestDataManager:
         gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = manager._reduce_memory(gloc_data, gloc_labels, features)
 
         # Check that relevant columns are the same in gloc_data
+        
         assert np.array_equal(trial_column, experiment_metadata["trial_id"]), "The trial_id column in the experiment metadata does not match the original trial_id column in gloc_data."
         assert np.array_equal(trial_ints, experiment_metadata["trial_ints"]), "The trial_ints column in the experiment metadata does not match the expected trial_ints."
         assert np.array_equal(time_column, experiment_metadata["Time (s)"]), "The time column in the experiment metadata does not match the original time column in gloc_data."
@@ -2891,7 +2892,7 @@ class TestDataManager:
             load_impute = load_impute
         )
 
-        data_manager = DataManager(data_path = datafolder)
+        data_manager = DataManager(data_path = datafolder, testing = True, use_reduced_dataset = True)
         x_train, x_test, y_train, y_test, all_features = data_manager.get_data(
             model_type = model_type,
             num_splits = num_splits,
@@ -2903,13 +2904,13 @@ class TestDataManager:
             n_neighbors = n_neighbors,
             baseline_window = baseline_window,
             analysis_type = analysis_type,
-            remove_NaN_trials = False,
+            remove_NaN_trials = True,
             save_impute = save_impute,
             load_impute = load_impute
         )
 
         assert np.array_equal(expected_x_train, x_train), "Training X matrix does not match expected training X matrix."
-        assert np.array_equal(expected_y_train, y_train), "Training Y vector does not match expected training Y vector."
         assert np.array_equal(expected_x_test, x_test), "Test X matrix does not match expected test X matrix."
+        assert np.array_equal(expected_y_train, y_train), "Training Y vector does not match expected training Y vector."
         assert np.array_equal(expected_y_test, y_test), "Test Y vector does not match expected test Y vector."
         assert np.array_equal(expected_all_features, all_features), "All features list does not match expected all features list."

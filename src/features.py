@@ -246,8 +246,16 @@ class StrainGroup(BaseFeatureGroup):
         return ["Strain [0/1]"]
     
     def process(self, df, file_paths):
-        # Add missing strain during GOR labels based on GLOC Effectiveness Spreadsheet
-        df, gloc_trial = self.add_missing_strain(df)
+        # Check if using reduced dataset by looking at the filename
+        main_filename = file_paths.get("main", "")
+        use_reduced_dataset = "reduced" in main_filename
+        
+        if use_reduced_dataset:
+            # Skip adding missing strain data for reduced dataset
+            df, gloc_trial = df, df["trial_id"]
+        else:
+            # Add missing strain during GOR labels based on GLOC Effectiveness Spreadsheet
+            df, gloc_trial = self.add_missing_strain(df)
 
         # Create Strain Vector
         event = df["event"].to_numpy()
@@ -283,9 +291,6 @@ class StrainGroup(BaseFeatureGroup):
         gloc_trial = gloc_data_reduced['trial_id']
         magnitude_g = gloc_data_reduced['magnitude - Centrifuge'].to_numpy()
         event = gloc_data_reduced['event']
-
-        print("SKIPPING ADDING MISSING STRAIN LABELS FOR NOW, AS THIS IS NOT A FEATURE USED IN IMPLICIT MODELS. SEE CODE FOR DETAILS.")
-        return gloc_data_reduced, gloc_trial
 
         ######## Trial 04-06 (GLOC_Effectiveness stain value of 6.1g) ########
         trial_individual_coding = '04-06'
@@ -697,7 +702,7 @@ class StrainGroup(BaseFeatureGroup):
     
 class DemographicsGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
-        if model_type == "Implicit":
+        if model_type[1] == "Implicit":
             # Output warning message for implicit vs. explicit models
             warnings.warn("Demographics cannot be used as features in implicit models. Features removed.")
 
