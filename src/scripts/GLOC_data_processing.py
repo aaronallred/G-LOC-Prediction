@@ -8,7 +8,8 @@ import warnings
 def data_locations(datafolder):
     ## File Name & Path
     # Data CSV
-    filename = os.path.join(datafolder,'all_trials_25_hz_stacked_null_str_filled.csv')
+    print("!!!!!!!!!!!!!!!!!!!!!!!!!! USING REDUCED DATASET !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    filename = os.path.join(datafolder,'all_trials_25_hz_stacked_null_str_filled_reduced.csv')
 
     # Baseline Data (HR)
     baseline_data_filename = os.path.join(datafolder,'ParticipantBaseline.csv')
@@ -280,7 +281,11 @@ def load_and_process_csv(filename, analysis_type, feature_groups_to_analyze, dem
         strain_features = []
 
         # Add missing strain during GOR labels based on GLOC Effectiveness Spreadsheet
-        gloc_data_reduced, gloc_trial = process_strain_data(gloc_data_reduced)
+        if "reduced" in filename:
+            warnings.warn("!!!!!!!!!!!!!!!!!!! USING REDUCED DATASET !!!!!!!!!!!!!!!!!!!!!!")
+            gloc_data_reduced, gloc_trial = gloc_data_reduced, gloc_data_reduced["trial_id"]
+        else:
+            gloc_data_reduced, gloc_trial = process_strain_data(gloc_data_reduced)
 
         ######### Generate Strain specific features #########
         # Create Strain Vector
@@ -420,7 +425,13 @@ def process_EEG_GOR(list_of_eeg_data_files, gloc_data):
 
         # Find first instance of 'begin GOR' in event_validated column for current trial
         event_validated_current_trial = np.array(current_trial_data['event_validated'])
-        index_begin_GOR = np.argwhere(event_validated_current_trial == 'begin GOR')[0]
+        begin_gor_matches = np.argwhere(event_validated_current_trial == 'begin GOR')
+        if begin_gor_matches.size == 0:
+            warnings.warn(
+                f"Skipping EEG insertion for trial {current_key}: 'begin GOR' not found in event_validated."
+            )
+            continue
+        index_begin_GOR = begin_gor_matches[0]
 
         # Find end index of GOR EEG data
         index_end_GOR_eeg = index_begin_GOR + len(eeg_dict_delta[current_key])
