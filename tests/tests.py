@@ -1687,7 +1687,7 @@ class TestDataManager:
         event_validated_column = expected_gloc_data['event_validated']
         subject_column = expected_gloc_data['subject']
         afe_indicator_column = expected_gloc_data["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1)
-        expected_gloc_data_all_features_numpy = expected_gloc_data[features["All"]].to_numpy(dtype = np.float32)
+        expected_gloc_data_all_features_numpy = expected_gloc_data[features["All"]].to_numpy()
 
         del expected_gloc_data
 
