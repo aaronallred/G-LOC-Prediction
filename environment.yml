@@ -1,4 +1,4 @@
-name: base
+name: gloc
 channels:
   - defaults
   - conda-forge
