@@ -3,7 +3,7 @@ import os
 import pickle
 import re
 from itertools import islice
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import faiss
 import numpy as np
@@ -17,11 +17,16 @@ from features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
 logger = logging.getLogger(__name__)
 
 class DataManager:
+    # Order must match the legacy pipeline's feature accumulation order in
+    # GLOC_data_processing.py → load_and_process_csv:
+    #   ECG, BR, temp, fnirs, eyetracking, AFE, G, cognitive,
+    #   rawEEG, processedEEG, strain, demographics
+    # (fnirs and cognitive are never included but kept as positional reference)
     FEATURE_GROUPS_BY_MODEL_TYPE = {
-        ("noAFE", "Explicit"): {"ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE", "G", "processedEEG", "demographics", "strain"},
-        ("noAFE", "Implicit"): {"ECG", "BR", "temp", "eyetracking", "rawEEG"},
-        ("Complete", "Explicit"): {"ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE", "G", "processedEEG", "demographics", "strain"},
-        ("Complete", "Implicit"): {"ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE"},
+        ("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
+        ("noAFE", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG"),
+        ("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
+        ("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE"),
     }
     BASELINING_CHARACTERISTICS_BY_MODEL_TYPE = {
         "noAFE": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
@@ -87,11 +92,12 @@ class DataManager:
         + [f'{ch}_{band} - EEG' for ch in _RAW_EEG_CHANNELS for band in ["delta", "theta", "alpha", "beta"]]
     )
 
-    def __init__(self, data_path: str = "../data/", testing: bool = False, random_seed: int = 42) -> None:
+    def __init__(self, data_path: str = "../data/", testing: bool = False, random_seed: int = 42, use_reduced_dataset: bool = False) -> None:
         self.data_path = data_path
         self._data_locations = None
         self.testing = testing
         self.random_seed = random_seed
+        self.use_reduced_dataset = use_reduced_dataset
 
     def get_data(
             self,
@@ -148,8 +154,11 @@ class DataManager:
         #      'complete' case, this block doesn't do anything. Imputation occurs only for non-shared EEG features are used.
         #       This block requires 'AFE' to be an
         ####
-        if model_type[0] != "Complete":
+        if model_type[0] == "Complete":
             gloc_data = self._eeg_specific_imputation(gloc_data, features)
+            # Remove AFE_indicator from features (matches legacy behavior of removing 'condition')
+            # AFE_indicator is stored separately in experiment_metadata during _reduce_memory
+            features["All"] = [f for f in features["All"] if f != "AFE_indicator"]
 
         ############################################### MISSING DATA HANDLING ###############################################
         # Optional handling of raw NaN data, depending on remove_NaN_trials and impute_type
@@ -192,9 +201,9 @@ class DataManager:
             x_feature_matrix, y_gloc_labels, experiment_metadata, num_splits, kfold_ID
         )
 
-        return x_train, y_train, x_test, y_test, features["All"]
+        return x_train, x_test, y_train, y_test, features["All"]
 
-    def _get_feature_groups_and_baseline_methods(self, model_type: Tuple[str, str]) -> Tuple[Set[str], List[str]]:
+    def _get_feature_groups_and_baseline_methods(self, model_type: Tuple[str, str]) -> Tuple[Sequence[str], List[str]]:
         feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
         baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE[model_type[0]]
 
@@ -214,8 +223,6 @@ class DataManager:
         if self._data_locations is not None:
             return self._data_locations
 
-        logger.info("Using reduced dataset.")
-
         eeg_dir = "GLOC_GOR_EEG_data_participants_1-13"
         list_of_eeg_data_file_paths = [
             os.path.join(self.data_path, eeg_dir, f"GLOC_{p:02d}_DC{t}_25Hz_EEG_power_wMAR.xlsx")
@@ -228,8 +235,15 @@ class DataManager:
             for band in self._EEG_BASELINE_BANDS
         ]
 
+        if self.use_reduced_dataset:
+            logger.info("!!!!!!!!!!!!!!!!!!! USING REDUCED DATASET !!!!!!!!!!!!!!!!!!!!!!")
+            main_csv = "all_trials_25_hz_stacked_null_str_filled_reduced.csv"
+        else:
+            logger.info("!!!!!!!!!!!!!!!!!!! USING FULL DATASET - ALL STRAIN DATA FILLED !!!!!!!!!!!!!!!!!!!!!!")
+            main_csv = "all_trials_25_hz_stacked_null_str_filled.csv"
+
         self._data_locations = {
-            "main": os.path.join(self.data_path, "all_trials_25_hz_stacked_null_str_filled_reduced.csv"),
+            "main": os.path.join(self.data_path, main_csv),
             "baseline": os.path.join(self.data_path, "ParticipantBaseline.csv"),
             "demographic": os.path.join(self.data_path, "GLOC_Effectiveness_Final.csv"),
             "eeg_list": list_of_eeg_data_file_paths,
@@ -280,7 +294,7 @@ class DataManager:
         begin_mask = event_validated == "begin GOR"
         begin_idx_map = (
             pd.Series(np.flatnonzero(begin_mask), index=trial_ids[begin_mask])
-            .groupby(level=0, sort=False)
+            .groupby(level = 0, sort=False)
             .first()
             .to_dict()
         )
@@ -343,7 +357,7 @@ class DataManager:
     def _process_and_get_feature_names(
             self,
             gloc_data: pd.DataFrame,
-            feature_groups_to_analyze: Set[str],
+            feature_groups_to_analyze: Sequence[str],
             model_type: Tuple[str, str],
             file_names: Dict[str, Any],
     ) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
@@ -403,7 +417,7 @@ class DataManager:
         gloc_idx = event_validated.eq("GLOC").groupby(trial_ids).idxmax()
         rtc_idx = event_validated.eq("return to consciousness").groupby(trial_ids).idxmax()
 
-        gloc_labels = np.zeros(len(gloc_data), dtype = np.int8)
+        gloc_labels = np.zeros(len(gloc_data))
 
         # Loop over trials only (much smaller than rows)
         for t in gloc_idx.index:
@@ -531,7 +545,7 @@ class DataManager:
         """Extract numpy arrays from DataFrame and free the DataFrame to reduce memory usage.
         
         Returns:
-            gloc_data_all_features_numpy: float32 feature matrix
+            gloc_data_all_features_numpy: feature matrix (preserves DataFrame dtype for numerical fidelity)
             gloc_labels_numpy: boolean label array
             experiment_metadata: dict of metadata arrays
         """
@@ -542,10 +556,15 @@ class DataManager:
             "Time (s)": gloc_data["Time (s)"].to_numpy(dtype=np.float32),
             "event_validated": gloc_data["event_validated"].to_numpy(),
             "subject": gloc_data["subject"].to_numpy(),
-            "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype=np.bool_).reshape(-1, 1),
+            "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1),
         }
-        gloc_data_all_features_numpy = gloc_data[features["All"]].to_numpy(dtype=np.float32)
-        gloc_labels_numpy = gloc_labels.astype(np.bool_)
+        # Do NOT force float32 here — the legacy pipeline operates in float64
+        # (due to pandas fillna/mean upcasting in eeg_condition_impute) through
+        # imputation and baselining, and only casts to float32 in
+        # combine_all_baseline / _generate_features.  Keeping the native dtype
+        # here ensures identical intermediate precision.
+        gloc_data_all_features_numpy = gloc_data[features["All"]].to_numpy()
+        gloc_labels_numpy = gloc_labels
 
         del gloc_data, gloc_labels
         return gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata
@@ -554,7 +573,7 @@ class DataManager:
     def _convert_to_unique_ordered_integers(strings: np.ndarray) -> np.ndarray:
         """Convert strings to 1-based integers preserving first-appearance order."""
         codes, _ = pd.factorize(strings, sort=False)
-        return (codes + 1).astype(np.uint32)
+        return (codes + 1).astype(np.float32)
     
     def _impute_missing_data(
             self,
@@ -647,29 +666,31 @@ class DataManager:
         index = faiss.IndexHNSWFlat(d, M)
         index.hnsw.efSearch = efSearch
 
-        # Set a fixed random seed for more reproducibility in HNSW graph construction
+        # Use fixed RNG seed for deterministic HNSW graph construction
         rng = faiss.RandomGenerator(self.random_seed)
         index.hnsw.rng = rng
         
         index.add(X_train_temp.astype(np.float32))
 
-        # Impute training data using vectorized operations
-        _, nn_indices = index.search(X_train_temp.astype(np.float32), k + 1)
+        # Impute training data
+        distances, indices = index.search(X_train_temp.astype(np.float32), k + 1)
         X_train_imputed = X_train.copy()
-        rows_miss, cols_miss = np.where(mask_train)
-        if len(rows_miss) > 0:
-            neighbor_idx = nn_indices[rows_miss, 1:]  # (M, k) — skip self
-            vals = X_train_temp[neighbor_idx, cols_miss[:, None]]  # (M, k)
-            X_train_imputed[rows_miss, cols_miss] = np.nanmean(vals, axis=1)
+        for i in range(X_train.shape[0]):
+            neighbors = indices[i, 1:]  # skip self
+            for j in range(X_train.shape[1]):
+                if mask_train[i, j]:
+                    neighbor_values = X_train_temp[neighbors, j]
+                    X_train_imputed[i, j] = np.nanmean(neighbor_values)
 
-        # Impute test data using vectorized operations
-        _, nn_indices_test = index.search(X_test_temp.astype(np.float32), k)
+        # Impute test data
+        distances_test, indices_test = index.search(X_test_temp.astype(np.float32), k)
         X_test_imputed = X_test.copy()
-        rows_miss_t, cols_miss_t = np.where(mask_test)
-        if len(rows_miss_t) > 0:
-            neighbor_idx_t = nn_indices_test[rows_miss_t]  # (M, k)
-            vals_t = X_train_temp[neighbor_idx_t, cols_miss_t[:, None]]  # (M, k)
-            X_test_imputed[rows_miss_t, cols_miss_t] = np.nanmean(vals_t, axis=1)
+        for i in range(X_test.shape[0]):
+            neighbors = indices_test[i]
+            for j in range(X_test.shape[1]):
+                if mask_test[i, j]:
+                    neighbor_values = X_train_temp[neighbors, j]
+                    X_test_imputed[i, j] = np.nanmean(neighbor_values)
 
         # Rebuild into single array
         X_imputed = X.copy()
@@ -751,7 +772,7 @@ class DataManager:
             if feature in self._UNENGINEERED_STREAMS or self._is_baselined_stream(
                 feature, baseline_suffixes
             )
-        ], dtype = np.uint32)
+        ])
         
         # Compute trial integers before using them
         trial_ints = self._convert_to_unique_ordered_integers(experiment_metadata["trial_id"])
@@ -759,7 +780,7 @@ class DataManager:
         x_feature_matrix = x_feature_matrix[:, ue_indices]
         x_feature_matrix = np.hstack([
             x_feature_matrix,
-            trial_ints.reshape(-1, 1).astype(np.uint32)
+            trial_ints.reshape(-1, 1)
         ])
         
         all_features = [combined_baseline_names[i] for i in ue_indices]
