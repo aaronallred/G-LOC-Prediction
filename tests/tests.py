@@ -1852,6 +1852,7 @@ class TestDataManager:
         assert np.array_equal(gloc_data_all_features_numpy[:, ecg_indices], features_ecg, equal_nan = True), "The ECG features in gloc_data after impute_missing_data do not match the expected ECG features."
         assert np.array_equal(gloc_data_all_features_numpy[:, eeg_indices], features_eeg, equal_nan = True), "The EEG features in gloc_data after impute_missing_data do not match the expected EEG features."
 
+    # Used to verify that the imputation function produces the same output as a previously saved imputed dataset (e.g. from a previous run or from a different implementation)
     # def test_same_imputed_data(self, manager, file_paths, gloc_data, gloc_data_imputed_tuple):
     #     gloc_data = gloc_data.copy()
     #     expected_gloc_data_imputed = gloc_data_imputed_tuple[0].copy()
