@@ -411,19 +411,18 @@ class DataManager:
         is labeled as 1 between GLOC and Return to Consciousness.
         """
         event_validated = gloc_data["event_validated"]
-        trial_ids = gloc_data["trial_id"]
 
-        # Find first GLOC and first RTC per trial
-        gloc_idx = event_validated.eq("GLOC").groupby(trial_ids).idxmax()
-        rtc_idx = event_validated.eq("return to consciousness").groupby(trial_ids).idxmax()
+        # Find all GLOC and RTC indices, pair them in order, and label between each pair
+        gloc_indices = np.where(event_validated.to_numpy() == "GLOC")[0]
+        rtc_indices = np.where(event_validated.to_numpy() == "return to consciousness")[0]
 
+        trial_ids = gloc_data["trial_id"].to_numpy()
         gloc_labels = np.zeros(len(gloc_data))
 
-        # Loop over trials only (much smaller than rows)
-        for t in gloc_idx.index:
-            start = gloc_idx[t]
-            end = rtc_idx[t]
-            if start < end:
+        for i in range(len(gloc_indices)):
+            start = gloc_indices[i]
+            end = rtc_indices[i]
+            if trial_ids[start] == trial_ids[end]:
                 gloc_labels[start:end] = 1
 
         return gloc_labels
