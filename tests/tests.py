@@ -1,5 +1,7 @@
 import os
 import warnings
+import gc
+from contextlib import contextmanager
 
 import numpy as np
 import pandas as pd
@@ -13,6 +15,15 @@ from scripts.GLOC_data_pipeline import load_and_prepare_data_advanced
 
 from data_manager import DataManager
 
+# Test Configuration Constants
+NUM_SPLITS = 5
+KFOLD_ID = 0
+N_NEIGHBORS = 5
+BASELINE_WINDOW = 32.5
+BASELINE_METHODS = ["v0", "v1", "v2", "v5", "v6"]
+USE_REDUCED_DATASET = False
+
+# Feature Group Constants
 IMPLICIT_FEATURE_GROUPS = {"ECG", "BR", "temp", "eyetracking", "rawEEG"}
 EXPLICIT_FEATURE_GROUPS = IMPLICIT_FEATURE_GROUPS.union({"AFE", "G", "processedEEG", "demographics", "strain"})
 COMPLETE_FEATURE_GROUPS = {"AFE"}
@@ -29,6 +40,30 @@ FEATURE_GROUPS_EXPLICIT = {
     "demographics",
     "strain",
 }
+
+# Memory Management Utilities
+@contextmanager
+def memory_cleanup(*objects):
+    """Context manager to ensure memory cleanup of large objects."""
+    try:
+        yield
+    finally:
+        for obj in objects:
+            del obj
+        gc.collect()
+
+def clear_memory(*objects):
+    """Explicitly clear memory for provided objects."""
+    for obj in objects:
+        if obj is not None:
+            del obj
+    gc.collect()
+
+@pytest.fixture(scope="function", autouse=True)
+def cleanup_memory():
+    """Auto-cleanup fixture to trigger garbage collection after each test."""
+    yield
+    gc.collect()
 
 def _pull_eeg_sets():
     # list of shared eeg channels
@@ -743,7 +778,7 @@ def _process_strain_data(gloc_data_reduced):
 
     return gloc_data_reduced, gloc_trial
 
-def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demographic_data_filename, model_type, using_reduced_dataset):
+def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demographic_data_filename, model_type):
     # Get feature columns
     if "ECG" in feature_groups_to_analyze:
         ecg_features = [
@@ -890,7 +925,7 @@ def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demogra
 
     if "strain" in feature_groups_to_analyze and "explicit" in model_type:
         # For strain data, add missing strain labels before feature creation
-        if using_reduced_dataset: # Skip processing of strain data if using reduced dataset since none to fill in
+        if USE_REDUCED_DATASET: # Skip processing of strain data if using reduced dataset since none to fill in
             gloc_data_reduced, gloc_trial = gloc_data_reduced, gloc_data_reduced["trial_id"]
         else:
             gloc_data_reduced, gloc_trial = _process_strain_data(gloc_data_reduced)
@@ -989,6 +1024,223 @@ def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demogra
         all_features_eeg,
     )
 
+def _afe_subset_helper(model_type, gloc_data, all_features, gloc_labels):
+    """
+    Remove trials where AFE condition doesn't match the model type.
+    Also returns filtered data and labels based on AFE condition.
+    """
+    cond = 1 if model_type[0] == 'AFE' else 0
+
+    # All features and subject trial info to be put into a reduced dataframe
+    all_features_with_ids = all_features + ['AFE_indicator', 'subject', 'trial']
+    reduced_data_frame = gloc_data[all_features_with_ids]
+
+    rows_to_remove = []
+    N = 0  # number of trials total
+    M = 0  # number of trials with missing data streams
+    
+    for (subject, trial), group in reduced_data_frame.groupby(['subject', 'trial']):
+        trial_data = reduced_data_frame[
+            (reduced_data_frame['subject'] == subject) & 
+            (reduced_data_frame['trial'] == trial)
+        ]
+
+        # Check if the chosen AFE condition is violated at all during the trial
+        if trial_data['AFE_indicator'].any().any() != cond:
+            rows_to_remove.append(trial_data.index)
+            M += 1
+
+        N += 1
+
+    # Flatten list of indices and remove them from the DataFrame
+    rows_to_remove = [item for sublist in rows_to_remove for item in sublist]
+
+    # Get rid of rows in the DF and array
+    gloc_data = gloc_data.drop(rows_to_remove)
+    gloc_data = gloc_data.reset_index(drop=True)
+    gloc_labels = np.delete(gloc_labels, rows_to_remove, axis=0)
+
+    print(f"There are {N - M} trials that match the chosen AFE condition out of {N} trials.")
+    return gloc_data, gloc_labels
+
+def _eeg_condition_impute_helper(gloc_data_reduced, all_features_eeg, afe_indicator_column, verbose=True):
+    """
+    Ensures both AFE (1) and non-AFE (0) conditions have the same feature columns.
+    Missing columns are imputed with mean values.
+    """
+    df = gloc_data_reduced.copy()
+    afe_mask = afe_indicator_column == 1
+    nonafe_mask = afe_indicator_column == 0
+
+    # Pull columns that need to be imputed for each type
+    _, processed_eeg_afe_only, processed_eeg_nonafe_only, \
+    _, raw_eeg_afe_only, raw_eeg_nonafe_only = _pull_eeg_sets()
+    
+    afe_only_cols = processed_eeg_afe_only + raw_eeg_afe_only
+    nonafe_only_cols = processed_eeg_nonafe_only + raw_eeg_nonafe_only
+
+    # Impute AFE-only columns for non-AFE rows
+    for col in afe_only_cols:
+        if col in all_features_eeg:
+            mean_val = df.loc[afe_mask, col].mean(skipna=True)
+            n_missing = df.loc[nonafe_mask, col].isna().sum()
+            df.loc[nonafe_mask, col] = df.loc[nonafe_mask, col].fillna(mean_val)
+            if verbose:
+                print(f"Imputed {n_missing} values in '{col}' for non-AFE rows")
+
+    # Impute non-AFE-only columns for AFE rows
+    for col in nonafe_only_cols:
+        if col in all_features_eeg:
+            mean_val = df.loc[nonafe_mask, col].mean(skipna=True)
+            n_missing = df.loc[afe_mask, col].isna().sum()
+            df.loc[afe_mask, col] = df.loc[afe_mask, col].fillna(mean_val)
+            if verbose:
+                print(f"Imputed {n_missing} values in '{col}' for AFE rows")
+
+    return df
+
+def _remove_all_nan_trials_helper(gloc_data_reduced, all_features, gloc, verbose=True):
+    """
+    Remove trials where there is at least one data stream that is all NaN.
+    Returns cleaned data, labels, and NaN proportion table.
+    """
+    all_features_with_ids = all_features + ['subject', 'trial']
+    reduced_data_frame = gloc_data_reduced[all_features_with_ids]
+
+    rows_to_remove = []
+    nan_proportion_table = []
+    N = 0  # number of trials total
+    M = 0  # number of trials with missing data streams
+    
+    for (subject, trial), group in reduced_data_frame.groupby(['subject', 'trial']):
+        trial_data = reduced_data_frame[
+            (reduced_data_frame['subject'] == subject) & 
+            (reduced_data_frame['trial'] == trial)
+        ]
+
+        # Compute proportion of NaN values for each feature
+        nan_proportions = trial_data[all_features].isna().mean().to_dict()
+        nan_proportion_table.append({'subject-trial': f"{subject}-{trial}", **nan_proportions})
+
+        # Check if any columns in trial data are entirely NaN
+        all_nan_cols = trial_data[all_features].isna().all()
+        if all_nan_cols.any():
+            rows_to_remove.append(trial_data.index)
+            if verbose:
+                nan_features = all_nan_cols[all_nan_cols].index.tolist()
+                print(f"Subject {subject}, Trial {trial}: features entirely NaN → {nan_features}")
+            M += 1
+
+        N += 1
+
+    # Flatten list of indices and remove them
+    rows_to_remove = [item for sublist in rows_to_remove for item in sublist]
+    nan_proportion_df = pd.DataFrame(nan_proportion_table)
+
+    # Remove rows from DataFrame and array
+    gloc_data_reduced = gloc_data_reduced.drop(rows_to_remove).reset_index(drop=True)
+    gloc = np.delete(gloc, rows_to_remove, axis=0)
+
+    print(f"There are {M} trials with all NaNs for at least one feature out of {N} trials. {N - M} trials remaining.")
+    return gloc_data_reduced, gloc, nan_proportion_df
+
+def _convert_to_unique_ordered_integers(strings):
+    """Convert string array to unique ordered integers."""
+    mapping = {}
+    result = []
+    current_id = 1
+    for s in strings:
+        if s not in mapping:
+            mapping[s] = current_id
+            current_id += 1
+        result.append(mapping[s])
+    return np.array(result, dtype=np.float32)
+
+def _groupedtrial_kfold_split(Y, X, trials, num_splits, kfold_ID):
+    """
+    Split X and Y matrices into training and test sets using Stratified Group K-Fold.
+    """
+    gkf = StratifiedGroupKFold(n_splits=num_splits, shuffle=False)
+    
+    # Safety check for kfold_ID
+    n_folds = gkf.get_n_splits()
+    if kfold_ID < 0 or kfold_ID >= n_folds:
+        raise ValueError(f"Fold index {kfold_ID} out of range (must be between 0 and {n_folds - 1})")
+
+    # Get train and test indices for specific fold
+    train_index, test_index = next(islice(gkf.split(X, Y, trials), kfold_ID, kfold_ID + 1))
+    
+    x_train, y_train = X[train_index], Y[train_index]
+    x_test, y_test = X[test_index], Y[test_index]
+    
+    return x_train, x_test, y_train, y_test, train_index, test_index
+
+def _faster_knn_impute_train_test(X, train_ind, test_ind, k=5, M=32, efSearch=64):
+    """
+    Impute missing values using FAISS KNN with training data only.
+    
+    Parameters:
+    - X: input array
+    - train_ind: training dataset indices
+    - test_ind: test dataset indices  
+    - k: number of neighbors
+    - M, efSearch: HNSW graph parameters
+    
+    Returns:
+    - X_imputed: imputed version of input array
+    """
+    X_train = X[train_ind]
+    X_test = X[test_ind]
+
+    # Masks for missing values
+    mask_train = np.isnan(X_train)
+    mask_test = np.isnan(X_test)
+
+    # Temporary mean imputation for FAISS indexing
+    mean_vals = np.nanmean(X_train, axis=0)
+    X_train_temp = np.where(mask_train, mean_vals, X_train)
+    X_test_temp = np.where(mask_test, mean_vals, X_test)
+
+    # Use single thread for deterministic behavior
+    faiss.omp_set_num_threads(1)
+
+    # Build FAISS HNSW index on training data
+    d = X_train.shape[1]
+    index = faiss.IndexHNSWFlat(d, M)
+    index.hnsw.efSearch = efSearch
+    
+    # Create and assign RNG with seed for reproducibility
+    rng = faiss.RandomGenerator(42)
+    index.hnsw.rng = rng
+    index.add(X_train_temp.astype(np.float32))
+
+    # Impute training data
+    distances, indices = index.search(X_train_temp.astype(np.float32), k + 1)
+    X_train_imputed = X_train.copy()
+    for i in range(X_train.shape[0]):
+        neighbors = indices[i, 1:]  # skip self
+        for j in range(X_train.shape[1]):
+            if mask_train[i, j]:
+                neighbor_values = X_train_temp[neighbors, j]
+                X_train_imputed[i, j] = np.nanmean(neighbor_values)
+
+    # Impute test data
+    distances_test, indices_test = index.search(X_test_temp.astype(np.float32), k)
+    X_test_imputed = X_test.copy()
+    for i in range(X_test.shape[0]):
+        neighbors = indices_test[i]
+        for j in range(X_test.shape[1]):
+            if mask_test[i, j]:
+                neighbor_values = X_train_temp[neighbors, j]
+                X_test_imputed[i, j] = np.nanmean(neighbor_values)
+
+    # Rebuild into single array
+    X_imputed = X.copy()
+    X_imputed[train_ind] = X_train_imputed
+    X_imputed[test_ind] = X_test_imputed
+
+    return X_imputed
+
 def _assert_feature_sets(features, expected_all_features, expected_all_features_phys, expected_all_features_ecg, expected_all_features_eeg):
     def _assert_set(actual, expected, label):
         actual_set = set(actual)
@@ -1004,88 +1256,111 @@ def _assert_feature_sets(features, expected_all_features, expected_all_features_
 
 
 
-@pytest.fixture(scope = "session")
+@pytest.fixture(scope="session")
 def manager():
-    # Get the absolute path to the data folder
+    """Create DataManager instance for testing."""
     test_dir = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(os.path.dirname(test_dir), "data")
-    return DataManager(testing = True, data_path = data_path, use_reduced_dataset = False)
+    return DataManager(testing = True, data_path = data_path, use_reduced_dataset = USE_REDUCED_DATASET)
 
-@pytest.fixture(scope = "session")
+@pytest.fixture(scope="session")
 def file_paths(manager):
+    """Get file paths from DataManager."""
     return manager._get_data_locations()
 
-@pytest.fixture(scope = "session")
-def gloc_data(manager, file_paths):
-    test_dir = os.path.dirname(os.path.abspath(__file__))
+@pytest.fixture(scope="session")
+def test_dir():
+    """Get test directory path."""
+    return os.path.dirname(os.path.abspath(__file__))
+
+@pytest.fixture(scope="session")
+def gloc_data(manager, file_paths, test_dir):
+    """Load or create gloc_data with caching."""
     data_pickle_path = os.path.join(test_dir, "testing_temp", "gloc_data.pkl")
 
     if os.path.exists(data_pickle_path):
         with open(data_pickle_path, 'rb') as f:
-            gloc_data = pickle.load(f)
+            data = pickle.load(f)
         print(f"Loaded data from {data_pickle_path}")
-    else:
-        # Only compute train/test indices when actually imputing
-        gloc_data = manager._load_data(file_paths)
-
-        os.makedirs(os.path.dirname(data_pickle_path), exist_ok = True)
-        with open(data_pickle_path, 'wb') as f:
-            pickle.dump(gloc_data, f)
-        print(f"Saved data to {data_pickle_path}")
-
-    return gloc_data
-
-@pytest.fixture(scope = "session")
-def gloc_data_imputed_tuple(manager, file_paths, gloc_data):
-    test_dir = os.path.dirname(os.path.abspath(__file__))
-    impute_path = os.path.join(test_dir, "testing_temp", "gloc_data_imputed.pkl")
-    num_splits = 5
-    kfold_ID = 0
-    n_neighbors = 5
-    save_impute = True
-    load_impute = True
-
-    if os.path.exists(impute_path):
-        with open(impute_path, 'rb') as f:
-            gloc_data_all_features_imputed_numpy = pickle.load(f)
-        with open(os.path.join(test_dir, "testing_temp", "features.pkl"), 'rb') as f:
-            features = pickle.load(f)
-        with open(os.path.join(test_dir, "testing_temp", "gloc_labels.pkl"), 'rb') as f:
-            gloc_labels_numpy = pickle.load(f)
-        with open(os.path.join(test_dir, "testing_temp", "experiment_metadata.pkl"), 'rb') as f:
-            experiment_metadata = pickle.load(f)
-        print(f"Loaded imputed data from {impute_path}")
-    else:
-        # Setup Data
-        gloc_data = gloc_data.copy()
-
-        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
-        model_type = ("Complete", "Explicit")
-        gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
-        gloc_labels = manager._label_gloc_events(gloc_data)
-        if model_type[0] != "Complete":
-            gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
-        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = manager._reduce_memory(gloc_data, gloc_labels, features)
-
-        os.makedirs(os.path.join(test_dir, "testing_temp"), exist_ok = True)
-        with open(os.path.join(test_dir, "testing_temp", "features.pkl"), 'wb') as f:
-            pickle.dump(features, f)
-        print(f"Saved features to {os.path.join(test_dir, 'testing_temp', 'features.pkl')}")
-        
-        os.makedirs(os.path.dirname(os.path.join(test_dir, "testing_temp", "gloc_labels.pkl")), exist_ok = True)
-        with open(os.path.join(test_dir, "testing_temp", "gloc_labels.pkl"), 'wb') as f:
-            pickle.dump(gloc_labels_numpy, f)
-        print(f"Saved gloc labels to {os.path.join(test_dir, 'testing_temp', 'gloc_labels.pkl')}")
-
-        os.makedirs(os.path.dirname(os.path.join(test_dir, "testing_temp", "experiment_metadata.pkl")), exist_ok = True)
-        with open(os.path.join(test_dir, "testing_temp", "experiment_metadata.pkl"), 'wb') as f:
-            pickle.dump(experiment_metadata, f)
-        print(f"Saved experiment metadata to {os.path.join(test_dir, 'testing_temp', 'experiment_metadata.pkl')}")
-
-        # Get actual output
-        gloc_data_all_features_imputed_numpy = manager._impute_missing_data(gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata, impute_path, save_impute, load_impute, num_splits, kfold_ID, n_neighbors)
+        return data
     
-    return (gloc_data_all_features_imputed_numpy, gloc_labels_numpy, features, experiment_metadata)
+    # Load and cache data
+    data = manager._load_data(file_paths)
+    os.makedirs(os.path.dirname(data_pickle_path), exist_ok=True)
+    with open(data_pickle_path, 'wb') as f:
+        pickle.dump(data, f)
+    print(f"Saved data to {data_pickle_path}")
+    
+    return data
+
+@pytest.fixture(scope="session")
+def gloc_data_imputed_tuple(manager, file_paths, gloc_data, test_dir):
+    """Load or create imputed data with caching."""
+    impute_path = os.path.join(test_dir, "testing_temp", "gloc_data_imputed.pkl")
+    
+    # Try loading cached results
+    if os.path.exists(impute_path):
+        cache_files = {
+            'data': impute_path,
+            'features': os.path.join(test_dir, "testing_temp", "features.pkl"),
+            'labels': os.path.join(test_dir, "testing_temp", "gloc_labels.pkl"),
+            'metadata': os.path.join(test_dir, "testing_temp", "experiment_metadata.pkl")
+        }
+        
+        try:
+            with open(cache_files['data'], 'rb') as f:
+                imputed_data = pickle.load(f)
+            with open(cache_files['features'], 'rb') as f:
+                features = pickle.load(f)
+            with open(cache_files['labels'], 'rb') as f:
+                labels = pickle.load(f)
+            with open(cache_files['metadata'], 'rb') as f:
+                metadata = pickle.load(f)
+            print(f"Loaded imputed data from {impute_path}")
+            return (imputed_data, labels, features, metadata)
+        except Exception as e:
+            print(f"Error loading cached data: {e}, recomputing...")
+    
+    # Compute imputed data
+    data_copy = gloc_data.copy()
+    model_type = ("Complete", "Explicit")
+    
+    data_copy, features = manager._process_and_get_feature_names(
+        data_copy, FEATURE_GROUPS_EXPLICIT, model_type, file_paths
+    )
+    labels = manager._label_gloc_events(data_copy)
+    
+    if model_type[0] != "Complete":
+        data_copy, labels = manager._afe_subset(data_copy, labels)
+    
+    data_numpy, labels_numpy, metadata = manager._reduce_memory(data_copy, labels, features)
+    
+    # Clear intermediate data
+    del data_copy, labels
+    gc.collect()
+    
+    # Cache intermediate results
+    os.makedirs(os.path.join(test_dir, "testing_temp"), exist_ok=True)
+    cache_data = [
+        (features, "features.pkl"),
+        (labels_numpy, "gloc_labels.pkl"),
+        (metadata, "experiment_metadata.pkl")
+    ]
+    
+    for data_obj, filename in cache_data:
+        path = os.path.join(test_dir, "testing_temp", filename)
+        with open(path, 'wb') as f:
+            pickle.dump(data_obj, f)
+        print(f"Saved {filename}")
+    
+    # Impute data
+    imputed_data = manager._impute_missing_data(
+        data_numpy, labels_numpy, metadata, impute_path, 
+        save_impute=True, load_impute=True, 
+        num_splits=NUM_SPLITS, kfold_ID=KFOLD_ID, n_neighbors=N_NEIGHBORS
+    )
+    
+    return (imputed_data, labels_numpy, features, metadata)
 
 
 
@@ -1117,7 +1392,7 @@ class TestDataManager:
 
     def test_getting_data_locations(self, manager, file_paths):
         def expected_data_locations(datafolder):
-            if manager.use_reduced_dataset:
+            if USE_REDUCED_DATASET:
                 filename = os.path.join(datafolder, "all_trials_25_hz_stacked_null_str_filled_reduced.csv")
             else:
                 filename = os.path.join(datafolder, "all_trials_25_hz_stacked_null_str_filled.csv")
@@ -1323,542 +1598,331 @@ class TestDataManager:
         assert gloc_data.equals(expected_gloc_data)
 
     def test_getting_feature_names_complete_explicit(self, manager, file_paths, gloc_data):
-        gloc_data = gloc_data.copy()
-        expected_gloc_data = gloc_data.copy()
-
-        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
-
-        gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, ("Complete", "Explicit"), file_paths)
-
-        _, _, _, _, _, expected_all_features, expected_all_features_phys, expected_all_features_ecg, expected_all_features_eeg = _get_expected_features(
-            expected_gloc_data,
-            feature_groups_to_analyze,
-            file_paths["demographic"],
-            ("complete", "explicit"),
-            use_reduced_dataset = manager.use_reduced_dataset
+        """Test feature name extraction for Complete/Explicit model."""
+        # Use single copy for processing
+        data_copy = gloc_data.copy()
+        
+        gloc_data_processed, features = manager._process_and_get_feature_names(
+            data_copy, FEATURE_GROUPS_EXPLICIT, ("Complete", "Explicit"), file_paths
         )
+        
+        # Generate expected features using the original data
+        _, _, _, _, _, expected_all_features, expected_all_features_phys, \
+        expected_all_features_ecg, expected_all_features_eeg = _get_expected_features(
+            gloc_data.copy(),
+            FEATURE_GROUPS_EXPLICIT,
+            file_paths["demographic"], 
+            ("complete", "explicit")
+        )
+        
         _assert_feature_sets(
-            features,
-            expected_all_features,
-            expected_all_features_phys,
-            expected_all_features_ecg,
-            expected_all_features_eeg,
+            features, expected_all_features, expected_all_features_phys,
+            expected_all_features_ecg, expected_all_features_eeg
         )
+        
+        # Explicit cleanup
+        del data_copy, gloc_data_processed
+        gc.collect()
 
     def test_getting_feature_names_complete_implicit(self, manager, file_paths, gloc_data):
-        gloc_data = gloc_data.copy()
-        expected_gloc_data = gloc_data.copy()
-
-        feature_groups_to_analyze, _ = manager._get_feature_groups_and_baseline_methods(("Complete", "Implicit"))
-
-        gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, ("Complete", "Implicit"), file_paths)
-
-        _, _, _, _, _, expected_all_features, expected_all_features_phys, expected_all_features_ecg, expected_all_features_eeg = _get_expected_features(
-            expected_gloc_data,
-            feature_groups_to_analyze,
+        """Test feature name extraction for Complete/Implicit model."""
+        data_copy = gloc_data.copy()
+        
+        feature_groups, _ = manager._get_feature_groups_and_baseline_methods(("Complete", "Implicit"))
+        gloc_data_processed, features = manager._process_and_get_feature_names(
+            data_copy, feature_groups, ("Complete", "Implicit"), file_paths
+        )
+        
+        _, _, _, _, _, expected_all_features, expected_all_features_phys, \
+        expected_all_features_ecg, expected_all_features_eeg = _get_expected_features(
+            gloc_data.copy(), 
+            feature_groups, 
             file_paths["demographic"],
-            ("complete", "implicit"),
-            use_reduced_dataset = manager.use_reduced_dataset
+            ("complete", "implicit")
         )
+        
         _assert_feature_sets(
-            features,
-            expected_all_features,
-            expected_all_features_phys,
-            expected_all_features_ecg,
-            expected_all_features_eeg,
+            features, expected_all_features, expected_all_features_phys,
+            expected_all_features_ecg, expected_all_features_eeg
         )
+        
+        del data_copy, gloc_data_processed
+        gc.collect()
 
     def test_getting_feature_names_noAFE_explicit(self, manager, file_paths, gloc_data):
-        gloc_data = gloc_data.copy()
-        expected_gloc_data = gloc_data.copy()
-
-        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
-
-        gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, ("noAFE", "Explicit"), file_paths)
-
-        _, _, _, _, _, expected_all_features, expected_all_features_phys, expected_all_features_ecg, expected_all_features_eeg = _get_expected_features(
-            expected_gloc_data,
-            feature_groups_to_analyze,
+        """Test feature name extraction for noAFE/Explicit model."""
+        data_copy = gloc_data.copy()
+        
+        gloc_data_processed, features = manager._process_and_get_feature_names(
+            data_copy, FEATURE_GROUPS_EXPLICIT, ("noAFE", "Explicit"), file_paths
+        )
+        
+        _, _, _, _, _, expected_all_features, expected_all_features_phys, \
+        expected_all_features_ecg, expected_all_features_eeg = _get_expected_features(
+            gloc_data.copy(), 
+            FEATURE_GROUPS_EXPLICIT, 
             file_paths["demographic"],
-            ("noAFE", "explicit"),
-            use_reduced_dataset = manager.use_reduced_dataset
+            ("noAFE", "explicit")
         )
+        
         _assert_feature_sets(
-            features,
-            expected_all_features,
-            expected_all_features_phys,
-            expected_all_features_ecg,
-            expected_all_features_eeg,
+            features, expected_all_features, expected_all_features_phys,
+            expected_all_features_ecg, expected_all_features_eeg
         )
+        
+        del data_copy, gloc_data_processed
+        gc.collect()
 
     def test_getting_feature_names_noAFE_implicit(self, manager, file_paths, gloc_data):
-        gloc_data = gloc_data.copy()
-        expected_gloc_data = gloc_data.copy()
-
-        feature_groups_to_analyze, _ = manager._get_feature_groups_and_baseline_methods(("noAFE", "Implicit"))
-
-        gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, ("noAFE", "Implicit"), file_paths)
-
-        _, _, _, _, _, expected_all_features, expected_all_features_phys, expected_all_features_ecg, expected_all_features_eeg = _get_expected_features(
-            expected_gloc_data,
-            feature_groups_to_analyze,
+        """Test feature name extraction for noAFE/Implicit model."""
+        data_copy = gloc_data.copy()
+        
+        feature_groups, _ = manager._get_feature_groups_and_baseline_methods(("noAFE", "Implicit"))
+        gloc_data_processed, features = manager._process_and_get_feature_names(
+            data_copy, feature_groups, ("noAFE", "Implicit"), file_paths
+        )
+        
+        _, _, _, _, _, expected_all_features, expected_all_features_phys, \
+        expected_all_features_ecg, expected_all_features_eeg = _get_expected_features(
+            gloc_data.copy(), 
+            feature_groups, 
             file_paths["demographic"],
-            ("noAFE", "implicit"),
-            use_reduced_dataset = manager.use_reduced_dataset
+            ("noAFE", "implicit")
         )
+        
         _assert_feature_sets(
-            features,
-            expected_all_features,
-            expected_all_features_phys,
-            expected_all_features_ecg,
-            expected_all_features_eeg,
+            features, expected_all_features, expected_all_features_phys,
+            expected_all_features_ecg, expected_all_features_eeg
         )
+        
+        del data_copy, gloc_data_processed
+        gc.collect()
 
     def test_gloc_labeling(self, manager, file_paths, gloc_data):
-        gloc_data = gloc_data.copy()
-
-        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
+        """Test GLOC event labeling."""
+        data_copy = gloc_data.copy()
         model_type = ("Complete", "Explicit")
-        gloc_data, _ = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
+        
+        data_copy, _ = manager._process_and_get_feature_names(
+            data_copy, FEATURE_GROUPS_EXPLICIT, model_type, file_paths
+        )
 
-        event_validated = gloc_data["event_validated"].to_numpy()
-        trial_id = gloc_data["trial_id"].to_numpy()
+        event_validated = data_copy["event_validated"].to_numpy()
+        trial_id = data_copy["trial_id"].to_numpy()
 
         # Find indices where 'GLOC' and 'return to consciousness' occur
         gloc_indices = np.argwhere(event_validated == "GLOC")
         rtc_indices = np.argwhere(event_validated == "return to consciousness")
 
-        expected_gloc_labels = np.zeros(event_validated.shape)
+        expected_gloc_labels = np.zeros(event_validated.shape, dtype=np.float32)
         for i in range(gloc_indices.shape[0]):
-            # Check the index for gloc and return to consciousness occurs on the same trial
             if trial_id[gloc_indices[i]] == trial_id[rtc_indices[i]]:
                 expected_gloc_labels[gloc_indices[i, 0]:rtc_indices[i, 0]] = 1
 
-        gloc_labels = manager._label_gloc_events(gloc_data)
+        gloc_labels = manager._label_gloc_events(data_copy)
 
         np.testing.assert_array_equal(gloc_labels, expected_gloc_labels)
-        assert np.array_equal(gloc_labels, expected_gloc_labels), "The GLOC labels do not match the expected labels based on event_validated and trial_id."
+        assert np.array_equal(gloc_labels, expected_gloc_labels), \
+            "The GLOC labels do not match the expected labels based on event_validated and trial_id."
+        
+        del data_copy, event_validated, trial_id
+        gc.collect()
 
     def test_afe_subset(self, manager, file_paths, gloc_data):
-        def afe_subset(model_type, gloc_data, all_features, gloc_labels):
-            """
-                Remove trials where there is atl east one data stream that is all NaN
-                Also returns a NaN proportionality table that says for each trial, what prop are NaN for each data stream
-            """
-
-            if model_type[0] == 'AFE':
-                cond = 1
-            else:
-                cond = 0
-
-            # All features and subject trial info to be put into a reduced dataframe from gloc_data_reduced
-            # add on 'condition' to always check | requires second '.any()' statement below in the condition
-            all_features_with_ids = all_features + ['AFE_indicator','subject','trial']
-            reduced_data_frame = gloc_data[all_features_with_ids]
-
-            rows_to_remove = []
-
-            N = 0 # number of trials total
-            M = 0 # number of trials with missing data streams
-            for (subject, trial), group in reduced_data_frame.groupby(['subject', 'trial']):
-                trial_data = reduced_data_frame[(reduced_data_frame['subject'] == subject) &
-                                                (reduced_data_frame['trial'] == trial)]
-
-
-                # Check if the chosen AFE condition is violated at all during the trial
-                if trial_data['AFE_indicator'].any().any() != cond:
-                    # If so, add these indices to the list of rows to remove
-                    rows_to_remove.append(trial_data.index)
-                    M = M+1 # to be removed
-
-                N = N+1 # count trials
-
-            # Flatten list of indices and remove them from the DataFrame
-            rows_to_remove = [item for sublist in rows_to_remove for item in sublist]
-
-            # Get rid of rows in the DF and array
-            gloc_data = gloc_data.drop(rows_to_remove)
-            gloc_data = gloc_data.reset_index(drop = True)
-
-            gloc_labels = np.delete(gloc_labels, rows_to_remove, axis=0)
-
-            # Print NaN findings
-            print("There are ", N - M, " trials that match the chosen AFE condition out of ", N,
-                "trials. ")
-
-            return gloc_data, gloc_labels
-
-        # Data Setup
-        gloc_data = gloc_data.copy()
-
-        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
+        """Test AFE subset filtering."""
+        data_copy = gloc_data.copy()
         model_type = ("noAFE", "Explicit")
-        gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
-        gloc_labels = manager._label_gloc_events(gloc_data)
+        
+        data_copy, features = manager._process_and_get_feature_names(
+            data_copy, FEATURE_GROUPS_EXPLICIT, model_type, file_paths
+        )
+        labels = manager._label_gloc_events(data_copy)
 
+        # Create expected output using helper
+        expected_data, expected_labels = _afe_subset_helper(
+            model_type, data_copy.copy(), features["All"], labels.copy()
+        )
 
+        # Get actual output
+        actual_data, actual_labels = manager._afe_subset(data_copy, labels)
 
-        # Create Expected Copy
-        expected_gloc_data, expected_gloc_labels = gloc_data.copy(), gloc_labels.copy()
-        if model_type[0] != "Complete":
-            expected_gloc_data, expected_gloc_labels = afe_subset(model_type, gloc_data, features["All"], gloc_labels)
-
-        # Getting the actual output
-        if model_type[0] != "Complete":
-            gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
-
-        assert gloc_data.equals(expected_gloc_data), "The gloc_data after afe_subset does not match the expected gloc_data."
-        assert np.array_equal(gloc_labels, expected_gloc_labels), "The gloc_labels after afe_subset does not match the expected gloc_labels."
+        assert actual_data.equals(expected_data), \
+            "The gloc_data after afe_subset does not match the expected gloc_data."
+        assert np.array_equal(actual_labels, expected_labels), \
+            "The gloc_labels after afe_subset does not match the expected gloc_labels."
+        
+        del data_copy, labels, expected_data, expected_labels
+        gc.collect()
 
     def test_eeg_specific_imputation(self, manager, file_paths, gloc_data):
-        def eeg_condition_impute(gloc_data_reduced, all_features_eeg, afe_indicator_column, verbose = True):
-            """
-                Ensures both AFE (1) and non-AFE (0) conditions have the same feature columns.
-                Missing columns are imputed with mean values in gloc_data_reduced and reflected in feature arrays.
-
-                Returns df, the imputed dataframe corresponding to gloc_data_reduced
-                Returns updated features, features_phys, and features_eeg that are affected by these imputations
-            """
-
-            # Create masks for each condition
-            df = gloc_data_reduced.copy()
-            afe_mask = afe_indicator_column == 1
-            nonafe_mask = afe_indicator_column == 0
-
-            # Pull columns that need to be imputed for each type
-            _, processed_eeg_afe_only, processed_eeg_nonafe_only, _, raw_eeg_afe_only, raw_eeg_nonafe_only = _pull_eeg_sets()
-            afe_only_cols = processed_eeg_afe_only + raw_eeg_afe_only
-            nonafe_only_cols = processed_eeg_nonafe_only + raw_eeg_nonafe_only
-
-            # Impute AFE-only columns for non-AFE rows
-            for col in afe_only_cols:
-                if col in all_features_eeg:
-                    # Check if all values in this column for non-AFE rows are NaN
-                    #if df.loc[nonafe_mask, col].isna().all():
-                    mean_val = df.loc[afe_mask, col].mean(skipna=True)
-                    n_missing = df.loc[nonafe_mask, col].isna().sum()
-                    df.loc[nonafe_mask, col] = df.loc[nonafe_mask, col].fillna(mean_val)
-                    if verbose:
-                        print(f"Imputed {n_missing} values in '{col}' for non-AFE rows")
-
-            #  Impute non-AFE-only columns for AFE rows
-            for col in nonafe_only_cols:
-                if col in  all_features_eeg:
-                    # Check if all values in this column for AFE rows are NaN
-                    #if df.loc[afe_mask, col].isna().all():
-                    mean_val = df.loc[nonafe_mask, col].mean(skipna=True)
-                    n_missing = df.loc[afe_mask, col].isna().sum()
-                    df.loc[afe_mask, col] = df.loc[afe_mask, col].fillna(mean_val)
-                    if verbose:
-                        print(f"Imputed {n_missing} values in '{col}' for AFE rows")
-
-            return df
-
-        # Setup data
-        gloc_data = gloc_data.copy()
-
-        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
+        """Test EEG-specific imputation."""
+        data_copy = gloc_data.copy()
         model_type = ("noAFE", "Explicit")
-        gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
-        gloc_labels = manager._label_gloc_events(gloc_data)
+        
+        data_copy, features = manager._process_and_get_feature_names(
+            data_copy, FEATURE_GROUPS_EXPLICIT, model_type, file_paths
+        )
+        labels = manager._label_gloc_events(data_copy)
+        
         if model_type[0] != "Complete":
-            gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
-
-
+            data_copy, labels = manager._afe_subset(data_copy, labels)
 
         # Setup expected result
-        expected_gloc_data = gloc_data.copy()
-
-        # Compute AFE / NonAFE condition indicator column
+        expected_data = data_copy.copy()
         condition_idx = features["All"].index('AFE_indicator')
-        afe_indicator_column = expected_gloc_data.iloc[:, condition_idx]
+        afe_indicator_column = expected_data.iloc[:, condition_idx]
 
-        # Impute (using mean) the value of the missing channels for each AFE condition
-        expected_gloc_data = eeg_condition_impute(expected_gloc_data, features["EEG"], afe_indicator_column, verbose = False)
+        # Impute using helper
+        expected_data = _eeg_condition_impute_helper(
+            expected_data, features["EEG"], afe_indicator_column, verbose=False
+        )
 
         # Get actual output
-        manager._eeg_specific_imputation(gloc_data, features)
+        manager._eeg_specific_imputation(data_copy, features)
 
-        assert gloc_data.equals(expected_gloc_data), "The gloc_data after eeg_specific_imputation does not match the expected gloc_data."
+        assert data_copy.equals(expected_data), \
+            "The gloc_data after eeg_specific_imputation does not match the expected gloc_data."
+        
+        del data_copy, labels, expected_data
+        gc.collect()
 
     def test_remove_all_NaN_trials(self, manager, file_paths, gloc_data):
-        def remove_all_nan_trials(gloc_data_reduced, all_features, gloc, verbose = True):
-            """
-                Remove trials where there is at least one data stream that is all NaN
-                Also returns a NaN proportionality table that says for each trial, what prop are NaN for each data stream
-            """
-
-            # All features and subject trial info to be put into a reduced dataframe from gloc_data_reduced
-            all_features_with_ids = all_features + ['subject','trial']
-            reduced_data_frame = gloc_data_reduced[all_features_with_ids]
-
-            rows_to_remove = []
-            nan_proportion_table = []
-
-            N = 0 # number of trials total
-            M = 0 # number of trials with missing data streams
-            for (subject, trial), group in reduced_data_frame.groupby(['subject', 'trial']):
-                trial_data = reduced_data_frame[(reduced_data_frame['subject'] == subject) &
-                                                (reduced_data_frame['trial'] == trial)]
-
-                # Compute proportion of NaN values for each feature
-                nan_proportions = trial_data[all_features].isna().mean().to_dict()
-
-                # Store subject-trial and NaN proportions
-                nan_proportion_table.append({'subject-trial': f"{subject}-{trial}", **nan_proportions})
-
-                # Check if any of the columns in the trial data are entirely NaN
-                all_nan_cols = trial_data[all_features].isna().all()
-                if all_nan_cols.any():
-                    # If so, add these indices to the list of rows to remove
-                    rows_to_remove.append(trial_data.index)
-
-                    # Identify feature names that are completely NaN
-                    nan_features = all_nan_cols[all_nan_cols].index.tolist()
-
-                    # Print info about which trial and features were missing if verbose is true (default is false / no print)
-                    if verbose:
-                        print(f"Subject {subject}, Trial {trial}: features entirely NaN → {nan_features}")
-
-                    M += 1 # count missing trials
-
-                N += 1 # count trials
-
-            # Flatten list of indices and remove them from the DataFrame
-            rows_to_remove = [item for sublist in rows_to_remove for item in sublist]
-
-            # Convert from a dict to a DF
-            nan_proportion_df = pd.DataFrame(nan_proportion_table)
-
-            # Get rid of rows in the DF and array
-            gloc_data_reduced = gloc_data_reduced.drop(rows_to_remove)
-            gloc_data_reduced = gloc_data_reduced.reset_index(drop=True)
-            gloc = np.delete(gloc, rows_to_remove, axis=0)
-
-            # Print NaN findings
-            print("There are ", M, " trials with all NaNs for at least one feature out of ", N,
-                "trials. ", N - M, " trials remaining.")
-
-            return gloc_data_reduced, gloc, nan_proportion_df
-        
-        # Data Setup
-        gloc_data = gloc_data.copy()
-
-        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
+        """Test removal of trials with all NaN features."""
+        data_copy = gloc_data.copy()
         model_type = ("Complete", "Explicit")
-        gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
-        gloc_labels = manager._label_gloc_events(gloc_data)
+        
+        data_copy, features = manager._process_and_get_feature_names(
+            data_copy, FEATURE_GROUPS_EXPLICIT, model_type, file_paths
+        )
+        labels = manager._label_gloc_events(data_copy)
+        
         if model_type[0] != "Complete":
-            gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
+            data_copy, labels = manager._afe_subset(data_copy, labels)
 
-
-
-        # Create expected copy
-        expected_gloc_data, expected_gloc_labels = gloc_data.copy(), gloc_labels.copy()
-        expected_gloc_data, expected_gloc_labels, _ = remove_all_nan_trials(expected_gloc_data, features["All"], expected_gloc_labels, verbose = False)
+        # Create expected output
+        expected_data, expected_labels, _ = _remove_all_nan_trials_helper(
+            data_copy.copy(), features["All"], labels.copy(), verbose=False
+        )
 
         # Get actual output
-        manager._remove_all_nan_trials(gloc_data, features, gloc_labels)
+        manager._remove_all_nan_trials(data_copy, features, labels)
 
-        assert gloc_data.equals(expected_gloc_data), "The gloc_data after remove_all_nan_trials does not match the expected gloc_data."
-        assert np.array_equal(gloc_labels, expected_gloc_labels), "The gloc_labels after remove_all_nan_trials does not match the expected gloc_labels."
+        assert data_copy.equals(expected_data), \
+            "The gloc_data after remove_all_nan_trials does not match the expected gloc_data."
+        assert np.array_equal(labels, expected_labels), \
+            "The gloc_labels after remove_all_nan_trials does not match the expected gloc_labels."
+        
+        del data_copy, labels, expected_data, expected_labels
+        gc.collect()
 
     def test_reduce_memory(self, manager, file_paths, gloc_data):
-        def convert_to_unique_ordered_integers(strings):
-            mapping = {}
-            result = []
-            current_id = 1
-            for s in strings:
-                if s not in mapping:
-                    mapping[s] = current_id
-                    current_id += 1
-                result.append(mapping[s])
-
-            return np.array(result,dtype=np.float32)
-
-        # Data Setup
-        gloc_data = gloc_data.copy()
-
-        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
+        """Test memory reduction and data conversion to numpy."""
+        data_copy = gloc_data.copy()
         model_type = ("Complete", "Explicit")
-        gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
-        gloc_labels = manager._label_gloc_events(gloc_data)
+        
+        data_copy, features = manager._process_and_get_feature_names(
+            data_copy, FEATURE_GROUPS_EXPLICIT, model_type, file_paths
+        )
+        labels = manager._label_gloc_events(data_copy)
+        
         if model_type[0] != "Complete":
-            gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
+            data_copy, labels = manager._afe_subset(data_copy, labels)
 
-        # Create expected copy
-        expected_gloc_data, expected_gloc_labels = gloc_data.copy(), gloc_labels.copy()
-        # Grab columns from gloc_data_reduced and remove gloc_data_reduced variable from memory
-        trial_column = expected_gloc_data['trial_id']
-        trial_ints = convert_to_unique_ordered_integers(trial_column)
-        time_column = expected_gloc_data['Time (s)']
-        event_validated_column = expected_gloc_data['event_validated']
-        subject_column = expected_gloc_data['subject']
-        afe_indicator_column = expected_gloc_data["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1)
-        expected_gloc_data_all_features_numpy = expected_gloc_data[features["All"]].to_numpy()
-
-        del expected_gloc_data
+        # Extract expected columns before reduction
+        trial_column = data_copy['trial_id']
+        trial_ints = _convert_to_unique_ordered_integers(trial_column)
+        time_column = data_copy['Time (s)']
+        event_validated_column = data_copy['event_validated']
+        subject_column = data_copy['subject']
+        afe_indicator_column = data_copy["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1)
+        expected_features_numpy = data_copy[features["All"]].to_numpy()
 
         # Get actual output
-        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = manager._reduce_memory(gloc_data, gloc_labels, features)
+        actual_features_numpy, labels_numpy, metadata = manager._reduce_memory(
+            data_copy, labels, features
+        )
 
-        # Check that relevant columns are the same in gloc_data
+        # Verify all metadata columns match
+        assert np.array_equal(trial_column, metadata["trial_id"]), \
+            "The trial_id column in the experiment metadata does not match."
+        assert np.array_equal(trial_ints, metadata["trial_ints"]), \
+            "The trial_ints column in the experiment metadata does not match."
+        assert np.array_equal(time_column, metadata["Time (s)"]), \
+            "The time column in the experiment metadata does not match."
+        assert np.array_equal(event_validated_column, metadata["event_validated"]), \
+            "The event_validated column in the experiment metadata does not match."
+        assert np.array_equal(subject_column, metadata["subject"]), \
+            "The subject column in the experiment metadata does not match."
+        assert np.array_equal(afe_indicator_column, metadata["AFE_indicator"]), \
+            "The AFE_indicator column in the experiment metadata does not match."
+        assert np.array_equal(actual_features_numpy, expected_features_numpy, equal_nan=True), \
+            "The gloc_data_all_features_numpy after reduce_memory does not match."
+        assert np.array_equal(labels_numpy, labels), \
+            "The gloc_labels_numpy after reduce_memory does not match."
         
-        assert np.array_equal(trial_column, experiment_metadata["trial_id"]), "The trial_id column in the experiment metadata does not match the original trial_id column in gloc_data."
-        assert np.array_equal(trial_ints, experiment_metadata["trial_ints"]), "The trial_ints column in the experiment metadata does not match the expected trial_ints."
-        assert np.array_equal(time_column, experiment_metadata["Time (s)"]), "The time column in the experiment metadata does not match the original time column in gloc_data."
-        assert np.array_equal(event_validated_column, experiment_metadata["event_validated"]), "The event_validated column in the experiment metadata does not match the original event_validated column in gloc_data."
-        assert np.array_equal(subject_column, experiment_metadata["subject"]), "The subject column in the experiment metadata does not match the original subject column in gloc_data."
-        assert np.array_equal(afe_indicator_column, experiment_metadata["AFE_indicator"]), "The AFE_indicator column in the experiment metadata does not match the original AFE_indicator column in gloc_data."
-        assert np.array_equal(gloc_data_all_features_numpy, expected_gloc_data_all_features_numpy, equal_nan = True), "The gloc_data_all_features_numpy after reduce_memory does not match the expected gloc_data_all_features_numpy."
-        assert np.array_equal(gloc_labels_numpy, expected_gloc_labels), "The gloc_labels_numpy after reduce_memory does not match the expected gloc_labels_numpy."
+        del data_copy, labels, expected_features_numpy
+        gc.collect()
 
     def test_impute_missing_data(self, manager, file_paths, gloc_data):
-        def groupedtrial_kfold_split(Y, X, trials, num_splits, kfold_ID):
-            """
-            This function splits the X and y matrix into training and test matrix.
-            """
-
-            # Grouped K-Fold setup
-            # Use random state to ensure repeatability across runs and classifiers
-            gkf = StratifiedGroupKFold(n_splits = num_splits, shuffle = False)
-
-            # Safety check to ensure that kfold_ID is within the fold indices
-            n_folds = gkf.get_n_splits()
-            if kfold_ID < 0 or kfold_ID >= n_folds:
-                raise ValueError(f"Fold index {kfold_ID} out of range (must be between 0 and {n_folds - 1})")
-
-            # Grab train and test indices given the skf generator format for a specific kfold_ID
-            train_index, test_index = next(islice(gkf.split(X, Y, trials), kfold_ID, kfold_ID + 1))
-
-            # Extract the corresponding data for the given kfold_ID
-            x_train, y_train = X[train_index], Y[train_index]
-            x_test, y_test = X[test_index], Y[test_index]
-
-            return x_train, x_test, y_train, y_test, train_index, test_index
-
-        def faster_knn_impute_train_test(X, train_ind, test_ind, k=5, M=32, efSearch=64):
-            """
-            Impute missing values in train and test sets using FAISS KNN with training data only.
-
-            Parameters:
-            - X: input array
-            - train_ind: the indices associated with the triaining dataset for this fold
-            - test_ind: the indices associated with the test dataset for this fold
-            - k: number of neighbors
-            - M, efSearch: HNSW graph parameters
-
-            Returns:
-            - X_imputed: imputed versions of input array
-            """
-            # Split into train and test
-            X_train = X[train_ind]
-            X_test = X[test_ind]
-
-            # Masks for missing values
-            mask_train = np.isnan(X_train)
-            mask_test = np.isnan(X_test)
-
-            # Temporary mean imputation to allow FAISS indexing
-            mean_vals = np.nanmean(X_train, axis = 0)
-            X_train_temp = np.where(mask_train, mean_vals, X_train)
-            X_test_temp = np.where(mask_test, mean_vals, X_test)
-
-            # Use one thread for deterministic behavior
-            # FAISS may use multiple threads by default which can lead to non-deterministic results
-            faiss.omp_set_num_threads(1)
-
-            # Build FAISS HNSW index on training data
-            d = X_train.shape[1]
-            index = faiss.IndexHNSWFlat(d, M)
-            index.hnsw.efSearch = efSearch
-            
-            # Create and assign RNG with seed BEFORE adding data
-            rng = faiss.RandomGenerator(42)
-            index.hnsw.rng = rng
-            
-            index.add(X_train_temp.astype(np.float32))
-
-            # Impute training data
-            distances, indices = index.search(X_train_temp.astype(np.float32), k + 1)
-            X_train_imputed = X_train.copy()
-            for i in range(X_train.shape[0]):
-                neighbors = indices[i, 1:]  # skip self
-                for j in range(X_train.shape[1]):
-                    if mask_train[i, j]:
-                        neighbor_values = X_train_temp[neighbors, j]
-                        X_train_imputed[i, j] = np.nanmean(neighbor_values)
-
-            # Impute test data
-            distances_test, indices_test = index.search(X_test_temp.astype(np.float32), k)
-            X_test_imputed = X_test.copy()
-            for i in range(X_test.shape[0]):
-                neighbors = indices_test[i]
-                for j in range(X_test.shape[1]):
-                    if mask_test[i, j]:
-                        neighbor_values = X_train_temp[neighbors, j]
-                        X_test_imputed[i, j] = np.nanmean(neighbor_values)
-
-            # Rebuild into single array
-            X_imputed = X.copy()
-            X_imputed[train_ind] = X_train_imputed
-            X_imputed[test_ind] = X_test_imputed
-
-            return X_imputed
-
-        # Setup Data
-        gloc_data = gloc_data.copy()
-
-        feature_groups_to_analyze = FEATURE_GROUPS_EXPLICIT
+        """Test missing data imputation."""
+        data_copy = gloc_data.copy()
         model_type = ("Complete", "Explicit")
-        gloc_data, features = manager._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
-        gloc_labels = manager._label_gloc_events(gloc_data)
-        if model_type[0] != "Complete":
-            gloc_data, gloc_labels = manager._afe_subset(gloc_data, gloc_labels)
-        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = manager._reduce_memory(gloc_data, gloc_labels, features)
-
-        # Create expected copy
-        expected_gloc_data_all_features_numpy, expected_gloc_labels = gloc_data_all_features_numpy.copy(), gloc_labels_numpy.copy()
-        expected_experiment_metadata = experiment_metadata.copy()
         impute_path = "test_imputation.pkl"
-        num_splits = 5
-        kfold_ID = 0
-        n_neighbors = 5
-        save_impute = False
-        load_impute = False
+        
+        data_copy, features = manager._process_and_get_feature_names(
+            data_copy, FEATURE_GROUPS_EXPLICIT, model_type, file_paths
+        )
+        labels = manager._label_gloc_events(data_copy)
+        
+        if model_type[0] != "Complete":
+            data_copy, labels = manager._afe_subset(data_copy, labels)
+        
+        features_numpy, labels_numpy, metadata = manager._reduce_memory(
+            data_copy, labels, features
+        )
 
-        # Grab train and test indices
-        _, _, _, _, train_ind, test_ind = groupedtrial_kfold_split(expected_gloc_labels, expected_gloc_data_all_features_numpy,
-                                                                   expected_experiment_metadata["trial_ints"],
-                                                                   num_splits, kfold_ID)
+        # Create expected output
+        expected_features = features_numpy.copy()
+        
+        # Get train/test split
+        _, _, _, _, train_ind, test_ind = _groupedtrial_kfold_split(
+            labels_numpy, expected_features, metadata["trial_ints"],
+            NUM_SPLITS, KFOLD_ID
+        )
 
-        # Load or compute imputed features
-        # NOTE: impute_path is PROVIDED by caller; do not overwrite it.
-        if load_impute and os.path.exists(impute_path):
-            print(f"Would load imputed data from {impute_path}")
-        else:
-            expected_gloc_data_all_features_numpy = faster_knn_impute_train_test(expected_gloc_data_all_features_numpy, train_ind, test_ind, n_neighbors)
+        # Impute using helper
+        expected_features = _faster_knn_impute_train_test(
+            expected_features, train_ind, test_ind, N_NEIGHBORS
+        )
 
-            if save_impute:
-                print(f"Would save imputed data to {impute_path}")
-
-        # Calculate new sub-feature arrays
-        phys_indices = [i for i, feature in enumerate(features["All"]) if (feature in features["Phys"])]
-        features_phys = expected_gloc_data_all_features_numpy[:, phys_indices]
-
-        ecg_indices = [i for i, feature in enumerate(features["All"]) if (feature in features["ECG"])]
-        features_ecg = expected_gloc_data_all_features_numpy[:, ecg_indices]
-
-        eeg_indices = [i for i, feature in enumerate(features["All"]) if (feature in features["EEG"])]
-        features_eeg = expected_gloc_data_all_features_numpy[:, eeg_indices]
+        # Calculate sub-feature arrays for validation
+        phys_indices = [i for i, f in enumerate(features["All"]) if f in features["Phys"]]
+        ecg_indices = [i for i, f in enumerate(features["All"]) if f in features["ECG"]]
+        eeg_indices = [i for i, f in enumerate(features["All"]) if f in features["EEG"]]
 
         # Get actual output
-        gloc_data_all_features_numpy = manager._impute_missing_data(gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata, impute_path, save_impute, load_impute, num_splits, kfold_ID, n_neighbors)
+        actual_features = manager._impute_missing_data(
+            features_numpy, labels_numpy, metadata, impute_path,
+            save_impute=False, load_impute=False,
+            num_splits=NUM_SPLITS, kfold_ID=KFOLD_ID, n_neighbors=N_NEIGHBORS
+        )
 
-        assert np.array_equal(gloc_data_all_features_numpy, expected_gloc_data_all_features_numpy, equal_nan = True), "The gloc_data_all_features_numpy after impute_missing_data does not match the expected gloc_data_all_features_numpy."
-        assert np.array_equal(gloc_data_all_features_numpy[:, phys_indices], features_phys, equal_nan = True), "The physiological features in gloc_data after impute_missing_data do not match the expected physiological features."
-        assert np.array_equal(gloc_data_all_features_numpy[:, ecg_indices], features_ecg, equal_nan = True), "The ECG features in gloc_data after impute_missing_data do not match the expected ECG features."
-        assert np.array_equal(gloc_data_all_features_numpy[:, eeg_indices], features_eeg, equal_nan = True), "The EEG features in gloc_data after impute_missing_data do not match the expected EEG features."
+        # Verify results
+        assert np.array_equal(actual_features, expected_features, equal_nan=True), \
+            "The imputed data does not match expected values."
+        assert np.array_equal(actual_features[:, phys_indices], expected_features[:, phys_indices], equal_nan=True), \
+            "The physiological features after imputation do not match."
+        assert np.array_equal(actual_features[:, ecg_indices], expected_features[:, ecg_indices], equal_nan=True), \
+            "The ECG features after imputation do not match."
+        assert np.array_equal(actual_features[:, eeg_indices], expected_features[:, eeg_indices], equal_nan=True), \
+            "The EEG features after imputation do not match."
+        
+        # Cleanup temporary file if created
+        if os.path.exists(impute_path):
+            os.remove(impute_path)
+        
+        del data_copy, labels, features_numpy, labels_numpy, expected_features
+        gc.collect()
 
     # Used to verify that the imputation function produces the same output as a previously saved imputed dataset (e.g. from a previous run or from a different implementation)
     # def test_same_imputed_data(self, manager, file_paths, gloc_data, gloc_data_imputed_tuple):
@@ -2901,7 +2965,7 @@ class TestDataManager:
             load_impute = load_impute
         )
 
-        data_manager = DataManager(data_path = datafolder, testing = True, use_reduced_dataset = False)
+        data_manager = DataManager(data_path = datafolder, testing = True, use_reduced_dataset = USE_REDUCED_DATASET)
         x_train, x_test, y_train, y_test, all_features = data_manager.get_data(
             model_type = model_type,
             num_splits = num_splits,
