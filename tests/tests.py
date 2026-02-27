@@ -456,9 +456,6 @@ def _process_strain_data(gloc_data_reduced):
     magnitude_g = gloc_data_reduced["magnitude - Centrifuge"].to_numpy()
     event = gloc_data_reduced["event"]
 
-    print("USING REDUCED DATASET DOES NOT NEED STRAIN LABELS TO BE ADDED, TESTS PASSED WITHOUT ADDING STRAIN LABELS TO REDUCED DATASET")
-    return gloc_data_reduced, gloc_trial
-
     ######## Trial 04-06 (GLOC_Effectiveness stain value of 6.1g) ########
     trial_individual_coding = "04-06"
     g_level_strain = 6.1
@@ -746,7 +743,7 @@ def _process_strain_data(gloc_data_reduced):
 
     return gloc_data_reduced, gloc_trial
 
-def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demographic_data_filename, model_type):
+def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demographic_data_filename, model_type, using_reduced_dataset):
     # Get feature columns
     if "ECG" in feature_groups_to_analyze:
         ecg_features = [
@@ -893,7 +890,10 @@ def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demogra
 
     if "strain" in feature_groups_to_analyze and "explicit" in model_type:
         # For strain data, add missing strain labels before feature creation
-        gloc_data_reduced, gloc_trial = _process_strain_data(gloc_data_reduced)
+        if using_reduced_dataset: # Skip processing of strain data if using reduced dataset since none to fill in
+            gloc_data_reduced, gloc_trial = gloc_data_reduced, gloc_data_reduced["trial_id"]
+        else:
+            gloc_data_reduced, gloc_trial = _process_strain_data(gloc_data_reduced)
 
         # Create binary array for strain data
         event = gloc_data_reduced["event"]
@@ -1009,7 +1009,7 @@ def manager():
     # Get the absolute path to the data folder
     test_dir = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(os.path.dirname(test_dir), "data")
-    return DataManager(testing = True, data_path = data_path, use_reduced_dataset = True)
+    return DataManager(testing = True, data_path = data_path, use_reduced_dataset = False)
 
 @pytest.fixture(scope = "session")
 def file_paths(manager):
@@ -1117,7 +1117,10 @@ class TestDataManager:
 
     def test_getting_data_locations(self, manager, file_paths):
         def expected_data_locations(datafolder):
-            filename = os.path.join(datafolder, "all_trials_25_hz_stacked_null_str_filled_reduced.csv")
+            if manager.use_reduced_dataset:
+                filename = os.path.join(datafolder, "all_trials_25_hz_stacked_null_str_filled_reduced.csv")
+            else:
+                filename = os.path.join(datafolder, "all_trials_25_hz_stacked_null_str_filled.csv")
             baseline_data_filename = os.path.join(datafolder, "ParticipantBaseline.csv")
             demographic_data_filename = os.path.join(datafolder, "GLOC_Effectiveness_Final.csv")
 
@@ -1332,6 +1335,7 @@ class TestDataManager:
             feature_groups_to_analyze,
             file_paths["demographic"],
             ("complete", "explicit"),
+            use_reduced_dataset = manager.use_reduced_dataset
         )
         _assert_feature_sets(
             features,
@@ -1354,6 +1358,7 @@ class TestDataManager:
             feature_groups_to_analyze,
             file_paths["demographic"],
             ("complete", "implicit"),
+            use_reduced_dataset = manager.use_reduced_dataset
         )
         _assert_feature_sets(
             features,
@@ -1376,6 +1381,7 @@ class TestDataManager:
             feature_groups_to_analyze,
             file_paths["demographic"],
             ("noAFE", "explicit"),
+            use_reduced_dataset = manager.use_reduced_dataset
         )
         _assert_feature_sets(
             features,
@@ -1398,6 +1404,7 @@ class TestDataManager:
             feature_groups_to_analyze,
             file_paths["demographic"],
             ("noAFE", "implicit"),
+            use_reduced_dataset = manager.use_reduced_dataset
         )
         _assert_feature_sets(
             features,
@@ -1429,6 +1436,7 @@ class TestDataManager:
 
         gloc_labels = manager._label_gloc_events(gloc_data)
 
+        np.testing.assert_array_equal(gloc_labels, expected_gloc_labels)
         assert np.array_equal(gloc_labels, expected_gloc_labels), "The GLOC labels do not match the expected labels based on event_validated and trial_id."
 
     def test_afe_subset(self, manager, file_paths, gloc_data):
@@ -2893,7 +2901,7 @@ class TestDataManager:
             load_impute = load_impute
         )
 
-        data_manager = DataManager(data_path = datafolder, testing = True, use_reduced_dataset = True)
+        data_manager = DataManager(data_path = datafolder, testing = True, use_reduced_dataset = False)
         x_train, x_test, y_train, y_test, all_features = data_manager.get_data(
             model_type = model_type,
             num_splits = num_splits,
