@@ -363,13 +363,15 @@ class StrainGroup(BaseFeatureGroup):
 
         ## Add missing 'end GOR' label
         # Find first nan in g magnitude post GOR peak
-        return_to_base_spin_index = np.where(magnitude_g_trial[gor_peak:-1] == 1.2)[0][0]
+        return_to_base_spin_candidates = np.where(magnitude_g_trial[gor_peak:-1] == 1.2)[0]
+        if len(return_to_base_spin_candidates) > 0:
+            return_to_base_spin_index = return_to_base_spin_candidates[0]
 
-        # Find the index of new end GOR label in full length csv
-        end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
+            # Find the index of new end GOR label in full length csv
+            end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
-        # gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
-        gloc_data_reduced.loc[end_GOR_label_index, 'event_validated'] = 'end GOR'
+            # gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+            gloc_data_reduced.loc[end_GOR_label_index, 'event_validated'] = 'end GOR'
 
         ######## Trial 07-06 (GLOC_Effectiveness stain value of 4.6g) ########
         trial_individual_coding = '07-06'
@@ -440,13 +442,15 @@ class StrainGroup(BaseFeatureGroup):
 
         ## Add missing 'end GOR' label
         # Find first nan in g magnitude post GOR peak
-        return_to_base_spin_index = np.where(magnitude_g_trial[gor_peak:-1] == 1.2)[0][0]
+        return_to_base_spin_candidates = np.where(magnitude_g_trial[gor_peak:-1] == 1.2)[0]
+        if len(return_to_base_spin_candidates) > 0:
+            return_to_base_spin_index = return_to_base_spin_candidates[0]
 
-        # Find the index of new end GOR label in full length csv
-        end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
+            # Find the index of new end GOR label in full length csv
+            end_GOR_label_index = trial_index.idxmax() + gor_peak + return_to_base_spin_index
 
-        # gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
-        gloc_data_reduced.loc[end_GOR_label_index, 'event_validated'] = 'end GOR'
+            # gloc_data_reduced['event'][end_GOR_label_index] = 'end GOR'
+            gloc_data_reduced.loc[end_GOR_label_index, 'event_validated'] = 'end GOR'
 
         ######## Trial 08-06 (GLOC_Effectiveness stain value of 8.2g) ########
         trial_individual_coding = '08-06'
