@@ -28,19 +28,6 @@ IMPLICIT_FEATURE_GROUPS = {"ECG", "BR", "temp", "eyetracking", "rawEEG"}
 EXPLICIT_FEATURE_GROUPS = IMPLICIT_FEATURE_GROUPS.union({"AFE", "G", "processedEEG", "demographics", "strain"})
 COMPLETE_FEATURE_GROUPS = {"AFE"}
 
-# FEATURE_GROUPS_EXPLICIT = {
-#     "ECG",
-#     "BR",
-#     "temp",
-#     "eyetracking",
-#     "rawEEG",
-#     "AFE",
-#     "G",
-#     "processedEEG",
-#     "demographics",
-#     "strain",
-# }
-
 # Memory Management Utilities
 @contextmanager
 def memory_cleanup(*objects):
@@ -853,37 +840,19 @@ def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demogra
     else:
         afe_features = []
 
-    if "G" in feature_groups_to_analyze and "explicit" in model_type:
+    if "G" in feature_groups_to_analyze and "Explicit" in model_type:
         # Process magnitude Centrifuge column to include 1.2g instead of NaN
         gloc_data_reduced.fillna({"magnitude - Centrifuge": 1.2}, inplace=True)
 
         # Grab g feature column
         g_features = ["magnitude - Centrifuge"]
-    elif "G" in feature_groups_to_analyze and "implicit" in model_type:
+    elif "G" in feature_groups_to_analyze and "Implicit" in model_type:
         # output warning message for implicit vs. explicit models
         warnings.warn("G cannot be used as a feature in implicit models. Feature removed.")
 
         g_features = []
     else:
         g_features = []
-
-    if "cognitive" in feature_groups_to_analyze:
-        cognitive_features = [
-            "0-back",
-            "1-back",
-            "2-back",
-            "3-back",
-            "0-back trial",
-            "1-back trial",
-            "2-back trial",
-            "3-back trial",
-            "0-back score",
-            "1-back score",
-            "2-back score",
-            "3-back score",
-        ]
-    else:
-        cognitive_features = []
 
     if "rawEEG" in feature_groups_to_analyze:
         (
@@ -923,7 +892,7 @@ def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demogra
         raw_eeg_condition_specific = []
         processed_eeg_condition_specific = []
 
-    if "strain" in feature_groups_to_analyze and "explicit" in model_type:
+    if "strain" in feature_groups_to_analyze and "Explicit" in model_type:
         # For strain data, add missing strain labels before feature creation
         if USE_REDUCED_DATASET: # Skip processing of strain data if using reduced dataset since none to fill in
             gloc_data_reduced, gloc_trial = gloc_data_reduced, gloc_data_reduced["trial_id"]
@@ -955,7 +924,7 @@ def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demogra
 
         # append strain features
         strain_features = ["Strain [0/1]"]
-    elif "strain" in feature_groups_to_analyze and "implicit" in model_type:
+    elif "strain" in feature_groups_to_analyze and "Implicit" in model_type:
         # output warning message for implicit vs. explicit models
         warnings.warn("Strain cannot be used as a feature in implicit models. Feature removed.")
 
@@ -963,11 +932,11 @@ def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demogra
     else:
         strain_features = []
 
-    if "demographics" in feature_groups_to_analyze and "explicit" in model_type:
+    if "demographics" in feature_groups_to_analyze and "Explicit" in model_type:
         # Read Demographics Spreadsheet and Append to gloc_data_reduced
         gloc_data_reduced, demographics_names = _read_and_process_demographics(demographic_data_filename, gloc_data_reduced)
         demographics_features = demographics_names
-    elif "demographics" in feature_groups_to_analyze and "implicit" in model_type:
+    elif "demographics" in feature_groups_to_analyze and "Implicit" in model_type:
         # output warning message for implicit vs. explicit models
         warnings.warn("Demographics cannot be used as a feature in implicit models. Feature removed.")
 
@@ -984,7 +953,6 @@ def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demogra
         + eyetracking_features
         + afe_features
         + g_features
-        + cognitive_features
         + raw_eeg_shared_features
         + raw_eeg_condition_specific
         + processed_eeg_shared_features
@@ -1621,7 +1589,7 @@ class TestDataManagerBase:
             gloc_data.copy(),
             feature_groups,
             file_paths["demographic"], 
-            (model_type[0].lower(), model_type[1].lower())
+            model_type
         )
         
         _assert_feature_sets(
@@ -1668,8 +1636,8 @@ class TestDataManagerBase:
         """Test AFE subset filtering."""
         model_type = self.MODEL_TYPE
         # Only test for noAFE models
-        if model_type[0] != "noAFE":
-            pytest.skip("Test only applicable for noAFE models")
+        if model_type[0] == "Complete":
+            pytest.skip("Test only applicable for non-Complete models")
         
         data_copy = gloc_data.copy()
         feature_groups, _ = manager._get_feature_groups_and_baseline_methods(model_type)
