@@ -8,8 +8,9 @@ import warnings
 def data_locations(datafolder):
     ## File Name & Path
     # Data CSV
-    print("!!!!!!!!!!!!!!!!!!!!!!!!!! USING REDUCED DATASET !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-    filename = os.path.join(datafolder,'all_trials_25_hz_stacked_null_str_filled_reduced.csv')
+    # print("!!!!!!!!!!!!!!!!!!!!!!!!!! USING REDUCED DATASET !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    # filename = os.path.join(datafolder,'all_trials_25_hz_stacked_null_str_filled_reduced.csv')
+    filename = os.path.join(datafolder,'all_trials_25_hz_stacked_null_str_filled.csv')
 
     # Baseline Data (HR)
     baseline_data_filename = os.path.join(datafolder,'ParticipantBaseline.csv')
