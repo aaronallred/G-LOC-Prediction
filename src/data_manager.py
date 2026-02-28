@@ -431,7 +431,7 @@ class DataManager:
         """
             Remove any trial that contains AFE condition (condition == 1).
         """
-        trial_has_afe = gloc_data.groupby("trial")["AFE_indicator"].transform("max") # Mark trial as all 1 if any are 1, otherwise 0
+        trial_has_afe = gloc_data.groupby(["subject", "trial"])["AFE_indicator"].transform("max") # Mark trial as all 1 if any are 1, otherwise 0
         keep_mask = trial_has_afe != 1
 
         gloc_data = gloc_data.loc[keep_mask].reset_index(drop = True)
