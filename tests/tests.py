@@ -28,18 +28,18 @@ IMPLICIT_FEATURE_GROUPS = {"ECG", "BR", "temp", "eyetracking", "rawEEG"}
 EXPLICIT_FEATURE_GROUPS = IMPLICIT_FEATURE_GROUPS.union({"AFE", "G", "processedEEG", "demographics", "strain"})
 COMPLETE_FEATURE_GROUPS = {"AFE"}
 
-FEATURE_GROUPS_EXPLICIT = {
-    "ECG",
-    "BR",
-    "temp",
-    "eyetracking",
-    "rawEEG",
-    "AFE",
-    "G",
-    "processedEEG",
-    "demographics",
-    "strain",
-}
+# FEATURE_GROUPS_EXPLICIT = {
+#     "ECG",
+#     "BR",
+#     "temp",
+#     "eyetracking",
+#     "rawEEG",
+#     "AFE",
+#     "G",
+#     "processedEEG",
+#     "demographics",
+#     "strain",
+# }
 
 # Memory Management Utilities
 @contextmanager
@@ -1293,18 +1293,19 @@ def gloc_data(manager, file_paths, test_dir):
     
     return data
 
-@pytest.fixture(scope="session")
-def gloc_data_imputed_tuple(manager, file_paths, gloc_data, test_dir):
-    """Load or create imputed data with caching."""
-    impute_path = os.path.join(test_dir, "testing_temp", "gloc_data_imputed.pkl")
+def _get_imputed_data_fixture(model_type, manager, file_paths, gloc_data, test_dir):
+    """Helper function to create imputed data for a specific model type."""
+    # Create model-specific cache path
+    model_str = f"{model_type[0]}_{model_type[1]}"
+    impute_path = os.path.join(test_dir, "testing_temp", f"gloc_data_imputed_{model_str}.pkl")
     
     # Try loading cached results
     if os.path.exists(impute_path):
         cache_files = {
             'data': impute_path,
-            'features': os.path.join(test_dir, "testing_temp", "features.pkl"),
-            'labels': os.path.join(test_dir, "testing_temp", "gloc_labels.pkl"),
-            'metadata': os.path.join(test_dir, "testing_temp", "experiment_metadata.pkl")
+            'features': os.path.join(test_dir, "testing_temp", f"features_{model_str}.pkl"),
+            'labels': os.path.join(test_dir, "testing_temp", f"gloc_labels_{model_str}.pkl"),
+            'metadata': os.path.join(test_dir, "testing_temp", f"experiment_metadata_{model_str}.pkl")
         }
         
         try:
@@ -1316,17 +1317,22 @@ def gloc_data_imputed_tuple(manager, file_paths, gloc_data, test_dir):
                 labels = pickle.load(f)
             with open(cache_files['metadata'], 'rb') as f:
                 metadata = pickle.load(f)
-            print(f"Loaded imputed data from {impute_path}")
+            print(f"Loaded imputed data for {model_str} from {impute_path}")
             return (imputed_data, labels, features, metadata)
         except Exception as e:
-            print(f"Error loading cached data: {e}, recomputing...")
+            print(f"Error loading cached data for {model_str}: {e}, recomputing...")
     
     # Compute imputed data
     data_copy = gloc_data.copy()
-    model_type = ("Complete", "Explicit")
+    
+    # Get appropriate feature groups
+    if model_type[1] == "Explicit":
+        feature_groups = EXPLICIT_FEATURE_GROUPS
+    else:  # Implicit
+        feature_groups = IMPLICIT_FEATURE_GROUPS.union({"AFE"}) if model_type[0] == "Complete" else IMPLICIT_FEATURE_GROUPS
     
     data_copy, features = manager._process_and_get_feature_names(
-        data_copy, FEATURE_GROUPS_EXPLICIT, model_type, file_paths
+        data_copy, feature_groups, model_type, file_paths
     )
     labels = manager._label_gloc_events(data_copy)
     
@@ -1342,9 +1348,9 @@ def gloc_data_imputed_tuple(manager, file_paths, gloc_data, test_dir):
     # Cache intermediate results
     os.makedirs(os.path.join(test_dir, "testing_temp"), exist_ok=True)
     cache_data = [
-        (features, "features.pkl"),
-        (labels_numpy, "gloc_labels.pkl"),
-        (metadata, "experiment_metadata.pkl")
+        (features, f"features_{model_str}.pkl"),
+        (labels_numpy, f"gloc_labels_{model_str}.pkl"),
+        (metadata, f"experiment_metadata_{model_str}.pkl")
     ]
     
     for data_obj, filename in cache_data:
@@ -1364,31 +1370,31 @@ def gloc_data_imputed_tuple(manager, file_paths, gloc_data, test_dir):
 
 
 
-class TestDataManager:
-    @pytest.mark.parametrize(
-        "model_type, expected",
-        [
-            (("Complete", "Explicit"), FEATURE_GROUPS_EXPLICIT),
-            (("Complete", "Implicit"), IMPLICIT_FEATURE_GROUPS.union({"AFE"})),
-            (("Non-AFE", "Explicit"), FEATURE_GROUPS_EXPLICIT),
-            (("Non-AFE", "Implicit"), IMPLICIT_FEATURE_GROUPS),
-        ],
-    )
-    def test_get_feature_groups(self, model_type, expected):
-        def build_feature_groups(model_type):
-            feature_groups_to_analyze = set()
-            if model_type[0] == "Complete":
-                feature_groups_to_analyze = COMPLETE_FEATURE_GROUPS
-
-            if model_type[1] == "Implicit":
-                feature_groups_to_analyze = feature_groups_to_analyze.union(IMPLICIT_FEATURE_GROUPS)
-            elif model_type[1] == "Explicit":
-                feature_groups_to_analyze = feature_groups_to_analyze.union(EXPLICIT_FEATURE_GROUPS)
-
-            return feature_groups_to_analyze
-            
-        feature_groups_to_analyze = build_feature_groups(model_type)
-        assert feature_groups_to_analyze == set(expected)
+# Base Test Class with Common Tests
+class TestDataManagerBase:
+    """Base class with shared test logic for all model types."""
+    MODEL_TYPE = None  # Override in subclasses
+    __test__ = False  # Prevent pytest from collecting this base class
+    
+    @pytest.fixture(scope="class")
+    def gloc_data_imputed_tuple(self, manager, file_paths, gloc_data, test_dir):
+        """Load or create imputed data with caching for this model type."""
+        result = _get_imputed_data_fixture(self.MODEL_TYPE, manager, file_paths, gloc_data, test_dir)
+        yield result
+        # Memory cleanup after class
+        del result
+        gc.collect()
+    
+    def test_get_feature_groups(self):
+        """Test that feature groups are correctly determined for model type."""
+        model_type = self.MODEL_TYPE
+        if model_type[1] == "Explicit":
+            expected = EXPLICIT_FEATURE_GROUPS
+        else:  # Implicit
+            expected = IMPLICIT_FEATURE_GROUPS.union({"AFE"}) if model_type[0] == "Complete" else IMPLICIT_FEATURE_GROUPS
+        
+        feature_groups, _ = DataManager(testing=True)._get_feature_groups_and_baseline_methods(model_type)
+        assert set(feature_groups) == expected
 
     def test_getting_data_locations(self, manager, file_paths):
         def expected_data_locations(datafolder):
@@ -1597,22 +1603,25 @@ class TestDataManager:
         pd.testing.assert_frame_equal(gloc_data, expected_gloc_data)
         assert gloc_data.equals(expected_gloc_data)
 
-    def test_getting_feature_names_complete_explicit(self, manager, file_paths, gloc_data):
-        """Test feature name extraction for Complete/Explicit model."""
-        # Use single copy for processing
+    def test_getting_feature_names(self, manager, file_paths, gloc_data):
+        """Test feature name extraction for the model type."""
         data_copy = gloc_data.copy()
+        model_type = self.MODEL_TYPE
+        
+        # Get appropriate feature groups for model type
+        feature_groups, _ = manager._get_feature_groups_and_baseline_methods(model_type)
         
         gloc_data_processed, features = manager._process_and_get_feature_names(
-            data_copy, FEATURE_GROUPS_EXPLICIT, ("Complete", "Explicit"), file_paths
+            data_copy, feature_groups, model_type, file_paths
         )
         
         # Generate expected features using the original data
         _, _, _, _, _, expected_all_features, expected_all_features_phys, \
         expected_all_features_ecg, expected_all_features_eeg = _get_expected_features(
             gloc_data.copy(),
-            FEATURE_GROUPS_EXPLICIT,
+            feature_groups,
             file_paths["demographic"], 
-            ("complete", "explicit")
+            (model_type[0].lower(), model_type[1].lower())
         )
         
         _assert_feature_sets(
@@ -1624,87 +1633,14 @@ class TestDataManager:
         del data_copy, gloc_data_processed
         gc.collect()
 
-    def test_getting_feature_names_complete_implicit(self, manager, file_paths, gloc_data):
-        """Test feature name extraction for Complete/Implicit model."""
-        data_copy = gloc_data.copy()
-        
-        feature_groups, _ = manager._get_feature_groups_and_baseline_methods(("Complete", "Implicit"))
-        gloc_data_processed, features = manager._process_and_get_feature_names(
-            data_copy, feature_groups, ("Complete", "Implicit"), file_paths
-        )
-        
-        _, _, _, _, _, expected_all_features, expected_all_features_phys, \
-        expected_all_features_ecg, expected_all_features_eeg = _get_expected_features(
-            gloc_data.copy(), 
-            feature_groups, 
-            file_paths["demographic"],
-            ("complete", "implicit")
-        )
-        
-        _assert_feature_sets(
-            features, expected_all_features, expected_all_features_phys,
-            expected_all_features_ecg, expected_all_features_eeg
-        )
-        
-        del data_copy, gloc_data_processed
-        gc.collect()
-
-    def test_getting_feature_names_noAFE_explicit(self, manager, file_paths, gloc_data):
-        """Test feature name extraction for noAFE/Explicit model."""
-        data_copy = gloc_data.copy()
-        
-        gloc_data_processed, features = manager._process_and_get_feature_names(
-            data_copy, FEATURE_GROUPS_EXPLICIT, ("noAFE", "Explicit"), file_paths
-        )
-        
-        _, _, _, _, _, expected_all_features, expected_all_features_phys, \
-        expected_all_features_ecg, expected_all_features_eeg = _get_expected_features(
-            gloc_data.copy(), 
-            FEATURE_GROUPS_EXPLICIT, 
-            file_paths["demographic"],
-            ("noAFE", "explicit")
-        )
-        
-        _assert_feature_sets(
-            features, expected_all_features, expected_all_features_phys,
-            expected_all_features_ecg, expected_all_features_eeg
-        )
-        
-        del data_copy, gloc_data_processed
-        gc.collect()
-
-    def test_getting_feature_names_noAFE_implicit(self, manager, file_paths, gloc_data):
-        """Test feature name extraction for noAFE/Implicit model."""
-        data_copy = gloc_data.copy()
-        
-        feature_groups, _ = manager._get_feature_groups_and_baseline_methods(("noAFE", "Implicit"))
-        gloc_data_processed, features = manager._process_and_get_feature_names(
-            data_copy, feature_groups, ("noAFE", "Implicit"), file_paths
-        )
-        
-        _, _, _, _, _, expected_all_features, expected_all_features_phys, \
-        expected_all_features_ecg, expected_all_features_eeg = _get_expected_features(
-            gloc_data.copy(), 
-            feature_groups, 
-            file_paths["demographic"],
-            ("noAFE", "implicit")
-        )
-        
-        _assert_feature_sets(
-            features, expected_all_features, expected_all_features_phys,
-            expected_all_features_ecg, expected_all_features_eeg
-        )
-        
-        del data_copy, gloc_data_processed
-        gc.collect()
-
     def test_gloc_labeling(self, manager, file_paths, gloc_data):
         """Test GLOC event labeling."""
         data_copy = gloc_data.copy()
-        model_type = ("Complete", "Explicit")
+        model_type = self.MODEL_TYPE
         
+        feature_groups, _ = manager._get_feature_groups_and_baseline_methods(model_type)
         data_copy, _ = manager._process_and_get_feature_names(
-            data_copy, FEATURE_GROUPS_EXPLICIT, model_type, file_paths
+            data_copy, feature_groups, model_type, file_paths
         )
 
         event_validated = data_copy["event_validated"].to_numpy()
@@ -1730,11 +1666,16 @@ class TestDataManager:
 
     def test_afe_subset(self, manager, file_paths, gloc_data):
         """Test AFE subset filtering."""
+        model_type = self.MODEL_TYPE
+        # Only test for noAFE models
+        if model_type[0] != "noAFE":
+            pytest.skip("Test only applicable for noAFE models")
+        
         data_copy = gloc_data.copy()
-        model_type = ("noAFE", "Explicit")
+        feature_groups, _ = manager._get_feature_groups_and_baseline_methods(model_type)
         
         data_copy, features = manager._process_and_get_feature_names(
-            data_copy, FEATURE_GROUPS_EXPLICIT, model_type, file_paths
+            data_copy, feature_groups, model_type, file_paths
         )
         labels = manager._label_gloc_events(data_copy)
 
@@ -1756,16 +1697,18 @@ class TestDataManager:
 
     def test_eeg_specific_imputation(self, manager, file_paths, gloc_data):
         """Test EEG-specific imputation."""
+        model_type = self.MODEL_TYPE
+        # Only test for Complete models
+        if model_type[0] != "Complete":
+            pytest.skip("Test only applicable for Complete models")
+        
         data_copy = gloc_data.copy()
-        model_type = ("noAFE", "Explicit")
+        feature_groups, _ = manager._get_feature_groups_and_baseline_methods(model_type)
         
         data_copy, features = manager._process_and_get_feature_names(
-            data_copy, FEATURE_GROUPS_EXPLICIT, model_type, file_paths
+            data_copy, feature_groups, model_type, file_paths
         )
         labels = manager._label_gloc_events(data_copy)
-        
-        if model_type[0] != "Complete":
-            data_copy, labels = manager._afe_subset(data_copy, labels)
 
         # Setup expected result
         expected_data = data_copy.copy()
@@ -1789,10 +1732,11 @@ class TestDataManager:
     def test_remove_all_NaN_trials(self, manager, file_paths, gloc_data):
         """Test removal of trials with all NaN features."""
         data_copy = gloc_data.copy()
-        model_type = ("Complete", "Explicit")
+        model_type = self.MODEL_TYPE
+        feature_groups, _ = manager._get_feature_groups_and_baseline_methods(model_type)
         
         data_copy, features = manager._process_and_get_feature_names(
-            data_copy, FEATURE_GROUPS_EXPLICIT, model_type, file_paths
+            data_copy, feature_groups, model_type, file_paths
         )
         labels = manager._label_gloc_events(data_copy)
         
@@ -1818,10 +1762,11 @@ class TestDataManager:
     def test_reduce_memory(self, manager, file_paths, gloc_data):
         """Test memory reduction and data conversion to numpy."""
         data_copy = gloc_data.copy()
-        model_type = ("Complete", "Explicit")
+        model_type = self.MODEL_TYPE
+        feature_groups, _ = manager._get_feature_groups_and_baseline_methods(model_type)
         
         data_copy, features = manager._process_and_get_feature_names(
-            data_copy, FEATURE_GROUPS_EXPLICIT, model_type, file_paths
+            data_copy, feature_groups, model_type, file_paths
         )
         labels = manager._label_gloc_events(data_copy)
         
@@ -1866,11 +1811,13 @@ class TestDataManager:
     def test_impute_missing_data(self, manager, file_paths, gloc_data):
         """Test missing data imputation."""
         data_copy = gloc_data.copy()
-        model_type = ("Complete", "Explicit")
-        impute_path = "test_imputation.pkl"
+        model_type = self.MODEL_TYPE
+        model_str = f"{model_type[0]}_{model_type[1]}"
+        impute_path = f"test_imputation_{model_str}.pkl"
         
+        feature_groups, _ = manager._get_feature_groups_and_baseline_methods(model_type)
         data_copy, features = manager._process_and_get_feature_names(
-            data_copy, FEATURE_GROUPS_EXPLICIT, model_type, file_paths
+            data_copy, feature_groups, model_type, file_paths
         )
         labels = manager._label_gloc_events(data_copy)
         
@@ -2936,14 +2883,16 @@ class TestDataManager:
         assert np.array_equal(expected_y_test, y_test), "Test Y vector does not match expected test Y vector."
 
     def test_load_and_prepare_data(self):
+        """End-to-end test for loading and preparing data."""
+        model_type = self.MODEL_TYPE
         # Get the absolute path to the data folder
         test_dir = os.path.dirname(os.path.abspath(__file__))
         datafolder = os.path.join(os.path.dirname(test_dir), "data")
         
-        model_type = ("Complete", "Explicit")
+        model_str = f"{model_type[0]}_{model_type[1]}"
         num_splits = 5
         kfold_ID = 0
-        impute_path = os.path.join(test_dir, "testing_temp", "gloc_data_imputed.pkl")
+        impute_path = os.path.join(test_dir, "testing_temp", f"gloc_data_imputed_{model_str}_e2e.pkl")
         impute_type = 1
         n_neighbors = 4
         baseline_window = 32.5
@@ -2951,8 +2900,11 @@ class TestDataManager:
         save_impute = False
         load_impute = False
 
+        # Convert model_type to lowercase for legacy function
+        legacy_model_type = (model_type[0].lower() if model_type[0] != "noAFE" else model_type[0], model_type[1].lower())
+        
         expected_x_train, expected_x_test, expected_y_train, expected_y_test, expected_all_features = load_and_prepare_data_advanced(
-            model_type = ("complete", "explicit"),
+            model_type = legacy_model_type,
             num_splits = num_splits,
             kfold_ID = kfold_ID,
             impute_path = impute_path,
@@ -2987,3 +2939,26 @@ class TestDataManager:
         assert np.array_equal(expected_y_train, y_train), "Training Y vector does not match expected training Y vector."
         assert np.array_equal(expected_y_test, y_test), "Test Y vector does not match expected test Y vector."
         assert np.array_equal(expected_all_features, all_features), "All features list does not match expected all features list."
+
+
+# ===== Four Model-Specific Test Classes =====
+
+class TestDataManagerCompleteExplicit(TestDataManagerBase):
+    """Tests for Complete/Explicit model type."""
+    MODEL_TYPE = ("Complete", "Explicit")
+    __test__ = True  # Ensure this class is collected by pytest
+
+class TestDataManagerCompleteImplicit(TestDataManagerBase):
+    """Tests for Complete/Implicit model type."""
+    MODEL_TYPE = ("Complete", "Implicit")
+    __test__ = True  # Ensure this class is collected by pytest
+
+class TestDataManagerNoAFEExplicit(TestDataManagerBase):
+    """Tests for noAFE/Explicit model type."""
+    MODEL_TYPE = ("noAFE", "Explicit")
+    __test__ = True  # Ensure this class is collected by pytest
+
+class TestDataManagerNoAFEImplicit(TestDataManagerBase):
+    """Tests for noAFE/Implicit model type."""
+    MODEL_TYPE = ("noAFE", "Implicit")
+    __test__ = True  # Ensure this class is collected by pytest
