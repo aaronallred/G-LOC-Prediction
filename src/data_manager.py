@@ -169,7 +169,9 @@ class DataManager:
             gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
 
         ################################################## REDUCE MEMORY ##################################################
-        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data, gloc_labels, features)
+        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(
+            gloc_data, gloc_labels, features, model_type
+        )
 
         ################################################## Impute Missing ##################################################
         if impute_type == 1:
@@ -540,11 +542,12 @@ class DataManager:
             gloc_data: pd.DataFrame,
             gloc_labels: np.ndarray,
             features: Dict[str, List[str]],
+            model_type: Tuple[str, str],
     ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
         """Extract numpy arrays from DataFrame and free the DataFrame to reduce memory usage.
         
         Returns:
-            gloc_data_all_features_numpy: feature matrix (preserves DataFrame dtype for numerical fidelity)
+            gloc_data_all_features_numpy: feature matrix with legacy-equivalent dtype by model
             gloc_labels_numpy: boolean label array
             experiment_metadata: dict of metadata arrays
         """
@@ -552,17 +555,18 @@ class DataManager:
         experiment_metadata = {
             "trial_id": trial_id_arr,
             "trial_ints": self._convert_to_unique_ordered_integers(trial_id_arr),
-            "Time (s)": gloc_data["Time (s)"].to_numpy(dtype=np.float32),
+            "Time (s)": gloc_data["Time (s)"].to_numpy(),  # Keep float64 to match legacy precision in np.gradient
             "event_validated": gloc_data["event_validated"].to_numpy(),
             "subject": gloc_data["subject"].to_numpy(),
             "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1),
         }
-        # Do NOT force float32 here — the legacy pipeline operates in float64
-        # (due to pandas fillna/mean upcasting in eeg_condition_impute) through
-        # imputation and baselining, and only casts to float32 in
-        # combine_all_baseline / _generate_features.  Keeping the native dtype
-        # here ensures identical intermediate precision.
-        gloc_data_all_features_numpy = gloc_data[features["All"]].to_numpy()
+        # Legacy precision differs by model path:
+        # - noAFE models keep features in float32 at this stage.
+        # - Complete models can be promoted to float64 during the EEG condition
+        #   imputation path because the condition column participates in array
+        #   reconstruction. Match that behavior for strict parity tests.
+        feature_dtype = np.float64 if model_type[0] == "Complete" else np.float32
+        gloc_data_all_features_numpy = gloc_data[features["All"]].to_numpy(dtype=feature_dtype)
         gloc_labels_numpy = gloc_labels
 
         del gloc_data, gloc_labels
@@ -717,7 +721,8 @@ class DataManager:
         for filepath in file_paths["baseline_eeg_processed_list"]:
             df = pd.read_csv(filepath)
             df.index = [f"{i:02d}" for i in range(1, 14)]
-            band = filepath.split("_")[-1].split(".")[0]
+            # Extract band name from filename pattern: GLOC_EEG_baseline_{band}_noAFE1.csv
+            band = os.path.basename(filepath).split("_")[3]
             eeg_baseline_data[band] = df
 
         # Build feature-group index arrays using set lookups for O(1) membership
@@ -744,7 +749,9 @@ class DataManager:
             eeg_baseline_data=eeg_baseline_data,
         )
 
-        combined_baseline, combined_names, _, _ = baseline_data(baseline_methods_to_use, context)
+        combined_baseline, combined_names, _, _, trial_order = baseline_data(baseline_methods_to_use, context)
+        # Store trial_order for use in _generate_features to compute trial_ints in correct order
+        experiment_metadata["trial_order"] = trial_order
         return combined_baseline, combined_names
         
     def _generate_features(
@@ -755,10 +762,17 @@ class DataManager:
             experiment_metadata: Dict[str, Any],
     ) -> Tuple[np.ndarray, List[str]]:
         """Generate feature matrices from baseline data using only unengineered data streams."""
-        # Concatenate trial arrays along first axis (handles variable sample counts per trial)
-        trial_ids = list(combined_baseline.keys())
+        # Get trial_order from metadata (passed from baseline_data)
+        trial_order = experiment_metadata.get("trial_order")
+        trial_column = experiment_metadata["trial_id"]
+        
+        if trial_order is None:
+            # Fallback: Use pandas unique to preserve first-appearance order like legacy code
+            trial_order = pd.unique(trial_column)
+        
+        # Concatenate trial arrays along first axis
         x_feature_matrix = np.concatenate(
-            [combined_baseline[tid] for tid in trial_ids], 
+            [combined_baseline[tid] for tid in trial_order], 
             axis = 0
         ).astype(np.float32)
         
@@ -773,8 +787,12 @@ class DataManager:
             )
         ])
         
-        # Compute trial integers before using them
-        trial_ints = self._convert_to_unique_ordered_integers(experiment_metadata["trial_id"])
+        # Compute trial_ints in the same order as features were concatenated (trial_order).
+        trial_ids_for_rows = np.concatenate([
+            np.full(combined_baseline[tid].shape[0], tid, dtype=object)
+            for tid in trial_order
+        ])
+        trial_ints = self._convert_to_unique_ordered_integers(trial_ids_for_rows)
         
         x_feature_matrix = x_feature_matrix[:, ue_indices]
         x_feature_matrix = np.hstack([
@@ -812,18 +830,32 @@ class DataManager:
             impute_type: int,
     ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
         """Remove constant columns, optionally add AFE indicator, and remove NaN rows."""
+        # CRITICAL: Extract trial_ints BEFORE removing constant columns,
+        # otherwise the last column might be removed and we'll extract the wrong column
+        trial_ints = x_feature_matrix[:, -1].copy()
+        
+        # Separate trial_ints from feature matrix for constant column removal
+        # The last column is trial_ints which was added by _generate_features
+        x_features_without_trials = x_feature_matrix[:, :-1]
+        feature_names_without_trials = features["All"]  # features["All"] should NOT include trial_ints
+        
         # Remove constant columns (typically no constant columns)
-        x_feature_matrix, features["All"] = self._remove_constant_columns(x_feature_matrix, features["All"])
+        x_features_without_trials, feature_names_without_trials = self._remove_constant_columns(
+            x_features_without_trials, feature_names_without_trials
+        )
 
-        # Add back in as 2nd to last column for explicit only
-        # (needs to be 2nd to last for advanced pipeline - could be last for traditional)
+        # Add AFE_indicator as 2nd-to-last column (before trial_ints) for explicit only
+        # Since trial_ints is already separated, just append AFE_indicator at the end of features
         model_kind, label_mode = model_type
         if model_kind == "Complete" and label_mode == "Explicit":
-            x_feature_matrix = np.hstack([
-                x_feature_matrix[:, :-1],
+            x_features_without_trials = np.hstack([
+                x_features_without_trials,
                 experiment_metadata["AFE_indicator"].reshape(-1, 1),
-                x_feature_matrix[:, -1:]
             ])
+
+        # Restore trial_ints as the last column
+        x_feature_matrix = np.hstack([x_features_without_trials, trial_ints.reshape(-1, 1)])
+        all_features = feature_names_without_trials  # Don't include trial_ints in feature names
 
         # List-wise deletion or clean any residual NaNs
         if impute_type in (1, 2):
@@ -831,14 +863,13 @@ class DataManager:
             x_feature_matrix_noNaN, y_gloc_labels_noNaN, all_features, trials_noNaN = self._process_NaN(
                 x_feature_matrix,
                 gloc_labels_numpy,
-                features["All"],
-                experiment_metadata["trial_ints"]
+                all_features,
+                trial_ints
             )
         else:
             x_feature_matrix_noNaN = x_feature_matrix
             y_gloc_labels_noNaN = gloc_labels_numpy
-            all_features = features["All"]
-            trials_noNaN = experiment_metadata["trial_ints"]
+            trials_noNaN = trial_ints
 
         return x_feature_matrix_noNaN, y_gloc_labels_noNaN, all_features, trials_noNaN
 

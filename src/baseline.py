@@ -85,15 +85,15 @@ def baseline_data(
                 baseline[method], baseline_derivative[method], baseline_second_derivative[method], baseline_names[method] = result
 
     # Combine all baseline methods
-    combined_baseline, combined_baseline_names = combine_all_baseline(trial_column, baseline, baseline_derivative,
+    combined_baseline, combined_baseline_names, trial_order = combine_all_baseline(trial_column, baseline, baseline_derivative,
                                                                       baseline_second_derivative, baseline_names)
 
-    return combined_baseline, combined_baseline_names, baseline.get('v0', {}), baseline_names.get('v0', [])
+    return combined_baseline, combined_baseline_names, baseline.get('v0', {}), baseline_names.get('v0', []), trial_order
 
 
 def create_v0_baseline(trial_column, time_column, features, all_features):
     """Exact copy from tests.py"""
-    trial_id_in_data = np.unique(trial_column)
+    trial_id_in_data = pd.unique(trial_column) # Use pd.unique to preserve first-appearance order, like legacy scripts
     baseline_v0 = dict()
     baseline_v0_derivative = dict()
     baseline_v0_second_derivative = dict()
@@ -112,7 +112,7 @@ def create_v0_baseline(trial_column, time_column, features, all_features):
 
 def create_v1_baseline(baseline_window, trial_column, time_column, features_phys, all_features_phys):
     """Exact copy from tests.py"""
-    trial_id_in_data = np.unique(trial_column)
+    trial_id_in_data = pd.unique(trial_column)  # Use pd.unique to preserve first-appearance order
     baseline_v1 = dict()
     baseline_v1_derivative = dict()
     baseline_v1_second_derivative = dict()
@@ -140,7 +140,7 @@ def create_v1_baseline(baseline_window, trial_column, time_column, features_phys
 
 def create_v2_baseline(baseline_window, trial_column, time_column, features_phys, all_features_phys):
     """Exact copy from tests.py"""
-    trial_id_in_data = np.unique(trial_column)
+    trial_id_in_data = pd.unique(trial_column)  # Use pd.unique to preserve first-appearance order
     baseline_v2 = dict()
     baseline_v2_derivative = dict()
     baseline_v2_second_derivative = dict()
@@ -162,7 +162,7 @@ def create_v2_baseline(baseline_window, trial_column, time_column, features_phys
 
 def create_v3_baseline(baseline_window, trial_column, time_column, event_validated_column, features_phys, all_features_phys):
     """Exact copy from tests.py"""
-    trial_id_in_data = np.unique(trial_column)
+    trial_id_in_data = pd.unique(trial_column)  # Use pd.unique to preserve first-appearance order
     baseline_v3 = dict()
     baseline_v3_derivative = dict()
     baseline_v3_second_derivative = dict()
@@ -198,7 +198,7 @@ def create_v3_baseline(baseline_window, trial_column, time_column, event_validat
 
 def create_v4_baseline(baseline_window, trial_column, time_column, event_validated_column, features_phys, all_features_phys):
     """Exact copy from tests.py"""
-    trial_id_in_data = np.unique(trial_column)
+    trial_id_in_data = pd.unique(trial_column)  # Use pd.unique to preserve first-appearance order
     baseline_v4 = dict()
     baseline_v4_derivative = dict()
     baseline_v4_second_derivative = dict()
@@ -234,7 +234,7 @@ def create_v4_baseline(baseline_window, trial_column, time_column, event_validat
 
 def create_v5_baseline(baseline_window, trial_column, time_column, subject_column, features_ecg, participant_seated_rhr, all_features_ecg):
     """Exact copy from tests.py"""
-    trial_id_in_data = np.unique(trial_column)
+    trial_id_in_data = pd.unique(trial_column)  # Use pd.unique to preserve first-appearance order
     baseline_v5 = dict()
     baseline_v5_derivative = dict()
     baseline_v5_second_derivative = dict()
@@ -257,7 +257,7 @@ def create_v5_baseline(baseline_window, trial_column, time_column, subject_colum
 
 def create_v6_baseline(baseline_window, trial_column, time_column, subject_column, features_ecg, participant_seated_rhr, all_features_ecg):
     """Exact copy from tests.py"""
-    trial_id_in_data = np.unique(trial_column)
+    trial_id_in_data = pd.unique(trial_column)  # Use pd.unique to preserve first-appearance order
     baseline_v6 = dict()
     baseline_v6_derivative = dict()
     baseline_v6_second_derivative = dict()
@@ -281,7 +281,7 @@ def create_v6_baseline(baseline_window, trial_column, time_column, subject_colum
 def create_v7_baseline(baseline_window, trial_column, time_column, subject_column, features_eeg, eeg_baseline_delta,
                        eeg_baseline_theta, eeg_baseline_alpha, eeg_baseline_beta, all_features_eeg):
     """Exact copy from tests.py"""
-    trial_id_in_data = np.unique(trial_column)
+    trial_id_in_data = pd.unique(trial_column)  # Use pd.unique to preserve first-appearance order
     baseline_v7 = dict()
     baseline_v7_derivative = dict()
     baseline_v7_second_derivative = dict()
@@ -337,7 +337,7 @@ def create_v7_baseline(baseline_window, trial_column, time_column, subject_colum
 def create_v8_baseline(baseline_window, trial_column, time_column, subject_column, features_eeg, eeg_baseline_delta,
                        eeg_baseline_theta, eeg_baseline_alpha, eeg_baseline_beta, all_features_eeg):
     """Exact copy from tests.py"""
-    trial_id_in_data = np.unique(trial_column)
+    trial_id_in_data = pd.unique(trial_column)  # Use pd.unique to preserve first-appearance order
     baseline_v8 = dict()
     baseline_v8_derivative = dict()
     baseline_v8_second_derivative = dict()
@@ -391,8 +391,9 @@ def create_v8_baseline(baseline_window, trial_column, time_column, subject_colum
 
 
 def combine_all_baseline(trial_column, baseline, baseline_derivative, baseline_second_derivative, baseline_names):
-    """Exact copy from tests.py"""
-    trial_id_in_data = np.unique(trial_column)
+    """Exact copy from tests.py, but also returns trial_order for correct trial_ints computation."""
+    # Use pandas.unique() like the legacy baseline_methods.py code to preserve first-appearance order, not sorted
+    trial_id_in_data = pd.unique(trial_column)
     num_cols = 0
     for method in baseline.keys():
         num_cols += baseline[method][trial_id_in_data[0]].shape[1]*3
@@ -411,4 +412,4 @@ def combine_all_baseline(trial_column, baseline, baseline_derivative, baseline_s
     combined_baseline_names = sum([baseline_names[method] + [s + '_derivative' for s in baseline_names[method]] +
                                     [s + '_2derivative' for s in baseline_names[method]] for method in baseline_names.keys()], [])
 
-    return combined_baseline, combined_baseline_names
+    return combined_baseline, combined_baseline_names, trial_id_in_data

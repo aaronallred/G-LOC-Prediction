@@ -1307,7 +1307,7 @@ def _get_imputed_data_fixture(model_type, manager, file_paths, gloc_data, test_d
     if model_type[0] != "Complete":
         data_copy, labels = manager._afe_subset(data_copy, labels)
     
-    data_numpy, labels_numpy, metadata = manager._reduce_memory(data_copy, labels, features)
+    data_numpy, labels_numpy, metadata = manager._reduce_memory(data_copy, labels, features, model_type)
     
     # Clear intermediate data
     del data_copy, labels
@@ -1748,11 +1748,13 @@ class TestDataManagerBase:
         event_validated_column = data_copy['event_validated']
         subject_column = data_copy['subject']
         afe_indicator_column = data_copy["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1)
-        expected_features_numpy = data_copy[features["All"]].to_numpy()
+        # Use the same dtype logic as _reduce_memory to match legacy behavior
+        feature_dtype = np.float64 if model_type[0] == "Complete" else np.float32
+        expected_features_numpy = data_copy[features["All"]].to_numpy(dtype=feature_dtype)
 
         # Get actual output
         actual_features_numpy, labels_numpy, metadata = manager._reduce_memory(
-            data_copy, labels, features
+            data_copy, labels, features, model_type
         )
 
         # Verify all metadata columns match
@@ -1768,6 +1770,7 @@ class TestDataManagerBase:
             "The subject column in the experiment metadata does not match."
         assert np.array_equal(afe_indicator_column, metadata["AFE_indicator"]), \
             "The AFE_indicator column in the experiment metadata does not match."
+        np.testing.assert_array_equal(actual_features_numpy, expected_features_numpy)
         assert np.array_equal(actual_features_numpy, expected_features_numpy, equal_nan=True), \
             "The gloc_data_all_features_numpy after reduce_memory does not match."
         assert np.array_equal(labels_numpy, labels), \
@@ -1793,7 +1796,7 @@ class TestDataManagerBase:
             data_copy, labels = manager._afe_subset(data_copy, labels)
         
         features_numpy, labels_numpy, metadata = manager._reduce_memory(
-            data_copy, labels, features
+            data_copy, labels, features, model_type
         )
 
         # Create expected output
