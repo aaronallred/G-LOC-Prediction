@@ -14,6 +14,7 @@ import pickle
 from scripts.GLOC_data_pipeline import load_and_prepare_data_advanced
 
 from data_manager import DataManager
+from traditional_data_manager import TraditionalDataManager
 
 # Test Configuration Constants
 NUM_SPLITS = 5
@@ -1338,8 +1339,8 @@ def _get_imputed_data_fixture(model_type, manager, file_paths, gloc_data, test_d
 
 
 
-# Base Test Class with Common Tests
-class TestDataManagerBase:
+# Base Test Class for Advanced Data Pipeline
+class TestAdvancedDataManagerBase:
     """Base class with shared test logic for all model types."""
     MODEL_TYPE = None  # Override in subclasses
     __test__ = False  # Prevent pytest from collecting this base class
@@ -2905,6 +2906,7 @@ class TestDataManagerBase:
             load_impute = load_impute
         )
 
+        np.testing.assert_array_equal(expected_x_train, x_train, err_msg="Training X matrix does not match expected training X matrix.")
         assert np.array_equal(expected_x_train, x_train), "Training X matrix does not match expected training X matrix."
         assert np.array_equal(expected_x_test, x_test), "Test X matrix does not match expected test X matrix."
         assert np.array_equal(expected_y_train, y_train), "Training Y vector does not match expected training Y vector."
@@ -2914,22 +2916,153 @@ class TestDataManagerBase:
 
 # ===== Four Model-Specific Test Classes =====
 
-class TestDataManagerCompleteExplicit(TestDataManagerBase):
+class TestAdvancedDataManagerCompleteExplicit(TestAdvancedDataManagerBase):
     """Tests for Complete/Explicit model type."""
     MODEL_TYPE = ("Complete", "Explicit")
     __test__ = True  # Ensure this class is collected by pytest
 
-class TestDataManagerCompleteImplicit(TestDataManagerBase):
+class TestAdvancedDataManagerCompleteImplicit(TestAdvancedDataManagerBase):
     """Tests for Complete/Implicit model type."""
     MODEL_TYPE = ("Complete", "Implicit")
     __test__ = True  # Ensure this class is collected by pytest
 
-class TestDataManagerNoAFEExplicit(TestDataManagerBase):
+class TestAdvancedDataManagerNoAFEExplicit(TestAdvancedDataManagerBase):
     """Tests for noAFE/Explicit model type."""
     MODEL_TYPE = ("noAFE", "Explicit")
     __test__ = True  # Ensure this class is collected by pytest
 
-class TestDataManagerNoAFEImplicit(TestDataManagerBase):
+class TestAdvancedDataManagerNoAFEImplicit(TestAdvancedDataManagerBase):
     """Tests for noAFE/Implicit model type."""
     MODEL_TYPE = ("noAFE", "Implicit")
     __test__ = True  # Ensure this class is collected by pytest
+
+
+
+# Traditional Data Manager Tests
+@pytest.fixture(scope = "session")
+def traditional_manager():
+    """Create TraditionalDataManager instance for testing."""
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+    data_path = os.path.join(os.path.dirname(test_dir), "data")
+    return TraditionalDataManager(testing = True, data_path = data_path, use_reduced_dataset = USE_REDUCED_DATASET)
+
+
+# Test Classes for Traditional Data Pipeline
+class TestTraditionalDataManagerCompleteExplicit():
+    """Tests for Complete/Explicit model type."""
+    MODEL_TYPE = ("Complete", "Explicit")
+    __test__ = True  # Ensure this class is collected by pytest
+
+    def test_get_hyperparameters_by_classifier_type(self, traditional_manager):
+        # Setup Data Manager
+        model_type = self.MODEL_TYPE
+
+        for classifier_type in ['logreg', 'RF', 'LDA', 'SVM', 'EGB']:
+            # Get Expected Hyperparameters
+            if classifier_type == 'logreg':
+                # Specifying Methods from Sequential optimization
+                expected_baseline_window = 5  # seconds - PULLED FROM NIKKI PAPER
+                expected_window_size = 12.5 # seconds - PULLED FROM NIKKI PAPER
+                expected_stride = 0.25 # seconds - PULLED FROM NIKKI PAPER
+                expected_imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
+                expected_feature_reduction_type = 'lasso' #- PULLED FROM NIKKI PAPER
+                expected_baseline_methods_to_use = ['v0', 'v1', 'v2','v5','v6','v7','v8'] #- PULLED FROM NIKKI PAPER
+                expected_impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
+                expected_n_neighbors = 5  # -For imputation PULLED FROM NIKKI PAPER
+
+                ## Investigating different windows per EVAN ANDERSON
+                #window_size = 8 # ~ 0.1 hit to f1 score
+
+
+
+            if classifier_type == 'RF':
+                # Specifying Methods from Sequential optimization
+                expected_baseline_window = 18.75  # seconds - PULLED FROM NIKKI PAPER
+                expected_window_size = 7.5  # seconds - PULLED FROM NIKKI PAPER
+                expected_stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
+                expected_feature_reduction_type = 'none'  # - PULLED FROM NIKKI PAPER
+                expected_threshold = 30  # - PULLED FROM NIKKI PAPER
+                expected_baseline_methods_to_use = ['v0', 'v1', 'v2','v5','v6','v7','v8']  # - PULLED FROM NIKKI PAPER
+                expected_imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
+                expected_impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
+                expected_n_neighbors = 3  # -For imputation PULLED FROM NIKKI PAPER
+                # Code for loading txt
+
+                ## Investigating different windows per EVAN ANDERSON
+                #window_size = 5 # ~ 0.1 hit to f1 score
+
+
+            if classifier_type == 'LDA':
+                # Specifying Methods from Sequential optimization
+                expected_baseline_window = 46.25  # seconds - PULLED FROM NIKKI PAPER
+                expected_window_size = 15  # seconds - PULLED FROM NIKKI PAPER
+                expected_stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
+                expected_feature_reduction_type = 'lasso'  # - PULLED FROM NIKKI PAPER
+                expected_baseline_methods_to_use = ['v0', 'v1', 'v2']  # - PULLED FROM NIKKI PAPER
+                expected_imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
+                expected_impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
+                expected_n_neighbors = 3  # -For imputation PULLED FROM NIKKI PAPER
+                # Code for loading txt
+
+                ## Investigating different windows per EVAN ANDERSON
+                #window_size = 10 # ~ 0.3 hit to f1 score
+
+
+            if classifier_type == 'SVM':
+                # Specifying Methods from Sequential optimization
+                expected_baseline_window = 32.5  # seconds - PULLED FROM NIKKI PAPER
+                expected_window_size = 15  # seconds - PULLED FROM NIKKI PAPER
+                expected_stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
+                expected_feature_reduction_type = 'ridge'  # - PULLED FROM NIKKI PAPER
+                expected_threshold = 10  # - PULLED FROM NIKKI PAPER
+                expected_baseline_methods_to_use = ['v0', 'v1', 'v2']  # - PULLED FROM NIKKI PAPER
+                expected_impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
+                expected_n_neighbors = 3  # - For imputation PULLED FROM NIKKI PAPER
+                expected_imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
+
+                ## Investigating different windows per EVAN ANDERSON
+                #window_size = 8 # ~ 0.2 hit to f1 score
+
+
+            if classifier_type == 'EGB':
+                # Specifying Methods from Sequential optimization
+                expected_baseline_window = 46.25  # seconds - PULLED FROM NIKKI PAPER
+                expected_window_size = 12.5  # seconds - PULLED FROM NIKKI PAPER
+                expected_stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
+                expected_feature_reduction_type = 'lasso'  # - PULLED FROM NIKKI PAPER
+                expected_baseline_methods_to_use = ['v0', 'v1', 'v2','v5','v6','v7','v8']  # - PULLED FROM NIKKI PAPER
+                expected_imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
+                expected_impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
+                expected_n_neighbors = 3  # -For imputation PULLED FROM NIKKI PAPER
+                # Code for loading txt
+
+                ## Investigating different windows per EVAN ANDERSON
+                #window_size = 8 # ~ 0.1 hit to f1 score
+
+
+            if classifier_type == 'KNN':
+                # Specifying Methods from Sequential optimization
+                expected_baseline_window = 32.5  # seconds - PULLED FROM NIKKI PAPER
+                expected_window_size = 15  # seconds - PULLED FROM NIKKI PAPER
+                expected_stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
+                expected_feature_reduction_type = 'performance'  # - PULLED FROM NIKKI PAPER
+                expected_baseline_methods_to_use = ['v0', 'v1', 'v2']  # - PULLED FROM NIKKI PAPER
+                expected_imbalance_type = 'ros' # - PULLED FROM NIKKI PAPER
+                expected_impute_type = 1 # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
+                expected_n_neighbors = 5 # -For imputation PULLED FROM NIKKI PAPER
+                # Code for loading txt
+
+                ## Investigating different windows per EVAN ANDERSON
+                # window_size = 12 # ~ 0.1 hit to f1 score
+
+            # Get Actual Hyperparameters
+            baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors = traditional_manager._get_hyperparameters_by_classifier(classifier_type)
+
+            assert baseline_window == expected_baseline_window, f"Baseline window for {classifier_type} does not match expected value."
+            assert window_size == expected_window_size, f"Window size for {classifier_type} does not match expected value."
+            assert stride == expected_stride, f"Stride for {classifier_type} does not match expected value."
+            assert feature_reduction_type == expected_feature_reduction_type, f"Feature reduction type for {classifier_type} does not match expected value."
+            assert baseline_methods_to_use == expected_baseline_methods_to_use, f"Baseline methods to use for {classifier_type} does not match expected value."
+            assert imbalance_type == expected_imbalance_type, f"Imbalance type for {classifier_type} does not match expected value."
+            assert impute_type == expected_impute_type, f"Impute type for {classifier_type} does not match expected value."
+            assert n_neighbors == expected_n_neighbors, f"Number of neighbors for {classifier_type} does not match expected value."
