@@ -1,4 +1,29 @@
+import logging
+import os
+import pickle
+import re
+from itertools import islice
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+
+import faiss
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.preprocessing import StandardScaler
+
+from baseline import BaselineContext, baseline_data
+from features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
+
+logger = logging.getLogger(__name__)
+
 class TraditionalDataManager:
+    FEATURE_GROUPS_BY_MODEL_TYPE = {
+        ("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
+        ("noAFE", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG"),
+        ("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
+        ("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE"),
+    }
+
     """Data manager for traditional data pipeline."""
     def __init__(self, data_path: str = "../data/", testing: bool = False, random_seed: int = 42, use_reduced_dataset: bool = False) -> None:
         self.data_path = data_path
@@ -9,15 +34,13 @@ class TraditionalDataManager:
 
     def get_data(self, backstep, data_rate, classifier_type, model_type, select_features):
         """Return data for a given set of parameters."""
-        # This method would typically load and return the appropriate dataset
-        # based on the provided parameters.
-        return {
-            "backstep": backstep,
-            "data_rate": data_rate,
-            "classifier_type": classifier_type,
-            "model_type": model_type,
-            "select_features": select_features
-        }
+
+        baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors = self._get_hyperparameters_by_classifier(classifier_type)
+        feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
+
+        # Code for loading txt and processing data would go here
+
+        return None  # Placeholder for actual data return
     
     def _get_hyperparameters_by_classifier(self, classifier_type):
         """Return hyperparameters for a given classifier type."""
@@ -118,3 +141,15 @@ class TraditionalDataManager:
             # window_size = 12 # ~ 0.1 hit to f1 score
 
         return baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors
+    
+    def _get_feature_groups_and_baseline_methods(self, model_type: Tuple[str, str], baseline_methods_to_use: List[str]) -> Tuple[Sequence[str], List[str]]:
+        feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
+        baseline_methods_to_use = ["v0", "v1", "v2", "v5", "v6"] if model_type[0] == "Complete" else baseline_methods_to_use
+
+        # NOTE:
+        # AFE indicator is required for EEG imputation in complete models,
+        # but is only included as a predictive feature for explicit models.
+
+        return feature_groups_to_analyze, baseline_methods_to_use
+
+        
