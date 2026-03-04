@@ -582,7 +582,7 @@ class DataManager:
         # - Complete models can be promoted to float64 during the EEG condition
         #   imputation path because the condition column participates in array
         #   reconstruction. Match that behavior for strict parity tests.
-        feature_dtype = np.float64 if model_type[0] == "Complete" else np.float32
+        feature_dtype = np.float64 if model_type[0] == "Complete" else np.float32 # TODO: Make this a user input parameter
         gloc_data_all_features_numpy = gloc_data[features["All"]].to_numpy(dtype=feature_dtype)
         gloc_labels_numpy = gloc_labels
 
