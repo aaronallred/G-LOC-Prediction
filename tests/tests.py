@@ -1445,7 +1445,7 @@ class TestAdvancedDataManagerBase:
         assert file_paths["eeg_list"] == list_of_eeg_data_files
         assert file_paths["baseline_eeg_processed_list"] == list_of_baseline_eeg_processed_files
 
-    def test_loading_data(self, file_paths, gloc_data):
+    def test_load_data(self, file_paths, gloc_data):
         def process_EEG_GOR(list_of_eeg_data_files, df):
             """
             This function slots in the GOR EEG data for the nonAFE condition based on the list of xlsx files.
@@ -1569,7 +1569,6 @@ class TestAdvancedDataManagerBase:
         expected_gloc_data = expected_gloc_data.copy()
 
         # Check if loaded data matches expected data
-        pd.testing.assert_frame_equal(gloc_data, expected_gloc_data)
         assert gloc_data.equals(expected_gloc_data)
 
     def test_getting_feature_names(self, manager, file_paths, gloc_data):
@@ -3162,3 +3161,139 @@ class TestTraditionalDataManagerCompleteExplicit():
         assert file_paths["demographic"] == expected_demographic_data_filename, "Demographic data file path does not match expected path."
         assert file_paths["eeg_list"] == expected_list_of_eeg_data_files, "List of EEG data file paths does not match expected paths."
         assert file_paths["baseline_eeg_processed_list"] == expected_list_of_baseline_eeg_processed_files, "List of baseline EEG processed file paths does not match expected paths."
+
+    def test_load_data(self, traditional_manager):
+        def process_EEG_GOR(list_of_eeg_data_files, gloc_data):
+            """
+            This function slots in the GOR EEG data for the nonAFE condition based on the list of xlsx files.
+            The NaNs in the initial csv are replaced.
+            """
+            # Initialize EEG dictionaries
+            eeg_dict_delta = dict()
+            eeg_dict_theta = dict()
+            eeg_dict_alpha = dict()
+            eeg_dict_beta = dict()
+
+            # Iterate through all EEG files
+            for file in range(len(list_of_eeg_data_files)):
+
+                # Define current file
+                current_file = list_of_eeg_data_files[file]
+
+                # Grab corresponding trial based on file name
+                # corresponding_trial = current_file[47] + current_file[48] + '-0' + current_file[52]
+                corresponding_trial = current_file[-31] + current_file[-30] + '-0' + current_file[-26]
+
+                # Define data frame for delta, theta, alpha, and beta bands
+                df_delta = pd.read_excel(current_file, sheet_name='delta')
+                df_theta = pd.read_excel(current_file, sheet_name='theta')
+                df_alpha = pd.read_excel(current_file, sheet_name='alpha')
+                df_beta = pd.read_excel(current_file, sheet_name='beta')
+
+                # Remove time column from all spreadsheets that were read in
+                df_delta = df_delta.iloc[:, :-1]
+                df_theta = df_theta.iloc[:, :-1]
+                df_alpha = df_alpha.iloc[:, :-1]
+                df_beta = df_beta.iloc[:, :-1]
+
+                # Add each data frame to dictionary corresponding to the trial
+                eeg_dict_delta[corresponding_trial] = df_delta
+                eeg_dict_theta[corresponding_trial] = df_theta
+                eeg_dict_alpha[corresponding_trial] = df_alpha
+                eeg_dict_beta[corresponding_trial] = df_beta
+
+            # For each key in the dictionary, look at gloc_data_reduced for that trial
+            all_trial_dictionary = list(eeg_dict_delta.keys())
+            for key in range(len(all_trial_dictionary)):
+
+                # Find current trial's data in gloc_data
+                current_key = all_trial_dictionary[key]
+                current_trial_data = gloc_data[gloc_data['trial_id'] == current_key]
+
+                # Find first instance of 'begin GOR' in event_validated column for current trial
+                event_validated_current_trial = np.array(current_trial_data['event_validated'])
+                index_begin_GOR = np.argwhere(event_validated_current_trial == 'begin GOR')[0]
+
+                # Find end index of GOR EEG data
+                index_end_GOR_eeg = index_begin_GOR + len(eeg_dict_delta[current_key])
+
+                # Iterate through all columns & insert data from Excel file
+                column_names = eeg_dict_delta[current_key].columns
+                for col in range(len(column_names)):
+
+                    # Get current column name
+                    column_name = column_names[col]
+
+                    # Modify column name
+                    modified_name_delta = column_name + '_delta' + ' - EEG'
+                    modified_name_theta = column_name + '_theta' + ' - EEG'
+                    modified_name_alpha = column_name + '_alpha' + ' - EEG'
+                    modified_name_beta = column_name + '_beta' + ' - EEG'
+
+                    # For each dictionary column, insert GOR EEG data in current_trial_data
+                    # current_trial_data[modified_name_delta][index_begin_GOR[0]:index_end_GOR_eeg[0]] = eeg_dict_delta[current_key][column_name]
+                    # current_trial_data.loc[index_begin_GOR[0]:index_end_GOR_eeg[0], modified_name_delta] = eeg_dict_delta[current_key][column_name].astype(np.float32)
+                    current_trial_data.iloc[index_begin_GOR[0]:index_end_GOR_eeg[0], current_trial_data.columns.get_loc(modified_name_delta)] = eeg_dict_delta[current_key][column_name].astype(np.float32)
+
+                    # current_trial_data[modified_name_theta][index_begin_GOR[0]:index_end_GOR_eeg[0]] = eeg_dict_theta[current_key][column_name]
+                    # current_trial_data.loc[index_begin_GOR[0]:index_end_GOR_eeg[0], modified_name_theta] = eeg_dict_theta[current_key][column_name].astype(np.float32)
+                    current_trial_data.iloc[index_begin_GOR[0]:index_end_GOR_eeg[0], current_trial_data.columns.get_loc(modified_name_theta)] = eeg_dict_theta[current_key][column_name].astype(np.float32)
+
+                    # current_trial_data[modified_name_alpha][index_begin_GOR[0]:index_end_GOR_eeg[0]] = eeg_dict_alpha[current_key][column_name]
+                    # current_trial_data.loc[index_begin_GOR[0]:index_end_GOR_eeg[0], modified_name_alpha] = eeg_dict_alpha[current_key][column_name].astype(np.float32)
+                    current_trial_data.iloc[index_begin_GOR[0]:index_end_GOR_eeg[0], current_trial_data.columns.get_loc(modified_name_alpha)] = eeg_dict_alpha[current_key][column_name].astype(np.float32)
+
+                    # current_trial_data[modified_name_beta][index_begin_GOR[0]:index_end_GOR_eeg[0]] = eeg_dict_beta[current_key][column_name]
+                    # current_trial_data.loc[index_begin_GOR[0]:index_end_GOR_eeg[0], modified_name_beta] = eeg_dict_beta[current_key][column_name].astype(np.float32)
+                    current_trial_data.iloc[index_begin_GOR[0]:index_end_GOR_eeg[0], current_trial_data.columns.get_loc(modified_name_beta)] = eeg_dict_beta[current_key][column_name].astype(np.float32)
+
+                # Replace previously empty processed EEG data with current_trial_data
+                gloc_data[gloc_data['trial_id'] == current_key] = current_trial_data
+
+            return gloc_data
+
+        # Variable Setup
+        file_paths = traditional_manager._get_data_locations()
+
+        # Get expected file path
+        # pickle file name
+        expected_pickle_filename = (file_paths["main"] + "_expected").replace(".csv", ".pkl")
+
+        # Check if pickle exists, if not create it
+        if not os.path.isfile(expected_pickle_filename):
+            # Load CSV
+            expected_gloc_data = pd.read_csv(file_paths["main"])
+            expected_gloc_data = expected_gloc_data.astype({col: 'float32' for col in expected_gloc_data.select_dtypes(include='float64').columns})
+            expected_gloc_data = expected_gloc_data.copy()
+
+            # Save pickle file
+            expected_gloc_data.to_pickle(expected_pickle_filename)
+        else:
+            # Load Pickle file
+            expected_gloc_data = pd.read_pickle(expected_pickle_filename)
+
+        # Slot in GOR EEG data from other files
+        expected_gloc_data = process_EEG_GOR(file_paths["eeg_list"], expected_gloc_data)
+
+        # Adjust AFE condition column always
+        expected_gloc_data["condition"] = expected_gloc_data["condition"].map({"N": 0, "AFE": 1})
+        expected_gloc_data = expected_gloc_data.rename(columns = {"condition": "AFE_indicator"})
+
+        # Convert float64 to float32 to save memory, and copy to defragment the DataFrame
+        expected_gloc_data = expected_gloc_data.astype({col: "float32" for col in expected_gloc_data.select_dtypes(include = "float64").columns}).copy()
+        
+        # Extracting expected_gloc_data and trial into separate columns
+        trial_ids = expected_gloc_data["trial_id"].to_numpy().astype("str")
+        trial_ids = np.array(np.char.split(trial_ids, "-").tolist())
+        expected_gloc_data["subject"] = trial_ids[:, 0]
+        expected_gloc_data["trial"] = trial_ids[:, 1]
+        expected_gloc_data = expected_gloc_data.copy()
+
+
+
+        # Get Actual Data
+        gloc_data = traditional_manager._load_data(file_paths)
+
+        assert expected_gloc_data.shape == gloc_data.shape, "Loaded data shape does not match expected data shape."
+        assert expected_gloc_data.columns.tolist() == gloc_data.columns.tolist(), "Loaded data columns do not match expected data columns."
+        assert gloc_data.equals(expected_gloc_data), "Loaded DataFrame does not equal expected DataFrame."
