@@ -2945,6 +2945,30 @@ def traditional_manager():
     data_path = os.path.join(os.path.dirname(test_dir), "data")
     return TraditionalDataManager(testing = True, data_path = data_path, use_reduced_dataset = USE_REDUCED_DATASET)
 
+@pytest.fixture(scope = "session")
+def file_paths_traditional(traditional_manager):
+    """Get file paths from TraditionalDataManager."""
+    return traditional_manager._get_data_locations()
+
+@pytest.fixture(scope = "session")
+def gloc_data_traditional(traditional_manager, file_paths_traditional, test_dir):
+    """Load or create gloc_data with caching."""
+    data_pickle_path = os.path.join(test_dir, "testing_temp", "gloc_data_traditional.pkl")
+
+    if os.path.exists(data_pickle_path):
+        with open(data_pickle_path, 'rb') as f:
+            data = pickle.load(f)
+        print(f"Loaded data from {data_pickle_path}")
+        return data
+    
+    # Load and cache data
+    data = traditional_manager._load_data(file_paths_traditional)
+    os.makedirs(os.path.dirname(data_pickle_path), exist_ok=True)
+    with open(data_pickle_path, 'wb') as f:
+        pickle.dump(data, f)
+    print(f"Saved data to {data_pickle_path}")
+    
+    return data
 
 # Test Classes for Traditional Data Pipeline
 class TestTraditionalDataManagerCompleteExplicit():
@@ -3257,7 +3281,7 @@ class TestTraditionalDataManagerCompleteExplicit():
 
         # Get expected file path
         # pickle file name
-        expected_pickle_filename = (file_paths["main"] + "_expected").replace(".csv", ".pkl")
+        expected_pickle_filename = file_paths["main"].replace(".csv", "_expected.pkl")
 
         # Check if pickle exists, if not create it
         if not os.path.isfile(expected_pickle_filename):
@@ -3297,3 +3321,10 @@ class TestTraditionalDataManagerCompleteExplicit():
         assert expected_gloc_data.shape == gloc_data.shape, "Loaded data shape does not match expected data shape."
         assert expected_gloc_data.columns.tolist() == gloc_data.columns.tolist(), "Loaded data columns do not match expected data columns."
         assert gloc_data.equals(expected_gloc_data), "Loaded DataFrame does not equal expected DataFrame."
+        assert os.path.isfile(file_paths["main"].replace(".csv", ".pkl")), "Pickle file was not created during data loading."
+
+        # Delete created files afterwards
+        if os.path.isfile(expected_pickle_filename):
+            os.remove(expected_pickle_filename)
+        if os.path.isfile(file_paths["main"].replace(".csv", ".pkl")):
+            os.remove(file_paths["main"].replace(".csv", ".pkl"))
