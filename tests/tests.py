@@ -3328,3 +3328,49 @@ class TestTraditionalDataManagerCompleteExplicit():
             os.remove(expected_pickle_filename)
         if os.path.isfile(file_paths["main"].replace(".csv", ".pkl")):
             os.remove(file_paths["main"].replace(".csv", ".pkl"))
+
+    def test_data_processing(self, traditional_manager, gloc_data_traditional):
+        # Variable Setup
+        subject_to_analyze = "01"
+        trial_to_analyze = "02"
+
+
+
+        for analysis_type in [0, 1, 2]:
+            # Get Expected Data
+            expected_gloc_data_traditional = gloc_data_traditional.copy()
+            # Separate Subject/Trial Column
+            expected_trial_id = gloc_data_traditional['trial_id'].to_numpy().astype('str')
+            expected_trial_id = np.array(np.char.split(expected_trial_id, '-').tolist())
+            expected_subject = expected_trial_id[:, 0]
+            expected_trial = expected_trial_id[:, 1]
+
+            # Add new subject & trial columns to gloc_data data frame
+            expected_gloc_data_traditional['subject'] = pd.Series(expected_subject, index=expected_gloc_data_traditional.index)
+            expected_gloc_data_traditional['trial'] = pd.Series(expected_trial, index=expected_gloc_data_traditional.index)
+            # Analyze only section of gloc_data specified using analysis_type
+            if analysis_type == 0: # One Trial / One Subject
+                subject_to_analyze = subject_to_analyze
+                trial_to_analyze = trial_to_analyze
+
+                # Find data from subject & trial of interest
+                expected_gloc_data_traditional = expected_gloc_data_traditional[(expected_gloc_data_traditional['subject'] == subject_to_analyze) & (expected_gloc_data_traditional['trial'] == trial_to_analyze)]
+
+            elif analysis_type == 1: # All Trials for One Subject
+                subject_to_analyze = subject_to_analyze
+
+                # Find data from subject of interest
+                expected_gloc_data_traditional = expected_gloc_data_traditional[(expected_gloc_data_traditional['subject'] == subject_to_analyze)]
+
+            elif analysis_type == 2: # All Trials for All Subjects
+                expected_gloc_data_traditional = expected_gloc_data_traditional
+            
+
+
+            # Get Actual Data
+            gloc_data_traditional = gloc_data_traditional.copy()
+            gloc_data_traditional = traditional_manager._filter_data_by_analysis_type(analysis_type, gloc_data_traditional, subject_to_analyze, trial_to_analyze)
+
+            assert expected_gloc_data_traditional.shape == gloc_data_traditional.shape, f"Filtered data shape for analysis type {analysis_type} does not match expected shape."
+            assert expected_gloc_data_traditional.columns.tolist() == gloc_data_traditional.columns.tolist(), f"Filtered data columns for analysis type {analysis_type} do not match expected columns."
+            assert gloc_data_traditional.equals(expected_gloc_data_traditional), f"Filtered DataFrame for analysis type {analysis_type} does not equal expected DataFrame."
