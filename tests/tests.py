@@ -2951,12 +2951,10 @@ def traditional_manager():
 class TestTraditionalDataManagerCompleteExplicit():
     """Tests for Complete/Explicit model type."""
     MODEL_TYPE = ("Complete", "Explicit")
+    EXPECTED_MODEL_TYPE = ("complete", "explicit")
     __test__ = True  # Ensure this class is collected by pytest
 
     def test_get_hyperparameters_by_classifier_type(self, traditional_manager):
-        # Setup Data Manager
-        model_type = self.MODEL_TYPE
-
         for classifier_type in ['logreg', 'RF', 'LDA', 'SVM', 'EGB']:
             # Get Expected Hyperparameters
             if classifier_type == 'logreg':
@@ -3066,3 +3064,32 @@ class TestTraditionalDataManagerCompleteExplicit():
             assert imbalance_type == expected_imbalance_type, f"Imbalance type for {classifier_type} does not match expected value."
             assert impute_type == expected_impute_type, f"Impute type for {classifier_type} does not match expected value."
             assert n_neighbors == expected_n_neighbors, f"Number of neighbors for {classifier_type} does not match expected value."
+
+    def test_get_feature_groups_and_baseline_methods(self, traditional_manager):
+        # Setup Data Manager
+        model_type = self.MODEL_TYPE
+        expected_model_type = self.EXPECTED_MODEL_TYPE
+
+        for classifier_type in ['logreg', 'RF', 'LDA', 'SVM', 'EGB']:
+            baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors = traditional_manager._get_hyperparameters_by_classifier(classifier_type)
+            expected_feature_groups_to_analyze, expected_baseline_methods_to_use = None, baseline_methods_to_use.copy()
+
+            # Get Expected Feature Groups and Baseline Methods
+            if 'noAFE' in expected_model_type and 'explicit' in expected_model_type:
+                expected_feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
+                                            'rawEEG', 'processedEEG', 'strain', 'demographics']
+            if 'noAFE' in expected_model_type and 'implicit' in expected_model_type:
+                expected_feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
+                    # feature_groups_to_analyze = ['ECG']
+            if 'complete' in expected_model_type and 'explicit' in expected_model_type:
+                expected_feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
+                                                'rawEEG', 'processedEEG', 'strain', 'demographics']
+                expected_baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6']
+            if 'complete' in expected_model_type and 'implicit' in expected_model_type:
+                expected_feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'processedEEG', 'AFE']
+                expected_baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6']
+
+            feature_groups_to_analyze, baseline_methods_to_use = traditional_manager._get_feature_groups_and_baseline_methods(model_type, classifier_type)
+
+            assert list(feature_groups_to_analyze) == expected_feature_groups_to_analyze, f"Feature groups to analyze for {classifier_type} does not match expected value."
+            assert list(baseline_methods_to_use) == expected_baseline_methods_to_use, f"Baseline methods to use for {classifier_type} does not match expected value."
