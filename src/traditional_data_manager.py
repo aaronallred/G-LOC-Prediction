@@ -23,6 +23,14 @@ class TraditionalDataManager:
         ("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
         ("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE"),
     }
+    # Mapping of participant -> DC trial numbers for GOR EEG data files
+    _EEG_PARTICIPANT_TRIALS = {
+        1: [1, 2, 3],  2: [1, 2, 3],  3: [1, 2, 3],  4: [1, 2, 3],  5: [1, 2, 3],
+        6: [1, 4, 6],  7: [2, 4, 6],  8: [1, 3],     9: [2, 5, 6],
+        10: [2, 4, 5], 11: [1],       12: [1, 5],     13: [1, 3, 6],
+    }
+
+    _EEG_BASELINE_BANDS = ["delta", "theta", "alpha", "beta"]
 
     """Data manager for traditional data pipeline."""
     def __init__(self, data_path: str = "../data/", testing: bool = False, random_seed: int = 42, use_reduced_dataset: bool = False) -> None:
@@ -152,4 +160,41 @@ class TraditionalDataManager:
 
         return feature_groups_to_analyze, baseline_methods_to_use
 
-        
+    def _get_data_locations(self) -> Dict[str, Any]:
+        """
+        Get file locations for all relevant data files.
+
+        Returns:
+            dict with keys: "main", "baseline", "demographic", "eeg_list", "baseline_eeg_processed_list"
+        """
+        if self._data_locations is not None:
+            return self._data_locations
+
+        eeg_dir = "GLOC_GOR_EEG_data_participants_1-13"
+        list_of_eeg_data_file_paths = [
+            os.path.join(self.data_path, eeg_dir, f"GLOC_{p:02d}_DC{t}_25Hz_EEG_power_wMAR.xlsx")
+            for p, trials in self._EEG_PARTICIPANT_TRIALS.items()
+            for t in trials
+        ]
+
+        list_of_baseline_eeg_processed_file_paths = [
+            os.path.join(self.data_path, f"GLOC_EEG_baseline_{band}_noAFE1.csv")
+            for band in self._EEG_BASELINE_BANDS
+        ]
+
+        if self.use_reduced_dataset:
+            logger.info("!!!!!!!!!!!!!!!!!!! USING REDUCED DATASET !!!!!!!!!!!!!!!!!!!!!!")
+            main_csv = "all_trials_25_hz_stacked_null_str_filled_reduced.csv"
+        else:
+            logger.info("!!!!!!!!!!!!!!!!!!! USING FULL DATASET - ALL STRAIN DATA FILLED !!!!!!!!!!!!!!!!!!!!!!")
+            main_csv = "all_trials_25_hz_stacked_null_str_filled.csv"
+
+        self._data_locations = {
+            "main": os.path.join(self.data_path, main_csv),
+            "baseline": os.path.join(self.data_path, "ParticipantBaseline.csv"),
+            "demographic": os.path.join(self.data_path, "GLOC_Effectiveness_Final.csv"),
+            "eeg_list": list_of_eeg_data_file_paths,
+            "baseline_eeg_processed_list": list_of_baseline_eeg_processed_file_paths,
+        }
+
+        return self._data_locations
