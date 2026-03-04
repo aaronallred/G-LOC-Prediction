@@ -304,3 +304,54 @@ class TraditionalDataManager:
             return gloc_data
         
         return gloc_data[mask]
+    
+    def _process_and_get_feature_names(
+            self,
+            gloc_data: pd.DataFrame,
+            feature_groups_to_analyze: Sequence[str],
+            model_type: Tuple[str, str],
+            file_names: Dict[str, Any],
+    ) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
+        """Process data and extract feature names based on specified feature groups."""
+        # Defining which features go into which group of feature groups
+        GROUPS_OF_FEATURE_GROUPS = {
+            "Phys": {"ECG", "BR", "temp", "fnirs", "eyetracking", "rawEEG", "processedEEG"},
+            "ECG": {"ECG"},
+            "EEG": {"processedEEG"} # Adding rawEEG does not change anything (rawEEG ignored during baseline v7 and v8 calculations)
+        }
+
+        features = {
+            "All": [],
+            "Phys": [],
+            "ECG": [],
+            "EEG": []
+        }
+        features_all = features["All"]
+        features_phys = features["Phys"]
+        features_ecg = features["ECG"]
+        features_eeg = features["EEG"]
+
+        for group_name in feature_groups_to_analyze:
+            if group_name not in FEATURE_REGISTRY:
+                logger.warning("Feature group '%s' not recognized. Skipping.", group_name)
+                continue
+
+            processor = FEATURE_REGISTRY[group_name]
+
+            # Process data for the feature group
+            gloc_data = processor.process(gloc_data, file_names)
+            feature_names = processor.get_feature_names(model_type)
+
+            # Adding features to relevant groups
+            if group_name in GROUPS_OF_FEATURE_GROUPS["Phys"]:
+                features_phys.extend(feature_names)
+
+            if group_name in GROUPS_OF_FEATURE_GROUPS["ECG"]:
+                features_ecg.extend(feature_names)
+
+            if group_name in GROUPS_OF_FEATURE_GROUPS["EEG"]:
+                features_eeg.extend(feature_names)
+
+            features_all.extend(feature_names)
+
+        return gloc_data, features
