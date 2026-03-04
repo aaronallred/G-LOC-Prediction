@@ -287,3 +287,20 @@ class TraditionalDataManager:
                 gloc_data.loc[trial_indexer, cols] = band_dfs[band].to_numpy(dtype=np.float32)
 
         return gloc_data
+    
+    def _filter_data_by_analysis_type(
+            self,
+            analysis_type: int,
+            gloc_data: pd.DataFrame,
+            subject_to_analyze: Optional[str] = None,
+            trial_to_analyze: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Analyze only section of gloc_data specified using analysis_type."""
+        if analysis_type == 0: # One Trial / One Subject
+            mask = (gloc_data["subject"] == subject_to_analyze) & (gloc_data["trial"] == trial_to_analyze)
+        elif analysis_type == 1: # All Trials for One Subject
+            mask = (gloc_data["subject"] == subject_to_analyze)
+        else: # All Trials for All Subjects
+            return gloc_data
+        
+        return gloc_data[mask]
