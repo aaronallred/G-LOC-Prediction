@@ -42,9 +42,12 @@ class TraditionalDataManager:
 
     def get_data(self, backstep, data_rate, classifier_type, model_type, select_features):
         """Return data for a given set of parameters."""
-
         baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors = self._get_hyperparameters_by_classifier(classifier_type)
         feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
+
+        ############################################# LOAD AND PROCESS DATA #############################################
+        # "Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze"
+
 
         # Code for loading txt and processing data would go here
 
@@ -198,3 +201,89 @@ class TraditionalDataManager:
         }
 
         return self._data_locations
+    
+    def _load_data(self, file_paths: Dict[str, Any]) -> pd.DataFrame:
+        """Load data from CSV or pickle files. If pickle does not exist, create it from CSV."""
+
+        main_data_pickle_file = file_paths["main"].replace(".csv", ".pkl")
+
+        # Check if pickle exists, if not create it then save it
+        if not os.path.isfile(main_data_pickle_file):
+            logger.info("Pickle not found at %s. Loading from CSV and caching.", main_data_pickle_file)
+            gloc_data = pd.read_csv(file_paths["main"])
+            gloc_data.to_pickle(main_data_pickle_file)
+        else:
+            logger.info("Loading data from pickle at %s.", main_data_pickle_file)
+            gloc_data = pd.read_pickle(main_data_pickle_file)
+        
+        # Add GOR and EEG data from other files
+        gloc_data = self._process_EEG_GOR(file_paths["eeg_list"], gloc_data)
+
+        # Adjust AFE condition column always
+        gloc_data["condition"] = gloc_data["condition"].map({"N": 0, "AFE": 1})
+        gloc_data = gloc_data.rename(columns = {"condition": "AFE_indicator"})
+
+        # Convert float64 to float32 to save memory, and copy to defragment the DataFrame
+        float64_cols = gloc_data.select_dtypes(include="float64").columns
+        if len(float64_cols) > 0:
+            gloc_data = gloc_data.astype({col: "float32" for col in float64_cols}).copy()
+        
+        # Extracting subject and trial into separate columns
+        trial_ids = gloc_data["trial_id"].to_numpy().astype("str")
+        trial_ids = np.array(np.char.split(trial_ids, "-").tolist())
+        gloc_data["subject"] = trial_ids[:, 0]
+        gloc_data["trial"] = trial_ids[:, 1]
+
+        # Decouple from original dataframe to prevent unwanted modifications later on
+        return gloc_data
+    
+    def _process_EEG_GOR(self, list_of_eeg_data_files: List[str], gloc_data: pd.DataFrame) -> pd.DataFrame:
+        """Slot in GOR EEG band power data from xlsx files, replacing NaNs in the main CSV."""
+        trial_indices_map = gloc_data.groupby("trial_id", sort=False).indices
+        event_validated = gloc_data["event_validated"].to_numpy()
+        trial_ids = gloc_data["trial_id"].to_numpy()
+        begin_mask = event_validated == "begin GOR"
+        begin_idx_map = (
+            pd.Series(np.flatnonzero(begin_mask), index=trial_ids[begin_mask])
+            .groupby(level = 0, sort=False)
+            .first()
+            .to_dict()
+        )
+
+        band_names = ["delta", "theta", "alpha", "beta"]
+
+        for current_file in list_of_eeg_data_files:
+            # Parse trial ID from filename: e.g. "GLOC_01_DC1_..." -> "01-01"
+            match = re.search(r'GLOC_(\d{2})_DC(\d+)', os.path.basename(current_file))
+            if not match:
+                logger.warning("Could not parse trial ID from filename: %s", current_file)
+                continue
+            corresponding_trial = f"{match.group(1)}-0{match.group(2)}"
+
+            # Read all band sheets and drop the time column
+            band_dfs = {
+                band: pd.read_excel(current_file, sheet_name=band).iloc[:, :-1]
+                for band in band_names
+            }
+
+            trial_indices = trial_indices_map.get(corresponding_trial)
+            if trial_indices is None:
+                logger.warning("Could not find trial %s in data.", corresponding_trial)
+                continue
+
+            index_begin_GOR = begin_idx_map.get(corresponding_trial)
+            if index_begin_GOR is None:
+                logger.warning("Could not find 'begin GOR' for trial %s.", corresponding_trial)
+                continue
+
+            start_pos = np.searchsorted(trial_indices, index_begin_GOR)
+            n_rows = len(band_dfs["delta"])
+            trial_indexer = trial_indices[start_pos : start_pos + n_rows]
+
+            # Build column names and assign values for each band
+            column_names = band_dfs["delta"].columns
+            for band in band_names:
+                cols = [f"{c}_{band} - EEG" for c in column_names]
+                gloc_data.loc[trial_indexer, cols] = band_dfs[band].to_numpy(dtype=np.float32)
+
+        return gloc_data
