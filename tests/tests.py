@@ -1625,7 +1625,6 @@ class TestAdvancedDataManagerBase:
 
         gloc_labels = manager._label_gloc_events(data_copy)
 
-        np.testing.assert_array_equal(gloc_labels, expected_gloc_labels)
         assert np.array_equal(gloc_labels, expected_gloc_labels), \
             "The GLOC labels do not match the expected labels based on event_validated and trial_id."
         
@@ -4206,3 +4205,44 @@ class TestTraditionalDataManagerCompleteExplicit():
         assert np.array_equal(expected_features_phys, gloc_data_traditional[features["Phys"]].to_numpy(dtype = np.float32), equal_nan = True), "Expected feature matrix does not match actual feature matrix for Phys feature group"
         assert np.array_equal(expected_features_ecg, gloc_data_traditional[features["ECG"]].to_numpy(dtype = np.float32), equal_nan = True), "Expected feature matrix does not match actual feature matrix for ECG feature group"
         assert np.array_equal(expected_features_eeg, gloc_data_traditional[features["EEG"]].to_numpy(dtype = np.float32), equal_nan = True), "Expected feature matrix does not match actual feature matrix for EEG feature group"
+
+    def test_label_gloc_events(self, traditional_manager, file_paths_traditional, gloc_data_traditional):
+        def label_gloc_events(gloc_data_reduced):
+            """
+            This function creates a g-loc label for the data based on the event_validated column. The event
+            is labeled as 1 between GLOC and Return to Consciousness.
+            """
+
+            # Grab event validated column & convert to numpy array
+            event_validated = gloc_data_reduced['event_validated'].to_numpy()
+
+            # Grab trial_id column & convert to numpy array
+            trial_id = gloc_data_reduced['trial_id'].to_numpy()
+
+            # Find indices where 'GLOC' and 'return to consciousness' occur
+            gloc_indices = np.argwhere(event_validated == 'GLOC')
+            rtc_indices = np.argwhere(event_validated == 'return to consciousness')
+
+            # Create GLOC Classifier Vector
+            gloc_classifier = np.zeros(event_validated.shape)
+            for i in range(gloc_indices.shape[0]):
+                # Check the index for gloc and return to consciousness occurs on the same trial
+                if trial_id[gloc_indices[i]] == trial_id[rtc_indices[i]]:
+                    gloc_classifier[gloc_indices[i, 0]:rtc_indices[i, 0]] = 1
+
+            return gloc_classifier
+        
+        # Variable Setup
+        gloc_data_traditional = gloc_data_traditional.copy()
+        model_type = self.MODEL_TYPE
+
+        feature_groups_to_analyze, _ = traditional_manager._get_feature_groups_and_baseline_methods(model_type, ["dummy"]) # Dummy used to since baseline methods not relevant
+        gloc_data_traditional, _ = traditional_manager._process_and_get_feature_names(gloc_data_traditional, feature_groups_to_analyze, model_type, file_paths_traditional)
+
+        # Get Expected Values
+        expected_gloc_labels = label_gloc_events(gloc_data_traditional.copy())
+
+        # Get Actual Values
+        gloc_labels = traditional_manager._label_gloc_events(gloc_data_traditional)
+
+        assert np.array_equal(expected_gloc_labels, gloc_labels, equal_nan = True), "Expected GLOC labels do not match actual GLOC labels"
