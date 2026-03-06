@@ -4246,3 +4246,155 @@ class TestTraditionalDataManagerCompleteExplicit():
         gloc_labels = traditional_manager._label_gloc_events(gloc_data_traditional)
 
         assert np.array_equal(expected_gloc_labels, gloc_labels, equal_nan = True), "Expected GLOC labels do not match actual GLOC labels"
+
+    def test_eeg_specific_imputation(self, traditional_manager, file_paths_traditional, gloc_data_traditional):
+        def eeg_condition_impute(gloc_data_reduced, all_features, all_features_phys, all_features_eeg, afe_indicator_column,
+                                verbose=False):
+            """
+                Ensures both AFE (1) and non-AFE (0) conditions have the same feature columns.
+                Missing columns are imputed with mean values in gloc_data_reduced and reflected in feature arrays.
+
+                Returns df, the imputed dataframe corresponding to gloc_data_reduced
+                Returns updated features, features_phys, and features_eeg that are affected by these imputations
+            """
+
+            # Create masks for each condition
+            df = gloc_data_reduced.copy()
+            afe_mask = afe_indicator_column == 1
+            nonafe_mask = afe_indicator_column == 0
+
+
+            # Pull columns that need to be imputed for each type
+            _, processed_eeg_afe_only, processed_eeg_nonafe_only, _, raw_eeg_afe_only, raw_eeg_nonafe_only = pull_eeg_sets()
+            all_afe_only_cols = processed_eeg_afe_only + raw_eeg_afe_only
+            all_nonafe_only_cols = processed_eeg_nonafe_only + raw_eeg_nonafe_only
+            eeg_feature_set = set(all_features_eeg)
+            afe_only_cols = [col for col in all_afe_only_cols if col in eeg_feature_set]
+            nonafe_only_cols = [col for col in all_nonafe_only_cols if col in eeg_feature_set]
+
+
+            # Impute AFE-only columns for non-AFE rows
+            for col in afe_only_cols:
+                if col in df.columns:
+                    # Check if all values in this column for non-AFE rows are NaN
+                    #if df.loc[nonafe_mask, col].isna().all():
+                    mean_val = df.loc[afe_mask, col].mean(skipna=True)
+                    n_missing = df.loc[nonafe_mask, col].isna().sum()
+                    df.loc[nonafe_mask, col] = df.loc[nonafe_mask, col].fillna(mean_val)
+                    if verbose:
+                        print(f"Imputed {n_missing} values in '{col}' for non-AFE rows")
+
+            #  Impute non-AFE-only columns for AFE rows
+            for col in nonafe_only_cols:
+                if col in df.columns:
+                    # Check if all values in this column for AFE rows are NaN
+                    #if df.loc[afe_mask, col].isna().all():
+                    mean_val = df.loc[nonafe_mask, col].mean(skipna=True)
+                    n_missing = df.loc[afe_mask, col].isna().sum()
+                    df.loc[afe_mask, col] = df.loc[afe_mask, col].fillna(mean_val)
+                    if verbose:
+                        print(f"Imputed {n_missing} values in '{col}' for AFE rows")
+
+            # Recreate feature arrays from the imputed DataFrame
+            features = df[all_features].to_numpy()
+            features_phys = df[[c for c in all_features_phys if c in df.columns]].to_numpy()
+            features_eeg = df[[c for c in all_features_eeg if c in df.columns]].to_numpy()
+
+            return df, features, features_phys, features_eeg
+
+        def pull_eeg_sets():
+            # list of shared eeg channels
+            raw_eeg_shared_features = ['Fz - EEG', 'F3 - EEG', 'C3 - EEG', 'C4 - EEG',
+                                        'CP1 - EEG', 'CP2 - EEG', 'T8 - EEG', 'TP9 - EEG', 'TP10 - EEG',
+                                        'P7 - EEG', 'P8 - EEG']
+
+            processed_eeg_shared_features = ['Fz_delta - EEG', 'Fz_theta - EEG', 'Fz_alpha - EEG', 'Fz_beta - EEG',
+                                            'F3_delta - EEG', 'F3_theta - EEG', 'F3_alpha - EEG', 'F3_beta - EEG',
+                                            'C3_delta - EEG', 'C3_theta - EEG', 'C3_alpha - EEG', 'C3_beta - EEG',
+                                            'C4_delta - EEG', 'C4_theta - EEG', 'C4_alpha - EEG', 'C4_beta - EEG',
+                                            'CP1_delta - EEG', 'CP1_theta - EEG', 'CP1_alpha - EEG', 'CP1_beta - EEG',
+                                            'CP2_delta - EEG', 'CP2_theta - EEG', 'CP2_alpha - EEG', 'CP2_beta - EEG',
+                                            'T8_delta - EEG', 'T8_theta - EEG', 'T8_alpha - EEG', 'T8_beta - EEG',
+                                            'TP9_delta - EEG', 'TP9_theta - EEG', 'TP9_alpha - EEG', 'TP9_beta - EEG',
+                                            'TP10_delta - EEG', 'TP10_theta - EEG', 'TP10_alpha - EEG', 'TP10_beta - EEG',
+                                            'P7_delta - EEG', 'P7_theta - EEG', 'P7_alpha - EEG', 'P7_beta - EEG',
+                                            'P8_delta - EEG', 'P8_theta - EEG', 'P8_alpha - EEG', 'P8_beta - EEG']
+
+            # list of AFE only eeg channels
+            raw_eeg_afe_only = ['F4 - EEG', 'T7 - EEG', 'O1 - EEG', 'O2 - EEG']
+
+            processed_eeg_afe_only =['F4_delta - EEG', 'F4_theta - EEG', 'F4_alpha - EEG', 'F4_beta - EEG',
+                                                        'T7_delta - EEG', 'T7_theta - EEG', 'T7_alpha - EEG', 'T7_beta - EEG',
+                                                        'O1_delta - EEG', 'O1_theta - EEG', 'O1_alpha - EEG', 'O1_beta - EEG',
+                                                        'O2_delta - EEG', 'O2_theta - EEG', 'O2_alpha - EEG', 'O2_beta - EEG']
+            # list of Non-AFE only eeg channels
+            raw_eeg_nonafe_only = ['F1 - EEG', 'AFz - EEG', 'AF4 - EEG', 'FT9 - EEG', 'FT10 - EEG', 'FC5 - EEG',
+                                            'FC3 - EEG', 'FC1 - EEG', 'FC2 - EEG', 'FC4 - EEG', 'FC6 - EEG', 'C5 - EEG',
+                                            'Cz - EEG', 'CP5 - EEG', 'CP6 - EEG', 'P5 - EEG', 'P3 - EEG', 'P1 - EEG',
+                                            'Pz - EEG', 'P4 - EEG', 'P6 - EEG']
+
+            processed_eeg_nonafe_only =['F1_delta - EEG', 'F1_theta - EEG', 'F1_alpha - EEG', 'F1_beta - EEG',
+                                                        'AFz_delta - EEG', 'AFz_theta - EEG', 'AFz_alpha - EEG', 'AFz_beta - EEG',
+                                                        'AF4_delta - EEG', 'AF4_theta - EEG', 'AF4_alpha - EEG', 'AF4_beta - EEG',
+                                                        'FT9_delta - EEG', 'FT9_theta - EEG', 'FT9_alpha - EEG', 'FT9_beta - EEG',
+                                                        'FT10_delta - EEG', 'FT10_theta - EEG', 'FT10_alpha - EEG', 'FT10_beta - EEG',
+                                                        'FC5_delta - EEG', 'FC5_theta - EEG', 'FC5_alpha - EEG', 'FC5_beta - EEG',
+                                                        'FC3_delta - EEG', 'FC3_theta - EEG', 'FC3_alpha - EEG', 'FC3_beta - EEG',
+                                                        'FC1_delta - EEG', 'FC1_theta - EEG', 'FC1_alpha - EEG', 'FC1_beta - EEG',
+                                                        'FC2_delta - EEG', 'FC2_theta - EEG', 'FC2_alpha - EEG', 'FC2_beta - EEG',
+                                                        'FC4_delta - EEG', 'FC4_theta - EEG', 'FC4_alpha - EEG', 'FC4_beta - EEG',
+                                                        'FC6_delta - EEG', 'FC6_theta - EEG', 'FC6_alpha - EEG', 'FC6_beta - EEG',
+                                                        'C5_delta - EEG', 'C5_theta - EEG', 'C5_alpha - EEG', 'C5_beta - EEG',
+                                                        'Cz_delta - EEG', 'Cz_theta - EEG', 'Cz_alpha - EEG', 'Cz_beta - EEG',
+                                                        'CP5_delta - EEG', 'CP5_theta - EEG', 'CP5_alpha - EEG', 'CP5_beta - EEG',
+                                                        'CP6_delta - EEG', 'CP6_theta - EEG', 'CP6_alpha - EEG','CP6_beta - EEG',
+                                                        'P5_delta - EEG', 'P5_theta - EEG', 'P5_alpha - EEG', 'P5_beta - EEG',
+                                                        'P3_delta - EEG', 'P3_theta - EEG', 'P3_alpha - EEG', 'P3_beta - EEG',
+                                                        'P1_delta - EEG', 'P1_theta - EEG', 'P1_alpha - EEG', 'P1_beta - EEG',
+                                                        'Pz_delta - EEG', 'Pz_theta - EEG', 'Pz_alpha - EEG', 'Pz_beta - EEG',
+                                                        'P4_delta - EEG', 'P4_theta - EEG', 'P4_alpha - EEG', 'P4_beta - EEG',
+                                                        'P6_delta - EEG', 'P6_theta - EEG', 'P6_alpha - EEG', 'P6_beta - EEG']
+
+            return (processed_eeg_shared_features, processed_eeg_afe_only, processed_eeg_nonafe_only,
+                    raw_eeg_shared_features, raw_eeg_afe_only, raw_eeg_nonafe_only)
+        
+        # Variable Setup
+        gloc_data_traditional = gloc_data_traditional.copy()
+        model_type = self.MODEL_TYPE
+
+        feature_groups_to_analyze, _ = traditional_manager._get_feature_groups_and_baseline_methods(model_type, ["dummy"]) # Dummy used to since baseline methods not relevant
+        gloc_data_traditional, features = traditional_manager._process_and_get_feature_names(gloc_data_traditional, feature_groups_to_analyze, model_type, file_paths_traditional)
+
+
+
+        # Get Expected Values
+        expected_gloc_data_traditional = gloc_data_traditional.copy()
+        expected_all_features = features["All"]
+        expected_all_features_phys = features["Phys"]
+        expected_all_features_eeg = features["EEG"]
+
+        # Grab AFE / NonAFE condition indicator column
+        expected_condition_idx = expected_all_features.index('AFE_indicator')
+        expected_afe_indicator_column = expected_gloc_data_traditional["AFE_indicator"]
+
+        # Impute raw (using mean) the value of the missing channels for each AFE condition
+        expected_gloc_data_traditional, expected_features, expected_features_phys, expected_features_eeg = (eeg_condition_impute(expected_gloc_data_traditional, expected_all_features, expected_all_features_phys, expected_all_features_eeg, expected_afe_indicator_column))
+
+        # Set aside AFE / NonAFE condition indicator for now - to be incorporated back in later
+        expected_features = np.delete(expected_features, expected_condition_idx, axis = 1)
+        expected_all_features = [stream for stream in expected_all_features if stream != 'AFE_indicator']
+
+        # Add indicator back in for trial and row removal during 'data clean and prep' (will be taken back out)
+        expected_gloc_data_traditional["AFE_indicator"] = expected_afe_indicator_column  # Merge afe_indicators back into the predictor set
+
+
+        
+        # Get Actual Values
+        gloc_data_traditional = traditional_manager._eeg_specific_imputation(gloc_data_traditional, features)
+
+        assert expected_gloc_data_traditional.equals(gloc_data_traditional), "Expected imputed DataFrame does not match actual imputed DataFrame"
+        assert np.array_equal(expected_features, gloc_data_traditional[expected_all_features].to_numpy(), equal_nan = True), "Expected imputed feature matrix does not match actual imputed feature matrix for All feature group"
+        assert np.array_equal(expected_features_phys, gloc_data_traditional[expected_all_features_phys].to_numpy(), equal_nan = True), "Expected imputed feature matrix does not match actual imputed feature matrix for Phys feature group"
+        assert np.array_equal(expected_features_eeg, gloc_data_traditional[expected_all_features_eeg].to_numpy(), equal_nan = True), "Expected imputed feature matrix does not match actual imputed feature matrix for EEG feature group"
+        assert np.array_equal(expected_afe_indicator_column, gloc_data_traditional["AFE_indicator"].to_numpy(), equal_nan = True), "Expected AFE indicator column does not match actual AFE indicator column"
+        assert expected_all_features == list(gloc_data_traditional[expected_all_features].columns), "Expected feature columns do not match actual feature columns after imputation"
