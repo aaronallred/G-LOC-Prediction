@@ -392,11 +392,8 @@ class TraditionalDataManager:
         # Pull columns that need to be imputed for each type
         raw_eeg_feature_names = RawEEGGroup.get_separated_feature_names()
         processed_eeg_feature_names = ProcessedEEGGroup.get_separated_feature_names()
-        all_afe_only_cols = raw_eeg_feature_names["AFE Only"] + processed_eeg_feature_names["AFE Only"]
-        all_nonafe_only_cols = raw_eeg_feature_names["Non-AFE Only"] + processed_eeg_feature_names["Non-AFE Only"]
-        eeg_feature_set = set(features["EEG"])
-        afe_only_cols = [col for col in all_afe_only_cols if col in eeg_feature_set]
-        nonafe_only_cols = [col for col in all_nonafe_only_cols if col in eeg_feature_set]
+        afe_only_cols = raw_eeg_feature_names["AFE Only"] + processed_eeg_feature_names["AFE Only"]
+        nonafe_only_cols = raw_eeg_feature_names["Non-AFE Only"] + processed_eeg_feature_names["Non-AFE Only"]
 
         # Mean imputation processing
         if afe_only_cols:
@@ -420,3 +417,15 @@ class TraditionalDataManager:
             if verbose:
                 for col, n in missing_counts.items():
                     logger.debug("Imputed %d values in '%s' for AFE rows.", n, col)
+
+    def _afe_subset(self, gloc_data: pd.DataFrame, gloc_labels: np.ndarray) -> Tuple[pd.DataFrame, np.ndarray]:
+        """
+            Remove any trial that contains AFE condition (condition == 1).
+        """
+        trial_has_afe = gloc_data.groupby(["subject", "trial"])["AFE_indicator"].transform("max") # Mark trial as all 1 if any are 1, otherwise 0
+        keep_mask = trial_has_afe != 1
+
+        gloc_data = gloc_data.loc[keep_mask].reset_index(drop = True)
+        gloc_labels = gloc_labels[keep_mask]
+
+        return gloc_data, gloc_labels
