@@ -355,3 +355,25 @@ class TraditionalDataManager:
             features_all.extend(feature_names)
 
         return gloc_data, features
+    
+    def _label_gloc_events(self, gloc_data: pd.DataFrame) -> np.ndarray:
+        """
+        This function creates a g-loc label for the data based on the event_validated column. The event
+        is labeled as 1 between GLOC and Return to Consciousness.
+        """
+        event_validated = gloc_data["event_validated"]
+
+        # Find all GLOC and RTC indices, pair them in order, and label between each pair
+        gloc_indices = np.where(event_validated.to_numpy() == "GLOC")[0]
+        rtc_indices = np.where(event_validated.to_numpy() == "return to consciousness")[0]
+
+        trial_ids = gloc_data["trial_id"].to_numpy()
+        gloc_labels = np.zeros(len(gloc_data))
+
+        for i in range(len(gloc_indices)):
+            start = gloc_indices[i]
+            end = rtc_indices[i]
+            if trial_ids[start] == trial_ids[end]:
+                gloc_labels[start:end] = 1
+
+        return gloc_labels
