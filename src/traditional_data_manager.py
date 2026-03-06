@@ -377,3 +377,46 @@ class TraditionalDataManager:
                 gloc_labels[start:end] = 1
 
         return gloc_labels
+    
+    def _eeg_specific_imputation(self, gloc_data: pd.DataFrame, features: Dict[str, List[str]]) -> pd.DataFrame:
+        """Mean-impute EEG channels that are exclusive to one AFE condition."""
+        self._eeg_condition_impute(gloc_data, features, gloc_data["AFE_indicator"])
+        return gloc_data
+    
+    def _eeg_condition_impute(self, gloc_data: pd.DataFrame, features: Dict[str, List[str]], afe_indicator_column: pd.Series, verbose: bool = True) -> None:
+        """Mean-impute condition-specific EEG columns so both AFE/non-AFE have all features. Modifies gloc_data in-place."""
+        # Create masks for each condition
+        afe_mask = afe_indicator_column == 1
+        nonafe_mask = afe_indicator_column == 0
+
+        # Pull columns that need to be imputed for each type
+        raw_eeg_feature_names = RawEEGGroup.get_separated_feature_names()
+        processed_eeg_feature_names = ProcessedEEGGroup.get_separated_feature_names()
+        all_afe_only_cols = raw_eeg_feature_names["AFE Only"] + processed_eeg_feature_names["AFE Only"]
+        all_nonafe_only_cols = raw_eeg_feature_names["Non-AFE Only"] + processed_eeg_feature_names["Non-AFE Only"]
+        eeg_feature_set = set(features["EEG"])
+        afe_only_cols = [col for col in all_afe_only_cols if col in eeg_feature_set]
+        nonafe_only_cols = [col for col in all_nonafe_only_cols if col in eeg_feature_set]
+
+        # Mean imputation processing
+        if afe_only_cols:
+            means = gloc_data.loc[afe_mask, afe_only_cols].mean(skipna = True)
+            if verbose:
+                missing_counts = gloc_data.loc[nonafe_mask, afe_only_cols].isna().sum()
+            gloc_data.loc[nonafe_mask, afe_only_cols] = gloc_data.loc[nonafe_mask, afe_only_cols].fillna(means)
+
+            # Show columns imputed and how many rows were imputed for each column
+            if verbose:
+                for col, n in missing_counts.items():
+                    logger.debug("Imputed %d values in '%s' for non-AFE rows.", n, col)
+
+        if nonafe_only_cols:
+            means = gloc_data.loc[nonafe_mask, nonafe_only_cols].mean(skipna = True)
+            if verbose:
+                missing_counts = gloc_data.loc[afe_mask, nonafe_only_cols].isna().sum()
+            gloc_data.loc[afe_mask, nonafe_only_cols] = gloc_data.loc[afe_mask, nonafe_only_cols].fillna(means)
+
+            # Show columns imputed and how many rows were imputed for each column
+            if verbose:
+                for col, n in missing_counts.items():
+                    logger.debug("Imputed %d values in '%s' for AFE rows.", n, col)
