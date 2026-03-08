@@ -429,3 +429,56 @@ class TraditionalDataManager:
         gloc_labels = gloc_labels[keep_mask]
 
         return gloc_data, gloc_labels
+    
+    def _remove_all_nan_trials(
+            self,
+            gloc_data: pd.DataFrame,
+            features: Dict[str, List[str]],
+            gloc_labels: np.ndarray,
+            verbose: bool = True,
+    ) -> Tuple[pd.DataFrame, np.ndarray, pd.DataFrame]:
+        """Remove trials where at least one feature is entirely NaN. Returns NaN proportion table."""
+        # All features and subject trial info to be put into a reduced dataframe from gloc_data
+        all_features = features["All"]
+        all_features_with_ids = all_features + ["subject", "trial"]
+        reduced_data_frame = gloc_data[all_features_with_ids]
+
+        nan_flags = reduced_data_frame[all_features].isna()
+        group_keys = [reduced_data_frame["subject"], reduced_data_frame["trial"]]
+        grouped = nan_flags.groupby(group_keys, sort=False)
+
+        nan_proportion_df = grouped.mean()
+        all_nan_cols_df = grouped.all()
+        bad_trials = all_nan_cols_df.any(axis=1)
+
+        if verbose and bad_trials.any():
+            for (subject, trial), is_bad in bad_trials.items():
+                if is_bad:
+                    nan_features = all_nan_cols_df.columns[all_nan_cols_df.loc[(subject, trial)]].tolist()
+                    logger.info("Subject %s, Trial %s: features entirely NaN → %s", subject, trial, nan_features)
+
+        nan_proportion_df.insert(
+            0,
+            "subject-trial",
+            [f"{subject}-{trial}" for subject, trial in nan_proportion_df.index],
+        )
+        nan_proportion_df.reset_index(drop=True, inplace=True)
+
+        group_ids = reduced_data_frame.groupby(["subject", "trial"], sort=False).ngroup().to_numpy()
+        keep_mask = ~bad_trials.to_numpy()[group_ids]
+
+        rows_to_remove = gloc_data.index[~keep_mask]
+        gloc_data.drop(rows_to_remove, inplace=True)
+        gloc_data.reset_index(drop=True, inplace=True)
+
+        kept_labels = gloc_labels[keep_mask]
+        gloc_labels.resize(kept_labels.shape, refcheck=False)
+        gloc_labels[:] = kept_labels
+
+        N = int(bad_trials.shape[0])
+        M = int(bad_trials.sum())
+
+        # Print NaN findings
+        logger.info("%d trials with all NaNs for at least one feature out of %d trials. %d remaining.", M, N, N - M)
+
+        return gloc_data, gloc_labels, nan_proportion_df
