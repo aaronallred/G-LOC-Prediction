@@ -4477,6 +4477,74 @@ class TestTraditionalDataManagerCompleteExplicit():
         assert np.array_equal(expected_gloc_labels, gloc_labels, equal_nan = True), "Expected GLOC labels after removing all NaN trials do not match actual GLOC labels"
         assert expected_nan_proportion_df.equals(nan_proportion_df), "Expected NaN proportion DataFrame does not match actual NaN proportion DataFrame after removing all NaN trials"
 
+    def test_impute_missing_data(self, traditional_manager, file_paths_traditional, gloc_data_traditional):
+        def faster_knn_impute(X, k=5, M=32, efSearch=64):
+            """
+            Perform KNN imputation using FAISS HNSW index.
+            Parameters:
+            - X: (n_samples, n_features) matrix with missing values as np.nan
+            - k: Number of neighbors for imputation
+            - M: Number of neighbors in the HNSW graph (higher = more accurate, slower)
+            - efSearch: Number of candidates to consider during search (higher = better recall)
+            Returns:
+            - X_imputed: Matrix with missing values imputed
+            """
+            mask = np.isnan(X)
+            X_imputed = X.copy()
+            # Temporarily mean impute missing values
+            X_temp = np.where(mask, np.nanmean(X, axis=0), X)
+            # Build FAISS index (HNSW)
+            d = X.shape[1] # dimension
+
+            faiss.omp_set_num_threads(1) # Use single thread for deterministic behavior
+
+            index = faiss.IndexHNSWFlat(d, M)
+            index.hnsw.efSearch = efSearch
+
+            rng = faiss.RandomGenerator(42)
+            index.hnsw.rng = rng
+
+            index.add(X_temp.astype(np.float32))
+            # Find k nearest neighbors
+            distances, indices = index.search(X_temp.astype(np.float32), k + 1)
+            # Impute missing values (skip self, which is always the first neighbor)
+            for i in range(X.shape[0]):
+                neighbors = indices[i, 1:] # skip self
+                for j in range(X.shape[1]):
+                    if mask[i, j]: # Only impute missing values
+                        neighbor_values = X_temp[neighbors, j]
+                        X_imputed[i, j] = np.nanmean(neighbor_values)
+            return X_imputed
+
+        # Variable Setup
+        gloc_data_traditional = gloc_data_traditional.copy()
+        model_type = self.MODEL_TYPE
+
+        feature_groups_to_analyze, _ = traditional_manager._get_feature_groups_and_baseline_methods(model_type, ["dummy"]) # Dummy used to since baseline methods not relevant
+        gloc_data_traditional, features = traditional_manager._process_and_get_feature_names(gloc_data_traditional, feature_groups_to_analyze, model_type, file_paths_traditional)
+        gloc_data_traditional = traditional_manager._eeg_specific_imputation(gloc_data_traditional, features)
+        gloc_labels = traditional_manager._label_gloc_events(gloc_data_traditional)
+        gloc_data_traditional, gloc_labels, _ = traditional_manager._remove_all_nan_trials(gloc_data_traditional, features, gloc_labels)
+        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = traditional_manager._reduce_memory(gloc_data_traditional, gloc_labels, features, model_type)
+
+        # Get Expected Values
+        expected_gloc_data_traditional = gloc_data_all_features_numpy.copy()
+        expected_features = expected_gloc_data_traditional[:, [list(features["All"]).index(f) for f in features["All"]]]
+        expected_features_phys = expected_gloc_data_traditional[:, [list(features["Phys"]).index(f) for f in features["Phys"]]]
+        expected_features_ecg = expected_gloc_data_traditional[:, [list(features["ECG"]).index(f) for f in features["ECG"]]]
+        expected_features_eeg = expected_gloc_data_traditional[:, [list(features["EEG"]).index(f) for f in features["EEG"]]]
+        expected_gloc_labels = gloc_labels_numpy.copy()
+
+        expected_features = faster_knn_impute(expected_features, k=5, M=32, efSearch=64)
+
+        # Get Actual Values
+        gloc_data_traditional_numpy_imputed = traditional_manager.faster_knn_impute(gloc_data_all_features_numpy)
+
+        assert np.array_equal(expected_features, gloc_data_traditional_numpy_imputed, equal_nan = True), "Expected feature matrix after imputation does not match actual feature matrix for All feature group"
+        assert np.array_equal(expected_features_phys, gloc_data_all_features_numpy[:, [list(features["Phys"]).index(f) for f in features["Phys"]]], equal_nan = True), "Expected feature matrix after imputation does not match actual feature matrix for Phys feature group"
+        assert np.array_equal(expected_features_ecg, gloc_data_all_features_numpy[:, [list(features["ECG"]).index(f) for f in features["ECG"]]], equal_nan = True), "Expected feature matrix after imputation does not match actual feature matrix for ECG feature group"
+        assert np.array_equal(expected_features_eeg, gloc_data_all_features_numpy[:, [list(features["EEG"]).index(f) for f in features["EEG"]]], equal_nan = True), "Expected feature matrix after imputation does not match actual feature matrix for EEG feature group"
+
 class TestTraditionalDataManagerNoAFEExplicit():
     MODEL_TYPE = ("noAFE", "Explicit")
     EXPECTED_MODEL_TYPE = ("noAFE", "explicit")
