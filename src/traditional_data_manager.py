@@ -482,3 +482,86 @@ class TraditionalDataManager:
         logger.info("%d trials with all NaNs for at least one feature out of %d trials. %d remaining.", M, N, N - M)
 
         return gloc_data, gloc_labels, nan_proportion_df
+    
+    def _reduce_memory(
+            self,
+            gloc_data: pd.DataFrame,
+            gloc_labels: np.ndarray,
+            features: Dict[str, List[str]],
+            model_type: Tuple[str, str],
+    ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+        """Extract numpy arrays from DataFrame and free the DataFrame to reduce memory usage.
+        
+        Returns:
+            gloc_data_all_features_numpy: feature matrix with legacy-equivalent dtype by model
+            gloc_labels_numpy: boolean label array
+            experiment_metadata: dict of metadata arrays
+        """
+        trial_id_arr = gloc_data["trial_id"].to_numpy()
+        experiment_metadata = {
+            "trial_id": trial_id_arr,
+            "trial_ints": self._convert_to_unique_ordered_integers(trial_id_arr),
+            "Time (s)": gloc_data["Time (s)"].to_numpy(),  # Keep float64 to match legacy precision in np.gradient
+            "event_validated": gloc_data["event_validated"].to_numpy(),
+            "subject": gloc_data["subject"].to_numpy(),
+            "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1),
+        }
+        # Legacy precision differs by model path:
+        # - noAFE models keep features in float32 at this stage.
+        # - Complete models can be promoted to float64 during the EEG condition
+        #   imputation path because the condition column participates in array
+        #   reconstruction. Match that behavior for strict parity tests.
+        feature_dtype = np.float64 if model_type[0] == "Complete" else np.float32 # TODO: Make this a user input parameter
+        gloc_data_all_features_numpy = gloc_data[features["All"]].to_numpy(dtype=feature_dtype)
+        gloc_labels_numpy = gloc_labels
+
+        del gloc_data, gloc_labels
+        return gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata
+
+    def _convert_to_unique_ordered_integers(self, strings: np.ndarray) -> np.ndarray:
+        """Convert strings to 1-based integers preserving first-appearance order."""
+        codes, _ = pd.factorize(strings, sort=False)
+        return (codes + 1).astype(np.float32)
+
+    def faster_knn_impute(self, X, k = 5, M = 32, efSearch = 64):
+        """
+        Perform KNN imputation using FAISS HNSW index.
+        Parameters:
+        - X: (n_samples, n_features) matrix with missing values as np.nan
+        - k: Number of neighbors for imputation
+        - M: Number of neighbors in the HNSW graph (higher = more accurate, slower)
+        - efSearch: Number of candidates to consider during search (higher = better recall)
+        Returns:
+        - X_imputed: Matrix with missing values imputed
+        """
+        mask = np.isnan(X)
+        X_imputed = X.copy()
+        
+        # Temporarily mean impute missing values
+        X_temp = np.where(mask, np.nanmean(X, axis=0), X)
+        
+        if self.testing:
+            faiss.omp_set_num_threads(1)  # Use single thread for deterministic behavior in testing
+
+        # Build FAISS index (HNSW)
+        d = X.shape[1] # dimension
+        index = faiss.IndexHNSWFlat(d, M)
+        index.hnsw.efSearch = efSearch
+        
+        rng = faiss.RandomGenerator(42)
+        index.hnsw.rng = rng
+        
+        index.add(X_temp.astype(np.float32))
+        
+        # Find k nearest neighbors
+        distances, indices = index.search(X_temp.astype(np.float32), k + 1)
+        
+        # Impute missing values (skip self, which is always the first neighbor)
+        for i in range(X.shape[0]):
+            neighbors = indices[i, 1:] # skip self
+            for j in range(X.shape[1]):
+                if mask[i, j]: # Only impute missing values
+                    neighbor_values = X_temp[neighbors, j]
+                    X_imputed[i, j] = np.nanmean(neighbor_values)
+
+        return X_imputed
