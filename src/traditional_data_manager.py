@@ -565,3 +565,41 @@ class TraditionalDataManager:
                     X_imputed[i, j] = np.nanmean(neighbor_values)
 
         return X_imputed
+    
+    def y_prediction_offset(self, y, backstep, data_rate, trial_set):
+        """
+        Shifts GLOC flags to the left by 'backstep' frames.
+        Truncates the beginning and pads the end with zeros.
+        """
+        y = np.array(y)
+        offset = int(backstep * data_rate) # the actual number of indices to offset.
+        # if backstep is given as seconds and data rate as hz
+        # the result would be something like 5 seconds back * 25hz so 125 indices shift
+
+        # y is passed as every single subject and trial in one so we have to break out the indices.
+
+        unique_trials = np.unique(trial_set) # finds the unique trials within the set. Gives an array of name of each unique
+
+        for trial in unique_trials:
+            # Clearing temporary variables if they exist
+            trial_indices = None
+            current_y = None
+            gloc_indices = None
+            y_shifted = None
+
+            # Only make corrections within this trial
+            trial_indices = np.nonzero(trial_set == trial) # find indices within trial set where this unique trial was
+            current_y = y[trial_indices] # the range of y we are interested in (this trial set)
+            gloc_indices = np.nonzero(current_y)[0] # find gloc indices within trial. These are the locations of nonzero values in array
+
+
+            if len(gloc_indices) == 0:
+                # No GLOC events present, return as is
+                y[trial_indices] = current_y # no change
+
+            else:
+                y_shifted = current_y[offset:] # Remove the backstep from the start
+                current_y = np.append(y_shifted, [0] * offset)[:len(current_y)] # add zeros to the back
+                y[trial_indices] = current_y # reassign the indices of y to what has been edited
+
+        return y
