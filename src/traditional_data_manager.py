@@ -592,7 +592,6 @@ class TraditionalDataManager:
             current_y = y[trial_indices] # the range of y we are interested in (this trial set)
             gloc_indices = np.nonzero(current_y)[0] # find gloc indices within trial. These are the locations of nonzero values in array
 
-
             if len(gloc_indices) == 0:
                 # No GLOC events present, return as is
                 y[trial_indices] = current_y # no change
@@ -603,3 +602,56 @@ class TraditionalDataManager:
                 y[trial_indices] = current_y # reassign the indices of y to what has been edited
 
         return y
+    
+    def _get_combined_baseline_data(
+            self,
+            gloc_data_all_features_imputed_numpy: np.ndarray,
+            experiment_metadata: Dict[str, Any],
+            baseline_window: float,
+            baseline_methods_to_use: List[str],
+            features: Dict[str, List[str]],
+            file_paths: Dict[str, Any],
+            model_type: Tuple[str, str],
+    ) -> Tuple[Dict[str, np.ndarray], List[str]]:
+        """Compute baselines for all specified methods and combine into a single feature set."""
+        participant_baseline = pd.read_csv(file_paths["baseline"])
+        participant_baseline_rhr = participant_baseline["resting HR [seated]"][:-1]
+        participant_baseline_rhr.index = [f"{i:02d}" for i in range(1, 14)]
+
+        eeg_baseline_data = {}
+        for filepath in file_paths["baseline_eeg_processed_list"]:
+            df = pd.read_csv(filepath)
+            df.index = [f"{i:02d}" for i in range(1, 14)]
+            # Extract band name from filename pattern: GLOC_EEG_baseline_{band}_noAFE1.csv
+            band = os.path.basename(filepath).split("_")[3]
+            eeg_baseline_data[band] = df
+
+        # Build feature-group index arrays using set lookups for O(1) membership
+        phys_set, ecg_set, eeg_set = set(features["Phys"]), set(features["ECG"]), set(features["EEG"])
+        phys_indices = [i for i, f in enumerate(features["All"]) if f in phys_set]
+        ecg_indices = [i for i, f in enumerate(features["All"]) if f in ecg_set]
+        eeg_indices = [i for i, f in enumerate(features["All"]) if f in eeg_set]
+
+        context = BaselineContext(
+            trial_column=experiment_metadata["trial_id"],
+            time_column=experiment_metadata["Time (s)"],
+            event_validated_column=experiment_metadata["event_validated"],
+            subject_column=experiment_metadata["subject"],
+            data_by_features={
+                "All": gloc_data_all_features_imputed_numpy,
+                "Phys": gloc_data_all_features_imputed_numpy[:, phys_indices],
+                "ECG": gloc_data_all_features_imputed_numpy[:, ecg_indices],
+                "EEG": gloc_data_all_features_imputed_numpy[:, eeg_indices],
+            },
+            features=features,
+            baseline_window=baseline_window,
+            model_type=model_type,
+            participant_baseline_data=participant_baseline_rhr,
+            eeg_baseline_data=eeg_baseline_data,
+        )
+
+        combined_baseline, combined_names, _, _, trial_order = baseline_data(baseline_methods_to_use, context)
+        # Store trial_order for use in _generate_features to compute trial_ints in correct order
+        experiment_metadata["trial_order"] = trial_order
+        
+        return combined_baseline, combined_names
