@@ -4752,6 +4752,61 @@ class TestTraditionalDataManagerCompleteExplicit():
     #         else:
     #             assert np.array_equal(expected_meta, actual_meta), f"Metadata key '{key}' does not match"
 
+    def test_y_prediction_offset(self, traditional_manager, file_paths_traditional, gloc_data_imputed_complete_explicit_traditional):
+        def y_prediction_offset(y, backstep, data_rate, trial_set):
+            """
+            Shifts GLOC flags to the left by 'backstep' frames.
+            Truncates the beginning and pads the end with zeros.
+            """
+            y = np.array(y)
+            offset = int(backstep * data_rate) # the actual number of indices to offset.
+            # if backstep is given as seconds and data rate as hz
+            # the result would be something like 5 seconds back * 25hz so 125 indices shift
+
+            # y is passed as every single subject and trial in one so we have to break out the indices.
+
+            unique_trials = np.unique(trial_set) # finds the unique trials within the set. Gives an array of name of each unique
+
+            for trial in unique_trials:
+                # Clearing temporary variables if they exist
+                trial_indices = None
+                current_y = None
+                gloc_indices = None
+                y_shifted = None
+
+                # Only make corrections within this trial
+                trial_indices = np.nonzero(trial_set == trial) # find indices within trial set where this unique trial was
+                current_y = y[trial_indices] # the range of y we are interested in (this trial set)
+                gloc_indices = np.nonzero(current_y)[0] # find gloc indices within trial. These are the locations of nonzero values in array
+
+
+                if len(gloc_indices) == 0:
+                    # No GLOC events present, return as is
+                    y[trial_indices] = current_y # no change
+
+                else:
+                    y_shifted = current_y[offset:] # Remove the backstep from the start
+                    current_y = np.append(y_shifted, [0] * offset)[:len(current_y)] # add zeros to the back
+                    y[trial_indices] = current_y # reassign the indices of y to what has been edited
+
+            return y
+
+        # Variable Setup
+        gloc_labels = gloc_data_imputed_complete_explicit_traditional[1].copy()
+        experiment_metadata = gloc_data_imputed_complete_explicit_traditional[3].copy()
+
+
+        # Get Expected Values
+        expected_gloc_labels_shifted = y_prediction_offset(gloc_labels.copy(), backstep=5, data_rate=25, trial_set=experiment_metadata['trial_id'])
+        expected_gloc_labels_no_shift = gloc_labels.copy() # For comparison to ensure only shifting and no other changes
+
+        # Get Actual Values
+        gloc_labels_shifted = traditional_manager.y_prediction_offset(gloc_labels.copy(), backstep=5, data_rate=25, trial_set=experiment_metadata['trial_id'])
+        gloc_labels_no_shift = traditional_manager.y_prediction_offset(gloc_labels.copy(), backstep=0, data_rate=25, trial_set=experiment_metadata['trial_id'])
+
+        assert np.array_equal(expected_gloc_labels_shifted, gloc_labels_shifted), "Expected GLOC labels after shifting do not match actual GLOC labels after shifting"
+        assert np.array_equal(expected_gloc_labels_no_shift, gloc_labels_no_shift), "Expected GLOC labels with no shift do not match actual GLOC labels with no shift, indicating unintended modifications to labels"
+
 class TestTraditionalDataManagerNoAFEExplicit():
     MODEL_TYPE = ("noAFE", "Explicit")
     EXPECTED_MODEL_TYPE = ("noAFE", "explicit")
