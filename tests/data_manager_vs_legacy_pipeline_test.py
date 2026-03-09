@@ -2969,12 +2969,122 @@ def gloc_data_traditional(traditional_manager, file_paths_traditional, test_dir)
     
     return data
 
+def _get_imputed_data_traditional(model_type, traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir):
+    """Helper function to create imputed data for a specific model type."""
+    # Create model-specific cache path
+    model_str = f"{model_type[0]}_{model_type[1]}"
+    cache_version = "v3"
+    impute_path = os.path.join(test_dir, "testing_temp", f"gloc_data_imputed_{model_str}_traditional_{cache_version}.pkl")
+    
+    # Try loading cached results
+    if os.path.exists(impute_path):
+        cache_files = {
+            'data': impute_path,
+            'features': os.path.join(test_dir, "testing_temp", f"features_{model_str}_traditional_{cache_version}.pkl"),
+            'labels': os.path.join(test_dir, "testing_temp", f"gloc_labels_{model_str}_traditional_{cache_version}.pkl"),
+            'metadata': os.path.join(test_dir, "testing_temp", f"experiment_metadata_{model_str}_traditional_{cache_version}.pkl")
+        }
+        
+        try:
+            with open(cache_files['data'], 'rb') as f:
+                imputed_data = pickle.load(f)
+            with open(cache_files['features'], 'rb') as f:
+                features = pickle.load(f)
+            with open(cache_files['labels'], 'rb') as f:
+                labels = pickle.load(f)
+            with open(cache_files['metadata'], 'rb') as f:
+                metadata = pickle.load(f)
+            print(f"Loaded imputed data for {model_str} from {impute_path}")
+            return (imputed_data, labels, features, metadata)
+        except Exception as e:
+            print(f"Error loading cached data for {model_str}: {e}, recomputing...")
+    
+    # Compute imputed data
+    data_copy = gloc_data_traditional.copy()
+    
+    # Get feature groups using manager logic to preserve deterministic ordering
+    feature_groups, _ = traditional_manager._get_feature_groups_and_baseline_methods(model_type, ["dummy"])
+    
+    data_copy, features = traditional_manager._process_and_get_feature_names(
+        data_copy, feature_groups, model_type, file_paths_traditional
+    )
+    data_copy = traditional_manager._eeg_specific_imputation(data_copy, features)
+    labels = traditional_manager._label_gloc_events(data_copy)
+    data_copy, labels, _ = traditional_manager._remove_all_nan_trials(data_copy, features, labels)
+    
+    if model_type[0] != "Complete":
+        data_copy, labels = traditional_manager._afe_subset(data_copy, labels)
+    
+    data_numpy, labels_numpy, metadata = traditional_manager._reduce_memory(data_copy, labels, features, model_type)
+    
+    # Clear intermediate data
+    del data_copy, labels
+    gc.collect()
+    
+    # Cache intermediate results
+    os.makedirs(os.path.join(test_dir, "testing_temp"), exist_ok=True)
+    cache_data = [
+        (features, f"features_{model_str}_traditional_{cache_version}.pkl"),
+        (labels_numpy, f"gloc_labels_{model_str}_traditional_{cache_version}.pkl"),
+        (metadata, f"experiment_metadata_{model_str}_traditional_{cache_version}.pkl")
+    ]
+    
+    for data_obj, filename in cache_data:
+        path = os.path.join(test_dir, "testing_temp", filename)
+        with open(path, 'wb') as f:
+            pickle.dump(data_obj, f)
+        print(f"Saved {filename}")
+    
+    # Impute data
+    imputed_data = traditional_manager.faster_knn_impute(data_numpy)
+    
+    # Save imputed data to cache
+    with open(impute_path, 'wb') as f:
+        pickle.dump(imputed_data, f)
+    print(f"Saved gloc_data_imputed_{model_str}_traditional.pkl")
+    
+    return (imputed_data, labels_numpy, features, metadata)
+
+# Session-scoped fixtures for each model type
+@pytest.fixture(scope="session")
+def gloc_data_imputed_complete_explicit_traditional(traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir):
+    """Load or create imputed data for Complete/Explicit model type with caching."""
+    model_type = ("Complete", "Explicit")
+    result = _get_imputed_data_traditional(model_type, traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir)
+    return result
+
+@pytest.fixture(scope="session")
+def gloc_data_imputed_noafe_explicit_traditional(traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir):
+    """Load or create imputed data for noAFE/Explicit model type with caching."""
+    model_type = ("noAFE", "Explicit")
+    result = _get_imputed_data_traditional(model_type, traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir)
+    return result
+
+@pytest.fixture(scope="session")
+def gloc_data_imputed_complete_implicit_traditional(traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir):
+    """Load or create imputed data for Complete/Implicit model type with caching."""
+    model_type = ("Complete", "Implicit")
+    result = _get_imputed_data_traditional(model_type, traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir)
+    return result
+
+@pytest.fixture(scope="session")
+def gloc_data_imputed_noafe_implicit_traditional(traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir):
+    """Load or create imputed data for noAFE/Implicit model type with caching."""
+    model_type = ("noAFE", "Implicit")
+    result = _get_imputed_data_traditional(model_type, traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir)
+    return result
+
 # Test Classes for Traditional Data Pipeline
 class TestTraditionalDataManagerCompleteExplicit():
     """Tests for Complete/Explicit model type."""
     MODEL_TYPE = ("Complete", "Explicit")
     EXPECTED_MODEL_TYPE = ("complete", "explicit")
     __test__ = True  # Ensure this class is collected by pytest
+
+    @pytest.fixture(scope = "class")
+    def gloc_data_imputed_tuple(self, gloc_data_imputed_complete_explicit_traditional):
+        """Use cached imputed data for this model type."""
+        return gloc_data_imputed_complete_explicit_traditional
 
     def test_get_hyperparameters_by_classifier_type(self, traditional_manager):
         for classifier_type in ['logreg', 'RF', 'LDA', 'SVM', 'EGB']:
@@ -4545,10 +4655,47 @@ class TestTraditionalDataManagerCompleteExplicit():
         assert np.array_equal(expected_features_ecg, gloc_data_all_features_numpy[:, [list(features["ECG"]).index(f) for f in features["ECG"]]], equal_nan = True), "Expected feature matrix after imputation does not match actual feature matrix for ECG feature group"
         assert np.array_equal(expected_features_eeg, gloc_data_all_features_numpy[:, [list(features["EEG"]).index(f) for f in features["EEG"]]], equal_nan = True), "Expected feature matrix after imputation does not match actual feature matrix for EEG feature group"
 
+    # def test_same_imputed_data(self, traditional_manager, file_paths_traditional, gloc_data_traditional, gloc_data_imputed_tuple):
+    #     # Variable Setup
+    #     gloc_data_traditional = gloc_data_traditional.copy()
+    #     model_type = self.MODEL_TYPE
+
+    #     feature_groups_to_analyze, _ = traditional_manager._get_feature_groups_and_baseline_methods(model_type, ["dummy"]) # Dummy used to since baseline methods not relevant
+    #     gloc_data_traditional, features = traditional_manager._process_and_get_feature_names(gloc_data_traditional, feature_groups_to_analyze, model_type, file_paths_traditional)
+    #     gloc_data_traditional = traditional_manager._eeg_specific_imputation(gloc_data_traditional, features)
+    #     gloc_labels = traditional_manager._label_gloc_events(gloc_data_traditional)
+    #     gloc_data_traditional, gloc_labels, _ = traditional_manager._remove_all_nan_trials(gloc_data_traditional, features, gloc_labels)
+    #     gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = traditional_manager._reduce_memory(gloc_data_traditional, gloc_labels, features, model_type)
+    #     gloc_data_all_features_numpy_imputed = traditional_manager.faster_knn_impute(gloc_data_all_features_numpy)
+
+    #     (expected_gloc_data_traditional_imputed, expected_gloc_labels_numpy, expected_features, expected_experiment_metadata) = gloc_data_imputed_tuple
+
+    #     assert expected_gloc_data_traditional_imputed.shape == gloc_data_all_features_numpy_imputed.shape, "Expected imputed feature matrix shape does not match actual feature matrix shape"
+    #     expected_imputed_numeric = np.asarray(expected_gloc_data_traditional_imputed, dtype=np.float64)
+    #     actual_imputed_numeric = np.asarray(gloc_data_all_features_numpy_imputed, dtype=np.float64)
+    #     assert np.allclose(expected_imputed_numeric, actual_imputed_numeric, rtol=1e-6, atol=1e-6, equal_nan=True), "Expected imputed feature matrix does not match actual imputed feature matrix for All feature group"
+    #     assert np.array_equal(expected_gloc_labels_numpy, gloc_labels_numpy), "Expected GLOC labels do not match actual GLOC labels from _get_imputed_data()"
+    #     assert set(expected_features["All"]) == set(features["All"]), "Expected features do not match actual features for All feature group from _get_imputed_data()"
+        
+    #     # Compare metadata dictionary
+    #     assert set(expected_experiment_metadata.keys()) == set(experiment_metadata.keys()), "Metadata keys do not match"
+    #     for key in expected_experiment_metadata.keys():
+    #         expected_meta = np.asarray(expected_experiment_metadata[key])
+    #         actual_meta = np.asarray(experiment_metadata[key])
+    #         if np.issubdtype(expected_meta.dtype, np.number) and np.issubdtype(actual_meta.dtype, np.number):
+    #             assert np.array_equal(expected_meta, actual_meta, equal_nan=True), f"Metadata key '{key}' does not match"
+    #         else:
+    #             assert np.array_equal(expected_meta, actual_meta), f"Metadata key '{key}' does not match"
+
 class TestTraditionalDataManagerNoAFEExplicit():
     MODEL_TYPE = ("noAFE", "Explicit")
     EXPECTED_MODEL_TYPE = ("noAFE", "explicit")
     __test__ = True  # Ensure this class is collected by pytest
+
+    @pytest.fixture(scope = "class")
+    def gloc_data_imputed_tuple(self, gloc_data_imputed_noafe_explicit_traditional):
+        """Use cached imputed data for this model type."""
+        return gloc_data_imputed_noafe_explicit_traditional
 
     def test_get_hyperparameters_by_classifier_type(self, traditional_manager):
         for classifier_type in ['logreg', 'RF', 'LDA', 'SVM', 'EGB']:
