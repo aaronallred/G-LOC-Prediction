@@ -4497,7 +4497,7 @@ class TestTraditionalDataManagerCompleteExplicit():
 
         
         # Get Actual Values
-        gloc_data_traditional = traditional_manager._eeg_specific_imputation(gloc_data_traditional, features)
+        gloc_data_traditional = traditional_manager._eeg_specific_imputation(gloc_data_traditional, features, verbose = False)
 
         assert expected_gloc_data_traditional.equals(gloc_data_traditional), "Expected imputed DataFrame does not match actual imputed DataFrame"
         assert np.array_equal(expected_features, gloc_data_traditional[expected_all_features].to_numpy(), equal_nan = True), "Expected imputed feature matrix does not match actual imputed feature matrix for All feature group"
@@ -4577,7 +4577,7 @@ class TestTraditionalDataManagerCompleteExplicit():
 
 
         # Get Actual Values
-        gloc_data_traditional, gloc_labels, nan_proportion_df = traditional_manager._remove_all_nan_trials(gloc_data_traditional, features, gloc_labels)
+        gloc_data_traditional, gloc_labels, nan_proportion_df = traditional_manager._remove_all_nan_trials(gloc_data_traditional, features, gloc_labels, verbose = False)
 
         assert expected_traditional_gloc_data.equals(gloc_data_traditional), "Expected DataFrame after removing all NaN trials does not match actual DataFrame"
         assert np.array_equal(expected_features, gloc_data_traditional[features["All"]].to_numpy(), equal_nan = True), "Expected feature matrix after removing all NaN trials does not match actual feature matrix for All feature group"
@@ -4586,6 +4586,71 @@ class TestTraditionalDataManagerCompleteExplicit():
         assert np.array_equal(expected_features_eeg, gloc_data_traditional[features["EEG"]].to_numpy(), equal_nan = True), "Expected feature matrix after removing all NaN trials does not match actual feature matrix for EEG feature group"
         assert np.array_equal(expected_gloc_labels, gloc_labels, equal_nan = True), "Expected GLOC labels after removing all NaN trials do not match actual GLOC labels"
         assert expected_nan_proportion_df.equals(nan_proportion_df), "Expected NaN proportion DataFrame does not match actual NaN proportion DataFrame after removing all NaN trials"
+
+    def test_reduce_memory(self, traditional_manager, file_paths_traditional, gloc_data_traditional):
+        def assert_array_equal_with_nan_support(expected, actual, error_message):
+            expected_arr = np.asarray(expected)
+            actual_arr = np.asarray(actual)
+
+            assert expected_arr.shape == actual_arr.shape, error_message
+
+            # np.array_equal(..., equal_nan=True) raises on object dtypes in newer NumPy.
+            equal_mask = (expected_arr == actual_arr) | (pd.isna(expected_arr) & pd.isna(actual_arr))
+            assert np.all(equal_mask), error_message
+
+        # Variable Setup
+        gloc_data_traditional = gloc_data_traditional.copy()
+        model_type = self.MODEL_TYPE
+
+        feature_groups_to_analyze, _ = traditional_manager._get_feature_groups_and_baseline_methods(model_type, ["dummy"]) # Dummy used to since baseline methods not relevant
+        gloc_data_traditional, features = traditional_manager._process_and_get_feature_names(gloc_data_traditional, feature_groups_to_analyze, model_type, file_paths_traditional)
+        gloc_data_traditional = traditional_manager._eeg_specific_imputation(gloc_data_traditional, features)
+        gloc_labels = traditional_manager._label_gloc_events(gloc_data_traditional)
+        gloc_data_traditional, gloc_labels, nan_proportion_df = traditional_manager._remove_all_nan_trials(gloc_data_traditional, features, gloc_labels)
+
+
+
+        # Get Expected Values
+        expected_gloc_data_traditional = gloc_data_traditional.copy()
+        expected_gloc_labels = gloc_labels.copy()
+        expected_nan_proportion_df = nan_proportion_df.copy() if nan_proportion_df is not None else None
+
+        # Grab columns from expected_gloc_data_traditional and remove expected_gloc_data_traditional variable from memory
+        expected_trial_column = expected_gloc_data_traditional['trial_id']
+        expected_time_column = expected_gloc_data_traditional['Time (s)']
+        expected_event_validated_column = expected_gloc_data_traditional['event_validated']
+        expected_subject_column = expected_gloc_data_traditional['subject']
+
+        # If complete condition, grab afe_indicator from cleaned dataframe
+        if 'complete' in model_type and 'explicit' in model_type:
+            expected_afe_indicator_column = expected_gloc_data_traditional["AFE_indicator"].to_numpy(dtype = np.float32).reshape(-1, 1)
+
+        del expected_gloc_data_traditional
+
+        # Don't need to test the saving of the variables, just that the variables are the same
+        # save_variables_to_folder(cache_folder, {
+        #     'gloc': expected_gloc_labels,
+        #     'trial_column': expected_trial_column,
+        #     'time_column': expected_time_column,
+        #     'event_validated_column': expected_event_validated_column,
+        #     'subject_column': expected_subject_column,
+        #     'nan_proportion_df': expected_nan_proportion_df if remove_NaN_trials else None,
+        #     'indicator_afe': expected_afe_indicator_column if 'complete' in model_type and 'explicit' in model_type else None
+        # })
+
+
+
+        # Get Actual Values
+        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = traditional_manager._reduce_memory(gloc_data_traditional, gloc_labels, features, model_type)
+
+        assert np.array_equal(expected_gloc_labels, gloc_labels_numpy, equal_nan = True), "Expected GLOC labels after memory reduction do not match actual GLOC labels"
+        assert_array_equal_with_nan_support(expected_trial_column.to_numpy(), experiment_metadata['trial_id'], "Expected trial column after memory reduction does not match actual trial column")
+        assert np.array_equal(expected_time_column.to_numpy(), experiment_metadata['Time (s)'], equal_nan = True), "Expected time column after memory reduction does not match actual time column"
+        assert_array_equal_with_nan_support(expected_event_validated_column.to_numpy(), experiment_metadata['event_validated'], "Expected event validated column after memory reduction does not match actual event validated column")
+        assert_array_equal_with_nan_support(expected_subject_column.to_numpy(), experiment_metadata['subject'], "Expected subject column after memory reduction does not match actual subject column")
+        assert expected_nan_proportion_df.equals(nan_proportion_df), "Expected NaN proportion DataFrame after memory reduction does not match actual NaN proportion DataFrame"
+        if 'complete' in model_type and 'explicit' in model_type:
+            assert np.array_equal(expected_afe_indicator_column, experiment_metadata['AFE_indicator']), "Expected AFE indicator column after memory reduction does not match actual AFE indicator column"
 
     def test_impute_missing_data(self, traditional_manager, file_paths_traditional, gloc_data_traditional):
         def faster_knn_impute(X, k=5, M=32, efSearch=64):
