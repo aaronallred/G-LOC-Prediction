@@ -6600,6 +6600,68 @@ class TestTraditionalDataManagerCompleteExplicit():
 
         assert np.array_equal(expected_gloc_data_all_features_imputed_numpy, gloc_data_all_features_imputed_numpy, equal_nan=True), "Feature reduction output does not match expected output."
 
+    def test_remove_constant_columns(self, traditional_manager, file_paths_traditional, gloc_data_imputed_complete_explicit_traditional):
+        def remove_constant_columns(x_feature_matrix_noNaN, all_features):
+            """
+            This function removes all constant columns before feeding into the ML classifiers.
+            """
+            # Find all constant columns
+            constant_columns = np.all(x_feature_matrix_noNaN == x_feature_matrix_noNaN[0,:], axis = 0)
+
+            # Remove all constant columns from data frame
+            x_feature_matrix_noNaN = x_feature_matrix_noNaN[:, ~constant_columns]
+
+            all_features = [all_features[i] for i in range(len(all_features)) if ~constant_columns[i]]
+
+            return x_feature_matrix_noNaN, all_features
+        
+        # Variable Setup
+        model_type = self.MODEL_TYPE
+        classifier_type = "logreg"
+        baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors = traditional_manager._get_hyperparameters_by_classifier(classifier_type)
+        feature_groups_to_analyze, baseline_methods_to_use = traditional_manager._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
+
+        gloc_data_all_features_imputed_numpy = gloc_data_imputed_complete_explicit_traditional[0].copy()
+        gloc_labels_numpy = gloc_data_imputed_complete_explicit_traditional[1].copy()
+        features = gloc_data_imputed_complete_explicit_traditional[2].copy()
+        experiment_metadata = gloc_data_imputed_complete_explicit_traditional[3].copy()
+
+        offset = 0  # seconds
+        time_start = 0  # seconds
+
+        combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0 = traditional_manager._get_combined_baseline_data(
+            gloc_data_all_features_imputed_numpy,
+            experiment_metadata,
+            baseline_window,
+            baseline_methods_to_use,
+            features,
+            file_paths_traditional,
+            model_type
+        )
+        y_gloc_labels, x_feature_matrix, features["All"] = traditional_manager._feature_generation(
+            time_start, offset, stride, window_size,
+            combined_baseline, gloc_labels_numpy, experiment_metadata["trial_id"], experiment_metadata["Time (s)"],
+            combined_baseline_names, baseline_names_v0, baseline_v0,
+            feature_groups_to_analyze
+        )
+        select_features = features["All"].copy()
+
+        # Get Expected Values
+        expected_model_type = self.EXPECTED_MODEL_TYPE
+        expected_all_features = features["All"].copy()
+        expected_gloc_data_all_features_imputed_numpy = x_feature_matrix.copy()
+
+        # Add windowed AFE indicator if required by model type
+        expected_x_feature_matrix, expected_select_features = remove_constant_columns(x_feature_matrix, select_features)
+
+
+        
+        # Get Actual Values
+        x_feature_matrix, select_features = traditional_manager._remove_constant_columns(x_feature_matrix.copy(), select_features.copy())
+
+        assert np.array_equal(expected_x_feature_matrix, x_feature_matrix, equal_nan = True), "Output of constant column removal does not match expected output."
+        assert expected_select_features == select_features, "Output of constant column removal does not match expected output."
+
 class TestTraditionalDataManagerNoAFEExplicit():
     MODEL_TYPE = ("noAFE", "Explicit")
     EXPECTED_MODEL_TYPE = ("noAFE", "explicit")
