@@ -1682,3 +1682,13 @@ class TraditionalDataManager:
         y_gloc_labels_noNaN = y_gloc_labels[~row_nan_mask]
 
         return y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features, removed_row_indices
+    
+    def _ready_outputs(self, x_feature_matrix, y_gloc_labels):
+        x_feature_matrix = (
+            x_feature_matrix.to_numpy() if hasattr(x_feature_matrix, "to_numpy") else np.asarray(x_feature_matrix)
+        )
+        y_gloc_labels = (
+            y_gloc_labels.to_numpy().ravel() if hasattr(y_gloc_labels, "to_numpy") else np.ravel(y_gloc_labels)
+        )
+
+        return x_feature_matrix, y_gloc_labels
