@@ -1643,3 +1643,17 @@ class TraditionalDataManager:
         all_trials = np.array(all_trials)
 
         return all_features, all_labels, all_trials
+    
+    def _remove_constant_columns(self, x_feature_matrix, select_features):
+        """
+        This function removes all constant columns before feeding into the ML classifiers.
+        """
+        # Find all constant columns
+        constant_columns = np.all(x_feature_matrix == x_feature_matrix[0,:], axis = 0)
+
+        # Remove all constant columns from data frame
+        x_feature_matrix = x_feature_matrix[:, ~constant_columns]
+
+        select_features = [select_features[i] for i in range(len(select_features)) if ~constant_columns[i]]
+
+        return x_feature_matrix, select_features
