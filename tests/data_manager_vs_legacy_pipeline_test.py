@@ -3036,7 +3036,7 @@ def _get_imputed_data_traditional(model_type, traditional_manager, file_paths_tr
         print(f"Saved {filename}")
     
     # Impute data
-    imputed_data = traditional_manager.faster_knn_impute(data_numpy)
+    imputed_data = traditional_manager._faster_knn_impute(data_numpy)
     
     # Save imputed data to cache
     with open(impute_path, 'wb') as f:
@@ -4713,7 +4713,7 @@ class TestTraditionalDataManagerCompleteExplicit():
         expected_features = faster_knn_impute(expected_features, k=5, M=32, efSearch=64)
 
         # Get Actual Values
-        gloc_data_traditional_numpy_imputed = traditional_manager.faster_knn_impute(gloc_data_all_features_numpy)
+        gloc_data_traditional_numpy_imputed = traditional_manager._faster_knn_impute(gloc_data_all_features_numpy)
 
         assert np.array_equal(expected_features, gloc_data_traditional_numpy_imputed, equal_nan = True), "Expected feature matrix after imputation does not match actual feature matrix for All feature group"
         assert np.array_equal(expected_features_phys, gloc_data_all_features_numpy[:, [list(features["Phys"]).index(f) for f in features["Phys"]]], equal_nan = True), "Expected feature matrix after imputation does not match actual feature matrix for Phys feature group"
@@ -4801,8 +4801,8 @@ class TestTraditionalDataManagerCompleteExplicit():
         expected_gloc_labels_no_shift = gloc_labels.copy() # For comparison to ensure only shifting and no other changes
 
         # Get Actual Values
-        gloc_labels_shifted = traditional_manager.y_prediction_offset(gloc_labels.copy(), backstep=5, data_rate=25, trial_set=experiment_metadata['trial_id'])
-        gloc_labels_no_shift = traditional_manager.y_prediction_offset(gloc_labels.copy(), backstep=0, data_rate=25, trial_set=experiment_metadata['trial_id'])
+        gloc_labels_shifted = traditional_manager._y_prediction_offset(gloc_labels.copy(), backstep=5, data_rate=25, trial_set=experiment_metadata['trial_id'])
+        gloc_labels_no_shift = traditional_manager._y_prediction_offset(gloc_labels.copy(), backstep=0, data_rate=25, trial_set=experiment_metadata['trial_id'])
 
         assert np.array_equal(expected_gloc_labels_shifted, gloc_labels_shifted), "Expected GLOC labels after shifting do not match actual GLOC labels after shifting"
         assert np.array_equal(expected_gloc_labels_no_shift, gloc_labels_no_shift), "Expected GLOC labels with no shift do not match actual GLOC labels with no shift, indicating unintended modifications to labels"
