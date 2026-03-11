@@ -40,18 +40,103 @@ class TraditionalDataManager:
         self.random_seed = random_seed
         self.use_reduced_dataset = use_reduced_dataset
 
-    def get_data(self, backstep, data_rate, classifier_type, model_type, select_features):
+    def get_data(self, backstep, data_rate, classifier_type, model_type, select_features, train_class, class_weight_imb, remove_NaN_trials, offset, time_start, training_ratio, subject_to_analyze, trial_to_analyze, analysis_type):
         """Return data for a given set of parameters."""
         baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors = self._get_hyperparameters_by_classifier(classifier_type)
         feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
 
         ############################################# LOAD AND PROCESS DATA #############################################
         # "Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze"
+        file_paths = self._get_data_locations()
 
+        # Load data and slot in GOR EEG features from xlsx files, then filter to specified analysis type and process features based on specified feature groups
+        gloc_data = self._load_data(file_paths)
+        gloc_data = self._filter_data_by_analysis_type(analysis_type, gloc_data, subject_to_analyze, trial_to_analyze)
+        gloc_data, features = self._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
+        
+        # Create GLOC categorical vector
+        gloc_labels = self._label_gloc_events(gloc_data)
 
-        # Code for loading txt and processing data would go here
+        if model_type[0] == "Complete" and model_type[1] == "Explicit":
+            # Impute raw (using mean) value of the missing channels for each AFE condition
+            gloc_data = self._eeg_specific_imputation(gloc_data, feature_groups_to_analyze)
 
-        return None  # Placeholder for actual data return
+        if model_type[0] == "noAFE":
+            # Reduce dataset based on AFE/noAFE condition
+            gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
+
+        ############################################### DATA CLEAN AND Some Imputation ###############################################
+        if remove_NaN_trials:
+            gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, feature_groups_to_analyze, gloc_labels)
+
+        if impute_type == 1:
+            # Imputes missing row data
+            gloc_data = self._faster_knn_impute(gloc_data[feature_groups_to_analyze].to_numpy(dtype=np.float32), k = n_neighbors) # Only impute the features, not the metadata columns
+        
+        ################################################## REDUCE MEMORY ##################################################
+        # Extract out columns from gloc_data into experiment_metadata
+        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data, gloc_labels, feature_groups_to_analyze, model_type)
+
+        ###################################################### Prediction Offset ###############################################
+        gloc_labels_numpy = self._y_prediction_offset(gloc_labels_numpy, backstep, data_rate, experiment_metadata["trial_id"])
+
+        ################################################ BASELINE ################################################
+        combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0 = self._get_combined_baseline_data(
+            gloc_data,
+            feature_groups_to_analyze,
+            baseline_methods_to_use,
+            file_paths,
+            model_type,
+        )
+
+        ################################# FEATURE GENERATION ########################################
+        # Feature generation must run for each offset to window GLOC labels
+        gloc_labels_numpy, gloc_data_all_features_numpy, features["All"] = self._feature_generation(
+            time_start,
+            offset,
+            stride,
+            window_size,
+            combined_baseline,
+            gloc_labels_numpy,
+            experiment_metadata["trial_id"],
+            experiment_metadata["Time (s)"],
+            combined_baseline_names,
+            baseline_names_v0,
+            baseline_v0,
+            feature_groups_to_analyze
+        )
+
+        ################################################ Feature Reduction ################################################
+        # Add windowed AFE indicator if required by model type
+        if model_type[0] == "Complete" and model_type[1] == "Explicit":
+            experiment_metadata["AFE_indicator_windowed"], _, _ = self._sliding_window_max(
+                experiment_metadata["AFE_indicator"],
+                experiment_metadata["trial_id"],
+                experiment_metadata["Time (s)"],
+                gloc_labels_numpy,
+                offset,
+                stride,
+                window_size,
+                time_start
+            )
+
+            gloc_data_all_features_numpy = np.hstack([gloc_data_all_features_numpy, experiment_metadata["AFE_indicator_windowed"]])
+            features["All"].append("AFE_indicator_windowed")
+
+        # Convert feature matrix into a DataFrame for column selection
+        gloc_data_all_features_numpy = pd.DataFrame(gloc_data_all_features_numpy, columns = features["All"])
+        gloc_data_all_features_numpy = gloc_data_all_features_numpy[select_features]
+        gloc_data_all_features_numpy = gloc_data_all_features_numpy.to_numpy()
+
+        gloc_data_all_features_numpy, select_features = self._remove_constant_columns(gloc_data_all_features_numpy, select_features)
+
+        ################################################ NaN Processing ################################################
+        gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], removed_ind = self._process_NaN_temporal(gloc_labels_numpy, gloc_data_all_features_numpy, select_features)
+
+        ################################################ Get Outputs Ready ############################################
+        gloc_data_all_features_numpy, gloc_labels_numpy = self._ready_outputs(gloc_data_all_features_numpy, gloc_labels_numpy)
+
+        return gloc_data_all_features_numpy, gloc_labels_numpy
     
     def _get_hyperparameters_by_classifier(self, classifier_type):
         """Return hyperparameters for a given classifier type."""
@@ -504,7 +589,7 @@ class TraditionalDataManager:
             "Time (s)": gloc_data["Time (s)"].to_numpy(),  # Keep float64 to match legacy precision in np.gradient
             "event_validated": gloc_data["event_validated"].to_numpy(),
             "subject": gloc_data["subject"].to_numpy(),
-            "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1),
+            "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype = np.float32).reshape(-1, 1),
         }
         # Legacy precision differs by model path:
         # - noAFE models keep features in float32 at this stage.
@@ -523,7 +608,7 @@ class TraditionalDataManager:
         codes, _ = pd.factorize(strings, sort=False)
         return (codes + 1).astype(np.float32)
 
-    def faster_knn_impute(self, X, k = 5, M = 32, efSearch = 64):
+    def _faster_knn_impute(self, X, k = 5, M = 32, efSearch = 64):
         """
         Perform KNN imputation using FAISS HNSW index.
         Parameters:
@@ -566,7 +651,7 @@ class TraditionalDataManager:
 
         return X_imputed
     
-    def y_prediction_offset(self, y, backstep, data_rate, trial_set):
+    def _y_prediction_offset(self, y, backstep, data_rate, trial_set):
         """
         Shifts GLOC flags to the left by 'backstep' frames.
         Truncates the beginning and pads the end with zeros.
