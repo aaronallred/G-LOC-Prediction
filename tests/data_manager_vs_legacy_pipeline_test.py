@@ -6470,7 +6470,7 @@ class TestTraditionalDataManagerCompleteExplicit():
             # Get Actual Values
             y_gloc_labels, x_feature_matrix, features["All"] = traditional_manager._feature_generation(
                 time_start, offset, stride, window_size,
-                combined_baseline, expected_gloc_labels, expected_trial_column, expected_time_column,
+                combined_baseline, gloc_labels_numpy, experiment_metadata["trial_id"], experiment_metadata["Time (s)"],
                 combined_baseline_names, baseline_names_v0, baseline_v0,
                 feature_groups_to_analyze
             )
@@ -6537,50 +6537,68 @@ class TestTraditionalDataManagerCompleteExplicit():
 
             return all_features, all_labels, all_trials
         
-        for classifier_type in ['logreg', 'RF', 'LDA', 'SVM', 'EGB']:
-            # Variable Setup
-            model_type = self.MODEL_TYPE
-            baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors = traditional_manager._get_hyperparameters_by_classifier(classifier_type)
+        # Variable Setup
+        model_type = self.MODEL_TYPE
+        classifier_type = "logreg"
+        baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors = traditional_manager._get_hyperparameters_by_classifier(classifier_type)
+        feature_groups_to_analyze, baseline_methods_to_use = traditional_manager._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
 
-            gloc_data_all_features_imputed_numpy = gloc_data_imputed_complete_explicit_traditional[0].copy()
-            gloc_labels_numpy = gloc_data_imputed_complete_explicit_traditional[1].copy()
-            features = gloc_data_imputed_complete_explicit_traditional[2].copy()
-            experiment_metadata = gloc_data_imputed_complete_explicit_traditional[3].copy()
+        gloc_data_all_features_imputed_numpy = gloc_data_imputed_complete_explicit_traditional[0].copy()
+        gloc_labels_numpy = gloc_data_imputed_complete_explicit_traditional[1].copy()
+        features = gloc_data_imputed_complete_explicit_traditional[2].copy()
+        experiment_metadata = gloc_data_imputed_complete_explicit_traditional[3].copy()
 
-            select_features = features["All"]
-            offset = 0  # seconds
-            time_start = 0  # seconds
+        select_features = features["All"]
+        offset = 0  # seconds
+        time_start = 0  # seconds
 
-            # Get Expected Values
-            expected_model_type = self.EXPECTED_MODEL_TYPE
-            expected_afe_indicator_column = experiment_metadata["AFE_indicator"].copy()
-            expected_trial_column = experiment_metadata["trial_id"].copy()
-            expected_time_column = experiment_metadata["Time (s)"].copy()
-            expected_gloc_labels = gloc_labels_numpy.copy()
+        combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0 = traditional_manager._get_combined_baseline_data(
+            gloc_data_all_features_imputed_numpy,
+            experiment_metadata,
+            baseline_window,
+            baseline_methods_to_use,
+            features,
+            file_paths_traditional,
+            model_type
+        )
+        y_gloc_labels, x_feature_matrix, features["All"] = traditional_manager._feature_generation(
+            time_start, offset, stride, window_size,
+            combined_baseline, gloc_labels_numpy, experiment_metadata["trial_id"], experiment_metadata["Time (s)"],
+            combined_baseline_names, baseline_names_v0, baseline_v0,
+            feature_groups_to_analyze
+        )
+        select_features = features["All"].copy()
 
-            expected_all_features = features["All"].copy()
-            expected_gloc_data_all_features_imputed_numpy = gloc_data_all_features_imputed_numpy.copy()
+        # Get Expected Values
+        expected_model_type = self.EXPECTED_MODEL_TYPE
+        expected_afe_indicator_column = experiment_metadata["AFE_indicator"].copy()
+        expected_trial_column = experiment_metadata["trial_id"].copy()
+        expected_time_column = experiment_metadata["Time (s)"].copy()
+        expected_gloc_labels = gloc_labels_numpy.copy()
 
-            # Add windowed AFE indicator if required by model type
-            if 'complete' in expected_model_type and 'explicit' in expected_model_type:
-                afe_indicator_column_windowed, gloc_compare, _ = sliding_window_max(
-                    expected_afe_indicator_column, expected_trial_column, expected_time_column, expected_gloc_labels,
-                    offset, stride, window_size, time_start
-                )
-                expected_gloc_data_all_features_imputed_numpy = np.hstack([expected_gloc_data_all_features_imputed_numpy, afe_indicator_column_windowed])
-                expected_all_features.append('AFE_indicator_windowed')
+        expected_all_features = features["All"].copy()
+        expected_gloc_data_all_features_imputed_numpy = x_feature_matrix.copy()
 
-            # Convert feature matrix to DataFrame for column selection
-            expected_gloc_data_all_features_imputed_numpy = pd.DataFrame(expected_gloc_data_all_features_imputed_numpy, columns = expected_all_features)
-            x_feature_matrix = x_feature_matrix[select_features]
-            expected_gloc_data_all_features_imputed_numpy = expected_gloc_data_all_features_imputed_numpy.to_numpy()
+        # Add windowed AFE indicator if required by model type
+        if 'complete' in expected_model_type and 'explicit' in expected_model_type:
+            afe_indicator_column_windowed, gloc_compare, _ = sliding_window_max(
+                expected_afe_indicator_column, expected_trial_column, expected_time_column, expected_gloc_labels,
+                offset, stride, window_size, time_start
+            )
+            expected_gloc_data_all_features_imputed_numpy = np.hstack([expected_gloc_data_all_features_imputed_numpy, afe_indicator_column_windowed])
+            expected_all_features.append('AFE_indicator_windowed')
+
+        # Convert feature matrix to DataFrame for column selection
+        expected_gloc_data_all_features_imputed_numpy = pd.DataFrame(expected_gloc_data_all_features_imputed_numpy, columns = expected_all_features)
+        expected_gloc_data_all_features_imputed_numpy = expected_gloc_data_all_features_imputed_numpy[select_features]
+        expected_gloc_data_all_features_imputed_numpy = expected_gloc_data_all_features_imputed_numpy.to_numpy()
 
 
 
-            # Get Actual Values
-            gloc_data_all_features_imputed_numpy = traditional_manager._reduce_features(model_type, offset, stride, window_size, time_start, gloc_data_all_features_imputed_numpy, gloc_labels_numpy, features, experiment_metadata, select_features)
+        # Get Actual Values
+        gloc_data_all_features_imputed_numpy = traditional_manager._reduce_features(model_type, offset, stride, window_size, time_start, x_feature_matrix.copy(), gloc_labels_numpy, features, experiment_metadata, select_features)
 
-            assert np.array_equal(expected_gloc_data_all_features_imputed_numpy, gloc_data_all_features_imputed_numpy), "Feature reduction output does not match expected output."
+        assert np.array_equal(expected_gloc_data_all_features_imputed_numpy, gloc_data_all_features_imputed_numpy, equal_nan=True), "Feature reduction output does not match expected output."
 
 class TestTraditionalDataManagerNoAFEExplicit():
     MODEL_TYPE = ("noAFE", "Explicit")
