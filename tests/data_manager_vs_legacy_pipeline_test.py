@@ -6662,7 +6662,7 @@ class TestTraditionalDataManagerCompleteExplicit():
         assert np.array_equal(expected_x_feature_matrix, x_feature_matrix, equal_nan = True), "Output of constant column removal does not match expected output."
         assert expected_select_features == select_features, "Output of constant column removal does not match expected output."
 
-    def test_processNaN_temporal(self, traditional_manager, file_paths_traditional, gloc_data_imputed_complete_explicit_traditional):
+    def test_process_NaN_temporal(self, traditional_manager, file_paths_traditional, gloc_data_imputed_complete_explicit_traditional):
         def process_NaN_temporal(y_gloc_labels, x_feature_matrix, all_features):
             """
             This is a temporary function for removing all rows with NaN values. This can be replaced by
@@ -6719,10 +6719,10 @@ class TestTraditionalDataManagerCompleteExplicit():
             feature_groups_to_analyze
         )
         select_features = features["All"].copy()
+        x_feature_matrix, select_features = traditional_manager._remove_constant_columns(x_feature_matrix.copy(), select_features.copy())
 
 
         # Get Expected Values
-        expected_model_type = self.EXPECTED_MODEL_TYPE
         expected_y_gloc_labels = y_gloc_labels.copy()
         expected_x_feature_matrix = x_feature_matrix.copy()
 
@@ -6738,6 +6738,59 @@ class TestTraditionalDataManagerCompleteExplicit():
         assert np.array_equal(expected_x_feature_matrix, x_feature_matrix_noNaN, equal_nan=True), "Output feature matrix after NaN processing does not match expected feature matrix."
         assert expected_all_features == all_features_noNaN, "Output feature names after NaN processing do not match expected feature names."
         assert np.array_equal(expected_removed_ind, removed_row_indices), "Output removed row indices after NaN processing do not match expected removed row indices."
+
+    def test_ready_outputs(self, traditional_manager, file_paths_traditional, gloc_data_imputed_complete_explicit_traditional):
+        # Variable Setup
+        model_type = self.MODEL_TYPE
+        classifier_type = "logreg"
+        baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors = traditional_manager._get_hyperparameters_by_classifier(classifier_type)
+        feature_groups_to_analyze, baseline_methods_to_use = traditional_manager._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
+
+        gloc_data_all_features_imputed_numpy = gloc_data_imputed_complete_explicit_traditional[0].copy()
+        gloc_labels_numpy = gloc_data_imputed_complete_explicit_traditional[1].copy()
+        features = gloc_data_imputed_complete_explicit_traditional[2].copy()
+        experiment_metadata = gloc_data_imputed_complete_explicit_traditional[3].copy()
+
+        offset = 0  # seconds
+        time_start = 0  # seconds
+
+        combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0 = traditional_manager._get_combined_baseline_data(
+            gloc_data_all_features_imputed_numpy,
+            experiment_metadata,
+            baseline_window,
+            baseline_methods_to_use,
+            features,
+            file_paths_traditional,
+            model_type
+        )
+        y_gloc_labels, x_feature_matrix, features["All"] = traditional_manager._feature_generation(
+            time_start, offset, stride, window_size,
+            combined_baseline, gloc_labels_numpy, experiment_metadata["trial_id"], experiment_metadata["Time (s)"],
+            combined_baseline_names, baseline_names_v0, baseline_v0,
+            feature_groups_to_analyze
+        )
+        select_features = features["All"].copy()
+        x_feature_matrix, select_features = traditional_manager._remove_constant_columns(x_feature_matrix.copy(), select_features.copy())
+        y_gloc_labels, x_feature_matrix, all_features, removed_row_indices = traditional_manager._process_NaN_temporal(y_gloc_labels.copy(), x_feature_matrix.copy(), select_features.copy())
+
+        # Get Expected Values
+        expected_y_gloc_labels = y_gloc_labels.copy()
+        expected_x_feature_matrix = x_feature_matrix.copy()
+
+        expected_x_feature_matrix = (
+            expected_x_feature_matrix.to_numpy() if hasattr(expected_x_feature_matrix, "to_numpy") else np.asarray(expected_x_feature_matrix)
+        )
+        expected_y_gloc_labels = (
+            expected_y_gloc_labels.to_numpy().ravel() if hasattr(expected_y_gloc_labels, "to_numpy") else np.ravel(expected_y_gloc_labels)
+        )
+
+
+
+        # Get Actual Values
+        x_feature_matrix, y_gloc_labels = traditional_manager._ready_outputs(x_feature_matrix, y_gloc_labels)
+
+        assert np.array_equal(expected_x_feature_matrix, x_feature_matrix, equal_nan = True), "Final output feature matrix does not match expected output feature matrix."
+        assert np.array_equal(expected_y_gloc_labels, y_gloc_labels), "Final output G-LOC labels do not match expected G-LOC labels."
 
 class TestTraditionalDataManagerNoAFEExplicit():
     MODEL_TYPE = ("noAFE", "Explicit")
