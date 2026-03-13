@@ -6,7 +6,7 @@ from statsmodels.stats.multitest import multipletests
 from sklearn.model_selection import GridSearchCV, KFold
 import faiss
 
-from GLOC_data_processing import pull_eeg_sets
+from .GLOC_data_processing import pull_eeg_sets
 
 def knn_impute(predictors, n_neighbors, scale_data=False):
     """
