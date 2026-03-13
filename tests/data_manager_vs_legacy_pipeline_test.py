@@ -5465,7 +5465,7 @@ class TestTraditionalDataManagerCompleteExplicit():
 
 
         # Get Expected Values
-        expected_gloc_data, expected_gloc_labels = data_with_prediction(backstep, data_rate, classifier_type, model_type, select_features)
+        expected_gloc_data, expected_gloc_labels = data_with_prediction(backstep, data_rate, classifier_type, expected_model_type, select_features)
 
 
 
