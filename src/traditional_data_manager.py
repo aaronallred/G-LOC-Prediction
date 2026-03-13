@@ -40,7 +40,7 @@ class TraditionalDataManager:
         self.random_seed = random_seed
         self.use_reduced_dataset = use_reduced_dataset
 
-    def get_data(self, backstep, data_rate, classifier_type, model_type, select_features, train_class, class_weight_imb, remove_NaN_trials, offset, time_start, training_ratio, subject_to_analyze, trial_to_analyze, analysis_type):
+    def get_data(self, backstep, data_rate, classifier_type, model_type, select_features, remove_NaN_trials, offset, time_start, subject_to_analyze, trial_to_analyze, analysis_type):
         """Return data for a given set of parameters."""
         baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors = self._get_hyperparameters_by_classifier(classifier_type)
         feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
@@ -59,7 +59,7 @@ class TraditionalDataManager:
 
         if model_type[0] == "Complete" and model_type[1] == "Explicit":
             # Impute raw (using mean) value of the missing channels for each AFE condition
-            gloc_data = self._eeg_specific_imputation(gloc_data, feature_groups_to_analyze)
+            gloc_data = self._eeg_specific_imputation(gloc_data, features)
 
         if model_type[0] == "noAFE":
             # Reduce dataset based on AFE/noAFE condition
@@ -67,30 +67,34 @@ class TraditionalDataManager:
 
         ############################################### DATA CLEAN AND Some Imputation ###############################################
         if remove_NaN_trials:
-            gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, feature_groups_to_analyze, gloc_labels)
+            gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
 
         if impute_type == 1:
-            # Imputes missing row data
-            gloc_data = self._faster_knn_impute(gloc_data[feature_groups_to_analyze].to_numpy(dtype=np.float32), k = n_neighbors) # Only impute the features, not the metadata columns
+            # Imputes missing row data - only impute the feature columns, then write results back into the DataFrame
+            imputed_features = self._faster_knn_impute(gloc_data[features["All"]].to_numpy(dtype=np.float32), k=n_neighbors)
+            gloc_data[features["All"]] = imputed_features
         
         ################################################## REDUCE MEMORY ##################################################
         # Extract out columns from gloc_data into experiment_metadata
-        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data, gloc_labels, feature_groups_to_analyze, model_type)
+        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data, gloc_labels, features, model_type)
 
         ###################################################### Prediction Offset ###############################################
         gloc_labels_numpy = self._y_prediction_offset(gloc_labels_numpy, backstep, data_rate, experiment_metadata["trial_id"])
 
         ################################################ BASELINE ################################################
         combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0 = self._get_combined_baseline_data(
-            gloc_data,
-            feature_groups_to_analyze,
+            gloc_data_all_features_numpy,
+            experiment_metadata,
+            baseline_window,
             baseline_methods_to_use,
+            features,
             file_paths,
-            model_type,
+            model_type
         )
 
         ################################# FEATURE GENERATION ########################################
         # Feature generation must run for each offset to window GLOC labels
+        raw_gloc_labels_numpy = gloc_labels_numpy.copy()
         gloc_labels_numpy, gloc_data_all_features_numpy, features["All"] = self._feature_generation(
             time_start,
             offset,
@@ -113,7 +117,7 @@ class TraditionalDataManager:
                 experiment_metadata["AFE_indicator"],
                 experiment_metadata["trial_id"],
                 experiment_metadata["Time (s)"],
-                gloc_labels_numpy,
+                raw_gloc_labels_numpy,
                 offset,
                 stride,
                 window_size,
