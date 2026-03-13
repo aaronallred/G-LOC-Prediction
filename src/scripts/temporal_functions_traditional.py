@@ -130,6 +130,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
 
     train_class = True
     class_weight_imb = None
+    model_type_lower = tuple(str(item).lower() for item in model_type)
 
         # Data Handling Options
     remove_NaN_trials = True # Planning to always remove NaN for offset sequence
@@ -137,17 +138,17 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
 
         ## Model Parameters
     # model_type = ['noAFE', 'explicit']
-    if 'noAFE' in model_type and 'explicit' in model_type:
+    if 'noafe' in model_type_lower and 'explicit' in model_type_lower:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                      'rawEEG', 'processedEEG', 'strain', 'demographics']
-    if 'noAFE' in model_type and 'implicit' in model_type:
+    if 'noafe' in model_type_lower and 'implicit' in model_type_lower:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking','rawEEG', 'processedEEG']
             # feature_groups_to_analyze = ['ECG']
-    if 'complete' in model_type and 'explicit' in model_type:
+    if 'complete' in model_type_lower and 'explicit' in model_type_lower:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'AFE', 'G',
                                          'rawEEG', 'processedEEG', 'strain', 'demographics']
         baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6']
-    if 'complete' in model_type and 'implicit' in model_type:
+    if 'complete' in model_type_lower and 'implicit' in model_type_lower:
         feature_groups_to_analyze = ['ECG', 'BR', 'temp', 'eyetracking', 'rawEEG', 'processedEEG', 'AFE']
         baseline_methods_to_use = ['v0', 'v1', 'v2', 'v5', 'v6']
 
@@ -192,7 +193,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         gloc = label_gloc_events(gloc_data_reduced)
 
 
-        if 'complete' in model_type and 'explicit' in model_type:
+        if 'complete' in model_type_lower and 'explicit' in model_type_lower:
             # Grab AFE / NonAFE condition indicator column
             condition_idx = all_features.index('condition')
             afe_indicator_column = features[:, condition_idx]
@@ -209,7 +210,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
             # Add indicator back in for trial and row removal during 'data clean and prep' (will be taken back out)
             gloc_data_reduced[
                 "AFE_indicator"] = afe_indicator_column  # Merge afe_indicators back into the predictor set
-        if 'noAFE' in model_type:
+        if 'noafe' in model_type_lower:
             # Reduce Dataset based on AFE / nonAFE condition
             gloc_data_reduced, features, features_phys, features_ecg, features_eeg, gloc = (
                 afe_subset(model_type, gloc_data_reduced, all_features,
@@ -239,7 +240,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         subject_column = gloc_data_reduced['subject']
 
         # If complete condition, grab afe_indicator from cleaned dataframe
-        if 'complete' in model_type and 'explicit' in model_type:
+        if 'complete' in model_type_lower and 'explicit' in model_type_lower:
             afe_indicator_column = gloc_data_reduced["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1)
 
         del gloc_data_reduced
@@ -251,7 +252,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
             'event_validated_column': event_validated_column,
             'subject_column': subject_column,
             'nan_proportion_df': nan_proportion_df if remove_NaN_trials else None,
-            'indicator_afe': afe_indicator_column if 'complete' in model_type and 'explicit' in model_type else None
+            'indicator_afe': afe_indicator_column if 'complete' in model_type_lower and 'explicit' in model_type_lower else None
         })
 
         print('reduce memory complete for', backstep, 'backstep')
@@ -332,7 +333,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         ################################################ Feature Reduction ################################################
 
         # Add windowed AFE indicator if required by model type
-        if 'complete' in model_type and 'explicit' in model_type:
+        if 'complete' in model_type_lower and 'explicit' in model_type_lower:
             afe_indicator_column_windowed, gloc_compare, _ = sliding_window_max(
                 afe_indicator_column, trial_column, time_column, gloc,
                 offset, stride, window_size, time_start
@@ -791,13 +792,13 @@ def get_model_subfolder(model_type):
     elif model_type == ['complete', 'implicit']:
         return 'Implicit complete'
     elif model_type == ['complete', 'explicit']:
-        return 'Explicit complete'
+        return 'Explicit_Complete_final'
     else:
         raise ValueError(f"Unrecognized model_type: {model_type}")
 
 def get_hyperparameters_from_json(classifier: str, model_type: str):
     # Function to load in median hyperparameters from a simple JSON
-    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
     json_path = os.path.join(BASE_DIR, 'ModelSave', 'CV', model_type, f'median_hyperparameters_{classifier}.json')
 
     with open(json_path, 'r') as f:
