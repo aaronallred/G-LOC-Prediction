@@ -1661,13 +1661,13 @@ class TraditionalDataManager:
         return y_gloc_labels, x_feature_matrix
 
     def _reduce_features(self, model_type, offset, stride, window_size, time_start, gloc_data_all_features_imputed_numpy, gloc_labels, features, experiment_metadata, select_features):
-        if 'complete' in model_type and 'explicit' in model_type:
+        if model_type[0] == "Complete" and model_type[1] == "Explicit":
             afe_indicator_column_windowed, gloc_compare, _ = self._sliding_window_max(
                 experiment_metadata["AFE_indicator"], experiment_metadata["trial_id"], experiment_metadata["Time (s)"], gloc_labels,
                 offset, stride, window_size, time_start
             )
             gloc_data_all_features_imputed_numpy = np.hstack([gloc_data_all_features_imputed_numpy, afe_indicator_column_windowed])
-            features["All"].append('AFE_indicator_windowed')
+            features["All"].append("AFE_indicator_windowed")
 
         # Convert feature matrix to DataFrame for column selection
         gloc_data_all_features_imputed_numpy = pd.DataFrame(gloc_data_all_features_imputed_numpy, columns = features["All"])
