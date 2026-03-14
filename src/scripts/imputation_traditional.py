@@ -155,7 +155,9 @@ def faster_knn_impute(X, k=5, M=32, efSearch=64):
   X_temp = np.where(mask, np.nanmean(X, axis=0), X)
   # Build FAISS index (HNSW)
   d = X.shape[1] # dimension
+  faiss.omp_set_num_threads(1)
   index = faiss.IndexHNSWFlat(d, M)
+  index.hnsw.rng = faiss.RandomGenerator(42)
   index.hnsw.efSearch = efSearch
   index.add(X_temp.astype(np.float32))
   # Find k nearest neighbors
