@@ -61,22 +61,38 @@ class TraditionalDataManager:
             # Impute raw (using mean) value of the missing channels for each AFE condition
             gloc_data = self._eeg_specific_imputation(gloc_data, features)
 
+        pipeline_features = {name: feature_names.copy() for name, feature_names in features.items()}
+        if model_type[0] == "Complete" and model_type[1] == "Explicit":
+            # Match legacy: keep AFE indicator out of the working predictor matrix,
+            # then add it back only as windowed indicator later.
+            pipeline_features["All"] = [
+                feature_name for feature_name in pipeline_features["All"] if feature_name != "AFE_indicator"
+            ]
+
         if model_type[0] == "noAFE":
             # Reduce dataset based on AFE/noAFE condition
             gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
 
         ############################################### DATA CLEAN AND Some Imputation ###############################################
         if remove_NaN_trials:
-            gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
+            gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, pipeline_features, gloc_labels)
+
+        # Legacy baselines use group arrays captured before global KNN imputation.
+        baseline_group_data = {
+            "Phys": gloc_data[pipeline_features["Phys"]].to_numpy(dtype=np.float32, copy=True),
+            "ECG": gloc_data[pipeline_features["ECG"]].to_numpy(dtype=np.float32, copy=True),
+            "EEG": gloc_data[pipeline_features["EEG"]].to_numpy(dtype=np.float32, copy=True),
+        }
 
         if impute_type == 1:
-            # Imputes missing row data - only impute the feature columns, then write results back into the DataFrame
-            imputed_features = self._faster_knn_impute(gloc_data[features["All"]].to_numpy(dtype=np.float32), k=n_neighbors)
-            gloc_data[features["All"]] = imputed_features
+            # Imputes missing row data - extract as float64 to match legacy numeric precision
+            # (legacy features array is float64 by the time KNN runs, due to mixed-dtype DataFrame).
+            imputed_features = self._faster_knn_impute(gloc_data[pipeline_features["All"]].to_numpy(dtype=np.float64), k=n_neighbors)
+            gloc_data[pipeline_features["All"]] = imputed_features
         
         ################################################## REDUCE MEMORY ##################################################
         # Extract out columns from gloc_data into experiment_metadata
-        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data, gloc_labels, features, model_type)
+        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data, gloc_labels, pipeline_features, model_type)
 
         ###################################################### Prediction Offset ###############################################
         gloc_labels_numpy = self._y_prediction_offset(gloc_labels_numpy, backstep, data_rate, experiment_metadata["trial_id"])
@@ -87,15 +103,17 @@ class TraditionalDataManager:
             experiment_metadata,
             baseline_window,
             baseline_methods_to_use,
-            features,
+            pipeline_features,
             file_paths,
-            model_type
+            model_type,
+            baseline_group_data,
+            gloc_labels_numpy,
         )
 
         ################################# FEATURE GENERATION ########################################
         # Feature generation must run for each offset to window GLOC labels
         raw_gloc_labels_numpy = gloc_labels_numpy.copy()
-        gloc_labels_numpy, gloc_data_all_features_numpy, features["All"] = self._feature_generation(
+        gloc_labels_numpy, gloc_data_all_features_numpy, pipeline_features["All"] = self._feature_generation(
             time_start,
             offset,
             stride,
@@ -125,17 +143,17 @@ class TraditionalDataManager:
             )
 
             gloc_data_all_features_numpy = np.hstack([gloc_data_all_features_numpy, experiment_metadata["AFE_indicator_windowed"]])
-            features["All"].append("AFE_indicator_windowed")
+            pipeline_features["All"].append("AFE_indicator_windowed")
 
         # Convert feature matrix into a DataFrame for column selection
-        gloc_data_all_features_numpy = pd.DataFrame(gloc_data_all_features_numpy, columns = features["All"])
+        gloc_data_all_features_numpy = pd.DataFrame(gloc_data_all_features_numpy, columns = pipeline_features["All"])
         gloc_data_all_features_numpy = gloc_data_all_features_numpy[select_features]
         gloc_data_all_features_numpy = gloc_data_all_features_numpy.to_numpy()
 
         gloc_data_all_features_numpy, select_features = self._remove_constant_columns(gloc_data_all_features_numpy, select_features)
 
         ################################################ NaN Processing ################################################
-        gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], removed_ind = self._process_NaN_temporal(gloc_labels_numpy, gloc_data_all_features_numpy, select_features)
+        gloc_labels_numpy, gloc_data_all_features_numpy, pipeline_features["All"], removed_ind = self._process_NaN_temporal(gloc_labels_numpy, gloc_data_all_features_numpy, select_features)
 
         ################################################ Get Outputs Ready ############################################
         gloc_data_all_features_numpy, gloc_labels_numpy = self._ready_outputs(gloc_data_all_features_numpy, gloc_labels_numpy)
@@ -701,6 +719,8 @@ class TraditionalDataManager:
             features: Dict[str, List[str]],
             file_paths: Dict[str, Any],
             model_type: Tuple[str, str],
+            baseline_group_data: Optional[Dict[str, np.ndarray]] = None,
+            gloc_labels_numpy: Optional[np.ndarray] = None,
     ) -> Tuple[Dict[str, np.ndarray], List[str], Dict[str, np.ndarray], List[str]]:
         """Compute baselines and return combined outputs plus v0 baseline data/names."""
         participant_baseline = pd.read_csv(file_paths["baseline"])
@@ -715,11 +735,14 @@ class TraditionalDataManager:
             band = os.path.basename(filepath).split("_")[3]
             eeg_baseline_data[band] = df
 
-        # Build feature-group index arrays using set lookups for O(1) membership
-        phys_set, ecg_set, eeg_set = set(features["Phys"]), set(features["ECG"]), set(features["EEG"])
-        phys_indices = [i for i, f in enumerate(features["All"]) if f in phys_set]
-        ecg_indices = [i for i, f in enumerate(features["All"]) if f in ecg_set]
-        eeg_indices = [i for i, f in enumerate(features["All"]) if f in eeg_set]
+        if baseline_group_data is None:
+            # Fallback for callers that only provide the imputed full matrix.
+            feature_index = {feature_name: i for i, feature_name in enumerate(features["All"])}
+            baseline_group_data = {
+                "Phys": gloc_data_all_features_imputed_numpy[:, [feature_index[name] for name in features["Phys"]]],
+                "ECG": gloc_data_all_features_imputed_numpy[:, [feature_index[name] for name in features["ECG"]]],
+                "EEG": gloc_data_all_features_imputed_numpy[:, [feature_index[name] for name in features["EEG"]]],
+            }
 
         context = BaselineContext(
             trial_column=experiment_metadata["trial_id"],
@@ -728,9 +751,9 @@ class TraditionalDataManager:
             subject_column=experiment_metadata["subject"],
             data_by_features={
                 "All": gloc_data_all_features_imputed_numpy,
-                "Phys": gloc_data_all_features_imputed_numpy[:, phys_indices],
-                "ECG": gloc_data_all_features_imputed_numpy[:, ecg_indices],
-                "EEG": gloc_data_all_features_imputed_numpy[:, eeg_indices],
+                "Phys": baseline_group_data["Phys"],
+                "ECG": baseline_group_data["ECG"],
+                "EEG": baseline_group_data["EEG"],
             },
             features=features,
             baseline_window=baseline_window,
@@ -738,11 +761,9 @@ class TraditionalDataManager:
             participant_baseline_data=participant_baseline_rhr,
             eeg_baseline_data=eeg_baseline_data,
         )
-
         combined_baseline, combined_names, baseline_v0, baseline_names_v0, trial_order = baseline_data(baseline_methods_to_use, context)
-        # Store trial_order for use in _generate_features to compute trial_ints in correct order
         experiment_metadata["trial_order"] = trial_order
-        
+
         return combined_baseline, combined_names, baseline_v0, baseline_names_v0
 
     def _feature_generation(self, time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column,
@@ -765,7 +786,7 @@ class TraditionalDataManager:
         all_features_stddev_s2, all_features_max_s2,
         all_features_range_s2) = (
             self._sliding_window_calc(time_start, stride, window_size, combined_baseline, trial_column, time_column,
-                                number_windows, combined_baseline_names))
+                                      number_windows, combined_baseline_names))
 
         # Additional Features
         (all_features_additional_s1, sliding_window_integral_left_pupil_s1, sliding_window_integral_right_pupil_s1,
@@ -781,35 +802,35 @@ class TraditionalDataManager:
         sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
         sliding_window_cognitive_ies_s2) = \
             (self._sliding_window_other_features(time_start, stride, window_size, trial_column, time_column,
-                                        number_windows,
-                                        baseline_names_v0, baseline_v0, feature_groups_to_analyze))
+                                            number_windows,
+                                            baseline_names_v0, baseline_v0, feature_groups_to_analyze))
 
         # Unpack Dictionary into Array & combine features into one feature array
         y_gloc_labels, x_feature_matrix = self._unpack_dict(gloc_window, sliding_window_mean_s1, number_windows,
-                                                    sliding_window_stddev_s1,
-                                                    sliding_window_max_s1, sliding_window_range_s1,
-                                                    sliding_window_integral_left_pupil_s1,
-                                                    sliding_window_integral_right_pupil_s1,
-                                                    sliding_window_consecutive_elements_mean_left_pupil_s1,
-                                                    sliding_window_consecutive_elements_mean_right_pupil_s1,
-                                                    sliding_window_consecutive_elements_max_left_pupil_s1,
-                                                    sliding_window_consecutive_elements_max_right_pupil_s1,
-                                                    sliding_window_consecutive_elements_sum_left_pupil_s1,
-                                                    sliding_window_consecutive_elements_sum_right_pupil_s1,
-                                                    sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1,
-                                                    sliding_window_cognitive_ies_s1,
-                                                    sliding_window_mean_s2, sliding_window_stddev_s2,
-                                                    sliding_window_max_s2, sliding_window_range_s2,
-                                                    sliding_window_integral_left_pupil_s2,
-                                                    sliding_window_integral_right_pupil_s2,
-                                                    sliding_window_consecutive_elements_mean_left_pupil_s2,
-                                                    sliding_window_consecutive_elements_mean_right_pupil_s2,
-                                                    sliding_window_consecutive_elements_max_left_pupil_s2,
-                                                    sliding_window_consecutive_elements_max_right_pupil_s2,
-                                                    sliding_window_consecutive_elements_sum_left_pupil_s2,
-                                                    sliding_window_consecutive_elements_sum_right_pupil_s2,
-                                                    sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
-                                                    sliding_window_cognitive_ies_s2)
+                                                            sliding_window_stddev_s1,
+                                                            sliding_window_max_s1, sliding_window_range_s1,
+                                                            sliding_window_integral_left_pupil_s1,
+                                                            sliding_window_integral_right_pupil_s1,
+                                                            sliding_window_consecutive_elements_mean_left_pupil_s1,
+                                                            sliding_window_consecutive_elements_mean_right_pupil_s1,
+                                                            sliding_window_consecutive_elements_max_left_pupil_s1,
+                                                            sliding_window_consecutive_elements_max_right_pupil_s1,
+                                                            sliding_window_consecutive_elements_sum_left_pupil_s1,
+                                                            sliding_window_consecutive_elements_sum_right_pupil_s1,
+                                                            sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1,
+                                                            sliding_window_cognitive_ies_s1,
+                                                            sliding_window_mean_s2, sliding_window_stddev_s2,
+                                                            sliding_window_max_s2, sliding_window_range_s2,
+                                                            sliding_window_integral_left_pupil_s2,
+                                                            sliding_window_integral_right_pupil_s2,
+                                                            sliding_window_consecutive_elements_mean_left_pupil_s2,
+                                                            sliding_window_consecutive_elements_mean_right_pupil_s2,
+                                                            sliding_window_consecutive_elements_max_left_pupil_s2,
+                                                            sliding_window_consecutive_elements_max_right_pupil_s2,
+                                                            sliding_window_consecutive_elements_sum_left_pupil_s2,
+                                                            sliding_window_consecutive_elements_sum_right_pupil_s2,
+                                                            sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
+                                                            sliding_window_cognitive_ies_s2)
 
         # Combine all features into array
         all_features = (all_features_mean_s1 + all_features_stddev_s1 + all_features_max_s1 + all_features_range_s1 +
@@ -885,7 +906,7 @@ class TraditionalDataManager:
         """
 
         # Find Unique Trial ID
-        trial_id_in_data = np.unique(trial_column)
+        trial_id_in_data = pd.unique(trial_column)  # order-preserving, matching legacy script behavior
 
         # Build Dictionary for each trial_id
         sliding_window_mean = dict()
@@ -981,7 +1002,7 @@ class TraditionalDataManager:
         """
 
         # Find Unique Trial ID
-        trial_id_in_data = np.unique(trial_column)
+        trial_id_in_data = pd.unique(trial_column)  # order-preserving, matching legacy script behavior
 
         # Build Dictionary for each trial_id
         # Windowed data (no standardization)
@@ -1123,7 +1144,7 @@ class TraditionalDataManager:
         """
 
         # Find Unique Trial ID
-        trial_id_in_data = np.unique(trial_column)
+        trial_id_in_data = pd.unique(trial_column)  # order-preserving, matching legacy script behavior
 
         # Accept either a direct v0 name list or the full baseline-name dict.
         if isinstance(baseline_names_v0, dict):
@@ -1695,7 +1716,7 @@ class TraditionalDataManager:
         - all_trials: np.array [total_windows] indicating which trial each window came from
         """
 
-        trial_ids = np.unique(trial_column)
+        trial_ids = pd.unique(trial_column)  # order-preserving, matching legacy script behavior
 
         all_features = []
         all_labels = []

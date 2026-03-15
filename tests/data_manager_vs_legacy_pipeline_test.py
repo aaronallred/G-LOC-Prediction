@@ -5517,7 +5517,7 @@ class TestTraditionalDataManagerCompleteExplicit():
         )
 
 
-
+        np.testing.assert_array_equal(expected_gloc_data, actual_gloc_data)
         assert np.array_equal(expected_gloc_data, actual_gloc_data, equal_nan=True), "Loaded and prepared data does not match expected data."
         assert np.array_equal(expected_gloc_labels, actual_gloc_labels), "Loaded and prepared G-LOC labels do not match expected G-LOC labels."
 
