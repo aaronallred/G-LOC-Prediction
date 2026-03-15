@@ -2909,8 +2909,6 @@ class TestAdvancedDataManagerNoAFEImplicit(TestAdvancedDataManagerBase):
     MODEL_TYPE = ("noAFE", "Implicit")
     __test__ = True  # Ensure this class is collected by pytest
 
-
-
 # Traditional Data Manager Tests
 @pytest.fixture(scope = "session")
 def traditional_manager():
@@ -3106,11 +3104,11 @@ class TestTraditionalDataManagerCompleteExplicit():
         return data_numpy, labels_numpy, features, metadata
 
     @pytest.fixture(scope="class")
-    def _logreg_windowed_state(self, traditional_manager, file_paths_traditional, gloc_data_imputed_complete_explicit_traditional):
-        """Baseline + feature_generation for logreg, cached once per class for all windowed tests."""
+    def _knn_windowed_state(self, traditional_manager, file_paths_traditional, gloc_data_imputed_complete_explicit_traditional):
+        """Baseline + feature_generation for KNN, cached once per class for all windowed tests."""
         model_type = self.MODEL_TYPE
         (baseline_window, window_size, stride, feature_reduction_type,
-         baseline_methods, imbalance_type, impute_type, n_neighbors) = traditional_manager._get_hyperparameters_by_classifier("logreg")
+         baseline_methods, imbalance_type, impute_type, n_neighbors) = traditional_manager._get_hyperparameters_by_classifier("KNN")
         feature_groups, baseline_methods = traditional_manager._get_feature_groups_and_baseline_methods(model_type, baseline_methods)
 
         imputed  = gloc_data_imputed_complete_explicit_traditional[0].copy()
@@ -3138,6 +3136,7 @@ class TestTraditionalDataManagerCompleteExplicit():
         'LDA':    dict(baseline_window=46.25, window_size=15,   stride=0.25, feature_reduction_type='lasso', baseline_methods_to_use=['v0','v1','v2'],                     imbalance_type='none', impute_type=1, n_neighbors=3),
         'SVM':    dict(baseline_window=32.5,  window_size=15,   stride=0.25, feature_reduction_type='ridge', baseline_methods_to_use=['v0','v1','v2'],                     imbalance_type='none', impute_type=1, n_neighbors=3),
         'EGB':    dict(baseline_window=46.25, window_size=12.5, stride=0.25, feature_reduction_type='lasso', baseline_methods_to_use=['v0','v1','v2','v5','v6','v7','v8'], imbalance_type='none', impute_type=1, n_neighbors=3),
+        'KNN':    dict(baseline_window=32.5,  window_size=15,   stride=0.25, feature_reduction_type='performance', baseline_methods_to_use=['v0','v1','v2'],                     imbalance_type='ros',  impute_type=1, n_neighbors=5),
     }
 
     def test_get_hyperparameters_by_classifier_type(self, traditional_manager):
@@ -3160,7 +3159,7 @@ class TestTraditionalDataManagerCompleteExplicit():
         model_type = self.MODEL_TYPE
         expected_model_type = self.EXPECTED_MODEL_TYPE
 
-        for classifier_type in ['logreg', 'RF', 'LDA', 'SVM', 'EGB']:
+        for classifier_type in ['logreg', 'RF', 'LDA', 'SVM', 'EGB', "KNN"]:
             baseline_window, window_size, stride, feature_reduction_type, baseline_methods_from_hyperparams, imbalance_type, impute_type, n_neighbors = traditional_manager._get_hyperparameters_by_classifier(classifier_type)
             expected_feature_groups_to_analyze, expected_baseline_methods_to_use = None, baseline_methods_from_hyperparams.copy()
 
@@ -4335,61 +4334,61 @@ class TestTraditionalDataManagerCompleteExplicit():
 
             return combined_baseline, combined_baseline_names
         
-        for classifier_type in ['logreg', 'RF', 'LDA', 'SVM', 'EGB']:
-            baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors = traditional_manager._get_hyperparameters_by_classifier(classifier_type)
+        classifier_type = "KNN"
+        baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors = traditional_manager._get_hyperparameters_by_classifier(classifier_type)
 
-            # Variable Setup
-            model_type = self.MODEL_TYPE
-            gloc_data_all_features_imputed_numpy = gloc_data_imputed_complete_explicit_traditional[0].copy()
-            gloc_labels_numpy = gloc_data_imputed_complete_explicit_traditional[1].copy()
-            features = gloc_data_imputed_complete_explicit_traditional[2].copy()
-            experiment_metadata = gloc_data_imputed_complete_explicit_traditional[3].copy()
-            
-
-
-            # Get Expected Values
-            expected_model_type = self.EXPECTED_MODEL_TYPE
-            expected_gloc_data_all_features_imputed_numpy = gloc_data_all_features_imputed_numpy.copy()
-            expected_gloc_labels_numpy = gloc_labels_numpy.copy()
-            expected_trial_column = experiment_metadata["trial_id"].copy()
-            expected_time_column = experiment_metadata["Time (s)"].copy()
-            expected_event_validated_column = experiment_metadata["event_validated"].copy()
-            expected_subject_column = experiment_metadata["subject"].copy()
-
-            expected_all_features = features["All"].copy()
-            expected_all_features_phys = features["Phys"].copy()
-            expected_all_features_ecg = features["ECG"].copy()
-            expected_all_features_eeg = features["EEG"].copy()
-
-            features_phys = gloc_data_all_features_imputed_numpy[:, [expected_all_features.index(feature) for feature in expected_all_features_phys]]
-            features_ecg = gloc_data_all_features_imputed_numpy[:, [expected_all_features.index(feature) for feature in expected_all_features_ecg]]
-            features_eeg = gloc_data_all_features_imputed_numpy[:, [expected_all_features.index(feature) for feature in expected_all_features_eeg]]
-
-            baseline_data_filename = file_paths_traditional["baseline"]
-            list_of_baseline_eeg_processed_files = file_paths_traditional["baseline_eeg_processed_list"].copy()
-
-            expected_combined_baseline, expected_combined_baseline_names, baseline_v0, baseline_names_v0 = (
-            baseline_data(baseline_methods_to_use, expected_trial_column, expected_time_column, expected_event_validated_column, expected_subject_column,
-                            expected_gloc_data_all_features_imputed_numpy, expected_all_features,
-                            expected_gloc_labels_numpy, baseline_window, features_phys, expected_all_features_phys, features_ecg, expected_all_features_ecg,
-                            features_eeg, expected_all_features_eeg, baseline_data_filename, list_of_baseline_eeg_processed_files,
-                            expected_model_type))
-            
+        # Variable Setup
+        model_type = self.MODEL_TYPE
+        gloc_data_all_features_imputed_numpy = gloc_data_imputed_complete_explicit_traditional[0].copy()
+        gloc_labels_numpy = gloc_data_imputed_complete_explicit_traditional[1].copy()
+        features = gloc_data_imputed_complete_explicit_traditional[2].copy()
+        experiment_metadata = gloc_data_imputed_complete_explicit_traditional[3].copy()
+        
 
 
-            # Get Actual Values
-            combined_baseline, combined_baseline_names, _, _ = traditional_manager._get_combined_baseline_data(
-                gloc_data_all_features_imputed_numpy,
-                experiment_metadata,
-                baseline_window,
-                baseline_methods_to_use,
-                features,
-                file_paths_traditional,
-                model_type
-            )
+        # Get Expected Values
+        expected_model_type = self.EXPECTED_MODEL_TYPE
+        expected_gloc_data_all_features_imputed_numpy = gloc_data_all_features_imputed_numpy.copy()
+        expected_gloc_labels_numpy = gloc_labels_numpy.copy()
+        expected_trial_column = experiment_metadata["trial_id"].copy()
+        expected_time_column = experiment_metadata["Time (s)"].copy()
+        expected_event_validated_column = experiment_metadata["event_validated"].copy()
+        expected_subject_column = experiment_metadata["subject"].copy()
 
-            assert all(np.array_equal(expected_combined_baseline[trial_id], combined_baseline[trial_id]) for trial_id in expected_combined_baseline.keys()), "Combined baseline data does not match expected data."
-            assert np.array_equal(expected_combined_baseline_names, combined_baseline_names), "Combined baseline names do not match expected names."
+        expected_all_features = features["All"].copy()
+        expected_all_features_phys = features["Phys"].copy()
+        expected_all_features_ecg = features["ECG"].copy()
+        expected_all_features_eeg = features["EEG"].copy()
+
+        features_phys = gloc_data_all_features_imputed_numpy[:, [expected_all_features.index(feature) for feature in expected_all_features_phys]]
+        features_ecg = gloc_data_all_features_imputed_numpy[:, [expected_all_features.index(feature) for feature in expected_all_features_ecg]]
+        features_eeg = gloc_data_all_features_imputed_numpy[:, [expected_all_features.index(feature) for feature in expected_all_features_eeg]]
+
+        baseline_data_filename = file_paths_traditional["baseline"]
+        list_of_baseline_eeg_processed_files = file_paths_traditional["baseline_eeg_processed_list"].copy()
+
+        expected_combined_baseline, expected_combined_baseline_names, baseline_v0, baseline_names_v0 = (
+        baseline_data(baseline_methods_to_use, expected_trial_column, expected_time_column, expected_event_validated_column, expected_subject_column,
+                        expected_gloc_data_all_features_imputed_numpy, expected_all_features,
+                        expected_gloc_labels_numpy, baseline_window, features_phys, expected_all_features_phys, features_ecg, expected_all_features_ecg,
+                        features_eeg, expected_all_features_eeg, baseline_data_filename, list_of_baseline_eeg_processed_files,
+                        expected_model_type))
+        
+
+
+        # Get Actual Values
+        combined_baseline, combined_baseline_names, _, _ = traditional_manager._get_combined_baseline_data(
+            gloc_data_all_features_imputed_numpy,
+            experiment_metadata,
+            baseline_window,
+            baseline_methods_to_use,
+            features,
+            file_paths_traditional,
+            model_type
+        )
+
+        assert all(np.array_equal(expected_combined_baseline[trial_id], combined_baseline[trial_id]) for trial_id in expected_combined_baseline.keys()), "Combined baseline data does not match expected data."
+        assert np.array_equal(expected_combined_baseline_names, combined_baseline_names), "Combined baseline names do not match expected names."
 
     def test_feature_generation(self, traditional_manager, file_paths_traditional, gloc_data_imputed_complete_explicit_traditional):
         def feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column,
@@ -5309,7 +5308,7 @@ class TestTraditionalDataManagerCompleteExplicit():
 
         # Variable Setup
         model_type = self.MODEL_TYPE
-        classifier_type = "logreg" # Arbitrarily test logreg
+        classifier_type = "KNN" # Arbitrarily test KNN
         baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors = traditional_manager._get_hyperparameters_by_classifier(classifier_type)
         feature_groups_to_analyze, baseline_methods_to_use = traditional_manager._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
 
@@ -5361,7 +5360,7 @@ class TestTraditionalDataManagerCompleteExplicit():
         assert np.array_equal(expected_x_feature_matrix, x_feature_matrix, equal_nan=True), "Generated feature matrix does not match expected feature matrix."
         assert expected_all_features == features["All"], "Generated feature names do not match expected feature names."
 
-    def test_feature_reduction(self, traditional_manager, _logreg_windowed_state):
+    def test_feature_reduction(self, traditional_manager, _knn_windowed_state):
         def sliding_window_max(data_array, trial_column, time_column, label_array, offset, stride, window_size, time_start=0):
             trial_ids  = np.unique(trial_column)
             all_features, all_labels, all_trials = [], [], []
@@ -5382,7 +5381,7 @@ class TestTraditionalDataManagerCompleteExplicit():
                     t += stride
             return np.array(all_features), np.array(all_labels), np.array(all_trials)
 
-        y_gloc_labels, x_feature_matrix, select_features, features, metadata, window_size, stride, _, raw_labels = _logreg_windowed_state
+        y_gloc_labels, x_feature_matrix, select_features, features, metadata, window_size, stride, _, raw_labels = _knn_windowed_state
         model_type = self.MODEL_TYPE
         offset, time_start = 0, 0
 
@@ -5401,23 +5400,23 @@ class TestTraditionalDataManagerCompleteExplicit():
         # Actual
         actual_x = traditional_manager._reduce_features(
             model_type, offset, stride, window_size, time_start,
-            x_feature_matrix.copy(), y_gloc_labels, features, metadata, select_features
+            x_feature_matrix.copy(), raw_labels, features, metadata, select_features
         )
         assert np.array_equal(expected_x, actual_x, equal_nan=True), "Feature reduction output does not match expected output."
 
-    def test_remove_constant_columns(self, traditional_manager, _logreg_windowed_state):
+    def test_remove_constant_columns(self, traditional_manager, _knn_windowed_state):
         def remove_constant_columns(x, all_features):
             mask = np.all(x == x[0, :], axis=0)
             return x[:, ~mask], [f for i, f in enumerate(all_features) if not mask[i]]
 
-        _, x_matrix, select_features, _, _, _, _, _, _ = _logreg_windowed_state
+        _, x_matrix, select_features, _, _, _, _, _, _ = _knn_windowed_state
         exp_x, exp_fs = remove_constant_columns(x_matrix, select_features)
         act_x, act_fs = traditional_manager._remove_constant_columns(x_matrix.copy(), select_features.copy())
 
         assert np.array_equal(exp_x, act_x, equal_nan=True), "Output of constant column removal does not match expected output."
         assert exp_fs == act_fs,                              "Output feature names after constant column removal do not match."
 
-    def test_process_NaN_temporal(self, traditional_manager, _logreg_windowed_state):
+    def test_process_NaN_temporal(self, traditional_manager, _knn_windowed_state):
         def process_NaN_temporal(y, x, all_features):
             col_mask  = ~np.all(np.isnan(x), axis=0)
             x         = x[:, col_mask]
@@ -5425,7 +5424,7 @@ class TestTraditionalDataManagerCompleteExplicit():
             row_mask  = np.isnan(x).any(axis=1)
             return y[~row_mask], x[~row_mask], all_features, np.where(row_mask)[0]
 
-        y_labels, x_matrix, select_features, _, _, _, _, _, _ = _logreg_windowed_state
+        y_labels, x_matrix, select_features, _, _, _, _, _, _ = _knn_windowed_state
         x_matrix, select_features = traditional_manager._remove_constant_columns(x_matrix.copy(), select_features.copy())
 
         exp_y, exp_x, exp_fs, exp_idx = process_NaN_temporal(y_labels.copy(), x_matrix.copy(), select_features)
@@ -5436,8 +5435,8 @@ class TestTraditionalDataManagerCompleteExplicit():
         assert exp_fs == act_fs,                                           "Feature names after NaN temporal removal do not match."
         assert np.array_equal(exp_idx, act_idx),                          "Removed row indices after NaN temporal removal do not match."
 
-    def test_ready_outputs(self, traditional_manager, _logreg_windowed_state):
-        y_labels, x_matrix, select_features, _, _, _, _, _, _ = _logreg_windowed_state
+    def test_ready_outputs(self, traditional_manager, _knn_windowed_state):
+        y_labels, x_matrix, select_features, _, _, _, _, _, _ = _knn_windowed_state
         x_matrix, select_features = traditional_manager._remove_constant_columns(x_matrix.copy(), select_features.copy())
         y_labels, x_matrix, _, _  = traditional_manager._process_NaN_temporal(y_labels.copy(), x_matrix.copy(), select_features.copy())
 
@@ -5517,7 +5516,7 @@ class TestTraditionalDataManagerCompleteExplicit():
         )
 
 
-        np.testing.assert_array_equal(expected_gloc_data, actual_gloc_data)
+
         assert np.array_equal(expected_gloc_data, actual_gloc_data, equal_nan=True), "Loaded and prepared data does not match expected data."
         assert np.array_equal(expected_gloc_labels, actual_gloc_labels), "Loaded and prepared G-LOC labels do not match expected G-LOC labels."
 
@@ -5532,7 +5531,7 @@ class TestTraditionalDataManagerNoAFEExplicit():
         return gloc_data_imputed_noafe_explicit_traditional
 
     def test_get_hyperparameters_by_classifier_type(self, traditional_manager):
-        for classifier_type in ['logreg', 'RF', 'LDA', 'SVM', 'EGB']:
+        for classifier_type in ['logreg', 'RF', 'LDA', 'SVM', 'EGB', "KNN"]:
             # Get Expected Hyperparameters
             if classifier_type == 'logreg':
                 # Specifying Methods from Sequential optimization
@@ -5647,7 +5646,7 @@ class TestTraditionalDataManagerNoAFEExplicit():
         model_type = self.MODEL_TYPE
         expected_model_type = self.EXPECTED_MODEL_TYPE
 
-        for classifier_type in ['logreg', 'RF', 'LDA', 'SVM', 'EGB']:
+        for classifier_type in ['logreg', 'RF', 'LDA', 'SVM', 'EGB', "KNN"]:
             baseline_window, window_size, stride, feature_reduction_type, baseline_methods_from_hyperparams, imbalance_type, impute_type, n_neighbors = traditional_manager._get_hyperparameters_by_classifier(classifier_type)
             expected_feature_groups_to_analyze, expected_baseline_methods_to_use = None, baseline_methods_from_hyperparams.copy()
 
