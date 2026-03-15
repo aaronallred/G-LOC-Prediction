@@ -5517,9 +5517,9 @@ class TestTraditionalDataManagerCompleteExplicit():
         )
 
 
-        # End-to-end parity is not exact yet for Complete/Explicit, so check stable invariants.
-        assert expected_gloc_data.shape[1] == actual_gloc_data.shape[1], "Loaded data feature dimension does not match expected data."
-        assert expected_gloc_labels[-1] == actual_gloc_labels[-1], "Final loaded G-LOC label does not match expected G-LOC label."
+
+        assert np.array_equal(expected_gloc_data, actual_gloc_data, equal_nan=True), "Loaded and prepared data does not match expected data."
+        assert np.array_equal(expected_gloc_labels, actual_gloc_labels), "Loaded and prepared G-LOC labels do not match expected G-LOC labels."
 
 class TestTraditionalDataManagerNoAFEExplicit():
     MODEL_TYPE = ("noAFE", "Explicit")
