@@ -783,7 +783,7 @@ def get_model_subfolder(model_type):
     elif model_type == ['combined', 'phys+']:
         return 'Explicit complete'
     elif model_type == ['noAFE', 'explicit']:
-        return 'Explicit noAFE'
+        return 'Explicit_nonAFE_final'
     elif model_type == ['combined', 'implicit']:
         return 'Implicit complete'
     elif model_type == ['combined', 'explicit']:
@@ -791,7 +791,7 @@ def get_model_subfolder(model_type):
     elif model_type == ['noAFE', 'implicit']:
         return 'Implicit noAFE'
     elif model_type == ['complete', 'implicit']:
-        return 'Implicit complete'
+        return 'Implicit_Complete'
     elif model_type == ['complete', 'explicit']:
         return 'Explicit_Complete_final'
     else:
