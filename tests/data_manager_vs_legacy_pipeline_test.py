@@ -3020,35 +3020,6 @@ def _get_imputed_data_traditional(model_type, traditional_manager, file_paths_tr
     
     return (imputed_data, labels_numpy, features, metadata)
 
-# Session-scoped fixtures for each model type
-@pytest.fixture(scope="session")
-def gloc_data_imputed_complete_explicit_traditional(traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir):
-    """Load or create imputed data for Complete/Explicit model type with caching."""
-    model_type = ("Complete", "Explicit")
-    result = _get_imputed_data_traditional(model_type, traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir)
-    return result
-
-@pytest.fixture(scope="session")
-def gloc_data_imputed_noafe_explicit_traditional(traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir):
-    """Load or create imputed data for noAFE/Explicit model type with caching."""
-    model_type = ("noAFE", "Explicit")
-    result = _get_imputed_data_traditional(model_type, traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir)
-    return result
-
-@pytest.fixture(scope="session")
-def gloc_data_imputed_complete_implicit_traditional(traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir):
-    """Load or create imputed data for Complete/Implicit model type with caching."""
-    model_type = ("Complete", "Implicit")
-    result = _get_imputed_data_traditional(model_type, traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir)
-    return result
-
-@pytest.fixture(scope="session")
-def gloc_data_imputed_noafe_implicit_traditional(traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir):
-    """Load or create imputed data for noAFE/Implicit model type with caching."""
-    model_type = ("noAFE", "Implicit")
-    result = _get_imputed_data_traditional(model_type, traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir)
-    return result
-
 # Test Classes for Traditional Data Pipeline
 class TestTraditionalDataManagerBase:
     """Base class with shared test logic for all traditional model types."""
@@ -3057,21 +3028,10 @@ class TestTraditionalDataManagerBase:
     __test__ = False
 
     @pytest.fixture(scope = "class")
-    def gloc_data_imputed_tuple(
-        self,
-        gloc_data_imputed_complete_explicit_traditional,
-        gloc_data_imputed_noafe_explicit_traditional,
-        gloc_data_imputed_complete_implicit_traditional,
-        gloc_data_imputed_noafe_implicit_traditional,
-    ):
-        """Use cached imputed data for this model type."""
-        model_map = {
-            ("Complete", "Explicit"): gloc_data_imputed_complete_explicit_traditional,
-            ("noAFE", "Explicit"): gloc_data_imputed_noafe_explicit_traditional,
-            ("Complete", "Implicit"): gloc_data_imputed_complete_implicit_traditional,
-            ("noAFE", "Implicit"): gloc_data_imputed_noafe_implicit_traditional,
-        }
-        return model_map[self.MODEL_TYPE]
+    def gloc_data_imputed_tuple(self, traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir):
+        """Load or create imputed data with caching for this model type."""
+        result = _get_imputed_data_traditional(self.MODEL_TYPE, traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir)
+        return result
 
     # ------------------------------------------------------------------ #
     #  Class-scoped pipeline cache fixtures                              #
