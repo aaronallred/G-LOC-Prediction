@@ -21,7 +21,7 @@ class TraditionalDataManager:
         ("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
         ("noAFE", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG", "processedEEG"),
         ("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
-        ("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "rawEEG", "processedEEG"),
+        ("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG", "processedEEG", "AFE"),
     }
     # Mapping of participant -> DC trial numbers for GOR EEG data files
     _EEG_PARTICIPANT_TRIALS = {
