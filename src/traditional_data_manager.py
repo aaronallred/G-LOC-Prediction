@@ -147,10 +147,14 @@ class TraditionalDataManager:
 
         # Convert feature matrix into a DataFrame for column selection
         gloc_data_all_features_numpy = pd.DataFrame(gloc_data_all_features_numpy, columns = pipeline_features["All"])
-        gloc_data_all_features_numpy = gloc_data_all_features_numpy[select_features]
+        # Backward compatibility: legacy feature lists may still reference "condition".
+        translated_select_features = [
+            feature_name.replace("condition", "AFE_indicator") for feature_name in select_features
+        ]
+        gloc_data_all_features_numpy = gloc_data_all_features_numpy[translated_select_features]
         gloc_data_all_features_numpy = gloc_data_all_features_numpy.to_numpy()
 
-        gloc_data_all_features_numpy, select_features = self._remove_constant_columns(gloc_data_all_features_numpy, select_features)
+        gloc_data_all_features_numpy, select_features = self._remove_constant_columns(gloc_data_all_features_numpy, translated_select_features)
 
         ################################################ NaN Processing ################################################
         gloc_labels_numpy, gloc_data_all_features_numpy, pipeline_features["All"], removed_ind = self._process_NaN_temporal(gloc_labels_numpy, gloc_data_all_features_numpy, select_features)
