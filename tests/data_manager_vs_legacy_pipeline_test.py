@@ -5623,7 +5623,8 @@ class TestTraditionalDataManagerNoAFEExplicit(TestTraditionalDataManagerBase):
     __test__ = True
 
 
-class TestTraditionalDataManagerNoAFEImplicit(TestTraditionalDataManagerBase):
-    MODEL_TYPE = ("noAFE", "Implicit")
-    EXPECTED_MODEL_TYPE = ("noAFE", "implicit")
-    __test__ = True
+# No models saved for noAFE Implicit
+# class TestTraditionalDataManagerNoAFEImplicit(TestTraditionalDataManagerBase):
+#     MODEL_TYPE = ("noAFE", "Implicit")
+#     EXPECTED_MODEL_TYPE = ("noAFE", "implicit")
+#     __test__ = True
