@@ -21,7 +21,7 @@ class TraditionalDataManager:
         ("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
         ("noAFE", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG", "processedEEG"),
         ("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
-        ("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG", "processedEEG", "AFE"),
+        ("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "rawEEG", "processedEEG"),
     }
     # Mapping of participant -> DC trial numbers for GOR EEG data files
     _EEG_PARTICIPANT_TRIALS = {
@@ -79,15 +79,24 @@ class TraditionalDataManager:
 
         # Legacy baselines use group arrays captured before global KNN imputation.
         baseline_group_data = {
-            "Phys": gloc_data[pipeline_features["Phys"]].to_numpy(dtype=np.float32, copy=True),
-            "ECG": gloc_data[pipeline_features["ECG"]].to_numpy(dtype=np.float32, copy=True),
-            "EEG": gloc_data[pipeline_features["EEG"]].to_numpy(dtype=np.float32, copy=True),
+            "Phys": np.asarray(gloc_data[pipeline_features["Phys"]].to_numpy(dtype=np.float32, copy=True), dtype=np.float32, order="C"),
+            "ECG": np.asarray(gloc_data[pipeline_features["ECG"]].to_numpy(dtype=np.float32, copy=True), dtype=np.float32, order="C"),
+            "EEG": np.asarray(gloc_data[pipeline_features["EEG"]].to_numpy(dtype=np.float32, copy=True), dtype=np.float32, order="C"),
         }
 
         if impute_type == 1:
-            # Imputes missing row data - extract as float64 to match legacy numeric precision
-            # (legacy features array is float64 by the time KNN runs, due to mixed-dtype DataFrame).
-            imputed_features = self._faster_knn_impute(gloc_data[pipeline_features["All"]].to_numpy(dtype=np.float64), k=n_neighbors)
+            # Legacy parity is model-path dependent:
+            # - Complete Explicit follows a float64/pandas-default memory path.
+            # - Other paths match float32 C-order input.
+            if model_type[0] == "Complete" and model_type[1] == "Explicit":
+                impute_input = gloc_data[pipeline_features["All"]].to_numpy(dtype=np.float64)
+            else:
+                impute_input = np.asarray(
+                    gloc_data[pipeline_features["All"]].to_numpy(dtype=np.float32),
+                    dtype=np.float32,
+                    order="C",
+                )
+            imputed_features = self._faster_knn_impute(impute_input, k=n_neighbors)
             gloc_data[pipeline_features["All"]] = imputed_features
         
         ################################################## REDUCE MEMORY ##################################################
@@ -617,13 +626,15 @@ class TraditionalDataManager:
             "subject": gloc_data["subject"].to_numpy(),
             "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype = np.float32).reshape(-1, 1),
         }
-        # Legacy precision differs by model path:
-        # - noAFE models keep features in float32 at this stage.
-        # - Complete models can be promoted to float64 during the EEG condition
-        #   imputation path because the condition column participates in array
-        #   reconstruction. Match that behavior for strict parity tests.
-        feature_dtype = np.float64 if model_type[0] == "Complete" else np.float32 # TODO: Make this a user input parameter
-        gloc_data_all_features_numpy = gloc_data[features["All"]].to_numpy(dtype=feature_dtype)
+        # Legacy parity depends on model path:
+        # - Complete Explicit retains float64 through imputation/baseline feature generation.
+        # - Other paths use float32.
+        feature_dtype = np.float64 if (model_type[0] == "Complete" and model_type[1] == "Explicit") else np.float32 # TODO: Make this a user input parameter
+        gloc_data_all_features_numpy = np.asarray(
+            gloc_data[features["All"]].to_numpy(dtype=feature_dtype),
+            dtype=feature_dtype,
+            order="C",
+        )
         gloc_labels_numpy = gloc_labels
 
         del gloc_data, gloc_labels
