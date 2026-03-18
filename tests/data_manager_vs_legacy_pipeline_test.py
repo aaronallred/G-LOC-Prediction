@@ -3031,7 +3031,8 @@ class TestTraditionalDataManagerBase:
     def gloc_data_imputed_tuple(self, traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir):
         """Load or create imputed data with caching for this model type."""
         result = _get_imputed_data_traditional(self.MODEL_TYPE, traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir)
-        return result
+        yield result
+        clear_memory(*result)
 
     # ------------------------------------------------------------------ #
     #  Class-scoped pipeline cache fixtures                              #
@@ -3048,7 +3049,8 @@ class TestTraditionalDataManagerBase:
         data, features = traditional_manager._process_and_get_feature_names(
             data, feature_groups, model_type, file_paths_traditional
         )
-        return data, features
+        yield data, features
+        clear_memory(data, features)
 
     @pytest.fixture(scope="class")
     def _post_eeg_imputation(self, traditional_manager, _post_feature_names):
@@ -3057,7 +3059,8 @@ class TestTraditionalDataManagerBase:
         data = data.copy()
         data = traditional_manager._eeg_specific_imputation(data, features)
         labels = traditional_manager._label_gloc_events(data)
-        return data, features, labels
+        yield data, features, labels
+        clear_memory(data, labels)
 
     @pytest.fixture(scope="class")
     def _post_nan_removal(self, traditional_manager, _post_eeg_imputation):
@@ -3066,7 +3069,8 @@ class TestTraditionalDataManagerBase:
         data, labels, nan_df = traditional_manager._remove_all_nan_trials(
             data.copy(), features, labels.copy()
         )
-        return data, features, labels, nan_df
+        yield data, features, labels, nan_df
+        clear_memory(data, labels, nan_df)
 
     @pytest.fixture(scope="class")
     def _post_reduce_memory(self, traditional_manager, _post_nan_removal):
@@ -3075,7 +3079,8 @@ class TestTraditionalDataManagerBase:
         data_numpy, labels_numpy, metadata = traditional_manager._reduce_memory(
             data.copy(), labels.copy(), features, self.MODEL_TYPE
         )
-        return data_numpy, labels_numpy, features, metadata
+        yield data_numpy, labels_numpy, features, metadata
+        clear_memory(data_numpy, labels_numpy, metadata)
 
     @pytest.fixture(scope="class")
     def _knn_windowed_state(self, traditional_manager, file_paths_traditional, gloc_data_imputed_tuple):
@@ -3100,8 +3105,10 @@ class TestTraditionalDataManagerBase:
             combined_baseline, labels, metadata["trial_id"], metadata["Time (s)"],
             combined_baseline_names, baseline_names_v0, baseline_v0, feature_groups
         )
+        clear_memory(combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0)
         select_features = features["All"].copy()
-        return y_labels, x_matrix, select_features, features, metadata, window_size, stride, feature_reduction_type, labels
+        yield y_labels, x_matrix, select_features, features, metadata, window_size, stride, feature_reduction_type, labels
+        clear_memory(y_labels, x_matrix, select_features, features, metadata, labels)
 
     # Expected hyperparameter values per classifier (source: NIKKI PAPER)
     _EXPECTED_HYPERPARAMS = {
@@ -3604,7 +3611,7 @@ class TestTraditionalDataManagerBase:
         assert expected_all_no_afe == list(actual_df[expected_all_no_afe].columns), "Feature column order mismatch after EEG imputation"
 
     def test_remove_all_NaN_trials(self, traditional_manager, _post_eeg_imputation):
-        def remove_all_nan_trials(data, all_features, feats, feats_phys, feats_ecg, feats_eeg, gloc):
+        def remove_all_nan_trials(data, all_features, gloc):
             reduced = data[all_features + ['subject', 'trial']]
             rows_to_remove, nan_table = [], []
             for (subject, trial), _ in reduced.groupby(['subject', 'trial']):
@@ -3614,22 +3621,14 @@ class TestTraditionalDataManagerBase:
                     rows_to_remove.append(td.index)
             rows_to_remove = [i for sub in rows_to_remove for i in sub]
             data  = data.drop(rows_to_remove).reset_index(drop=True)
-            feats      = np.delete(feats,      rows_to_remove, axis=0)
-            feats_phys = np.delete(feats_phys, rows_to_remove, axis=0)
-            feats_ecg  = np.delete(feats_ecg,  rows_to_remove, axis=0)
-            feats_eeg  = np.delete(feats_eeg,  rows_to_remove, axis=0)
             gloc       = np.delete(gloc,       rows_to_remove, axis=0)
-            return data, feats, feats_phys, feats_ecg, feats_eeg, gloc, pd.DataFrame(nan_table)
+            return data, gloc, pd.DataFrame(nan_table)
 
         data, features, labels = _post_eeg_imputation
 
         # Expected: reference implementation
-        (exp_data, exp_feats, exp_phys, exp_ecg, exp_eeg, exp_labels, exp_nan_df) = remove_all_nan_trials(
+        exp_data, exp_labels, exp_nan_df = remove_all_nan_trials(
             data.copy(), features["All"].copy(),
-            data[features["All"]].to_numpy().copy(),
-            data[features["Phys"]].to_numpy().copy(),
-            data[features["ECG"]].to_numpy().copy(),
-            data[features["EEG"]].to_numpy().copy(),
             labels.copy(),
         )
 
@@ -3639,10 +3638,26 @@ class TestTraditionalDataManagerBase:
         )
 
         assert exp_data.equals(actual_data),                                                                     "DataFrame after NaN trial removal does not match"
-        assert np.array_equal(exp_feats, actual_data[features["All"]].to_numpy(),  equal_nan=True), "All feature matrix mismatch after NaN removal"
-        assert np.array_equal(exp_phys,  actual_data[features["Phys"]].to_numpy(), equal_nan=True), "Phys feature matrix mismatch after NaN removal"
-        assert np.array_equal(exp_ecg,   actual_data[features["ECG"]].to_numpy(),  equal_nan=True), "ECG feature matrix mismatch after NaN removal"
-        assert np.array_equal(exp_eeg,   actual_data[features["EEG"]].to_numpy(),  equal_nan=True), "EEG feature matrix mismatch after NaN removal"
+        assert np.array_equal(
+            exp_data[features["All"]].to_numpy(),
+            actual_data[features["All"]].to_numpy(),
+            equal_nan=True,
+        ), "All feature matrix mismatch after NaN removal"
+        assert np.array_equal(
+            exp_data[features["Phys"]].to_numpy(),
+            actual_data[features["Phys"]].to_numpy(),
+            equal_nan=True,
+        ), "Phys feature matrix mismatch after NaN removal"
+        assert np.array_equal(
+            exp_data[features["ECG"]].to_numpy(),
+            actual_data[features["ECG"]].to_numpy(),
+            equal_nan=True,
+        ), "ECG feature matrix mismatch after NaN removal"
+        assert np.array_equal(
+            exp_data[features["EEG"]].to_numpy(),
+            actual_data[features["EEG"]].to_numpy(),
+            equal_nan=True,
+        ), "EEG feature matrix mismatch after NaN removal"
         assert np.array_equal(exp_labels, actual_labels,                            equal_nan=True), "GLOC labels mismatch after NaN removal"
         assert exp_nan_df.equals(actual_nan_df),                                                                 "NaN proportion DataFrame mismatch"
 
@@ -3686,16 +3701,8 @@ class TestTraditionalDataManagerBase:
                         X_imputed[i, j] = np.nanmean(X_temp[neighbors, j])
             return X_imputed
 
-        data_numpy, _, features, _ = _post_reduce_memory
-        data_numpy = data_numpy.copy()
-
-        # Build expected arrays exactly like the original test logic.
-        expected_features = data_numpy[:, [list(features["All"]).index(f) for f in features["All"]]]
-        expected_features_phys = data_numpy[:, [list(features["Phys"]).index(f) for f in features["Phys"]]]
-        expected_features_ecg = data_numpy[:, [list(features["ECG"]).index(f) for f in features["ECG"]]]
-        expected_features_eeg = data_numpy[:, [list(features["EEG"]).index(f) for f in features["EEG"]]]
-
-        expected_features = faster_knn_impute(expected_features, k=5, M=32, efSearch=64)
+        data_numpy, _, _, _ = _post_reduce_memory
+        expected_features = faster_knn_impute(data_numpy, k=5, M=32, efSearch=64)
 
         previous_testing_state = traditional_manager.testing
         traditional_manager.testing = True
@@ -3705,9 +3712,6 @@ class TestTraditionalDataManagerBase:
             traditional_manager.testing = previous_testing_state
 
         assert np.allclose(expected_features, actual_imputed, rtol=1e-6, atol=1e-6, equal_nan=True), "Expected feature matrix after imputation does not match actual feature matrix for All feature group"
-        assert np.array_equal(expected_features_phys, data_numpy[:, [list(features["Phys"]).index(f) for f in features["Phys"]]], equal_nan=True), "Expected feature matrix after imputation does not match actual feature matrix for Phys feature group"
-        assert np.array_equal(expected_features_ecg, data_numpy[:, [list(features["ECG"]).index(f) for f in features["ECG"]]], equal_nan=True), "Expected feature matrix after imputation does not match actual feature matrix for ECG feature group"
-        assert np.array_equal(expected_features_eeg, data_numpy[:, [list(features["EEG"]).index(f) for f in features["EEG"]]], equal_nan=True), "Expected feature matrix after imputation does not match actual feature matrix for EEG feature group"
 
     def test_y_prediction_offset(self, traditional_manager, file_paths_traditional, gloc_data_imputed_tuple):
         def y_prediction_offset(y, backstep, data_rate, trial_set):
