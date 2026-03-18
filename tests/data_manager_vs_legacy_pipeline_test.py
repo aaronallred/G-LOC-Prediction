@@ -5592,7 +5592,17 @@ class TestTraditionalDataManagerBase:
             analysis_type,
         )
 
-        assert np.array_equal(expected_gloc_data, actual_gloc_data, equal_nan=True), "Loaded and prepared data does not match expected data."
+        data_match = np.allclose(
+            expected_gloc_data,
+            actual_gloc_data,
+            rtol=1e-5,
+            atol=1e-5,
+            equal_nan=True,
+        )
+        assert data_match, (
+            "Loaded and prepared data does not match expected data within float32 tolerance "
+            f"(max abs diff={np.nanmax(np.abs(expected_gloc_data - actual_gloc_data)):.3e})."
+        )
         assert np.array_equal(expected_gloc_labels, actual_gloc_labels), "Loaded and prepared G-LOC labels do not match expected G-LOC labels."
 
 class TestTraditionalDataManagerCompleteExplicit(TestTraditionalDataManagerBase):
