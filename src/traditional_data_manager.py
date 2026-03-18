@@ -647,7 +647,7 @@ class TraditionalDataManager:
         """
         mask = np.isnan(X)
         X_imputed = X.copy()
-        
+
         # Temporarily mean impute missing values
         X_temp = np.where(mask, np.nanmean(X, axis=0), X)
         
@@ -663,10 +663,10 @@ class TraditionalDataManager:
         index.hnsw.rng = rng
         
         index.add(X_temp.astype(np.float32))
-        
+
         # Find k nearest neighbors
         distances, indices = index.search(X_temp.astype(np.float32), k + 1)
-        
+
         # Impute missing values (skip self, which is always the first neighbor)
         for i in range(X.shape[0]):
             neighbors = indices[i, 1:] # skip self
