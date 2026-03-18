@@ -3090,10 +3090,10 @@ class TestTraditionalDataManagerBase:
          baseline_methods, imbalance_type, impute_type, n_neighbors) = traditional_manager._get_hyperparameters_by_classifier("KNN")
         feature_groups, baseline_methods = traditional_manager._get_feature_groups_and_baseline_methods(model_type, baseline_methods)
 
-        imputed  = gloc_data_imputed_tuple[0].copy()
+        imputed  = gloc_data_imputed_tuple[0]
         labels   = gloc_data_imputed_tuple[1].copy()
         features = gloc_data_imputed_tuple[2].copy()
-        metadata = gloc_data_imputed_tuple[3].copy()
+        metadata = gloc_data_imputed_tuple[3]
 
         combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0 = (
             traditional_manager._get_combined_baseline_data(
@@ -4419,10 +4419,10 @@ class TestTraditionalDataManagerBase:
 
         # Variable Setup
         model_type = self.MODEL_TYPE
-        gloc_data_all_features_imputed_numpy = gloc_data_imputed_tuple[0].copy()
+        gloc_data_all_features_imputed_numpy = gloc_data_imputed_tuple[0]
         gloc_labels_numpy = gloc_data_imputed_tuple[1].copy()
         features = gloc_data_imputed_tuple[2].copy()
-        experiment_metadata = gloc_data_imputed_tuple[3].copy()
+        experiment_metadata = gloc_data_imputed_tuple[3]
         
 
 
@@ -4440,9 +4440,9 @@ class TestTraditionalDataManagerBase:
         expected_all_features_ecg = features["ECG"].copy()
         expected_all_features_eeg = features["EEG"].copy()
 
-        features_phys = gloc_data_all_features_imputed_numpy[:, [expected_all_features.index(feature) for feature in expected_all_features_phys]]
-        features_ecg = gloc_data_all_features_imputed_numpy[:, [expected_all_features.index(feature) for feature in expected_all_features_ecg]]
-        features_eeg = gloc_data_all_features_imputed_numpy[:, [expected_all_features.index(feature) for feature in expected_all_features_eeg]]
+        features_phys = expected_gloc_data_all_features_imputed_numpy[:, [expected_all_features.index(feature) for feature in expected_all_features_phys]]
+        features_ecg = expected_gloc_data_all_features_imputed_numpy[:, [expected_all_features.index(feature) for feature in expected_all_features_ecg]]
+        features_eeg = expected_gloc_data_all_features_imputed_numpy[:, [expected_all_features.index(feature) for feature in expected_all_features_eeg]]
 
         baseline_data_filename = file_paths_traditional["baseline"]
         list_of_baseline_eeg_processed_files = file_paths_traditional["baseline_eeg_processed_list"].copy()
@@ -4469,6 +4469,12 @@ class TestTraditionalDataManagerBase:
 
         assert all(np.array_equal(expected_combined_baseline[trial_id], combined_baseline[trial_id]) for trial_id in expected_combined_baseline.keys()), "Combined baseline data does not match expected data."
         assert np.array_equal(expected_combined_baseline_names, combined_baseline_names), "Combined baseline names do not match expected names."
+        clear_memory(
+            expected_gloc_data_all_features_imputed_numpy,
+            expected_gloc_labels_numpy,
+            expected_combined_baseline,
+            combined_baseline,
+        )
 
     def test_feature_generation(self, traditional_manager, file_paths_traditional, gloc_data_imputed_tuple):
         def feature_generation(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column,
@@ -5392,10 +5398,10 @@ class TestTraditionalDataManagerBase:
         baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors = traditional_manager._get_hyperparameters_by_classifier(classifier_type)
         feature_groups_to_analyze, baseline_methods_to_use = traditional_manager._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
 
-        gloc_data_all_features_imputed_numpy = gloc_data_imputed_tuple[0].copy()
+        gloc_data_all_features_imputed_numpy = gloc_data_imputed_tuple[0]
         gloc_labels_numpy = gloc_data_imputed_tuple[1].copy()
         features = gloc_data_imputed_tuple[2].copy()
-        experiment_metadata = gloc_data_imputed_tuple[3].copy()
+        experiment_metadata = gloc_data_imputed_tuple[3]
         combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0 = traditional_manager._get_combined_baseline_data(
             gloc_data_all_features_imputed_numpy,
             experiment_metadata,
@@ -5439,6 +5445,7 @@ class TestTraditionalDataManagerBase:
         assert np.array_equal(expected_y_gloc_labels, y_gloc_labels), "Generated G-LOC labels do not match expected G-LOC labels."
         assert np.array_equal(expected_x_feature_matrix, x_feature_matrix, equal_nan=True), "Generated feature matrix does not match expected feature matrix."
         assert expected_all_features == features["All"], "Generated feature names do not match expected feature names."
+        clear_memory(expected_y_gloc_labels, expected_x_feature_matrix, expected_combined_baseline, y_gloc_labels, x_feature_matrix)
 
     def test_feature_reduction(self, traditional_manager, _knn_windowed_state):
         def sliding_window_max(data_array, trial_column, time_column, label_array, offset, stride, window_size, time_start=0):
