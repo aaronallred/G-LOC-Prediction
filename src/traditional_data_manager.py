@@ -1,22 +1,21 @@
 import logging
 import os
-import pickle
 import re
-from itertools import islice
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import faiss
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedGroupKFold
-from sklearn.preprocessing import StandardScaler
 
 from baseline import BaselineContext, baseline_data
 from features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
 
 logger = logging.getLogger(__name__)
 
+
 class TraditionalDataManager:
+    """Legacy-compatible data pipeline for temporal/traditional GLOC modeling."""
+
     FEATURE_GROUPS_BY_MODEL_TYPE = {
         ("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
         ("noAFE", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG", "processedEEG"),
@@ -32,7 +31,69 @@ class TraditionalDataManager:
 
     _EEG_BASELINE_BANDS = ["delta", "theta", "alpha", "beta"]
 
-    """Data manager for traditional data pipeline."""
+    _CLASSIFIER_HYPERPARAMETERS: Dict[str, Dict[str, Any]] = {
+        "logreg": {
+            "baseline_window": 5,
+            "window_size": 12.5,
+            "stride": 0.25,
+            "feature_reduction_type": "lasso",
+            "baseline_methods_to_use": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
+            "imbalance_type": "none",
+            "impute_type": 1,
+            "n_neighbors": 5,
+        },
+        "RF": {
+            "baseline_window": 18.75,
+            "window_size": 7.5,
+            "stride": 0.25,
+            "feature_reduction_type": "none",
+            "baseline_methods_to_use": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
+            "imbalance_type": "none",
+            "impute_type": 1,
+            "n_neighbors": 3,
+        },
+        "LDA": {
+            "baseline_window": 46.25,
+            "window_size": 15,
+            "stride": 0.25,
+            "feature_reduction_type": "lasso",
+            "baseline_methods_to_use": ["v0", "v1", "v2"],
+            "imbalance_type": "none",
+            "impute_type": 1,
+            "n_neighbors": 3,
+        },
+        "SVM": {
+            "baseline_window": 32.5,
+            "window_size": 15,
+            "stride": 0.25,
+            "feature_reduction_type": "ridge",
+            "baseline_methods_to_use": ["v0", "v1", "v2"],
+            "imbalance_type": "none",
+            "impute_type": 1,
+            "n_neighbors": 3,
+        },
+        "EGB": {
+            "baseline_window": 46.25,
+            "window_size": 12.5,
+            "stride": 0.25,
+            "feature_reduction_type": "lasso",
+            "baseline_methods_to_use": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
+            "imbalance_type": "none",
+            "impute_type": 1,
+            "n_neighbors": 3,
+        },
+        "KNN": {
+            "baseline_window": 32.5,
+            "window_size": 15,
+            "stride": 0.25,
+            "feature_reduction_type": "performance",
+            "baseline_methods_to_use": ["v0", "v1", "v2"],
+            "imbalance_type": "ros",
+            "impute_type": 1,
+            "n_neighbors": 5,
+        },
+    }
+
     def __init__(self, data_path: str = "../data/", testing: bool = False, random_seed: int = 42, use_reduced_dataset: bool = False) -> None:
         self.data_path = data_path
         self._data_locations = None
@@ -40,10 +101,34 @@ class TraditionalDataManager:
         self.random_seed = random_seed
         self.use_reduced_dataset = use_reduced_dataset
 
-    def get_data(self, backstep, data_rate, classifier_type, model_type, select_features, remove_NaN_trials, offset, time_start, subject_to_analyze, trial_to_analyze, analysis_type):
+    def get_data(
+            self,
+            backstep,
+            data_rate,
+            classifier_type,
+            model_type,
+            select_features,
+            remove_NaN_trials,
+            offset,
+            time_start,
+            subject_to_analyze,
+            trial_to_analyze,
+            analysis_type,
+    ):
         """Return data for a given set of parameters."""
-        baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors = self._get_hyperparameters_by_classifier(classifier_type)
+        (
+            baseline_window,
+            window_size,
+            stride,
+            _feature_reduction_type,
+            baseline_methods_to_use,
+            _imbalance_type,
+            impute_type,
+            n_neighbors,
+        ) = self._get_hyperparameters_by_classifier(classifier_type)
         feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
+        model_kind, label_mode = model_type
+        is_complete_explicit = model_kind == "Complete" and label_mode == "Explicit"
 
         ############################################# LOAD AND PROCESS DATA #############################################
         # "Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze"
@@ -57,12 +142,12 @@ class TraditionalDataManager:
         # Create GLOC categorical vector
         gloc_labels = self._label_gloc_events(gloc_data)
 
-        if model_type[0] == "Complete" and model_type[1] == "Explicit":
+        if is_complete_explicit:
             # Impute raw (using mean) value of the missing channels for each AFE condition
             gloc_data = self._eeg_specific_imputation(gloc_data, features)
 
         pipeline_features = {name: feature_names.copy() for name, feature_names in features.items()}
-        if model_type[0] == "Complete" and model_type[1] == "Explicit":
+        if is_complete_explicit:
             # Match legacy: keep AFE indicator out of the working predictor matrix,
             # then add it back only as windowed indicator later.
             pipeline_features["All"] = [
@@ -79,16 +164,16 @@ class TraditionalDataManager:
 
         # Legacy baselines use group arrays captured before global KNN imputation.
         baseline_group_data = {
-            "Phys": np.asarray(gloc_data[pipeline_features["Phys"]].to_numpy(dtype=np.float32, copy=True), dtype=np.float32, order="C"),
-            "ECG": np.asarray(gloc_data[pipeline_features["ECG"]].to_numpy(dtype=np.float32, copy=True), dtype=np.float32, order="C"),
-            "EEG": np.asarray(gloc_data[pipeline_features["EEG"]].to_numpy(dtype=np.float32, copy=True), dtype=np.float32, order="C"),
+            "Phys": gloc_data[pipeline_features["Phys"]].to_numpy(dtype=np.float32, copy=True),
+            "ECG": gloc_data[pipeline_features["ECG"]].to_numpy(dtype=np.float32, copy=True),
+            "EEG": gloc_data[pipeline_features["EEG"]].to_numpy(dtype=np.float32, copy=True),
         }
 
         if impute_type == 1:
             # Legacy parity is model-path dependent:
             # - Complete Explicit follows a float64/pandas-default memory path.
             # - Other paths match float32 C-order input.
-            if model_type[0] == "Complete" and model_type[1] == "Explicit":
+            if is_complete_explicit:
                 impute_input = gloc_data[pipeline_features["All"]].to_numpy(dtype=np.float64)
             else:
                 impute_input = np.asarray(
@@ -139,7 +224,7 @@ class TraditionalDataManager:
 
         ################################################ Feature Reduction ################################################
         # Add windowed AFE indicator if required by model type
-        if model_type[0] == "Complete" and model_type[1] == "Explicit":
+        if is_complete_explicit:
             experiment_metadata["AFE_indicator_windowed"], _, _ = self._sliding_window_max(
                 experiment_metadata["AFE_indicator"],
                 experiment_metadata["trial_id"],
@@ -154,19 +239,24 @@ class TraditionalDataManager:
             gloc_data_all_features_numpy = np.hstack([gloc_data_all_features_numpy, experiment_metadata["AFE_indicator_windowed"]])
             pipeline_features["All"].append("AFE_indicator_windowed")
 
-        # Convert feature matrix into a DataFrame for column selection
-        gloc_data_all_features_numpy = pd.DataFrame(gloc_data_all_features_numpy, columns = pipeline_features["All"])
         # Backward compatibility: legacy feature lists may still reference "condition".
         translated_select_features = [
             feature_name.replace("condition", "AFE_indicator") for feature_name in select_features
         ]
-        gloc_data_all_features_numpy = gloc_data_all_features_numpy[translated_select_features]
-        gloc_data_all_features_numpy = gloc_data_all_features_numpy.to_numpy()
+
+        # Select columns by index to avoid an expensive full DataFrame materialization.
+        feature_index = {feature_name: i for i, feature_name in enumerate(pipeline_features["All"])}
+        selected_indices = [feature_index[feature_name] for feature_name in translated_select_features]
+        gloc_data_all_features_numpy = gloc_data_all_features_numpy[:, selected_indices]
 
         gloc_data_all_features_numpy, select_features = self._remove_constant_columns(gloc_data_all_features_numpy, translated_select_features)
 
         ################################################ NaN Processing ################################################
-        gloc_labels_numpy, gloc_data_all_features_numpy, pipeline_features["All"], removed_ind = self._process_NaN_temporal(gloc_labels_numpy, gloc_data_all_features_numpy, select_features)
+        gloc_labels_numpy, gloc_data_all_features_numpy, pipeline_features["All"], _removed_ind = self._process_NaN_temporal(
+            gloc_labels_numpy,
+            gloc_data_all_features_numpy,
+            select_features,
+        )
 
         ################################################ Get Outputs Ready ############################################
         gloc_data_all_features_numpy, gloc_labels_numpy = self._ready_outputs(gloc_data_all_features_numpy, gloc_labels_numpy)
@@ -175,103 +265,21 @@ class TraditionalDataManager:
     
     def _get_hyperparameters_by_classifier(self, classifier_type):
         """Return hyperparameters for a given classifier type."""
-        if classifier_type == 'logreg':
-            # Specifying Methods from Sequential optimization
-            baseline_window = 5  # seconds - PULLED FROM NIKKI PAPER
-            window_size = 12.5 # seconds - PULLED FROM NIKKI PAPER
-            stride = 0.25 # seconds - PULLED FROM NIKKI PAPER
-            imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
-            feature_reduction_type = 'lasso' #- PULLED FROM NIKKI PAPER
-            baseline_methods_to_use = ['v0', 'v1', 'v2','v5','v6','v7','v8'] #- PULLED FROM NIKKI PAPER
-            impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-            n_neighbors = 5  # -For imputation PULLED FROM NIKKI PAPER
+        params = self._CLASSIFIER_HYPERPARAMETERS.get(classifier_type)
+        if params is None:
+            available = ", ".join(sorted(self._CLASSIFIER_HYPERPARAMETERS.keys()))
+            raise ValueError(f"Unknown classifier_type '{classifier_type}'. Available: {available}")
 
-            ## Investigating different windows per EVAN ANDERSON
-            #window_size = 8 # ~ 0.1 hit to f1 score
-
-
-
-        if classifier_type == 'RF':
-            # Specifying Methods from Sequential optimization
-            baseline_window = 18.75  # seconds - PULLED FROM NIKKI PAPER
-            window_size = 7.5  # seconds - PULLED FROM NIKKI PAPER
-            stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
-            feature_reduction_type = 'none'  # - PULLED FROM NIKKI PAPER
-            threshold = 30  # - PULLED FROM NIKKI PAPER
-            baseline_methods_to_use = ['v0', 'v1', 'v2','v5','v6','v7','v8']  # - PULLED FROM NIKKI PAPER
-            imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
-            impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-            n_neighbors = 3  # -For imputation PULLED FROM NIKKI PAPER
-            # Code for loading txt
-
-            ## Investigating different windows per EVAN ANDERSON
-            #window_size = 5 # ~ 0.1 hit to f1 score
-
-
-        if classifier_type == 'LDA':
-            # Specifying Methods from Sequential optimization
-            baseline_window = 46.25  # seconds - PULLED FROM NIKKI PAPER
-            window_size = 15  # seconds - PULLED FROM NIKKI PAPER
-            stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
-            feature_reduction_type = 'lasso'  # - PULLED FROM NIKKI PAPER
-            baseline_methods_to_use = ['v0', 'v1', 'v2']  # - PULLED FROM NIKKI PAPER
-            imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
-            impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-            n_neighbors = 3  # -For imputation PULLED FROM NIKKI PAPER
-            # Code for loading txt
-
-            ## Investigating different windows per EVAN ANDERSON
-            #window_size = 10 # ~ 0.3 hit to f1 score
-
-
-        if classifier_type == 'SVM':
-            # Specifying Methods from Sequential optimization
-            baseline_window = 32.5  # seconds - PULLED FROM NIKKI PAPER
-            window_size = 15  # seconds - PULLED FROM NIKKI PAPER
-            stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
-            feature_reduction_type = 'ridge'  # - PULLED FROM NIKKI PAPER
-            threshold = 10  # - PULLED FROM NIKKI PAPER
-            baseline_methods_to_use = ['v0', 'v1', 'v2']  # - PULLED FROM NIKKI PAPER
-            impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-            n_neighbors = 3  # - For imputation PULLED FROM NIKKI PAPER
-            imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
-
-            ## Investigating different windows per EVAN ANDERSON
-            #window_size = 8 # ~ 0.2 hit to f1 score
-
-
-        if classifier_type == 'EGB':
-            # Specifying Methods from Sequential optimization
-            baseline_window = 46.25  # seconds - PULLED FROM NIKKI PAPER
-            window_size = 12.5  # seconds - PULLED FROM NIKKI PAPER
-            stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
-            feature_reduction_type = 'lasso'  # - PULLED FROM NIKKI PAPER
-            baseline_methods_to_use = ['v0', 'v1', 'v2','v5','v6','v7','v8']  # - PULLED FROM NIKKI PAPER
-            imbalance_type = 'none'  # - PULLED FROM NIKKI PAPER
-            impute_type = 1  # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-            n_neighbors = 3  # -For imputation PULLED FROM NIKKI PAPER
-            # Code for loading txt
-
-            ## Investigating different windows per EVAN ANDERSON
-            #window_size = 8 # ~ 0.1 hit to f1 score
-
-
-        if classifier_type == 'KNN':
-            # Specifying Methods from Sequential optimization
-            baseline_window = 32.5  # seconds - PULLED FROM NIKKI PAPER
-            window_size = 15  # seconds - PULLED FROM NIKKI PAPER
-            stride = 0.25  # seconds - PULLED FROM NIKKI PAPER
-            feature_reduction_type = 'performance'  # - PULLED FROM NIKKI PAPER
-            baseline_methods_to_use = ['v0', 'v1', 'v2']  # - PULLED FROM NIKKI PAPER
-            imbalance_type = 'ros' # - PULLED FROM NIKKI PAPER
-            impute_type = 1 # - PULLED FROM NIKKI PAPER, 1 signifies yes KNN imputation used
-            n_neighbors = 5 # -For imputation PULLED FROM NIKKI PAPER
-            # Code for loading txt
-
-            ## Investigating different windows per EVAN ANDERSON
-            # window_size = 12 # ~ 0.1 hit to f1 score
-
-        return baseline_window, window_size, stride, feature_reduction_type, baseline_methods_to_use, imbalance_type, impute_type, n_neighbors
+        return (
+            params["baseline_window"],
+            params["window_size"],
+            params["stride"],
+            params["feature_reduction_type"],
+            params["baseline_methods_to_use"],
+            params["imbalance_type"],
+            params["impute_type"],
+            params["n_neighbors"],
+        )
     
     def _get_feature_groups_and_baseline_methods(self, model_type: Tuple[str, str], baseline_methods_to_use: List[str]) -> Tuple[Sequence[str], List[str]]:
         feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
@@ -629,7 +637,8 @@ class TraditionalDataManager:
         # Legacy parity depends on model path:
         # - Complete Explicit retains float64 through imputation/baseline feature generation.
         # - Other paths use float32.
-        feature_dtype = np.float64 if (model_type[0] == "Complete" and model_type[1] == "Explicit") else np.float32 # TODO: Make this a user input parameter
+        model_kind, label_mode = model_type
+        feature_dtype = np.float64 if (model_kind == "Complete" and label_mode == "Explicit") else np.float32 # TODO: Make this a user input parameter
         gloc_data_all_features_numpy = np.asarray(
             gloc_data[features["All"]].to_numpy(dtype=feature_dtype),
             dtype=feature_dtype,
@@ -670,7 +679,7 @@ class TraditionalDataManager:
         index = faiss.IndexHNSWFlat(d, M)
         index.hnsw.efSearch = efSearch
         
-        rng = faiss.RandomGenerator(42)
+        rng = faiss.RandomGenerator(self.random_seed)
         index.hnsw.rng = rng
         
         index.add(X_temp.astype(np.float32))
@@ -680,11 +689,13 @@ class TraditionalDataManager:
 
         # Impute missing values (skip self, which is always the first neighbor)
         for i in range(X.shape[0]):
+            missing_cols = np.flatnonzero(mask[i])
+            if missing_cols.size == 0:
+                continue
             neighbors = indices[i, 1:] # skip self
-            for j in range(X.shape[1]):
-                if mask[i, j]: # Only impute missing values
-                    neighbor_values = X_temp[neighbors, j]
-                    X_imputed[i, j] = np.nanmean(neighbor_values)
+            for j in missing_cols:
+                neighbor_values = X_temp[neighbors, j]
+                X_imputed[i, j] = np.nanmean(neighbor_values)
 
         return X_imputed
     
@@ -693,7 +704,7 @@ class TraditionalDataManager:
         Shifts GLOC flags to the left by 'backstep' frames.
         Truncates the beginning and pads the end with zeros.
         """
-        y = np.array(y)
+        y = np.asarray(y).copy()
         offset = int(backstep * data_rate) # the actual number of indices to offset.
         # if backstep is given as seconds and data rate as hz
         # the result would be something like 5 seconds back * 25hz so 125 indices shift
@@ -702,26 +713,22 @@ class TraditionalDataManager:
 
         unique_trials = np.unique(trial_set) # finds the unique trials within the set. Gives an array of name of each unique
 
+        if offset <= 0:
+            return y
+
         for trial in unique_trials:
-            # Clearing temporary variables if they exist
-            trial_indices = None
-            current_y = None
-            gloc_indices = None
-            y_shifted = None
+            trial_indices = np.nonzero(trial_set == trial)[0]
+            current_y = y[trial_indices]
 
-            # Only make corrections within this trial
-            trial_indices = np.nonzero(trial_set == trial) # find indices within trial set where this unique trial was
-            current_y = y[trial_indices] # the range of y we are interested in (this trial set)
-            gloc_indices = np.nonzero(current_y)[0] # find gloc indices within trial. These are the locations of nonzero values in array
+            if not np.any(current_y):
+                continue
 
-            if len(gloc_indices) == 0:
-                # No GLOC events present, return as is
-                y[trial_indices] = current_y # no change
+            if offset >= current_y.shape[0]:
+                y[trial_indices] = np.zeros_like(current_y)
+                continue
 
-            else:
-                y_shifted = current_y[offset:] # Remove the backstep from the start
-                current_y = np.append(y_shifted, [0] * offset)[:len(current_y)] # add zeros to the back
-                y[trial_indices] = current_y # reassign the indices of y to what has been edited
+            y_shifted = current_y[offset:]
+            y[trial_indices] = np.concatenate([y_shifted, np.zeros(offset, dtype=current_y.dtype)])[: current_y.shape[0]]
 
         return y
     
@@ -1774,12 +1781,12 @@ class TraditionalDataManager:
         This function removes all constant columns before feeding into the ML classifiers.
         """
         # Find all constant columns
-        constant_columns = np.all(x_feature_matrix == x_feature_matrix[0,:], axis = 0)
+        constant_columns = np.all(x_feature_matrix == x_feature_matrix[0, :], axis=0)
+        keep_columns = ~constant_columns
 
-        # Remove all constant columns from data frame
-        x_feature_matrix = x_feature_matrix[:, ~constant_columns]
-
-        select_features = [select_features[i] for i in range(len(select_features)) if ~constant_columns[i]]
+        # Remove all constant columns from feature matrix and names
+        x_feature_matrix = x_feature_matrix[:, keep_columns]
+        select_features = [feature for feature, keep in zip(select_features, keep_columns) if keep]
 
         return x_feature_matrix, select_features
     
@@ -1791,10 +1798,11 @@ class TraditionalDataManager:
         # Find & remove columns if they have all NaN values
         nan_test = np.isnan(x_feature_matrix)
         index_column_all_NaN = np.all(nan_test, axis=0)
-        x_feature_matrix_noNaN_cols = x_feature_matrix[:, ~index_column_all_NaN]
+        keep_columns = ~index_column_all_NaN
+        x_feature_matrix_noNaN_cols = x_feature_matrix[:, keep_columns]
 
         # Adjust all_features to only include columns that don't have all NaN
-        all_features = [all_features[i] for i in range(len(all_features)) if ~index_column_all_NaN[i]]
+        all_features = [feature_name for feature_name, keep in zip(all_features, keep_columns) if keep]
 
         # Identify rows with any NaNs
         row_nan_mask = np.isnan(x_feature_matrix_noNaN_cols).any(axis=1)
