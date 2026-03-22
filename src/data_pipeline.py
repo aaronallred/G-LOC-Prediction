@@ -109,7 +109,6 @@ class DataPipeline:
             window_size: Optional[float] = None,
             stride: Optional[float] = None,
             feature_reduction_type: Optional[str] = None,
-            baseline_methods: List[str] = None,
             imbalance_type: str = "none",
             should_impute: bool = True,
             n_neighbors: int = 4,
@@ -127,32 +126,39 @@ class DataPipeline:
         self.model = model
         self.model_type = model_type
 
-        # Data Processing Parameters
+        # Data Processing Hyperparameters
         self.baseline_window = baseline_window
         self.window_size = window_size
         self.stride = stride
         self.feature_reduction_type = feature_reduction_type
-        self.baseline_methods_to_use = baseline_methods
+        self.feature_groups_to_analyze = None
+        self.baseline_methods_to_use = None
         self.imbalance_type = imbalance_type
         self.should_impute = should_impute
         self.n_neighbors = n_neighbors
+
+        # Dataset Splitting Parameters
         self.num_splits = num_splits
         self.kfold_ID = kfold_ID
         self.subject_to_analyze = subject_to_analyze
         self.trial_to_analyze = trial_to_analyze
         self.analysis_type = analysis_type
         self.remove_NaN_trials = remove_NaN_trials
+
+        # Data Saving Parameters
         self.impute_file_name = impute_file_name
         self.save_impute = save_impute
         self.load_impute = load_impute
 
     def get_data(self):
-        self._set_hyperparameters_by_classifier(self.model.get_name())
+        self._assign_hyperparameters_by_classifier(self.model.get_name())
+        self._assign_feature_groups_and_baseline_methods()
+
         return None
     
-    def _set_hyperparameters_by_classifier(self, classifier_type: str):
+    def _assign_hyperparameters_by_classifier(self, classifier_type: str) -> None:
         """Set hyperparameters for a given classifier type."""
-        
+
         params = self._CLASSIFIER_HYPERPARAMETERS.get(classifier_type)
         if params is None:
             # Using advanced classifier which should have provided parameters
@@ -167,12 +173,11 @@ class DataPipeline:
         self.impute_type = params.get("impute_type", self.impute_type)
         self.n_neighbors = params.get("n_neighbors", self.n_neighbors)
 
-    def _get_feature_groups_and_baseline_methods(self) -> Tuple[Sequence[str], List[str]]:
-        feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[self.model_type]
-        baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE[self.model_type.afe_filter]
+    def _assign_feature_groups_and_baseline_methods(self) -> None:
+        """Set feature groups and baseline methods based on model type."""
+        self.feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[self.model_type]
+        self.baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE[self.model_type.afe_filter]
 
         # NOTE:
         # AFE indicator is required for EEG imputation in Complete models,
         # but is only included as a predictive feature for Explicit models.
-
-        return feature_groups_to_analyze, baseline_methods_to_use
