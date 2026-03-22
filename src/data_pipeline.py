@@ -100,6 +100,15 @@ class DataPipeline:
         },
     }
 
+    # Mapping of participant -> DC trial numbers for GOR EEG data files
+    _EEG_PARTICIPANT_TRIALS = {
+        1: [1, 2, 3],  2: [1, 2, 3],  3: [1, 2, 3],  4: [1, 2, 3],  5: [1, 2, 3],
+        6: [1, 4, 6],  7: [2, 4, 6],  8: [1, 3],     9: [2, 5, 6],
+        10: [2, 4, 5], 11: [1],       12: [1, 5],     13: [1, 3, 6],
+    }
+
+    _EEG_BASELINE_BANDS = ["delta", "theta", "alpha", "beta"]
+
     def __init__(
             self, 
             datafolder: str, 
@@ -175,9 +184,39 @@ class DataPipeline:
 
     def _assign_feature_groups_and_baseline_methods(self) -> None:
         """Set feature groups and baseline methods based on model type."""
+
         self.feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[self.model_type]
-        self.baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE[self.model_type.afe_filter]
+
+        if not self.model.is_traditional:
+            # Only update baseline methods to use for advanced classifier as they were predefined for traditional classifiers
+            self.baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE[self.model_type.afe_filter]
 
         # NOTE:
         # AFE indicator is required for EEG imputation in Complete models,
         # but is only included as a predictive feature for Explicit models.
+
+    def _assign_data_locations(self) -> None:
+        """Get file locations for all relevant data files and aassign to self._data_locations."""
+
+        if self._data_locations is not None:
+            return # Data locations already assigned
+
+        eeg_dir = "GLOC_GOR_EEG_data_participants_1-13"
+        list_of_eeg_data_file_paths = [
+            os.path.join(self.data_path, eeg_dir, f"GLOC_{p:02d}_DC{t}_25Hz_EEG_power_wMAR.xlsx")
+            for p, trials in self._EEG_PARTICIPANT_TRIALS.items()
+            for t in trials
+        ]
+
+        list_of_baseline_eeg_processed_file_paths = [
+            os.path.join(self.data_path, f"GLOC_EEG_baseline_{band}_noAFE1.csv")
+            for band in self._EEG_BASELINE_BANDS
+        ]
+
+        self._data_locations = {
+            "main": os.path.join(self.data_path, "all_trials_25_hz_stacked_null_str_filled.csv"),
+            "baseline": os.path.join(self.data_path, "ParticipantBaseline.csv"),
+            "demographics": os.path.join(self.data_path, "GLOC_Effectiveness_Final.csv"),
+            "eeg_list": list_of_eeg_data_file_paths,
+            "baseline_eeg_processed_list": list_of_baseline_eeg_processed_file_paths,
+        }
