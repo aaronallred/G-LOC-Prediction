@@ -15,6 +15,7 @@ from sklearn.preprocessing import StandardScaler
 from baseline import BaselineContext, baseline_data
 from features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
 from src.models.base import BaseModel
+from tests.data_manager_vs_legacy_pipeline_test import gloc_data
 
 logger = logging.getLogger(__name__)
 
@@ -159,19 +160,35 @@ class DataPipeline:
         self.save_impute = save_impute
         self.load_impute = load_impute
 
+        # Internal State
+        self._data_locations = None
+        self.gloc_data = None
+        self.gloc_labels = None
+
+    @property
+    def data_path(self) -> str:
+        return self.datafolder
+
+    @property
+    def data_locations(self) -> Dict[str, Any]:
+        if self._data_locations is None:
+            self._assign_data_locations()
+        return self._data_locations
+
     def get_data(self):
-        self._assign_hyperparameters_by_classifier(self.model.get_name())
+        self._assign_hyperparameters_by_classifier()
         self._assign_feature_groups_and_baseline_methods()
+        self._assign_data_locations()
 
         return None
     
-    def _assign_hyperparameters_by_classifier(self, classifier_type: str) -> None:
+    def _assign_hyperparameters_by_classifier(self) -> None:
         """Set hyperparameters for a given classifier type."""
 
-        params = self._CLASSIFIER_HYPERPARAMETERS.get(classifier_type)
+        params = self._CLASSIFIER_HYPERPARAMETERS.get(self.model.get_name())
         if params is None:
             # Using advanced classifier which should have provided parameters
-            logger.warning(f"Classifier type '{classifier_type}' not found in predefined hyperparameters. Using initialization values.")
+            logger.warning(f"Classifier type '{self.model.get_name()}' not found in predefined hyperparameters. Using initialization values.")
 
         self.baseline_window = params.get("baseline_window", self.baseline_window)
         self.window_size = params.get("window_size", self.window_size)
@@ -220,3 +237,102 @@ class DataPipeline:
             "eeg_list": list_of_eeg_data_file_paths,
             "baseline_eeg_processed_list": list_of_baseline_eeg_processed_file_paths,
         }
+
+    def _load_data(self) -> None:
+        """Load and cache data. Uses a fully processed cache to avoid repeated EEG Excel reads."""
+
+        main_csv_file = self.data_locations["main"]
+        main_data_pickle_file = main_csv_file.replace(".csv", ".pkl")
+        enriched_pickle_file = main_csv_file.replace(".csv", "_with_EEG_GOR.pkl")
+
+        if os.path.isfile(enriched_pickle_file):
+            logger.info("Loading preprocessed data from pickle at %s.", enriched_pickle_file)
+            self.gloc_data = pd.read_pickle(enriched_pickle_file)
+            return
+        
+        logger.info("Base pickle not found at %s. Loading from CSV and caching.", main_data_pickle_file)
+        self.gloc_data = pd.read_csv(main_csv_file)
+
+        # Add GOR and EEG data once, then persist the enriched version.
+        self._add_EEG_GOR()
+
+        condition = self.gloc_data.pop("condition")
+        afe_indicator = condition.map({"N": False, "AFE": True})
+        if afe_indicator.isna().any():
+            logger.warning("Found condition values outside {'N', 'AFE'}. Defaulting unknown values to False.")
+        self.gloc_data["AFE_indicator"] = afe_indicator.fillna(False).astype(np.bool_)
+
+        # Convert float64 to float32 to reduce memory footprint.
+        float64_cols = self.gloc_data.select_dtypes(include = "float64").columns
+        if len(float64_cols) > 0:
+            self.gloc_data = self.gloc_data.astype({col: "float32" for col in float64_cols})
+
+        # Vectorized extraction of subject/trial IDs is significantly faster than Python loops.
+        trial_parts = self.gloc_data["trial_id"].str.split("-", n = 1, expand = True)
+        subject_vals = pd.to_numeric(trial_parts[0], errors = "coerce").to_numpy()
+        trial_vals = pd.to_numeric(trial_parts[1], errors = "coerce").to_numpy()
+        if np.isnan(subject_vals).any() or np.isnan(trial_vals).any():
+            logger.warning("Found malformed trial IDs while extracting subject/trial. Defaulting malformed rows to 0.")
+        self.gloc_data["subject"] = np.nan_to_num(subject_vals, nan = 0).astype(np.uint8)
+        self.gloc_data["trial"] = np.nan_to_num(trial_vals, nan = 0).astype(np.uint8)
+
+        self.gloc_data.to_pickle(enriched_pickle_file)
+    
+    def _add_EEG_GOR(self) -> None:
+        """Slot in GOR EEG band power data from xlsx files, replacing NaNs in the main CSV."""
+
+        list_of_eeg_data_files = self.data_locations["eeg_list"]
+        trial_indices_map = self.gloc_data.groupby("trial_id", sort=False).indices
+        event_validated = self.gloc_data["event_validated"].to_numpy()
+        trial_ids = self.gloc_data["trial_id"].to_numpy()
+        begin_mask = event_validated == "begin GOR"
+        begin_idx_map = (
+            pd.Series(np.flatnonzero(begin_mask), index=trial_ids[begin_mask])
+            .groupby(level = 0, sort=False)
+            .first()
+            .to_dict()
+        )
+
+        band_names = ["delta", "theta", "alpha", "beta"]
+
+        for current_file in list_of_eeg_data_files:
+            # Parse trial ID from filename: e.g. "GLOC_01_DC1_..." -> "01-01"
+            match = re.search(r'GLOC_(\d{2})_DC(\d+)', os.path.basename(current_file))
+            if not match:
+                logger.warning("Could not parse trial ID from filename: %s", current_file)
+                continue
+            corresponding_trial = f"{int(match.group(1)):02d}-{int(match.group(2)):02d}"
+
+            if not os.path.isfile(current_file):
+                logger.warning("EEG source file not found: %s", current_file)
+                continue
+
+            # Read all sheets in one call to reduce repeated workbook parsing overhead.
+            band_sheets = pd.read_excel(current_file, sheet_name = band_names)
+            column_names = band_sheets[band_names[0]].columns[:-1]
+            band_arrays = {
+                band: band_sheets[band].iloc[:, :-1].to_numpy(dtype = np.float32, copy = False)
+                for band in band_names
+            }
+
+            trial_indices = trial_indices_map.get(corresponding_trial)
+            if trial_indices is None:
+                logger.warning("Could not find trial %s in data.", corresponding_trial)
+                continue
+
+            index_begin_GOR = begin_idx_map.get(corresponding_trial)
+            if index_begin_GOR is None:
+                logger.warning("Could not find 'begin GOR' for trial %s.", corresponding_trial)
+                continue
+
+            start_pos = np.searchsorted(trial_indices, index_begin_GOR)
+            n_rows = min(band_arrays["delta"].shape[0], len(trial_indices) - start_pos)
+            if n_rows <= 0:
+                logger.warning("No overlapping rows while inserting EEG for trial %s.", corresponding_trial)
+                continue
+            trial_indexer = trial_indices[start_pos : start_pos + n_rows]
+
+            # Build column names and assign values for each band
+            for band in band_names:
+                cols = [f"{c}_{band} - EEG" for c in column_names]
+                self.gloc_data.loc[trial_indexer, cols] = band_arrays[band][:n_rows]
