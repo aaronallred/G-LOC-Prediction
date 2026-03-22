@@ -6,6 +6,7 @@ class BaseModel(ABC):
         self.config = config
         self.best_params = {}
         self.split_info = {}
+        self.is_traditional = False
 
     @abstractmethod
     def tune(self, X, y, groups=None) -> None:
