@@ -15,7 +15,6 @@ from sklearn.preprocessing import StandardScaler
 from baseline import BaselineContext, baseline_data
 from features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
 from src.models.base import BaseModel
-from tests.data_manager_vs_legacy_pipeline_test import gloc_data
 
 logger = logging.getLogger(__name__)
 
@@ -126,9 +125,9 @@ class DataPipeline:
             kfold_ID: int = 0,
             subject_to_analyze: Optional[str] = None,
             trial_to_analyze: Optional[str] = None,
-            analysis_type: int = 2,
+            analysis_type: int = 2, # TODO: Change to enum
             remove_NaN_trials: bool = True,
-            impute_file_name: Optional[str] = None,
+            impute_file_name: str = "gloc_data_imputed.pkl",
             save_impute: bool = True,
             load_impute: bool = True
         ):
@@ -145,6 +144,7 @@ class DataPipeline:
         self.baseline_methods_to_use = None
         self.imbalance_type = imbalance_type
         self.should_impute = should_impute
+        self.impute_type = None
         self.n_neighbors = n_neighbors
 
         # Dataset Splitting Parameters
@@ -161,26 +161,28 @@ class DataPipeline:
         self.load_impute = load_impute
 
         # Internal State
-        self._data_locations = None
+        self.data_locations = None
         self.gloc_data = None
         self.gloc_labels = None
+        self.feature_names = None
 
-    @property
-    def data_path(self) -> str:
-        return self.datafolder
+    
+    def get_data(self) -> Tuple[pd.DataFrame, pd.Series, List[str]]:
+        return self.gloc_data, self.gloc_labels
 
-    @property
-    def data_locations(self) -> Dict[str, Any]:
-        if self._data_locations is None:
-            self._assign_data_locations()
-        return self._data_locations
-
-    def get_data(self):
+    def process_and_get_data(self):
+        ################################################### FEATURES SETUP ###################################################
         self._assign_hyperparameters_by_classifier()
         self._assign_feature_groups_and_baseline_methods()
-        self._assign_data_locations()
 
-        return None
+        ############################################# LOAD AND PROCESS DATA #############################################
+        self._assign_data_locations()
+        self._load_data()
+        self._filter_data_by_analysis_type()
+        self._process_and_get_feature_names()
+        self._label_gloc_events()
+
+        return self.gloc_data, self.gloc_labels
     
     def _assign_hyperparameters_by_classifier(self) -> None:
         """Set hyperparameters for a given classifier type."""
@@ -189,6 +191,7 @@ class DataPipeline:
         if params is None:
             # Using advanced classifier which should have provided parameters
             logger.warning(f"Classifier type '{self.model.get_name()}' not found in predefined hyperparameters. Using initialization values.")
+            return
 
         self.baseline_window = params.get("baseline_window", self.baseline_window)
         self.window_size = params.get("window_size", self.window_size)
@@ -214,9 +217,6 @@ class DataPipeline:
 
     def _assign_data_locations(self) -> None:
         """Get file locations for all relevant data files and aassign to self._data_locations."""
-
-        if self._data_locations is not None:
-            return # Data locations already assigned
 
         eeg_dir = "GLOC_GOR_EEG_data_participants_1-13"
         list_of_eeg_data_file_paths = [
@@ -336,3 +336,81 @@ class DataPipeline:
             for band in band_names:
                 cols = [f"{c}_{band} - EEG" for c in column_names]
                 self.gloc_data.loc[trial_indexer, cols] = band_arrays[band][:n_rows]
+
+    def _filter_data_by_analysis_type(self) -> None:
+        """Filter out sections of gloc_data specified using analysis_type."""
+        if self.analysis_type == 0: # One Trial / One Subject
+            mask = (self.gloc_data["subject"] == self.subject_to_analyze) & (self.gloc_data["trial"] == self.trial_to_analyze)
+        elif self.analysis_type == 1: # All Trials for One Subject
+            mask = (self.gloc_data["subject"] == self.subject_to_analyze)
+        # All Trials for All Subjects (analysis_type == 2) does not require filtering
+            
+        self.gloc_data = self.gloc_data[mask].reset_index(drop = True)
+    
+    def _process_and_get_feature_names(self) -> None:
+        """Process data and extract feature names based on specified feature groups."""
+        # Defining which features go into which group of feature groups
+        GROUPS_OF_FEATURE_GROUPS = {
+            # "Phys": {"ECG", "BR", "temp", "fnirs", "eyetracking", "rawEEG", "processedEEG"}, # fNIRS not used due to warning
+            "Phys": {"ECG", "BR", "temp", "eyetracking", "rawEEG", "processedEEG"},
+            "ECG": {"ECG"},
+            "EEG": {"processedEEG"} # Adding rawEEG does not change anything (rawEEG ignored during baseline v7 and v8 calculations)
+        }
+
+        features = {
+            "All": [],
+            "Phys": [],
+            "ECG": [],
+            "EEG": []
+        }
+        features_all = features["All"]
+        features_phys = features["Phys"]
+        features_ecg = features["ECG"]
+        features_eeg = features["EEG"]
+
+        for group_name in self.feature_groups_to_analyze:
+            if group_name not in FEATURE_REGISTRY:
+                logger.warning("Feature group '%s' not recognized. Skipping.", group_name)
+                continue
+
+            processor = FEATURE_REGISTRY[group_name]
+
+            # Process data for the feature group
+            self.gloc_data = processor.process(self.gloc_data, self.data_locations)
+            feature_names = processor.get_feature_names(self.model_type)
+
+            # Adding features to relevant groups
+            if group_name in GROUPS_OF_FEATURE_GROUPS["Phys"]:
+                features_phys.extend(feature_names)
+
+            if group_name in GROUPS_OF_FEATURE_GROUPS["ECG"]:
+                features_ecg.extend(feature_names)
+
+            if group_name in GROUPS_OF_FEATURE_GROUPS["EEG"]:
+                features_eeg.extend(feature_names)
+
+            features_all.extend(feature_names)
+
+        self.feature_names = features
+
+    def _label_gloc_events(self) -> None:
+        """
+        This function creates a g-loc label for the data based on the event_validated column. The event
+        is labeled as 1 between GLOC and Return to Consciousness.
+        """
+        event_validated = self.gloc_data["event_validated"]
+
+        # Find all GLOC and RTC indices, pair them in order, and label between each pair
+        gloc_indices = np.where(event_validated.to_numpy() == "GLOC")[0]
+        rtc_indices = np.where(event_validated.to_numpy() == "return to consciousness")[0]
+
+        trial_ids = self.gloc_data["trial_id"].to_numpy()
+        gloc_labels = np.zeros(len(self.gloc_data))
+
+        for i in range(len(gloc_indices)):
+            start = gloc_indices[i]
+            end = rtc_indices[i]
+            if trial_ids[start] == trial_ids[end]:
+                gloc_labels[start:end] = 1
+
+        self.gloc_labels = gloc_labels
