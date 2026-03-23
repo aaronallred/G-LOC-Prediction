@@ -32,19 +32,19 @@ class TempGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
         return ["Skin Temperature - IR Thermometer (°C) - Equivital"]
     
-class FnirsGroup(BaseFeatureGroup):
-    def get_feature_names(self, model_type):
-        return ["HbO2 - fNIRS", "Hbd - fNIRS", "HbO2 / Hbd"]
+# class FnirsGroup(BaseFeatureGroup):
+#     def get_feature_names(self, model_type):
+#         return ["HbO2 - fNIRS", "Hbd - fNIRS", "HbO2 / Hbd"]
     
-    def process(self, df, file_names):
-        # HbO2/Hbd
-        ox_deox_ratio = df["HbO2 - fNIRS"] / df["Hbd - fNIRS"]
-        df["HbO2 / Hbd"] = ox_deox_ratio
+#     def process(self, df, file_names):
+#         # HbO2/Hbd
+#         ox_deox_ratio = df["HbO2 - fNIRS"] / df["Hbd - fNIRS"]
+#         df["HbO2 / Hbd"] = ox_deox_ratio
 
-        # Output warning message for fnirs
-        warnings.warn("Per information from Chris on 01/15/25, FNIRS data was impacted by eye tracking glasses and should not be used.")
+#         # Output warning message for fnirs
+#         warnings.warn("Per information from Chris on 01/15/25, FNIRS data was impacted by eye tracking glasses and should not be used.")
 
-        return df
+#         return df
     
 class EyeTrackingGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
@@ -73,7 +73,7 @@ class AFEGroup(BaseFeatureGroup):
     
 class GGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
-        if model_type[1] == "Implicit":
+        if model_type.feature_set == "Implicit":
             # output warning message for implicit vs. explicit models
             warnings.warn("G cannot be used as a feature in implicit models. Feature removed.")
 
@@ -112,9 +112,9 @@ class RawEEGGroup(BaseFeatureGroup):
         raw_eeg_features = self.get_separated_feature_names()
 
         # Pull condition-specific EEG streams
-        if model_type[0] == "AFE":
+        if model_type.afe_filter == "Complete":
             return raw_eeg_features["Shared"] + raw_eeg_features["AFE Only"]
-        elif model_type[0] == "noAFE":
+        elif model_type.afe_filter == "noAFE":
             return raw_eeg_features["Shared"] + raw_eeg_features["Non-AFE Only"]
         else: # Use shared features only
             return raw_eeg_features["Shared"]
@@ -181,9 +181,9 @@ class ProcessedEEGGroup(BaseFeatureGroup):
         processed_eeg_features = self.get_separated_feature_names()
 
         # Pull condition-specific EEG streams
-        if model_type[0] == "AFE":
+        if model_type.afe_filter == "Complete":
             return processed_eeg_features["Shared"] + processed_eeg_features["AFE Only"]
-        elif model_type[0] == "noAFE":
+        elif model_type.afe_filter == "noAFE":
             return processed_eeg_features["Shared"] + processed_eeg_features["Non-AFE Only"]
         else: # Use shared features
             return processed_eeg_features["Shared"]
@@ -237,7 +237,7 @@ class ProcessedEEGGroup(BaseFeatureGroup):
 
 class StrainGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
-        if model_type[1] == "Implicit":
+        if model_type.feature_set == "Implicit":
             # Output warning message for implicit vs. explicit models
             warnings.warn("Strain cannot be used as a feature in implicit models. Feature removed.")
 
@@ -706,7 +706,7 @@ class StrainGroup(BaseFeatureGroup):
     
 class DemographicsGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
-        if model_type[1] == "Implicit":
+        if model_type.feature_set == "Implicit":
             # Output warning message for implicit vs. explicit models
             warnings.warn("Demographics cannot be used as features in implicit models. Features removed.")
 
@@ -863,7 +863,6 @@ FEATURE_REGISTRY = {
     "ECG": ECGGroup(),
     "BR": BRGroup(),
     "temp": TempGroup(),
-    "fnirs": FnirsGroup(),
     "eyetracking": EyeTrackingGroup(),
     "AFE": AFEGroup(),
     "G": GGroup(),
