@@ -178,6 +178,7 @@ class DataPipeline:
         self.gloc_labels = None
         self.feature_names = None
         self.nan_proportion_df = None
+        self.experiment_metadata = None
     
     def get_data(self) -> Tuple[pd.DataFrame, pd.Series]:
         return self.gloc_data, self.gloc_labels
@@ -200,8 +201,12 @@ class DataPipeline:
         ################################################# AFE Subsetting #####################################################
         self._afe_subset()
 
-        ############################################### MISSING DATA HANDLING ###############################################
+        ############################################### MISSING DATA HANDLING ################################################
         self._remove_all_nan_trials()
+
+        ################################################## REDUCE MEMORY #####################################################
+        self._extract_experiment_metadata()
+        self._reduce_memory()
 
         return self.gloc_data, self.gloc_labels
     
@@ -558,3 +563,30 @@ class DataPipeline:
             logger.info("%d trials with all NaNs for at least one feature out of %d trials. %d remaining.", M, N, N - M)
 
         self.nan_proportion_df = nan_proportion_df
+
+    def _extract_experiment_metadata(self) -> None:
+        """Extract out experiment metadata from gloc_data and store in self.experiment_metadata. This is done before memory reduction since it relies on the DataFrame format."""
+        trial_id_arr = self.gloc_data["trial_id"].to_numpy(dtype = str)
+        self.experiment_metadata = ExperimentMetadata(
+            trial_id = trial_id_arr,
+            trial_ints = self._convert_to_unique_ordered_integers(trial_id_arr),
+            time_s = self.gloc_data["Time (s)"].to_numpy(dtype = np.float32),
+            event_validated = self.gloc_data["event_validated"].to_numpy(dtype = str),
+            subject = self.gloc_data["subject"].to_numpy(dtype = np.uint8),
+            afe_indicator = self.gloc_data["AFE_indicator"].to_numpy(dtype = np.bool_)
+        )
+
+    def _reduce_memory(self) -> None:
+        """Extract numpy arrays from DataFrame and free the DataFrame to reduce memory usage."""
+
+        # Convert gloc_data into a numpy array with only feature columns
+        # Feature columns only consist of float32 datatypes
+        self.gloc_data = self.gloc_data[self.feature_names["All"]].to_numpy(dtype = np.float32)
+
+        # Downsize gloc_labels to boolean datatype
+        self.gloc_labels = self.gloc_labels.to_numpy(dtype = np.bool_)
+
+    def _convert_to_unique_ordered_integers(self, strings: np.ndarray) -> np.ndarray:
+        """Convert strings to 1-based integers preserving first-appearance order."""
+        codes, _ = pd.factorize(strings, sort=False)
+        return (codes + 1).astype(np.uint8)
