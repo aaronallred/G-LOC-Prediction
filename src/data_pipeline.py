@@ -124,22 +124,20 @@ class DataPipeline:
             data_folder: str, 
             model: BaseModel, 
             model_type: ModelType,
+            kfold_ID: int = 0,
             baseline_window: float = 32.5,
             window_size: Optional[float] = None,
             stride: Optional[float] = None,
             feature_reduction_type: Optional[str] = None,
             imbalance_type: str = "none",
-            should_impute: bool = True,
             n_neighbors: int = 4,
             num_splits: int = 10,
-            kfold_ID: int = 0,
             subject_to_analyze: Optional[str] = None,
             trial_to_analyze: Optional[str] = None,
             analysis_type: int = 2, # TODO: Change to enum
             remove_NaN_trials: bool = True,
+            should_impute: bool = True,
             impute_file_name: str = "gloc_data_imputed.pkl",
-            save_impute: bool = True,
-            load_impute: bool = True,
             verbose: bool = False
         ):
         self.data_folder = data_folder
@@ -155,7 +153,6 @@ class DataPipeline:
         self.feature_groups_to_analyze = None
         self.baseline_methods_to_use = None
         self.imbalance_type = imbalance_type
-        self.should_impute = should_impute
         self.impute_type = None
         self.n_neighbors = n_neighbors
 
@@ -168,9 +165,8 @@ class DataPipeline:
         self.remove_NaN_trials = remove_NaN_trials
 
         # Data Saving Parameters
+        self.should_impute = should_impute
         self.impute_file_name = impute_file_name
-        self.save_impute = save_impute
-        self.load_impute = load_impute
 
         # Internal State
         self.data_locations = None
@@ -185,10 +181,12 @@ class DataPipeline:
 
     def process_and_get_data(self):
         ################################################### FEATURES SETUP ###################################################
+        logger.info("Assigning hyperparameters and feature groups based on model type '%s' and model '%s'.", self.model_type, self.model.get_name())
         self._assign_hyperparameters_by_classifier()
         self._assign_feature_groups_and_baseline_methods()
 
         ############################################# LOAD AND PROCESS DATA ##################################################
+        logger.info("Assigning data locations and loading data.")
         self._assign_data_locations()
         self._load_data()
         self._filter_data_by_analysis_type()
@@ -196,15 +194,19 @@ class DataPipeline:
         self._label_gloc_events()
 
         ############################################# EEG Specific Imputation ################################################
+        logger.info("Performing EEG condition imputation if necessary based on model type '%s'.", self.model_type)
         self._eeg_condition_impute()
 
         ################################################# AFE Subsetting #####################################################
+        logger.info("Performing AFE subsetting if necessary based on model type '%s'.", self.model_type)
         self._afe_subset()
 
         ############################################### MISSING DATA HANDLING ################################################
+        logger.info("Performing NaN trial removal if remove_NaN_trials is set to True.")
         self._remove_all_nan_trials()
 
         ################################################## REDUCE MEMORY #####################################################
+        logger.info("Extracting experiment metadata and reducing memory footprint.")
         self._extract_experiment_metadata()
         self._reduce_memory()
 
