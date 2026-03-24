@@ -32,20 +32,6 @@ class TempGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
         return ["Skin Temperature - IR Thermometer (°C) - Equivital"]
     
-# class FnirsGroup(BaseFeatureGroup):
-#     def get_feature_names(self, model_type):
-#         return ["HbO2 - fNIRS", "Hbd - fNIRS", "HbO2 / Hbd"]
-    
-#     def process(self, df, file_names):
-#         # HbO2/Hbd
-#         ox_deox_ratio = df["HbO2 - fNIRS"] / df["Hbd - fNIRS"]
-#         df["HbO2 / Hbd"] = ox_deox_ratio
-
-#         # Output warning message for fnirs
-#         warnings.warn("Per information from Chris on 01/15/25, FNIRS data was impacted by eye tracking glasses and should not be used.")
-
-#         return df
-    
 class EyeTrackingGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
         return [
@@ -66,10 +52,6 @@ class EyeTrackingGroup(BaseFeatureGroup):
         df["Pupil Difference [mm]"] = pupil_difference
 
         return df
-    
-class AFEGroup(BaseFeatureGroup):
-    def get_feature_names(self, model_type):
-        return ["AFE_indicator"]
     
 class GGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
