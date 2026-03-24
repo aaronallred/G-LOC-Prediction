@@ -214,3 +214,12 @@ class LogisticRegression(BaseModel):
             return np.array([])
         
         return self.model.predict_proba(X)
+
+    def get_name(self) -> str:
+        """
+        Get the name of the model.
+        
+        Returns:
+            String name of the model.
+        """
+        return "logreg"

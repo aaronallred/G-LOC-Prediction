@@ -32,3 +32,8 @@ class BaseModel(ABC):
     def load(self, path: str) -> None:
         """Load artifacts"""
         pass
+
+    @abstractmethod
+    def get_name(self) -> str:
+        """Return model name"""
+        pass
