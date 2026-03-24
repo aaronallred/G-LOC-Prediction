@@ -177,7 +177,7 @@ class DataPipeline:
         self.gloc_data = None
         self.gloc_labels = None
         self.feature_names = None
-
+        self.nan_proportion_df = None
     
     def get_data(self) -> Tuple[pd.DataFrame, pd.Series]:
         return self.gloc_data, self.gloc_labels
@@ -200,7 +200,14 @@ class DataPipeline:
         ################################################# AFE Subsetting #####################################################
         self._afe_subset()
 
+        ############################################### MISSING DATA HANDLING ###############################################
+        self._remove_all_nan_trials()
+
         return self.gloc_data, self.gloc_labels
+    
+    def get_nan_proportion_df(self) -> Optional[pd.DataFrame]:
+        """Returns dataframe with proportion of NaNs for each feature by trial, if calculated during _remove_all_nan_trials."""
+        return self.nan_proportion_df
     
     def _assign_hyperparameters_by_classifier(self) -> None:
         """Set hyperparameters for a given classifier type."""
@@ -494,3 +501,60 @@ class DataPipeline:
 
         self.gloc_data = self.gloc_data.loc[keep_mask].reset_index(drop = True)
         self.gloc_labels = self.gloc_labels[keep_mask]
+
+    def _remove_all_nan_trials(self) -> None:
+        """
+            Optional handling of raw NaN data, depending on remove_NaN_trials and impute_type
+            Remove trials where at least one feature is entirely NaN. 
+            Modifies gloc_data and gloc_labels in-place.
+            Calculates and stores a dataframe with the proportion of NaNs for each feature by trial, which can be accessed using get_nan_proportion_df().
+        """
+        if self.remove_NaN_trials == False:
+            logger.info("Skipping NaN trial removal since remove_NaN_trials is set to False.")
+            return
+
+        # All features and subject trial info to be put into a reduced dataframe from gloc_data
+        all_features = self.feature_names["All"]
+        all_features_with_ids = all_features + ["subject", "trial"]
+        reduced_data_frame = self.gloc_data[all_features_with_ids]
+
+        nan_flags = reduced_data_frame[all_features].isna()
+        group_keys = [reduced_data_frame["subject"], reduced_data_frame["trial"]]
+        grouped = nan_flags.groupby(group_keys, sort=False)
+
+        nan_proportion_df = grouped.mean()
+        all_nan_cols_df = grouped.all()
+        bad_trials = all_nan_cols_df.any(axis=1)
+
+        if self.verbose and bad_trials.any():
+            for (subject, trial), is_bad in bad_trials.items():
+                if is_bad:
+                    nan_features = all_nan_cols_df.columns[all_nan_cols_df.loc[(subject, trial)]].tolist()
+                    logger.info("Subject %s, Trial %s: features entirely NaN → %s", subject, trial, nan_features)
+
+        nan_proportion_df.insert(
+            0,
+            "subject-trial",
+            [f"{subject}-{trial}" for subject, trial in nan_proportion_df.index],
+        )
+        nan_proportion_df.reset_index(drop=True, inplace=True)
+
+        group_ids = reduced_data_frame.groupby(["subject", "trial"], sort=False).ngroup().to_numpy()
+        keep_mask = ~bad_trials.to_numpy()[group_ids]
+
+        rows_to_remove = self.gloc_data.index[~keep_mask]
+        self.gloc_data.drop(rows_to_remove, inplace=True)
+        self.gloc_data.reset_index(drop=True, inplace=True)
+
+        kept_labels = self.gloc_labels[keep_mask]
+        self.gloc_labels.resize(kept_labels.shape, refcheck=False)
+        self.gloc_labels[:] = kept_labels
+
+        N = int(bad_trials.shape[0])
+        M = int(bad_trials.sum())
+
+        if self.verbose:
+            # Print NaN findings
+            logger.info("%d trials with all NaNs for at least one feature out of %d trials. %d remaining.", M, N, N - M)
+
+        self.nan_proportion_df = nan_proportion_df
