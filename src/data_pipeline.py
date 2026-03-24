@@ -12,8 +12,8 @@ import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
 
-from baseline import BaselineContext, baseline_data
-from features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
+from .baseline import BaselineContext, baseline_data
+from .features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
 from src.models.base import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -22,21 +22,31 @@ logger = logging.getLogger(__name__)
 class ModelType:
     afe_filter: str  # "noAFE" or "Complete"
     feature_set: str # "Explicit" or "Implicit"
+
+@dataclass(frozen = True)
+class ExperimentMetadata:
+    trial_id: np.ndarray
+    trial_ints: np.ndarray
+    time_s: np.ndarray
+    event_validated: np.ndarray
+    subject: np.ndarray
+    afe_indicator: np.ndarray
     
 class DataPipeline:
     """ Unified data pipeline for Traditional and Advanced Classifiers """
 
     FEATURE_GROUPS_BY_MODEL_TYPE = {
-        ModelType("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
+        ModelType("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain", "demographics"),
         ModelType("noAFE", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG"),
-        ModelType("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
-        ModelType("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE"),
+        ModelType("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain", "demographics"),
+        ModelType("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG"),
     }
     BASELINING_CHARACTERISTICS_BY_MODEL_TYPE = {
         "noAFE": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
         "Complete": ["v0", "v1", "v2", "v5", "v6"],
     }
 
+    # Predefined hyperparameters for traditional classifiers
     _CLASSIFIER_HYPERPARAMETERS: Dict[BaseModel, Dict[str, Any]] = {
         "logreg": {
             "baseline_window": 5,
@@ -102,8 +112,8 @@ class DataPipeline:
 
     # Mapping of participant -> DC trial numbers for GOR EEG data files
     _EEG_PARTICIPANT_TRIALS = {
-        1: [1, 2, 3],  2: [1, 2, 3],  3: [1, 2, 3],  4: [1, 2, 3],  5: [1, 2, 3],
-        6: [1, 4, 6],  7: [2, 4, 6],  8: [1, 3],     9: [2, 5, 6],
+        1: [1, 2, 3],  2: [1, 2, 3],  3: [1, 2, 3],   4: [1, 2, 3],  5: [1, 2, 3],
+        6: [1, 4, 6],  7: [2, 4, 6],  8: [1, 3],      9: [2, 5, 6],
         10: [2, 4, 5], 11: [1],       12: [1, 5],     13: [1, 3, 6],
     }
 
@@ -111,7 +121,7 @@ class DataPipeline:
 
     def __init__(
             self, 
-            datafolder: str, 
+            data_folder: str, 
             model: BaseModel, 
             model_type: ModelType,
             baseline_window: float = 32.5,
@@ -129,11 +139,13 @@ class DataPipeline:
             remove_NaN_trials: bool = True,
             impute_file_name: str = "gloc_data_imputed.pkl",
             save_impute: bool = True,
-            load_impute: bool = True
+            load_impute: bool = True,
+            verbose: bool = False
         ):
-        self.datafolder = datafolder
+        self.data_folder = data_folder
         self.model = model
         self.model_type = model_type
+        self.verbose = verbose
 
         # Data Processing Hyperparameters
         self.baseline_window = baseline_window
@@ -167,7 +179,7 @@ class DataPipeline:
         self.feature_names = None
 
     
-    def get_data(self) -> Tuple[pd.DataFrame, pd.Series, List[str]]:
+    def get_data(self) -> Tuple[pd.DataFrame, pd.Series]:
         return self.gloc_data, self.gloc_labels
 
     def process_and_get_data(self):
@@ -175,12 +187,18 @@ class DataPipeline:
         self._assign_hyperparameters_by_classifier()
         self._assign_feature_groups_and_baseline_methods()
 
-        ############################################# LOAD AND PROCESS DATA #############################################
+        ############################################# LOAD AND PROCESS DATA ##################################################
         self._assign_data_locations()
         self._load_data()
         self._filter_data_by_analysis_type()
         self._process_and_get_feature_names()
         self._label_gloc_events()
+
+        ############################################# EEG Specific Imputation ################################################
+        self._eeg_condition_impute()
+
+        ################################################# AFE Subsetting #####################################################
+        self._afe_subset()
 
         return self.gloc_data, self.gloc_labels
     
@@ -414,3 +432,65 @@ class DataPipeline:
                 gloc_labels[start:end] = 1
 
         self.gloc_labels = gloc_labels
+
+    def _eeg_condition_impute(self) -> None:
+        """
+            Mean-impute condition-specific EEG columns so both AFE/non-AFE have all features. Modifies gloc_data in-place.
+        
+            Note: 
+                * This runs for 'complete' models, but because we are only using shared/overlapping EEG features for the 'complete' case, this block doesn't do anything. 
+                * Imputation occurs only for non-shared EEG features are used.
+        """
+        if self.model_type.afe_filter != "Complete":
+            logger.info("Skipping EEG imputation since model type '%s' does not include all AFE features.", self.model_type)
+            return
+
+        # Create masks for each condition
+        afe_mask = self.gloc_data["AFE_indicator"] == 1
+        nonafe_mask = self.gloc_data["AFE_indicator"] == 0
+
+        # Pull columns that need to be imputed for each type
+        raw_eeg_feature_names = RawEEGGroup.get_separated_feature_names()
+        processed_eeg_feature_names = ProcessedEEGGroup.get_separated_feature_names()
+        all_afe_only_cols = raw_eeg_feature_names["AFE Only"] + processed_eeg_feature_names["AFE Only"]
+        all_nonafe_only_cols = raw_eeg_feature_names["Non-AFE Only"] + processed_eeg_feature_names["Non-AFE Only"]
+        eeg_feature_set = set(self.feature_names["EEG"])
+        afe_only_cols = [col for col in all_afe_only_cols if col in eeg_feature_set]
+        nonafe_only_cols = [col for col in all_nonafe_only_cols if col in eeg_feature_set]
+
+        # Mean imputation processing
+        if afe_only_cols:
+            means = self.gloc_data.loc[afe_mask, afe_only_cols].mean(skipna = True)
+            if self.verbose:
+                missing_counts = self.gloc_data.loc[nonafe_mask, afe_only_cols].isna().sum()
+            self.gloc_data.loc[nonafe_mask, afe_only_cols] = self.gloc_data.loc[nonafe_mask, afe_only_cols].fillna(means)
+
+            # Show columns imputed and how many rows were imputed for each column
+            if self.verbose:
+                for col, n in missing_counts.items():
+                    logger.debug("Imputed %d values in '%s' for non-AFE rows.", n, col)
+
+        if nonafe_only_cols:
+            means = self.gloc_data.loc[nonafe_mask, nonafe_only_cols].mean(skipna = True)
+            if self.verbose:
+                missing_counts = self.gloc_data.loc[afe_mask, nonafe_only_cols].isna().sum()
+            self.gloc_data.loc[afe_mask, nonafe_only_cols] = self.gloc_data.loc[afe_mask, nonafe_only_cols].fillna(means)
+
+            # Show columns imputed and how many rows were imputed for each column
+            if self.verbose:
+                for col, n in missing_counts.items():
+                    logger.debug("Imputed %d values in '%s' for AFE rows.", n, col)
+
+    def _afe_subset(self) -> None:
+        """
+            Remove any trial that contains AFE condition (condition == 1).
+        """
+        if self.model_type.afe_filter != "noAFE":
+            logger.info("Skipping AFE subsetting since model type '%s' is not 'noAFE'.", self.model_type)
+            return
+
+        trial_has_afe = self.gloc_data.groupby(["subject", "trial"])["AFE_indicator"].transform("max") # Mark trial as all 1 if any are 1, otherwise 0
+        keep_mask = trial_has_afe != 1
+
+        self.gloc_data = self.gloc_data.loc[keep_mask].reset_index(drop = True)
+        self.gloc_labels = self.gloc_labels[keep_mask]
