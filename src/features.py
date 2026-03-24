@@ -846,7 +846,6 @@ FEATURE_REGISTRY = {
     "BR": BRGroup(),
     "temp": TempGroup(),
     "eyetracking": EyeTrackingGroup(),
-    "AFE": AFEGroup(),
     "G": GGroup(),
     "cognitive": CognitiveGroup(),
     "rawEEG": RawEEGGroup(),
