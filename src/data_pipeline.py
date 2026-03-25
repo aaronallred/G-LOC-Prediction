@@ -696,11 +696,6 @@ class DataPipeline:
         # Build FAISS HNSW index on training data
         index = faiss.IndexHNSWFlat(num_training_cols, self.impute_M)
         index.hnsw.efSearch = self.impute_efSearch
-
-        # Use fixed RNG seed for deterministic HNSW graph construction
-        rng = faiss.RandomGenerator(self.random_seed)
-        index.hnsw.rng = rng
-        
         index.add(X_train_temp)
 
         # Impute training data
