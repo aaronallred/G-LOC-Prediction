@@ -142,6 +142,8 @@ class DataPipeline:
             impute_k: int = 5,
             impute_M: int = 32,
             impute_efSearch: int = 64,
+            backstep: int = 0, # Seconds
+            data_rate: int = 25, # Hz
             verbose: bool = False
         ):
         self.data_folder = data_folder
@@ -184,6 +186,10 @@ class DataPipeline:
         self.impute_k = impute_k
         self.impute_M = impute_M
         self.impute_efSearch = impute_efSearch
+
+        # Temporal Offset Parameters
+        self.backstep = backstep
+        self.data_rate = data_rate
 
         # Internal State
         self.data_locations = None
@@ -235,6 +241,9 @@ class DataPipeline:
         logger.info("Performing train/test split and imputation if should_impute is set to True.")
         self._kfold_split()
         self._impute_missing_data()
+
+        ################################################# Prediction Offset ##################################################
+        self._apply_prediction_offset()
 
         return self.gloc_data, self.gloc_labels
     
@@ -649,6 +658,8 @@ class DataPipeline:
         self.y_train = y_train
         self.X_test = X_test
         self.y_test = y_test
+        self.train_indices = train_indices
+        self.test_indices = test_indices
 
     def _impute_missing_data(self) -> None:
         """Impute missing data using KNN imputation with FAISS for efficient neighbor search. Only runs if should_impute is True."""
@@ -721,3 +732,51 @@ class DataPipeline:
         # Update class attributes with imputed data
         self.X_train = X_train_imputed
         self.X_test = X_test_imputed
+
+    def _apply_prediction_offset(self) -> None:
+        """
+        Shift both train and test GLOC labels to the left by `backstep * data_rate`
+        frames within each trial. The beginning is truncated and the end padded with zeros.
+        """
+
+        offset = int(self.backstep * self.data_rate)
+        if offset <= 0:
+            logger.info("Skipping y prediction offset since backstep is set to 0.")
+            return
+
+        if self.y_train is None or self.y_test is None:
+            logger.info("Skipping y prediction offset since train/test labels are not initialized.")
+            return
+
+        if not hasattr(self, "train_indices") or not hasattr(self, "test_indices"):
+            logger.info("Train/test indices not found. Performing K-fold split before y prediction offset.")
+            self._kfold_split()
+
+        train_trials = self.experiment_metadata.trial_ints[self.train_indices]
+        test_trials = self.experiment_metadata.trial_ints[self.test_indices]
+
+        def _shift_by_trial(labels: np.ndarray, trial_groups: np.ndarray, shift: int) -> np.ndarray:
+            shifted = np.asarray(labels).copy()
+            unique_trials = np.unique(trial_groups)
+
+            for trial in unique_trials:
+                trial_idx = np.nonzero(trial_groups == trial)[0]
+                current_y = shifted[trial_idx]
+
+                if not np.any(current_y):
+                    continue
+
+                if shift >= current_y.shape[0]:
+                    shifted[trial_idx] = np.zeros_like(current_y)
+                    continue
+
+                y_shifted = current_y[shift:]
+                shifted[trial_idx] = np.concatenate([
+                    y_shifted,
+                    np.zeros(shift, dtype = current_y.dtype),
+                ])[: current_y.shape[0]]
+
+            return shifted
+
+        self.y_train = _shift_by_trial(self.y_train, train_trials, offset)
+        self.y_test = _shift_by_trial(self.y_test, test_trials, offset)
