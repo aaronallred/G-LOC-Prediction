@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 import faiss
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 
 from .baseline import BaselineContext, baseline_data
@@ -132,17 +132,22 @@ class DataPipeline:
             imbalance_type: str = "none",
             n_neighbors: int = 4,
             num_splits: int = 10,
+            random_state: int = 42,
             subject_to_analyze: Optional[str] = None,
             trial_to_analyze: Optional[str] = None,
             analysis_type: int = 2, # TODO: Change to enum
             remove_NaN_trials: bool = True,
             should_impute: bool = True,
             impute_file_name: str = "gloc_data_imputed.pkl",
+            impute_k: int = 5,
+            impute_M: int = 32,
+            impute_efSearch: int = 64,
             verbose: bool = False
         ):
         self.data_folder = data_folder
         self.model = model
         self.model_type = model_type
+        self.random_state = random_state
         self.verbose = verbose
 
         # Data Processing Hyperparameters
@@ -158,20 +163,36 @@ class DataPipeline:
 
         # Dataset Splitting Parameters
         self.num_splits = num_splits
+
+        if kfold_ID < 0 or kfold_ID >= num_splits:
+            raise ValueError(f"kfold_ID must be between 0 and num_splits-1 (inclusive). Got kfold_ID = {kfold_ID} with num_splits = {num_splits}.")
         self.kfold_ID = kfold_ID
+
         self.subject_to_analyze = subject_to_analyze
         self.trial_to_analyze = trial_to_analyze
         self.analysis_type = analysis_type
         self.remove_NaN_trials = remove_NaN_trials
 
-        # Data Saving Parameters
+        if self.model.is_traditional:
+            self.data_split_method = StratifiedKFold(n_splits = self.num_splits, shuffle = True, random_state = self.random_state)
+        else:
+            self.data_split_method = StratifiedGroupKFold(n_splits = self.num_splits, shuffle = True, random_state = self.random_state)
+        
+        # Imputation Parameters
         self.should_impute = should_impute
         self.impute_file_name = impute_file_name
+        self.impute_k = impute_k
+        self.impute_M = impute_M
+        self.impute_efSearch = impute_efSearch
 
         # Internal State
         self.data_locations = None
         self.gloc_data = None
         self.gloc_labels = None
+        self.X_train = None
+        self.y_train = None
+        self.X_test = None
+        self.y_test = None
         self.feature_names = None
         self.nan_proportion_df = None
         self.experiment_metadata = None
@@ -209,6 +230,11 @@ class DataPipeline:
         logger.info("Extracting experiment metadata and reducing memory footprint.")
         self._extract_experiment_metadata()
         self._reduce_memory()
+
+        ################################################### Impute Missing ###################################################
+        logger.info("Performing train/test split and imputation if should_impute is set to True.")
+        self._kfold_split()
+        self._impute_missing_data()
 
         return self.gloc_data, self.gloc_labels
     
@@ -592,3 +618,111 @@ class DataPipeline:
         """Convert strings to 1-based integers preserving first-appearance order."""
         codes, _ = pd.factorize(strings, sort=False)
         return (codes + 1).astype(np.uint8)
+    
+    def _kfold_split(self) -> None:
+        """
+            Split data into train/test using stratified K-fold for traditional classifiers and stratified group K-fold for traditional classifiers.
+
+            Creates new class attributes:
+                self.X_train
+                self.X_test
+                self.y_train
+                self.y_test
+            
+            Deletes previous self.gloc_data and self.gloc_labels to free memory, as they are now split into train/test sets.
+        """
+
+        # Get train and test indices for the specified fold
+        # If StratifiedKFold, split on gloc_data and gloc_labels directly. If StratifiedGroupKFold, split on gloc_data, gloc_labels, and trial groups from experiment_metadata.
+        train_indices, test_indices = next(islice(self.data_split_method.split(self.gloc_data, self.gloc_labels, self.experiment_metadata.trial_ints), self.kfold_ID, self.  kfold_ID + 1))
+
+        # Extract split data
+        X_train, y_train = self.gloc_data[train_indices], self.gloc_labels[train_indices]
+        X_test, y_test = self.gloc_data[test_indices], self.gloc_labels[test_indices]
+
+        # Free memory of original data after split
+        del self.gloc_data
+        del self.gloc_labels
+
+        # Update new data attributes
+        self.X_train = X_train
+        self.y_train = y_train
+        self.X_test = X_test
+        self.y_test = y_test
+
+    def _impute_missing_data(self) -> None:
+        """Impute missing data using KNN imputation with FAISS for efficient neighbor search. Only runs if should_impute is True."""
+        if not self.should_impute:
+            logger.info("Skipping imputation since should_impute is set to False.")
+            return
+        
+        if self.X_train is None or self.y_train is None or self.X_test is None or self.y_test is None:
+            logger.info("Train/test split not found. Performing K-fold split before imputation.")
+            self._kfold_split()
+
+        # Load cached imputed data if available
+        complete_impute_file_name = f"{self.model.get_name()}_{self.model_type.afe_filter}_{self.model_type.feature_set}_Fold_{self.kfold_ID}_{self.impute_file_name}"
+        impute_path = os.path.join(self.data_path, complete_impute_file_name)
+        if os.path.exists(impute_path):
+            with open(impute_path, 'rb') as f:
+                self.X_train, self.y_train, self.X_test, self.y_test = pickle.load(f)
+            logger.info("Loaded imputed train/test split from %s.", impute_path)
+            return
+        
+        self._knn_train_test_imputation()
+
+        # Save imputed train/test split for future use
+        os.makedirs(os.path.dirname(impute_path), exist_ok = True)
+        with open(impute_path, 'wb') as f:
+            pickle.dump((self.X_train, self.y_train, self.X_test, self.y_test), f)
+        logger.info("Saved imputed train/test split to %s.", impute_path)
+    
+    def _knn_train_test_imputation(self) -> None:
+        """Perform KNN imputation using FAISS for efficient neighbor search. Modifies self.X_train and self.X_test in-place with imputed values."""
+        num_training_rows = self.X_train.shape[0]
+        num_training_cols = self.X_train.shape[1]
+        num_testing_rows = self.X_test.shape[0]
+        num_testing_cols = self.X_test.shape[1]
+
+        # Identify missing values
+        mask_train = np.isnan(self.X_train)
+        mask_test = np.isnan(self.X_test)
+
+        # Temporary mean imputation for FAISS indexing
+        mean_vals = np.nanmean(self.X_train, axis = 0)
+        X_train_temp = np.where(mask_train, mean_vals, self.X_train).astype(np.float32)
+        X_test_temp = np.where(mask_test, mean_vals, self.X_test).astype(np.float32)
+
+        # Build FAISS HNSW index on training data
+        index = faiss.IndexHNSWFlat(num_training_cols, self.impute_M)
+        index.hnsw.efSearch = self.impute_efSearch
+
+        # Use fixed RNG seed for deterministic HNSW graph construction
+        rng = faiss.RandomGenerator(self.random_seed)
+        index.hnsw.rng = rng
+        
+        index.add(X_train_temp)
+
+        # Impute training data
+        _, train_indices = index.search(X_train_temp, self.impute_k + 1)
+        X_train_imputed = self.X_train.copy()
+        for i in range(num_training_rows):
+            neighbors = train_indices[i, 1:]  # skip self
+            for j in range(num_training_cols):
+                if mask_train[i, j]:
+                    neighbor_values = X_train_temp[neighbors, j]
+                    X_train_imputed[i, j] = np.nanmean(neighbor_values)
+
+        # Impute test data
+        _, indices_test = index.search(X_test_temp, self.impute_k)
+        X_test_imputed = self.X_test.copy()
+        for i in range(num_testing_rows):
+            neighbors = indices_test[i]
+            for j in range(num_testing_cols):
+                if mask_test[i, j]:
+                    neighbor_values = X_train_temp[neighbors, j]
+                    X_test_imputed[i, j] = np.nanmean(neighbor_values)
+
+        # Update class attributes with imputed data
+        self.X_train = X_train_imputed
+        self.X_test = X_test_imputed
