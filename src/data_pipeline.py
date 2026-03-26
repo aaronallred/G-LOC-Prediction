@@ -7,11 +7,11 @@ import os
 import json
 from collections import OrderedDict
 
-from .advanced_data_pipeline import AdvancedDataPipeline
-from .traditional_data_pipeline import TraditionalDataPipeline
-from .GLOC_experiment_config_parser import GLOCExperimentConfigParser
-from .model_type import ModelType
-from .models.base import BaseModel
+from advanced_data_pipeline import AdvancedDataPipeline
+from traditional_data_pipeline import TraditionalDataPipeline
+from GLOC_experiment_config_parser import GLOCExperimentConfigParser
+from model_type import ModelType
+from models.base import BaseModel
 
 PipelineKind = Literal["auto", "advanced", "traditional"]
 
@@ -171,34 +171,11 @@ class DataPipeline:
         """
 
         # Function to load in median hyperparameters from a simple JSON
-        BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+        BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         model_type_string = f"{current_kwargs['model_type'].afe_filter}_{current_kwargs['model_type'].feature_set}"
         json_path = os.path.join(BASE_DIR, 'ModelSave', 'CV', model_type_string, f'median_hyperparameters_{current_kwargs["classifier_type"]}.json')
 
         with open(json_path, 'r') as f:
             data = json.load(f)
 
-        best_params = OrderedDict(data['best_params'])
-        selected_features = data['selected_features']
-        score = data['f1_score']
-        foldID = data['fold_id']
-        foldID = int(foldID)
-
-
-        return best_params, selected_features, foldID, score
-
-
-        if self.model is not None:
-            config = getattr(self.model, "config", {}) or {}
-            features = config.get("select_features")
-            if features is not None:
-                return list(features)
-
-        # Use from experiment config
-        features = self._config_parser.get_select_features()
-        if not features:
-            raise ValueError(
-                "select_features not found in model config, kwargs, or experiment config. "
-                "Provide select_features in one of these locations."
-            )
-        return features
+        return data['selected_features']
