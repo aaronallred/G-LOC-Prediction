@@ -3,6 +3,9 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 import numpy as np
+import os
+import json
+from collections import OrderedDict
 
 from .advanced_data_pipeline import AdvancedDataPipeline
 from .traditional_data_pipeline import TraditionalDataPipeline
@@ -22,36 +25,6 @@ class ExperimentMetadata:
     subject: np.ndarray
     afe_indicator: np.ndarray
 
-
-@dataclass(frozen=True)
-class PipelineConfig:
-    """Immutable configuration object extracted from experiment config.
-    
-    This dataclass holds all configuration needed for the data pipeline,
-    extracted at initialization time for clarity and reproducibility.
-    """
-    data_path: str
-    model_type: ModelType
-    random_seed: int
-    num_splits: int
-    kfold_ID: int
-    impute_path: str
-    impute_type: int
-    n_neighbors: int
-    baseline_window: float
-    save_impute: bool
-    load_impute: bool
-    backstep: float
-    data_rate: int
-    offset: float
-    time_start: float
-    remove_NaN_trials: bool
-    subject_to_analyze: Optional[int]
-    trial_to_analyze: Optional[int]
-    analysis_type: int
-    classifier_type: str
-    select_features: list[str]
-
 class DataPipeline:
     """Facade that routes data loading to the advanced or traditional backend.
 
@@ -70,7 +43,6 @@ class DataPipeline:
     def __init__(
             self,
             config_parser: GLOCExperimentConfigParser,
-            model: Optional[BaseModel] = None,
     ) -> None:
         """Initialize DataPipeline with configuration from parser.
         
@@ -84,72 +56,8 @@ class DataPipeline:
             ValueError: If required configuration is missing or invalid
         """
         self._config_parser = config_parser
-        self.model = model
-        self._backend: Optional[Any] = None
-        
-        # Extract and validate configuration early
-        self._config = self._extract_config()
 
-    def _extract_config(self) -> PipelineConfig:
-        """Extract and validate configuration from parser.
-        
-        Configuration is extracted once at initialization to ensure consistency
-        and catch issues early.
-        
-        Args:
-            data_path_override: Optional override for data_path
-            
-        Returns:
-            PipelineConfig: Immutable configuration object
-            
-        Raises:
-            ValueError: If configuration is invalid or missing required fields
-        """
-        try:            
-            return PipelineConfig(
-                data_path=self._config_parser.get_data_path(),
-                model_type=self._config_parser.get_model_type(),
-                random_seed=self._config_parser.get_random_seed(),
-                num_splits=self._config_parser.get_num_splits(),
-                kfold_ID=self._config_parser.get_kfold_ID(),
-                impute_path=self._config_parser.get_impute_path(),
-                impute_type=self._config_parser.get_impute_type(),
-                n_neighbors=self._config_parser.get_n_neighbors(),
-                baseline_window=self._config_parser.get_baseline_window(),
-                save_impute=self._config_parser.get_save_impute(),
-                load_impute=self._config_parser.get_load_impute(),
-                backstep=self._config_parser.get_backstep(),
-                data_rate=self._config_parser.get_data_rate(),
-                offset=self._config_parser.get_offset(),
-                time_start=self._config_parser.get_time_start(),
-                remove_NaN_trials=self._config_parser.get_remove_NaN_trials(),
-                subject_to_analyze=self._config_parser.get_subject_to_analyze(),
-                trial_to_analyze=self._config_parser.get_trial_to_analyze(),
-                analysis_type=self._config_parser.get_analysis_type(),
-                classifier_type=self._config_parser.get_classifier_type(),
-                select_features=self._config_parser.get_select_features(),
-            )
-        except Exception as e:
-            raise ValueError(f"Failed to extract configuration: {e}") from e
-
-    @property
-    def model_type(self) -> ModelType:
-        """Get the model type from configuration."""
-        return self._config.model_type
-
-    @property
-    def config(self) -> PipelineConfig:
-        """Get the extracted configuration object."""
-        return self._config
-
-    @property
-    def backend(self) -> Any:
-        """Lazily build and return the appropriate backend pipeline."""
-        if self._backend is None:
-            self._backend = self._build_backend()
-        return self._backend
-
-    def get_data(self, **kwargs: Any) -> Any:
+    def get_data(self) -> Any:
         """Execute the selected backend data pipeline.
 
         For advanced pipelines this returns:
@@ -158,37 +66,37 @@ class DataPipeline:
         For traditional pipelines this returns:
         ``x_feature_matrix, y_gloc_labels``
         
-        Args:
-            **kwargs: Additional arguments to pass to the backend pipeline,
-                     overriding defaults from configuration
-                     
         Returns:
             Tuple or data from the backend pipeline
         """
         backend_type = self._resolve_pipeline_kind()
-        request_kwargs = dict(kwargs)
-
-        if "model_type" not in request_kwargs:
-            request_kwargs["model_type"] = self._config.model_type
+        backend_data_pipeline = self._build_backend()
+        request_kwargs: dict[str, Any] = {
+            "model_type": self._config_parser.get_model_type(),
+            "remove_NaN_trials": self._config_parser.get_remove_NaN_trials(),
+            "subject_to_analyze": self._config_parser.get_subject_to_analyze(),
+            "trial_to_analyze": self._config_parser.get_trial_to_analyze(),
+            "analysis_type": self._config_parser.get_analysis_type(),
+        }
 
         if backend_type == "advanced":
-            request_kwargs.setdefault("num_splits", self._config_parser.get_num_splits())
-            request_kwargs.setdefault("kfold_ID", self._config_parser.get_kfold_ID())
-            request_kwargs.setdefault("impute_path", self._config_parser.get_impute_path())
+            request_kwargs["num_splits"] = self._config_parser.get_num_splits()
+            request_kwargs["kfold_ID"] = self._config_parser.get_kfold_ID()
+            request_kwargs["impute_path"] = self._config_parser.get_impute_path()
+            request_kwargs["impute_type"] = self._config_parser.get_impute_type()
+            request_kwargs["n_neighbors"] = self._config_parser.get_n_neighbors()
+            request_kwargs["baseline_window"] = self._config_parser.get_baseline_window()
+            request_kwargs["save_impute"] = self._config_parser.get_save_impute()
+            request_kwargs["load_impute"] = self._config_parser.get_load_impute()
         else:
-            request_kwargs.setdefault("classifier_type", self._resolve_classifier_name())
-            request_kwargs.setdefault("select_features", self._resolve_select_features(request_kwargs))
-            request_kwargs.setdefault("backstep", self._config_parser.get_backstep())
-            request_kwargs.setdefault("data_rate", self._config_parser.get_data_rate())
-            request_kwargs.setdefault("offset", self._config_parser.get_offset())
-            request_kwargs.setdefault("time_start", self._config_parser.get_time_start())
+            request_kwargs["classifier_type"] = self._resolve_classifier_name()
+            request_kwargs["select_features"] = self._resolve_select_features(request_kwargs)
+            request_kwargs["backstep"] = self._config_parser.get_backstep()
+            request_kwargs["data_rate"] = self._config_parser.get_data_rate()
+            request_kwargs["offset"] = self._config_parser.get_offset()
+            request_kwargs["time_start"] = self._config_parser.get_time_start()
 
-        request_kwargs.setdefault("remove_NaN_trials", self._config_parser.get_remove_NaN_trials())
-        request_kwargs.setdefault("subject_to_analyze", self._config_parser.get_subject_to_analyze())
-        request_kwargs.setdefault("trial_to_analyze", self._config_parser.get_trial_to_analyze())
-        request_kwargs.setdefault("analysis_type", self._config_parser.get_analysis_type())
-
-        return self.backend.get_data(**request_kwargs)
+        return backend_data_pipeline.get_data(**request_kwargs)
 
     def _build_backend(self) -> Any:
         """Build the appropriate backend pipeline based on model type.
@@ -221,9 +129,12 @@ class DataPipeline:
         Raises:
             ValueError: If backend type cannot be determined
         """
-        if self.model is not None and hasattr(self.model, "is_traditional"):
-            return "traditional" if self.model.is_traditional else "advanced"
-        
+        model = self._config_parser.get_model()
+
+        if model is None or not hasattr(model, "is_traditional"):
+            raise ValueError("Model does not have 'is_traditional' attribute. Unable to determine pipeline kind.")
+
+        return "traditional" if model.is_traditional else "advanced"
     
 
     def _resolve_classifier_name(self) -> str:
@@ -235,11 +146,11 @@ class DataPipeline:
         Raises:
             ValueError: If classifier name cannot be determined
         """
-        if self.model is not None and hasattr(self.model, "get_name"):
-            return str(self.model.get_name())
-        
-        # Fallback to classifier_type from config
-        return self._config_parser.get_classifier_type()
+        model = self._config_parser.get_model()
+        if model is None or not hasattr(model, "get_name"):
+            raise ValueError("Unable to determine classifier name.")
+
+        return model.get_name()
 
     def _resolve_select_features(self, current_kwargs: dict[str, Any]) -> list[str]:
         """Resolve which features to select for the pipeline.
@@ -258,8 +169,24 @@ class DataPipeline:
         Raises:
             ValueError: If select_features cannot be determined
         """
-        if "select_features" in current_kwargs and current_kwargs["select_features"] is not None:
-            return list(current_kwargs["select_features"])
+
+        # Function to load in median hyperparameters from a simple JSON
+        BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+        model_type_string = f"{current_kwargs['model_type'].afe_filter}_{current_kwargs['model_type'].feature_set}"
+        json_path = os.path.join(BASE_DIR, 'ModelSave', 'CV', model_type_string, f'median_hyperparameters_{current_kwargs["classifier_type"]}.json')
+
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+
+        best_params = OrderedDict(data['best_params'])
+        selected_features = data['selected_features']
+        score = data['f1_score']
+        foldID = data['fold_id']
+        foldID = int(foldID)
+
+
+        return best_params, selected_features, foldID, score
+
 
         if self.model is not None:
             config = getattr(self.model, "config", {}) or {}
