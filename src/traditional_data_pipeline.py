@@ -94,12 +94,10 @@ class TraditionalDataPipeline:
         },
     }
 
-    def __init__(self, data_path: str = "../data/", testing: bool = False, random_seed: int = 42, use_reduced_dataset: bool = False) -> None:
+    def __init__(self, data_path: str = "../data/", random_seed: int = 42) -> None:
         self.data_path = data_path
         self._data_locations = None
-        self.testing = testing
         self.random_seed = random_seed
-        self.use_reduced_dataset = use_reduced_dataset
 
     def get_data(
             self,
@@ -130,6 +128,7 @@ class TraditionalDataPipeline:
         is_complete_explicit = model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit"
 
         ############################################# LOAD AND PROCESS DATA #############################################
+        logger.info("Loading and processing data with parameters: classifier_type=%s, model_type=%s, select_features=%s, remove_NaN_trials=%s, offset=%.2f, time_start=%.2f, subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d",)
         # "Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze"
         file_paths = self._get_data_locations()
 
@@ -158,6 +157,7 @@ class TraditionalDataPipeline:
             gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
 
         ############################################### DATA CLEAN AND Some Imputation ###############################################
+        logger.info("Cleaning data and performing imputation with impute_type=%d, n_neighbors=%d", impute_type, n_neighbors)
         if remove_NaN_trials:
             gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, pipeline_features, gloc_labels)
 
@@ -184,13 +184,16 @@ class TraditionalDataPipeline:
             gloc_data[pipeline_features["All"]] = imputed_features
         
         ################################################## REDUCE MEMORY ##################################################
+        logger.info("Reducing memory usage by converting to numpy arrays and float32 where possible.")
         # Extract out columns from gloc_data into experiment_metadata
         gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data, gloc_labels, pipeline_features, model_type)
 
         ###################################################### Prediction Offset ###############################################
+        logger.info("Applying prediction offset with backstep=%d, data_rate=%d", backstep, data_rate)
         gloc_labels_numpy = self._y_prediction_offset(gloc_labels_numpy, backstep, data_rate, experiment_metadata["trial_id"])
 
         ################################################ BASELINE ################################################
+        logger.info("Calculating baselines with methods: %s", baseline_methods_to_use)
         combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0 = self._get_combined_baseline_data(
             gloc_data_all_features_numpy,
             experiment_metadata,
@@ -312,15 +315,8 @@ class TraditionalDataPipeline:
             for band in self._EEG_BASELINE_BANDS
         ]
 
-        if self.use_reduced_dataset:
-            logger.info("!!!!!!!!!!!!!!!!!!! USING REDUCED DATASET !!!!!!!!!!!!!!!!!!!!!!")
-            main_csv = "all_trials_25_hz_stacked_null_str_filled_reduced.csv"
-        else:
-            logger.info("!!!!!!!!!!!!!!!!!!! USING FULL DATASET - ALL STRAIN DATA FILLED !!!!!!!!!!!!!!!!!!!!!!")
-            main_csv = "all_trials_25_hz_stacked_null_str_filled.csv"
-
         self._data_locations = {
-            "main": os.path.join(self.data_path, main_csv),
+            "main": os.path.join(self.data_path, "all_trials_25_hz_stacked_null_str_filled.csv"),
             "baseline": os.path.join(self.data_path, "ParticipantBaseline.csv"),
             "demographic": os.path.join(self.data_path, "GLOC_Effectiveness_Final.csv"),
             "eeg_list": list_of_eeg_data_file_paths,
@@ -668,9 +664,6 @@ class TraditionalDataPipeline:
 
         # Temporarily mean impute missing values
         X_temp = np.where(mask, np.nanmean(X, axis=0), X)
-        
-        if self.testing:
-            faiss.omp_set_num_threads(1)  # Use single thread for deterministic behavior in testing
 
         # Build FAISS index (HNSW)
         d = X.shape[1] # dimension

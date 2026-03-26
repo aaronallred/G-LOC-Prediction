@@ -153,9 +153,11 @@ class AdvancedDataPipeline:
             x_train, y_train, x_test, y_test, all_features
         """
         ################################################### FEATURES SETUP ###################################################
+        logger.info("Setting up features and baselines for model_type=%s", model_type)
         feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type)
 
         ############################################# LOAD AND PROCESS DATA #############################################
+        logger.info("Loading and processing data with parameters: model_type=%s, subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d", model_type, subject_to_analyze, trial_to_analyze, analysis_type)
         file_paths = self._get_data_locations()
         gloc_data = self._load_data(file_paths)
         gloc_data = self._filter_data_by_analysis_type(analysis_type, gloc_data, subject_to_analyze, trial_to_analyze)
@@ -165,6 +167,7 @@ class AdvancedDataPipeline:
             gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
 
         ############################################# EEG Specific Imputation #############################################
+        logger.info("Performing EEG-specific imputation for model_type=%s", model_type)
         ####
         #  Note: This runs for 'complete' models, but because we are only using shared/overlapping EEG features for the
         #      'complete' case, this block doesn't do anything. Imputation occurs only for non-shared EEG features are used.
@@ -177,6 +180,7 @@ class AdvancedDataPipeline:
             features["All"] = [f for f in features["All"] if f != "AFE_indicator"]
 
         ############################################### MISSING DATA HANDLING ###############################################
+        logger.info("Handling missing data with impute_type=%d, n_neighbors=%d, remove_NaN_trials=%s", impute_type, n_neighbors, remove_NaN_trials)
         # Optional handling of raw NaN data, depending on remove_NaN_trials and impute_type
         if remove_NaN_trials:
             # This also returns a DataFrame with proportion of NaN values for each feature for each trial
@@ -185,36 +189,43 @@ class AdvancedDataPipeline:
             gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
 
         ################################################## REDUCE MEMORY ##################################################
+        logger.info("Reducing memory usage by converting to numpy arrays and float32 where possible.")
         gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(
             gloc_data, gloc_labels, features, model_type
         )
 
         ################################################## Impute Missing ##################################################
+        logger.info("Imputing missing data with impute_type=%d, n_neighbors=%d, impute_path=%s, save_impute=%s, load_impute=%s", impute_type, n_neighbors, impute_path, save_impute, load_impute)
         if impute_type == 1:
             gloc_data_all_features_imputed_numpy = self._impute_missing_data(
                 gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata,
                 impute_path, save_impute, load_impute, num_splits, kfold_ID, n_neighbors
             )
         else:
+            logger.info("Imputation type %d not recognized. Proceeding without imputation.", impute_type)
             gloc_data_all_features_imputed_numpy = gloc_data_all_features_numpy
 
         ################################################## BASELINE DATA ##################################################
+        logger.info("Calculating baselines with methods: %s", baseline_methods_to_use)
         combined_baseline, combined_baseline_names = self._get_combined_baseline_data(
             gloc_data_all_features_imputed_numpy, experiment_metadata, baseline_window,
             baseline_methods_to_use, features, file_paths, model_type
         )
 
         ################################################ GENERATE FEATURES ################################################
+        logger.info("Generating features for model_type=%s", model_type)
         x_feature_matrix, features["All"] = self._generate_features(
             baseline_methods_to_use, combined_baseline, combined_baseline_names, experiment_metadata
         )
 
         ############################################# FEATURE CLEAN AND PREP ##############################################
+        logger.info("Cleaning and preparing features for model_type=%s", model_type)
         x_feature_matrix, y_gloc_labels, features["All"], experiment_metadata["trial_ints"] = self._feature_clean_and_prep(
             x_feature_matrix, gloc_labels_numpy, features, experiment_metadata, model_type, impute_type
         )
 
         ################################################ TRAIN/TEST SPLIT  ################################################
+        logger.info("Performing train/test split with num_splits=%d, kfold_ID=%d", num_splits, kfold_ID)
         x_train, y_train, x_test, y_test = self._get_train_test_split(
             x_feature_matrix, y_gloc_labels, experiment_metadata, num_splits, kfold_ID
         )
@@ -251,15 +262,8 @@ class AdvancedDataPipeline:
             for band in self._EEG_BASELINE_BANDS
         ]
 
-        if self.use_reduced_dataset:
-            logger.info("!!!!!!!!!!!!!!!!!!! USING REDUCED DATASET !!!!!!!!!!!!!!!!!!!!!!")
-            main_csv = "all_trials_25_hz_stacked_null_str_filled_reduced.csv"
-        else:
-            logger.info("!!!!!!!!!!!!!!!!!!! USING FULL DATASET - ALL STRAIN DATA FILLED !!!!!!!!!!!!!!!!!!!!!!")
-            main_csv = "all_trials_25_hz_stacked_null_str_filled.csv"
-
         data_locations = {
-            "main": os.path.join(self.data_path, main_csv),
+            "main": os.path.join(self.data_path, "all_trials_25_hz_stacked_null_str_filled.csv"),
             "baseline": os.path.join(self.data_path, "ParticipantBaseline.csv"),
             "demographic": os.path.join(self.data_path, "GLOC_Effectiveness_Final.csv"),
             "eeg_list": list_of_eeg_data_file_paths,
@@ -674,9 +678,6 @@ class AdvancedDataPipeline:
         mean_vals = np.nanmean(X_train, axis = 0)
         X_train_temp = np.where(mask_train, mean_vals, X_train)
         X_test_temp = np.where(mask_test, mean_vals, X_test)
-
-        if self.testing:
-            faiss.omp_set_num_threads(1) # Use single thread for testing to ensure deterministic behavior (FAISS can be non-deterministic with multiple threads)
 
         # Build FAISS HNSW index on training data
         d = X_train.shape[1]
