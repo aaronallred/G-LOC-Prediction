@@ -11,12 +11,13 @@ import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
 
-from baseline import BaselineContext, baseline_data
-from features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
+from .baseline import BaselineContext, baseline_data
+from .features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
+from .model_type import ModelType
 
 logger = logging.getLogger(__name__)
 
-class DataManager:
+class AdvancedDataPipeline:
     """
     Advanced data pipeline for GLOC event prediction, refactored from load_and_prepare_data_advanced.
     
@@ -40,10 +41,10 @@ class DataManager:
     #   rawEEG, processedEEG, strain, demographics
     # (fnirs and cognitive are never included but kept as positional reference)
     FEATURE_GROUPS_BY_MODEL_TYPE = {
-        ("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
-        ("noAFE", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG"),
-        ("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
-        ("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE"),
+        ModelType("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
+        ModelType("noAFE", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG"),
+        ModelType("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
+        ModelType("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE"),
     }
     BASELINING_CHARACTERISTICS_BY_MODEL_TYPE = {
         "noAFE": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
@@ -109,16 +110,14 @@ class DataManager:
         + [f'{ch}_{band} - EEG' for ch in _RAW_EEG_CHANNELS for band in ["delta", "theta", "alpha", "beta"]]
     )
 
-    def __init__(self, data_path: str = "../data/", testing: bool = False, random_seed: int = 42, use_reduced_dataset: bool = False) -> None:
+    def __init__(self, data_path: str = "../data/", random_seed: int = 42) -> None:
         self.data_path = data_path
         self._data_locations = None
-        self.testing = testing
         self.random_seed = random_seed
-        self.use_reduced_dataset = use_reduced_dataset
 
     def get_data(
             self,
-            model_type: Tuple[str, str],
+            model_type: ModelType,
             num_splits: int,
             kfold_ID: int,
             impute_path: str,
@@ -136,7 +135,7 @@ class DataManager:
         Load raw data and prepare predictor / target sets for advanced classifiers.
 
         Parameters:
-            model_type: Tuple[str, str] — (model_kind, label_mode) e.g. ('Complete', 'Explicit')
+            model_type: ModelType — e.g. ModelType('Complete', 'Explicit')
             num_splits: Number of K-fold CV splits
             kfold_ID: Which fold to use (0 to num_splits-1)
             impute_path: Path to save/load the imputed data pickle file
@@ -162,7 +161,7 @@ class DataManager:
         gloc_data = self._filter_data_by_analysis_type(analysis_type, gloc_data, subject_to_analyze, trial_to_analyze)
         gloc_data, features = self._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
         gloc_labels = self._label_gloc_events(gloc_data)
-        if model_type[0] != "Complete":
+        if model_type.afe_filter != "Complete":
             gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
 
         ############################################# EEG Specific Imputation #############################################
@@ -171,7 +170,7 @@ class DataManager:
         #      'complete' case, this block doesn't do anything. Imputation occurs only for non-shared EEG features are used.
         #       This block requires 'AFE' to be an
         ####
-        if model_type[0] == "Complete":
+        if model_type.afe_filter == "Complete":
             gloc_data = self._eeg_specific_imputation(gloc_data, features)
             # Remove AFE_indicator from features (matches legacy behavior of removing 'condition')
             # AFE_indicator is stored separately in experiment_metadata during _reduce_memory
@@ -222,9 +221,9 @@ class DataManager:
 
         return x_train, x_test, y_train, y_test, features["All"]
 
-    def _get_feature_groups_and_baseline_methods(self, model_type: Tuple[str, str]) -> Tuple[Sequence[str], List[str]]:
+    def _get_feature_groups_and_baseline_methods(self, model_type: ModelType) -> Tuple[Sequence[str], List[str]]:
         feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
-        baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE[model_type[0]]
+        baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE[model_type.afe_filter]
 
         # NOTE:
         # AFE indicator is required for EEG imputation in complete models,
@@ -239,9 +238,7 @@ class DataManager:
         Returns:
             dict with keys: "main", "baseline", "demographic", "eeg_list", "baseline_eeg_processed_list"
         """
-        if self._data_locations is not None:
-            return self._data_locations
-
+        
         eeg_dir = "GLOC_GOR_EEG_data_participants_1-13"
         list_of_eeg_data_file_paths = [
             os.path.join(self.data_path, eeg_dir, f"GLOC_{p:02d}_DC{t}_25Hz_EEG_power_wMAR.xlsx")
@@ -261,14 +258,15 @@ class DataManager:
             logger.info("!!!!!!!!!!!!!!!!!!! USING FULL DATASET - ALL STRAIN DATA FILLED !!!!!!!!!!!!!!!!!!!!!!")
             main_csv = "all_trials_25_hz_stacked_null_str_filled.csv"
 
-        self._data_locations = {
+        data_locations = {
             "main": os.path.join(self.data_path, main_csv),
             "baseline": os.path.join(self.data_path, "ParticipantBaseline.csv"),
             "demographic": os.path.join(self.data_path, "GLOC_Effectiveness_Final.csv"),
             "eeg_list": list_of_eeg_data_file_paths,
             "baseline_eeg_processed_list": list_of_baseline_eeg_processed_file_paths,
         }
-        return self._data_locations
+        
+        return data_locations
     
     def _load_data(self, file_paths: Dict[str, Any]) -> pd.DataFrame:
         """Load data from CSV or pickle files. If pickle does not exist, create it from CSV."""
@@ -377,7 +375,7 @@ class DataManager:
             self,
             gloc_data: pd.DataFrame,
             feature_groups_to_analyze: Sequence[str],
-            model_type: Tuple[str, str],
+            model_type: ModelType,
             file_names: Dict[str, Any],
     ) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
         """Process data and extract feature names based on specified feature groups."""
@@ -559,7 +557,7 @@ class DataManager:
             gloc_data: pd.DataFrame,
             gloc_labels: np.ndarray,
             features: Dict[str, List[str]],
-            model_type: Tuple[str, str],
+            model_type: ModelType,
     ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
         """Extract numpy arrays from DataFrame and free the DataFrame to reduce memory usage.
         
@@ -582,7 +580,7 @@ class DataManager:
         # - Complete models can be promoted to float64 during the EEG condition
         #   imputation path because the condition column participates in array
         #   reconstruction. Match that behavior for strict parity tests.
-        feature_dtype = np.float64 if model_type[0] == "Complete" else np.float32 # TODO: Make this a user input parameter
+        feature_dtype = np.float64 if model_type.afe_filter == "Complete" else np.float32 # TODO: Make this a user input parameter
         gloc_data_all_features_numpy = gloc_data[features["All"]].to_numpy(dtype=feature_dtype)
         gloc_labels_numpy = gloc_labels
 
@@ -726,7 +724,7 @@ class DataManager:
             baseline_methods_to_use: List[str],
             features: Dict[str, List[str]],
             file_paths: Dict[str, Any],
-            model_type: Tuple[str, str],
+            model_type: ModelType,
     ) -> Tuple[Dict[str, np.ndarray], List[str]]:
         """Compute baselines for all specified methods and combine into a single feature set."""
         participant_baseline = pd.read_csv(file_paths["baseline"])
@@ -842,7 +840,7 @@ class DataManager:
             gloc_labels_numpy: np.ndarray,
             features: Dict[str, List[str]],
             experiment_metadata: Dict[str, Any],
-            model_type: Tuple[str, str],
+            model_type: ModelType,
             impute_type: int,
     ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
         """Remove constant columns, optionally add AFE indicator, and remove NaN rows."""
@@ -862,8 +860,7 @@ class DataManager:
 
         # Add AFE_indicator as 2nd-to-last column (before trial_ints) for explicit only
         # Since trial_ints is already separated, just append AFE_indicator at the end of features
-        model_kind, label_mode = model_type
-        if model_kind == "Complete" and label_mode == "Explicit":
+        if model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit":
             x_features_without_trials = np.hstack([
                 x_features_without_trials,
                 experiment_metadata["AFE_indicator"].reshape(-1, 1),

@@ -7,20 +7,20 @@ import faiss
 import numpy as np
 import pandas as pd
 
-from baseline import BaselineContext, baseline_data
-from features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
+from .baseline import BaselineContext, baseline_data
+from .features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
+from .model_type import ModelType
 
 logger = logging.getLogger(__name__)
 
-
-class TraditionalDataManager:
+class TraditionalDataPipeline:
     """Legacy-compatible data pipeline for temporal/traditional GLOC modeling."""
 
     FEATURE_GROUPS_BY_MODEL_TYPE = {
-        ("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
-        ("noAFE", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG", "processedEEG"),
-        ("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
-        ("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "rawEEG", "processedEEG"),
+        ModelType("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
+        ModelType("noAFE", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG", "processedEEG"),
+        ModelType("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
+        ModelType("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "rawEEG", "processedEEG"),
     }
     # Mapping of participant -> DC trial numbers for GOR EEG data files
     _EEG_PARTICIPANT_TRIALS = {
@@ -106,7 +106,7 @@ class TraditionalDataManager:
             backstep,
             data_rate,
             classifier_type,
-            model_type,
+            model_type: ModelType,
             select_features,
             remove_NaN_trials,
             offset,
@@ -127,8 +127,7 @@ class TraditionalDataManager:
             n_neighbors,
         ) = self._get_hyperparameters_by_classifier(classifier_type)
         feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
-        model_kind, label_mode = model_type
-        is_complete_explicit = model_kind == "Complete" and label_mode == "Explicit"
+        is_complete_explicit = model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit"
 
         ############################################# LOAD AND PROCESS DATA #############################################
         # "Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze"
@@ -154,7 +153,7 @@ class TraditionalDataManager:
                 feature_name for feature_name in pipeline_features["All"] if feature_name != "AFE_indicator"
             ]
 
-        if model_type[0] == "noAFE":
+        if model_type.afe_filter == "noAFE":
             # Reduce dataset based on AFE/noAFE condition
             gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
 
@@ -281,9 +280,9 @@ class TraditionalDataManager:
             params["n_neighbors"],
         )
     
-    def _get_feature_groups_and_baseline_methods(self, model_type: Tuple[str, str], baseline_methods_to_use: List[str]) -> Tuple[Sequence[str], List[str]]:
+    def _get_feature_groups_and_baseline_methods(self, model_type: ModelType, baseline_methods_to_use: List[str]) -> Tuple[Sequence[str], List[str]]:
         feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
-        baseline_methods_to_use = ["v0", "v1", "v2", "v5", "v6"] if model_type[0] == "Complete" else baseline_methods_to_use
+        baseline_methods_to_use = ["v0", "v1", "v2", "v5", "v6"] if model_type.afe_filter == "Complete" else baseline_methods_to_use
 
         # NOTE:
         # AFE indicator is required for EEG imputation in complete models,
@@ -437,7 +436,7 @@ class TraditionalDataManager:
             self,
             gloc_data: pd.DataFrame,
             feature_groups_to_analyze: Sequence[str],
-            model_type: Tuple[str, str],
+            model_type: ModelType,
             file_names: Dict[str, Any],
     ) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
         """Process data and extract feature names based on specified feature groups."""
@@ -616,7 +615,7 @@ class TraditionalDataManager:
             gloc_data: pd.DataFrame,
             gloc_labels: np.ndarray,
             features: Dict[str, List[str]],
-            model_type: Tuple[str, str],
+            model_type: ModelType,
     ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
         """Extract numpy arrays from DataFrame and free the DataFrame to reduce memory usage.
         
@@ -637,8 +636,7 @@ class TraditionalDataManager:
         # Legacy parity depends on model path:
         # - Complete Explicit retains float64 through imputation/baseline feature generation.
         # - Other paths use float32.
-        model_kind, label_mode = model_type
-        feature_dtype = np.float64 if (model_kind == "Complete" and label_mode == "Explicit") else np.float32 # TODO: Make this a user input parameter
+        feature_dtype = np.float64 if (model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit") else np.float32 # TODO: Make this a user input parameter
         gloc_data_all_features_numpy = np.asarray(
             gloc_data[features["All"]].to_numpy(dtype=feature_dtype),
             dtype=feature_dtype,
@@ -740,7 +738,7 @@ class TraditionalDataManager:
             baseline_methods_to_use: List[str],
             features: Dict[str, List[str]],
             file_paths: Dict[str, Any],
-            model_type: Tuple[str, str],
+            model_type: ModelType,
             baseline_group_data: Optional[Dict[str, np.ndarray]] = None,
             gloc_labels_numpy: Optional[np.ndarray] = None,
     ) -> Tuple[Dict[str, np.ndarray], List[str], Dict[str, np.ndarray], List[str]]:
@@ -1704,7 +1702,7 @@ class TraditionalDataManager:
         return y_gloc_labels, x_feature_matrix
 
     def _reduce_features(self, model_type, offset, stride, window_size, time_start, gloc_data_all_features_imputed_numpy, gloc_labels, features, experiment_metadata, select_features):
-        if model_type[0] == "Complete" and model_type[1] == "Explicit":
+        if model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit":
             afe_indicator_column_windowed, gloc_compare, _ = self._sliding_window_max(
                 experiment_metadata["AFE_indicator"], experiment_metadata["trial_id"], experiment_metadata["Time (s)"], gloc_labels,
                 offset, stride, window_size, time_start
