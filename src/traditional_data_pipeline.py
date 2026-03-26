@@ -7,9 +7,9 @@ import faiss
 import numpy as np
 import pandas as pd
 
-from .baseline import BaselineContext, baseline_data
-from .features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
-from .model_type import ModelType
+from baseline import BaselineContext, baseline_data
+from features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
+from model_type import ModelType
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class TraditionalDataPipeline:
     _EEG_BASELINE_BANDS = ["delta", "theta", "alpha", "beta"]
 
     _CLASSIFIER_HYPERPARAMETERS: Dict[str, Dict[str, Any]] = {
-        "logreg": {
+        "LogReg": {
             "baseline_window": 5,
             "window_size": 12.5,
             "stride": 0.25,
@@ -207,6 +207,7 @@ class TraditionalDataPipeline:
         )
 
         ################################# FEATURE GENERATION ########################################
+        logger.info("Generating features with window_size=%.2f, stride=%.2f, offset=%.2f, time_start=%.2f", window_size, stride, offset, time_start)
         # Feature generation must run for each offset to window GLOC labels
         raw_gloc_labels_numpy = gloc_labels_numpy.copy()
         gloc_labels_numpy, gloc_data_all_features_numpy, pipeline_features["All"] = self._feature_generation(
@@ -225,6 +226,7 @@ class TraditionalDataPipeline:
         )
 
         ################################################ Feature Reduction ################################################
+        logger.info("Performing feature reduction with type: %s", _feature_reduction_type)
         # Add windowed AFE indicator if required by model type
         if is_complete_explicit:
             experiment_metadata["AFE_indicator_windowed"], _, _ = self._sliding_window_max(
@@ -254,6 +256,7 @@ class TraditionalDataPipeline:
         gloc_data_all_features_numpy, select_features = self._remove_constant_columns(gloc_data_all_features_numpy, translated_select_features)
 
         ################################################ NaN Processing ################################################
+        logger.info("Processing NaN values temporally")
         gloc_labels_numpy, gloc_data_all_features_numpy, pipeline_features["All"], _removed_ind = self._process_NaN_temporal(
             gloc_labels_numpy,
             gloc_data_all_features_numpy,
@@ -261,6 +264,7 @@ class TraditionalDataPipeline:
         )
 
         ################################################ Get Outputs Ready ############################################
+        logger.info("Finalizing outputs and ensuring legacy compatibility in dtypes and shapes.")
         gloc_data_all_features_numpy, gloc_labels_numpy = self._ready_outputs(gloc_data_all_features_numpy, gloc_labels_numpy)
 
         return gloc_data_all_features_numpy, gloc_labels_numpy

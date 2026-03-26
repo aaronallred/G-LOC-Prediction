@@ -11,9 +11,9 @@ import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
 
-from .baseline import BaselineContext, baseline_data
-from .features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
-from .model_type import ModelType
+from baseline import BaselineContext, baseline_data
+from features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
+from model_type import ModelType
 
 logger = logging.getLogger(__name__)
 

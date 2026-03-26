@@ -6,7 +6,7 @@ from sklearn.linear_model import LogisticRegression as SklearnLogisticRegression
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.model_selection import cross_validate
 
-from src.models.base import BaseModel
+from models.base import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -222,4 +222,4 @@ class LogisticRegression(BaseModel):
         Returns:
             String name of the model.
         """
-        return "logreg"
+        return "LogReg"

@@ -1,13 +1,13 @@
-from src.model_type import ModelType
-from src.models.base import BaseModel
-from src.models.logistic_regression import LogisticRegressionModel
+from model_type import ModelType
+from models.base import BaseModel
+from models.logistic_regression import LogisticRegression
 from typing import Optional, Dict, List
 
 import json
 
 class GLOCExperimentConfigParser:
     MODELS_BY_NAME: Dict[str, BaseModel] = {
-        "Logistic Regression": LogisticRegressionModel(config = {})
+        "Logistic Regression": LogisticRegression(config = {})
     }
 
     def __init__(self, config_Location: str = "./../GLOC_experiment_config.json") -> None:
@@ -57,7 +57,7 @@ class GLOCExperimentConfigParser:
             raise ValueError("model is missing from config. It should be a string of the name of the model.")
 
         model_config = self.config.get("model", "")
-        if "model" not in self.MODELS_BY_NAME:
+        if model_config not in self.MODELS_BY_NAME:
             raise ValueError(f"Model '{model_config}' is not recognized. Available models: {list(self.MODELS_BY_NAME.keys())}")
 
         return self.MODELS_BY_NAME[model_config]

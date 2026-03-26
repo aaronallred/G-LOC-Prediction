@@ -9,7 +9,7 @@ import warnings
 from typing import Dict, Tuple, List
 from dataclasses import dataclass
 
-from .model_type import ModelType
+from model_type import ModelType
 
 
 @dataclass
