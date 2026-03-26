@@ -1,0 +1,27 @@
+{
+    "model_type": ["Complete", "Explicit"],
+    "shared_data_parameters": {
+        "subject_to_analyze": null,
+        "trial_to_analyze": null,
+        "analysis_type": 2,
+        "remove_NaN_trials": true
+    },
+    "advanced_data_parameters": {
+        "num_splits": 10,
+        "kfold_ID": 0,
+        "impute_path": "./../data/imputed_data",
+        "impute_type": 1,
+        "n_neighbors": 4,
+        "baseline_window": 32.5,
+        "save_impute": true,
+        "load_impute": true
+    },
+    "traditional_data_parameters": {
+        "backstep": 0,
+        "data_rate": 25,
+        "classifier_type": "SVM",
+        "select_features": [],
+        "offset": 0,
+        "time_start": 0
+    }
+}
