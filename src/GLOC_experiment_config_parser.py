@@ -1,13 +1,15 @@
 from model_type import ModelType
 from models.base import BaseModel
 from models.logistic_regression import LogisticRegression
+from models.transformer import TransformerModel
 from typing import Optional, Dict, List
 
 import json
 
 class GLOCExperimentConfigParser:
     MODELS_BY_NAME: Dict[str, BaseModel] = {
-        "Logistic Regression": LogisticRegression(config = {})
+        "Logistic Regression": LogisticRegression(config = {}),
+        "Transformer": TransformerModel(config = {}),
     }
 
     def __init__(self, config_Location: str = "./../GLOC_experiment_config.json") -> None:
