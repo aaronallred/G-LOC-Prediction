@@ -9,6 +9,8 @@ import warnings
 from typing import Dict, Tuple, List
 from dataclasses import dataclass
 
+from .model_type import ModelType
+
 
 @dataclass
 class BaselineContext:
@@ -20,7 +22,7 @@ class BaselineContext:
     data_by_features: Dict[str, np.ndarray]
     features: Dict[str, List[str]]
     baseline_window: float
-    model_type: str
+    model_type: ModelType
     participant_baseline_data: pd.Series = None
     eeg_baseline_data: Dict[str, pd.DataFrame] = None
 
@@ -70,11 +72,11 @@ def baseline_data(
         'v7': lambda: create_v7_baseline(baseline_window, trial_column, time_column, subject_column, features_eeg,
                                         eeg_baseline_data.get('delta'), eeg_baseline_data.get('theta'),
                                         eeg_baseline_data.get('alpha'), eeg_baseline_data.get('beta'), all_features_eeg)
-               if 'noAFE' in model_type or 'complete' in model_type else None,
+             if model_type.afe_filter in {"noAFE", "Complete"} else None,
         'v8': lambda: create_v8_baseline(baseline_window, trial_column, time_column, subject_column, features_eeg,
                                         eeg_baseline_data.get('delta'), eeg_baseline_data.get('theta'),
                                         eeg_baseline_data.get('alpha'), eeg_baseline_data.get('beta'), all_features_eeg)
-               if 'noAFE' in model_type or 'complete' in model_type else None,
+             if model_type.afe_filter in {"noAFE", "Complete"} else None,
     }
 
     # Process only selected methods
