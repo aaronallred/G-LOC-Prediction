@@ -1,5 +1,7 @@
 {
     "model_type": ["Complete", "Explicit"],
+    "random_seed": 42,
+    "data_path": "./../data/",
     "shared_data_parameters": {
         "subject_to_analyze": null,
         "trial_to_analyze": null,
@@ -20,7 +22,6 @@
         "backstep": 0,
         "data_rate": 25,
         "classifier_type": "SVM",
-        "select_features": [],
         "offset": 0,
         "time_start": 0
     }

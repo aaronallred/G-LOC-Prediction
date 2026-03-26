@@ -11,6 +11,9 @@ class GLOCExperimentConfigParser:
     def get_config(self) -> Dict:
         return self.config
     
+
+
+    # General Configurations
     def get_model_type(self) -> ModelType:
         model_type_config = self.config.get("model_type", [])
 
@@ -25,6 +28,21 @@ class GLOCExperimentConfigParser:
 
         return ModelType(afe_filter = afe_filter, feature_set = feature_set)
     
+    def get_random_seed(self) -> int:
+        if "random_seed" not in self.config:
+            raise ValueError("random_seed is missing from config. It should be an integer indicating the random seed to use for reproducibility.")
+
+        return self.config.get("random_seed")
+    
+    def get_data_path(self) -> str:
+        if "data_path" not in self.config:
+            raise ValueError("data_path is missing from config. It should be a string indicating the path to the data directory.")
+
+        return self.config.get("data_path")
+    
+
+    
+    # Shared Data Configurations
     def get_subject_to_analyze(self) -> Optional[int]:
         if "subject_to_analyze" not in self.config:
             raise ValueError("subject_to_analyze is missing from config. It should be an integer subject ID or null to analyze all subjects.")
@@ -49,6 +67,9 @@ class GLOCExperimentConfigParser:
 
         return self.config.get("remove_NaN_trials")
     
+
+
+    # Advanced Classifier Configurations
     def get_num_splits(self) -> int:
         if "num_splits" not in self.config:
             raise ValueError("num_splits is missing from config. It should be an integer indicating the number of splits for train/test.")
@@ -97,6 +118,9 @@ class GLOCExperimentConfigParser:
 
         return self.config.get("load_impute")
     
+
+
+    # Traditional Classifier Configurations
     def get_backstep(self) -> float:
         if "backstep" not in self.config:
             raise ValueError("backstep is missing from config. It should be a float indicating the backstep (in seconds) to use for traditional pipeline.")
@@ -114,12 +138,6 @@ class GLOCExperimentConfigParser:
             raise ValueError("classifier_type is missing from config. It should be a string indicating the type of classifier to use for traditional pipeline (e.g., 'SVM', 'KNN').")
 
         return self.config.get("classifier_type")
-    
-    def get_select_features(self) -> List[str]:
-        if "select_features" not in self.config:
-            raise ValueError("select_features is missing from config. It should be a list of strings indicating the features to select for traditional pipeline.")
-
-        return self.config.get("select_features", [])
     
     def get_offset(self) -> float:
         if "offset" not in self.config:
