@@ -88,6 +88,18 @@ class GLOCExperimentConfigParser:
 
         return self.config.get("data_path")
     
+    def get_model(self) -> BaseModel:
+        return self.model
+    
+    def get_model_type(self) -> ModelType:
+        return self.model_type
+    
+    def get_random_seed(self) -> int:
+        return self.random_seed
+    
+    def get_data_path(self) -> str:
+        return self.data_path
+    
 
     
     # Shared Data Configurations

@@ -1,4 +1,5 @@
 {
+    "model": "KNN",
     "model_type": ["Complete", "Explicit"],
     "random_seed": 42,
     "data_path": "./../data/",
