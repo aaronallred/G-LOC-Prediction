@@ -14,8 +14,9 @@ import pickle
 from scripts.GLOC_data_pipeline import load_and_prepare_data_advanced
 from scripts.temporal_functions_traditional import data_with_prediction, get_hyperparameters_from_json, get_model_subfolder
 
-from data_manager import DataManager
-from traditional_data_manager import TraditionalDataManager
+from advanced_data_pipeline import AdvancedDataPipeline
+from traditional_data_pipeline import TraditionalDataPipeline
+from model_type import ModelType
 
 # Test Configuration Constants
 NUM_SPLITS = 5
@@ -2834,7 +2835,7 @@ class TestAdvancedDataManagerBase:
         test_dir = os.path.dirname(os.path.abspath(__file__))
         datafolder = os.path.join(os.path.dirname(test_dir), "data")
         
-        model_str = f"{model_type[0]}_{model_type[1]}"
+        model_str = f"{model_type.afe_filter}_{model_type.feature_set}"
         num_splits = 5
         kfold_ID = 0
         impute_path = os.path.join(test_dir, "testing_temp", f"gloc_data_imputed_{model_str}_e2e.pkl")
@@ -2846,7 +2847,7 @@ class TestAdvancedDataManagerBase:
         load_impute = False
 
         # Convert model_type to lowercase for legacy function
-        legacy_model_type = (model_type[0].lower() if model_type[0] != "noAFE" else model_type[0], model_type[1].lower())
+        legacy_model_type = (model_type.afe_filter.lower() if model_type.afe_filter != "noAFE" else model_type.afe_filter, model_type.feature_set.lower())
         
         expected_x_train, expected_x_test, expected_y_train, expected_y_test, expected_all_features = load_and_prepare_data_advanced(
             model_type = legacy_model_type,
@@ -2862,7 +2863,7 @@ class TestAdvancedDataManagerBase:
             load_impute = load_impute
         )
 
-        data_manager = DataManager(data_path = datafolder, testing = True, use_reduced_dataset = USE_REDUCED_DATASET)
+        data_manager = AdvancedDataPipeline(data_path = datafolder)
         x_train, x_test, y_train, y_test, all_features = data_manager.get_data(
             model_type = model_type,
             num_splits = num_splits,
@@ -2891,22 +2892,22 @@ class TestAdvancedDataManagerBase:
 
 class TestAdvancedDataManagerCompleteExplicit(TestAdvancedDataManagerBase):
     """Tests for Complete/Explicit model type."""
-    MODEL_TYPE = ("Complete", "Explicit")
+    MODEL_TYPE = ModelType("Complete", "Explicit")
     __test__ = True  # Ensure this class is collected by pytest
 
 class TestAdvancedDataManagerCompleteImplicit(TestAdvancedDataManagerBase):
     """Tests for Complete/Implicit model type."""
-    MODEL_TYPE = ("Complete", "Implicit")
+    MODEL_TYPE = ModelType("Complete", "Implicit")
     __test__ = True  # Ensure this class is collected by pytest
 
 class TestAdvancedDataManagerNoAFEExplicit(TestAdvancedDataManagerBase):
     """Tests for noAFE/Explicit model type."""
-    MODEL_TYPE = ("noAFE", "Explicit")
+    MODEL_TYPE = ModelType("noAFE", "Explicit")
     __test__ = True  # Ensure this class is collected by pytest
 
 class TestAdvancedDataManagerNoAFEImplicit(TestAdvancedDataManagerBase):
     """Tests for noAFE/Implicit model type."""
-    MODEL_TYPE = ("noAFE", "Implicit")
+    MODEL_TYPE = ModelType("noAFE", "Implicit")
     __test__ = True  # Ensure this class is collected by pytest
 
 
