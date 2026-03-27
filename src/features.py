@@ -52,7 +52,11 @@ class EyeTrackingGroup(BaseFeatureGroup):
         df["Pupil Difference [mm]"] = pupil_difference
 
         return df
-    
+
+class AFEGroup(BaseFeatureGroup):
+    def get_feature_names(self, model_type):
+        return ["AFE_indicator"]
+
 class GGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
         if model_type.feature_set == "Implicit":
@@ -94,7 +98,7 @@ class RawEEGGroup(BaseFeatureGroup):
         raw_eeg_features = self.get_separated_feature_names()
 
         # Pull condition-specific EEG streams
-        if model_type.afe_filter == "Complete":
+        if model_type.afe_filter == "AFE":
             return raw_eeg_features["Shared"] + raw_eeg_features["AFE Only"]
         elif model_type.afe_filter == "noAFE":
             return raw_eeg_features["Shared"] + raw_eeg_features["Non-AFE Only"]
@@ -163,7 +167,7 @@ class ProcessedEEGGroup(BaseFeatureGroup):
         processed_eeg_features = self.get_separated_feature_names()
 
         # Pull condition-specific EEG streams
-        if model_type.afe_filter == "Complete":
+        if model_type.afe_filter == "AFE":
             return processed_eeg_features["Shared"] + processed_eeg_features["AFE Only"]
         elif model_type.afe_filter == "noAFE":
             return processed_eeg_features["Shared"] + processed_eeg_features["Non-AFE Only"]
@@ -846,6 +850,7 @@ FEATURE_REGISTRY = {
     "BR": BRGroup(),
     "temp": TempGroup(),
     "eyetracking": EyeTrackingGroup(),
+    "AFE": AFEGroup(),
     "G": GGroup(),
     "cognitive": CognitiveGroup(),
     "rawEEG": RawEEGGroup(),
