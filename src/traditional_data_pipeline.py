@@ -125,7 +125,6 @@ class TraditionalDataPipeline:
             n_neighbors,
         ) = self._get_hyperparameters_by_classifier(classifier_type)
         feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
-        is_complete_explicit = model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit"
 
         ############################################# LOAD AND PROCESS DATA #############################################
         logger.info("Loading and processing data with parameters: classifier_type=%s, model_type=%s, select_features=%s, remove_NaN_trials=%s, offset=%.2f, time_start=%.2f, subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d",)
@@ -140,17 +139,9 @@ class TraditionalDataPipeline:
         # Create GLOC categorical vector
         gloc_labels = self._label_gloc_events(gloc_data)
 
-        if is_complete_explicit:
-            # Impute raw (using mean) value of the missing channels for each AFE condition
-            gloc_data = self._eeg_specific_imputation(gloc_data, features)
-
-        pipeline_features = {name: feature_names.copy() for name, feature_names in features.items()}
-        if is_complete_explicit:
-            # Match legacy: keep AFE indicator out of the working predictor matrix,
-            # then add it back only as windowed indicator later.
-            pipeline_features["All"] = [
-                feature_name for feature_name in pipeline_features["All"] if feature_name != "AFE_indicator"
-            ]
+        # if is_complete_explicit: # Doesn't do anything since EEG shared features are used for complete_Explicit
+        #     # Impute raw (using mean) value of the missing channels for each AFE condition
+        #     gloc_data = self._eeg_specific_imputation(gloc_data, features)
 
         if model_type.afe_filter == "noAFE":
             # Reduce dataset based on AFE/noAFE condition
@@ -159,34 +150,16 @@ class TraditionalDataPipeline:
         ############################################### DATA CLEAN AND Some Imputation ###############################################
         logger.info("Cleaning data and performing imputation with impute_type=%d, n_neighbors=%d", impute_type, n_neighbors)
         if remove_NaN_trials:
-            gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, pipeline_features, gloc_labels)
-
-        # Legacy baselines use group arrays captured before global KNN imputation.
-        baseline_group_data = {
-            "Phys": gloc_data[pipeline_features["Phys"]].to_numpy(dtype=np.float32, copy=True),
-            "ECG": gloc_data[pipeline_features["ECG"]].to_numpy(dtype=np.float32, copy=True),
-            "EEG": gloc_data[pipeline_features["EEG"]].to_numpy(dtype=np.float32, copy=True),
-        }
+            gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
 
         if impute_type == 1:
-            # Legacy parity is model-path dependent:
-            # - Complete Explicit follows a float64/pandas-default memory path.
-            # - Other paths match float32 C-order input.
-            if is_complete_explicit:
-                impute_input = gloc_data[pipeline_features["All"]].to_numpy(dtype=np.float64)
-            else:
-                impute_input = np.asarray(
-                    gloc_data[pipeline_features["All"]].to_numpy(dtype=np.float32),
-                    dtype=np.float32,
-                    order="C",
-                )
-            imputed_features = self._faster_knn_impute(impute_input, k=n_neighbors)
-            gloc_data[pipeline_features["All"]] = imputed_features
+            imputed_features = self._faster_knn_impute(gloc_data[features["All"]].to_numpy(dtype = np.float32), k = n_neighbors)
+            gloc_data[features["All"]] = imputed_features
         
         ################################################## REDUCE MEMORY ##################################################
         logger.info("Reducing memory usage by converting to numpy arrays and float32 where possible.")
         # Extract out columns from gloc_data into experiment_metadata
-        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data, gloc_labels, pipeline_features, model_type)
+        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data, gloc_labels, features)
 
         ###################################################### Prediction Offset ###############################################
         logger.info("Applying prediction offset with backstep=%d, data_rate=%d", backstep, data_rate)
@@ -199,18 +172,16 @@ class TraditionalDataPipeline:
             experiment_metadata,
             baseline_window,
             baseline_methods_to_use,
-            pipeline_features,
+            features,
             file_paths,
-            model_type,
-            baseline_group_data,
-            gloc_labels_numpy,
+            model_type
         )
 
         ################################# FEATURE GENERATION ########################################
         logger.info("Generating features with window_size=%.2f, stride=%.2f, offset=%.2f, time_start=%.2f", window_size, stride, offset, time_start)
         # Feature generation must run for each offset to window GLOC labels
         raw_gloc_labels_numpy = gloc_labels_numpy.copy()
-        gloc_labels_numpy, gloc_data_all_features_numpy, pipeline_features["All"] = self._feature_generation(
+        gloc_labels_numpy, gloc_data_all_features_numpy, features["All"] = self._feature_generation(
             time_start,
             offset,
             stride,
@@ -228,7 +199,7 @@ class TraditionalDataPipeline:
         ################################################ Feature Reduction ################################################
         logger.info("Performing feature reduction with type: %s", _feature_reduction_type)
         # Add windowed AFE indicator if required by model type
-        if is_complete_explicit:
+        if model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit":
             experiment_metadata["AFE_indicator_windowed"], _, _ = self._sliding_window_max(
                 experiment_metadata["AFE_indicator"],
                 experiment_metadata["trial_id"],
@@ -241,7 +212,7 @@ class TraditionalDataPipeline:
             )
 
             gloc_data_all_features_numpy = np.hstack([gloc_data_all_features_numpy, experiment_metadata["AFE_indicator_windowed"]])
-            pipeline_features["All"].append("AFE_indicator_windowed")
+            features["All"].append("AFE_indicator_windowed")
 
         # Backward compatibility: legacy feature lists may still reference "condition".
         translated_select_features = [
@@ -249,7 +220,7 @@ class TraditionalDataPipeline:
         ]
 
         # Select columns by index to avoid an expensive full DataFrame materialization.
-        feature_index = {feature_name: i for i, feature_name in enumerate(pipeline_features["All"])}
+        feature_index = {feature_name: i for i, feature_name in enumerate(features["All"])}
         selected_indices = [feature_index[feature_name] for feature_name in translated_select_features]
         gloc_data_all_features_numpy = gloc_data_all_features_numpy[:, selected_indices]
 
@@ -257,7 +228,7 @@ class TraditionalDataPipeline:
 
         ################################################ NaN Processing ################################################
         logger.info("Processing NaN values temporally")
-        gloc_labels_numpy, gloc_data_all_features_numpy, pipeline_features["All"], _removed_ind = self._process_NaN_temporal(
+        gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], _removed_ind = self._process_NaN_temporal(
             gloc_labels_numpy,
             gloc_data_all_features_numpy,
             select_features,
@@ -615,7 +586,6 @@ class TraditionalDataPipeline:
             gloc_data: pd.DataFrame,
             gloc_labels: np.ndarray,
             features: Dict[str, List[str]],
-            model_type: ModelType,
     ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
         """Extract numpy arrays from DataFrame and free the DataFrame to reduce memory usage.
         
@@ -628,21 +598,14 @@ class TraditionalDataPipeline:
         experiment_metadata = {
             "trial_id": trial_id_arr,
             "trial_ints": self._convert_to_unique_ordered_integers(trial_id_arr),
-            "Time (s)": gloc_data["Time (s)"].to_numpy(),  # Keep float64 to match legacy precision in np.gradient
-            "event_validated": gloc_data["event_validated"].to_numpy(),
-            "subject": gloc_data["subject"].to_numpy(),
-            "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype = np.float32).reshape(-1, 1),
+            "Time (s)": gloc_data["Time (s)"].to_numpy(dtype = np.float32),
+            "event_validated": gloc_data["event_validated"].to_numpy(dtype = str),
+            "subject": gloc_data["subject"].to_numpy(dtype = str),
+            "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype = np.bool_).reshape(-1, 1),
         }
-        # Legacy parity depends on model path:
-        # - Complete Explicit retains float64 through imputation/baseline feature generation.
-        # - Other paths use float32.
-        feature_dtype = np.float64 if (model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit") else np.float32 # TODO: Make this a user input parameter
-        gloc_data_all_features_numpy = np.asarray(
-            gloc_data[features["All"]].to_numpy(dtype=feature_dtype),
-            dtype=feature_dtype,
-            order="C",
-        )
-        gloc_labels_numpy = gloc_labels
+
+        gloc_data_all_features_numpy = np.asarray(gloc_data[features["All"]].to_numpy(dtype = np.float32), dtype = np.float32)
+        gloc_labels_numpy = gloc_labels.astype(np.bool_)
 
         del gloc_data, gloc_labels
         return gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata
@@ -736,8 +699,6 @@ class TraditionalDataPipeline:
             features: Dict[str, List[str]],
             file_paths: Dict[str, Any],
             model_type: ModelType,
-            baseline_group_data: Optional[Dict[str, np.ndarray]] = None,
-            gloc_labels_numpy: Optional[np.ndarray] = None,
     ) -> Tuple[Dict[str, np.ndarray], List[str], Dict[str, np.ndarray], List[str]]:
         """Compute baselines and return combined outputs plus v0 baseline data/names."""
         participant_baseline = pd.read_csv(file_paths["baseline"])
@@ -752,14 +713,11 @@ class TraditionalDataPipeline:
             band = os.path.basename(filepath).split("_")[3]
             eeg_baseline_data[band] = df
 
-        if baseline_group_data is None:
-            # Fallback for callers that only provide the imputed full matrix.
-            feature_index = {feature_name: i for i, feature_name in enumerate(features["All"])}
-            baseline_group_data = {
-                "Phys": gloc_data_all_features_imputed_numpy[:, [feature_index[name] for name in features["Phys"]]],
-                "ECG": gloc_data_all_features_imputed_numpy[:, [feature_index[name] for name in features["ECG"]]],
-                "EEG": gloc_data_all_features_imputed_numpy[:, [feature_index[name] for name in features["EEG"]]],
-            }
+        # Build feature-group index arrays using set lookups for O(1) membership
+        phys_set, ecg_set, eeg_set = set(features["Phys"]), set(features["ECG"]), set(features["EEG"])
+        phys_indices = [i for i, f in enumerate(features["All"]) if f in phys_set]
+        ecg_indices = [i for i, f in enumerate(features["All"]) if f in ecg_set]
+        eeg_indices = [i for i, f in enumerate(features["All"]) if f in eeg_set]
 
         context = BaselineContext(
             trial_column=experiment_metadata["trial_id"],
@@ -768,9 +726,9 @@ class TraditionalDataPipeline:
             subject_column=experiment_metadata["subject"],
             data_by_features={
                 "All": gloc_data_all_features_imputed_numpy,
-                "Phys": baseline_group_data["Phys"],
-                "ECG": baseline_group_data["ECG"],
-                "EEG": baseline_group_data["EEG"],
+                "Phys": gloc_data_all_features_imputed_numpy[:, phys_indices],
+                "ECG": gloc_data_all_features_imputed_numpy[:, ecg_indices],
+                "EEG": gloc_data_all_features_imputed_numpy[:, eeg_indices],
             },
             features=features,
             baseline_window=baseline_window,
