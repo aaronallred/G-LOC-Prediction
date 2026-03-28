@@ -2918,7 +2918,7 @@ def traditional_manager():
     """Create TraditionalDataManager instance for testing."""
     test_dir = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(os.path.dirname(test_dir), "data")
-    return TraditionalDataManager(testing = True, data_path = data_path, use_reduced_dataset = USE_REDUCED_DATASET)
+    return TraditionalDataPipeline(testing = True, data_path = data_path)
 
 @pytest.fixture(scope = "session")
 def file_paths_traditional(traditional_manager):
