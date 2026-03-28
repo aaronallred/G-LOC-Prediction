@@ -20,31 +20,13 @@ logger = logging.getLogger(__name__)
 class AdvancedDataPipeline:
     """
     Advanced data pipeline for GLOC event prediction, refactored from load_and_prepare_data_advanced.
-    
-    Performance vs. Legacy Pipeline (full GLOC dataset, 5-fold CV, KNN k=4, baseline 32.5s):
-    ──────────────────────────────────────────────────────────────────────────────────
-    Model Type           │ Speedup │ Time Reduction │ Memory Impact
-    ──────────────────────────────────────────────────────────────────────────────────
-    Complete/Explicit    │  1.46x  │     31.3%      │  7.4% less
-    Complete/Implicit    │  2.24x  │     55.4%      │  16.6% more*
-    noAFE/Explicit       │  1.21x  │     17.5%      │  16.4% less
-    noAFE/Implicit       │  2.00x  │     49.9%      │  47.0% more*
-    ──────────────────────────────────────────────────────────────────────────────────
-    Aggregate (all)      │  1.48x  │     32.6%      │  1.6% net change
-    
-    * Implicit modes show higher memory usage, likely due to intermediate array allocation
-      during feature engineering. This is acceptable given 50%+ speed improvements.
     """
-    # Order must match the legacy pipeline's feature accumulation order in
-    # GLOC_data_processing.py → load_and_process_csv:
-    #   ECG, BR, temp, fnirs, eyetracking, AFE, G, cognitive,
-    #   rawEEG, processedEEG, strain, demographics
-    # (fnirs and cognitive are never included but kept as positional reference)
+
     FEATURE_GROUPS_BY_MODEL_TYPE = {
-        ModelType("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
+        ModelType("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain", "demographics"),
         ModelType("noAFE", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG"),
-        ModelType("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"),
-        ModelType("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG", "AFE"),
+        ModelType("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain", "demographics"),
+        ModelType("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG"),
     }
     BASELINING_CHARACTERISTICS_BY_MODEL_TYPE = {
         "noAFE": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
@@ -167,17 +149,14 @@ class AdvancedDataPipeline:
             gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
 
         ############################################# EEG Specific Imputation #############################################
-        logger.info("Performing EEG-specific imputation for model_type=%s", model_type)
-        ####
-        #  Note: This runs for 'complete' models, but because we are only using shared/overlapping EEG features for the
-        #      'complete' case, this block doesn't do anything. Imputation occurs only for non-shared EEG features are used.
-        #       This block requires 'AFE' to be an
-        ####
-        if model_type.afe_filter == "Complete":
-            gloc_data = self._eeg_specific_imputation(gloc_data, features)
-            # Remove AFE_indicator from features (matches legacy behavior of removing 'condition')
-            # AFE_indicator is stored separately in experiment_metadata during _reduce_memory
-            features["All"] = [f for f in features["All"] if f != "AFE_indicator"]
+        # logger.info("Performing EEG-specific imputation for model_type=%s", model_type)
+        # ####
+        # #  Note: This runs for 'complete' models, but because we are only using shared/overlapping EEG features for the
+        # #      'complete' case, this block doesn't do anything. Imputation occurs only for non-shared EEG features are used.
+        # #       This block requires 'AFE' to be an
+        # ####
+        # if model_type.afe_filter == "Complete":
+        #     gloc_data = self._eeg_specific_imputation(gloc_data, features)
 
         ############################################### MISSING DATA HANDLING ###############################################
         logger.info("Handling missing data with impute_type=%d, n_neighbors=%d, remove_NaN_trials=%s", impute_type, n_neighbors, remove_NaN_trials)
@@ -570,23 +549,18 @@ class AdvancedDataPipeline:
             gloc_labels_numpy: boolean label array
             experiment_metadata: dict of metadata arrays
         """
-        trial_id_arr = gloc_data["trial_id"].to_numpy()
+        trial_id_arr = gloc_data["trial_id"].to_numpy(dtype = str)
         experiment_metadata = {
             "trial_id": trial_id_arr,
             "trial_ints": self._convert_to_unique_ordered_integers(trial_id_arr),
-            "Time (s)": gloc_data["Time (s)"].to_numpy(),  # Keep float64 to match legacy precision in np.gradient
-            "event_validated": gloc_data["event_validated"].to_numpy(),
-            "subject": gloc_data["subject"].to_numpy(),
-            "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype=np.float32).reshape(-1, 1),
+            "Time (s)": gloc_data["Time (s)"].to_numpy(dtype = np.float32),
+            "event_validated": gloc_data["event_validated"].to_numpy(dtype = str),
+            "subject": gloc_data["subject"].to_numpy(dtype = str),
+            "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype=np.bool_).reshape(-1, 1),
         }
-        # Legacy precision differs by model path:
-        # - noAFE models keep features in float32 at this stage.
-        # - Complete models can be promoted to float64 during the EEG condition
-        #   imputation path because the condition column participates in array
-        #   reconstruction. Match that behavior for strict parity tests.
-        feature_dtype = np.float64 if model_type.afe_filter == "Complete" else np.float32 # TODO: Make this a user input parameter
-        gloc_data_all_features_numpy = gloc_data[features["All"]].to_numpy(dtype=feature_dtype)
-        gloc_labels_numpy = gloc_labels
+
+        gloc_data_all_features_numpy = gloc_data[features["All"]].to_numpy(dtype = np.float32)
+        gloc_labels_numpy = gloc_labels.astype(np.bool_)
 
         del gloc_data, gloc_labels
         return gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata
@@ -594,7 +568,7 @@ class AdvancedDataPipeline:
     def _convert_to_unique_ordered_integers(self, strings: np.ndarray) -> np.ndarray:
         """Convert strings to 1-based integers preserving first-appearance order."""
         codes, _ = pd.factorize(strings, sort=False)
-        return (codes + 1).astype(np.float32)
+        return (codes + 1).astype(np.uint8)
     
     def _impute_missing_data(
             self,

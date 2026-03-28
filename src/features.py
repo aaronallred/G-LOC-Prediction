@@ -53,10 +53,6 @@ class EyeTrackingGroup(BaseFeatureGroup):
 
         return df
 
-class AFEGroup(BaseFeatureGroup):
-    def get_feature_names(self, model_type):
-        return ["AFE_indicator"]
-
 class GGroup(BaseFeatureGroup):
     def get_feature_names(self, model_type):
         if model_type.feature_set == "Implicit":
@@ -850,7 +846,6 @@ FEATURE_REGISTRY = {
     "BR": BRGroup(),
     "temp": TempGroup(),
     "eyetracking": EyeTrackingGroup(),
-    "AFE": AFEGroup(),
     "G": GGroup(),
     "cognitive": CognitiveGroup(),
     "rawEEG": RawEEGGroup(),
