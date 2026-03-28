@@ -3,6 +3,7 @@ from models.base import BaseModel
 from models.logistic_regression import LogisticRegression
 from models.transformer import TransformerModel
 from typing import Optional, Dict, List
+from pathlib import Path
 
 import json
 
@@ -12,8 +13,13 @@ class GLOCExperimentConfigParser:
         "Transformer": TransformerModel(config = {}),
     }
 
-    def __init__(self, config_Location: str = "./../GLOC_experiment_config.json") -> None:
-        with open(config_Location, "r") as f:
+    def __init__(self, config_location: Optional[str] = None) -> None:
+        if config_location is None:
+            config_path = Path(__file__).resolve().parent.parent / "GLOC_experiment_config.json"
+        else:
+            config_path = Path(config_location).expanduser().resolve()
+
+        with open(config_path, "r") as f:
             self.config = json.load(f)
 
         self._parse_general_configs()
