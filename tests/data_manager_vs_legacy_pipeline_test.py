@@ -843,13 +843,13 @@ def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demogra
     else:
         afe_features = []
 
-    if "G" in feature_groups_to_analyze and "Explicit" in model_type:
+    if "G" in feature_groups_to_analyze and "explicit" in model_type:
         # Process magnitude Centrifuge column to include 1.2g instead of NaN
         gloc_data_reduced.fillna({"magnitude - Centrifuge": 1.2}, inplace=True)
 
         # Grab g feature column
         g_features = ["magnitude - Centrifuge"]
-    elif "G" in feature_groups_to_analyze and "Implicit" in model_type:
+    elif "G" in feature_groups_to_analyze and "implicit" in model_type:
         # output warning message for implicit vs. explicit models
         warnings.warn("G cannot be used as a feature in implicit models. Feature removed.")
 
@@ -895,7 +895,7 @@ def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demogra
         raw_eeg_condition_specific = []
         processed_eeg_condition_specific = []
 
-    if "strain" in feature_groups_to_analyze and "Explicit" in model_type:
+    if "strain" in feature_groups_to_analyze and "explicit" in model_type:
         # For strain data, add missing strain labels before feature creation
         if USE_REDUCED_DATASET: # Skip processing of strain data if using reduced dataset since none to fill in
             gloc_data_reduced, gloc_trial = gloc_data_reduced, gloc_data_reduced["trial_id"]
@@ -927,7 +927,7 @@ def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demogra
 
         # append strain features
         strain_features = ["Strain [0/1]"]
-    elif "strain" in feature_groups_to_analyze and "Implicit" in model_type:
+    elif "strain" in feature_groups_to_analyze and "implicit" in model_type:
         # output warning message for implicit vs. explicit models
         warnings.warn("Strain cannot be used as a feature in implicit models. Feature removed.")
 
@@ -935,11 +935,11 @@ def _get_expected_features(gloc_data_reduced, feature_groups_to_analyze, demogra
     else:
         strain_features = []
 
-    if "demographics" in feature_groups_to_analyze and "Explicit" in model_type:
+    if "demographics" in feature_groups_to_analyze and "explicit" in model_type:
         # Read Demographics Spreadsheet and Append to gloc_data_reduced
         gloc_data_reduced, demographics_names = _read_and_process_demographics(demographic_data_filename, gloc_data_reduced)
         demographics_features = demographics_names
-    elif "demographics" in feature_groups_to_analyze and "Implicit" in model_type:
+    elif "demographics" in feature_groups_to_analyze and "implicit" in model_type:
         # output warning message for implicit vs. explicit models
         warnings.warn("Demographics cannot be used as a feature in implicit models. Feature removed.")
 
@@ -1232,7 +1232,7 @@ def manager():
     """Create DataManager instance for testing."""
     test_dir = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(os.path.dirname(test_dir), "data")
-    return DataManager(testing = True, data_path = data_path, use_reduced_dataset = USE_REDUCED_DATASET)
+    return AdvancedDataPipeline(data_path = data_path)
 
 @pytest.fixture(scope="session")
 def file_paths(manager):
@@ -1345,6 +1345,7 @@ def _get_imputed_data_fixture(model_type, manager, file_paths, gloc_data, test_d
 class TestAdvancedDataManagerBase:
     """Base class with shared test logic for all model types."""
     MODEL_TYPE = None  # Override in subclasses
+    EXPECTED_MODEL_TYPE = None  # Override in subclasses
     __test__ = False  # Prevent pytest from collecting this base class
     
     @pytest.fixture(scope="class")
@@ -1591,7 +1592,7 @@ class TestAdvancedDataManagerBase:
             gloc_data.copy(),
             feature_groups,
             file_paths["demographic"], 
-            model_type
+            self.EXPECTED_MODEL_TYPE
         )
         
         _assert_feature_sets(
@@ -2893,21 +2894,25 @@ class TestAdvancedDataManagerBase:
 class TestAdvancedDataManagerCompleteExplicit(TestAdvancedDataManagerBase):
     """Tests for Complete/Explicit model type."""
     MODEL_TYPE = ModelType("Complete", "Explicit")
+    EXPECTED_MODEL_TYPE = ("complete", "explicit")  # For legacy function compatibility
     __test__ = True  # Ensure this class is collected by pytest
 
 class TestAdvancedDataManagerCompleteImplicit(TestAdvancedDataManagerBase):
     """Tests for Complete/Implicit model type."""
     MODEL_TYPE = ModelType("Complete", "Implicit")
+    EXPECTED_MODEL_TYPE = ("complete", "implicit")  # For legacy function compatibility
     __test__ = True  # Ensure this class is collected by pytest
 
 class TestAdvancedDataManagerNoAFEExplicit(TestAdvancedDataManagerBase):
     """Tests for noAFE/Explicit model type."""
     MODEL_TYPE = ModelType("noAFE", "Explicit")
+    EXPECTED_MODEL_TYPE = ("noAFE", "explicit")  # For legacy function compatibility
     __test__ = True  # Ensure this class is collected by pytest
 
 class TestAdvancedDataManagerNoAFEImplicit(TestAdvancedDataManagerBase):
     """Tests for noAFE/Implicit model type."""
     MODEL_TYPE = ModelType("noAFE", "Implicit")
+    EXPECTED_MODEL_TYPE = ("noAFE", "implicit")  # For legacy function compatibility
     __test__ = True  # Ensure this class is collected by pytest
 
 
@@ -2918,7 +2923,7 @@ def traditional_manager():
     """Create TraditionalDataManager instance for testing."""
     test_dir = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(os.path.dirname(test_dir), "data")
-    return TraditionalDataPipeline(testing = True, data_path = data_path)
+    return TraditionalDataPipeline(data_path = data_path)
 
 @pytest.fixture(scope = "session")
 def file_paths_traditional(traditional_manager):
@@ -3434,7 +3439,7 @@ class TestTraditionalDataManagerBase:
          expected_all_features_ecg, expected_all_features_eeg,
         ) = _get_expected_features(
             gloc_data_traditional.copy(), feature_groups,
-            file_paths_traditional["demographic"], model_type
+            file_paths_traditional["demographic"], self.EXPECTED_MODEL_TYPE
         )
 
         # Actual: delivered by the class-scoped fixture (no redundant pipeline run)
@@ -5618,19 +5623,19 @@ class TestTraditionalDataManagerBase:
         assert np.array_equal(expected_gloc_labels, actual_gloc_labels), "Loaded and prepared G-LOC labels do not match expected G-LOC labels."
 
 class TestTraditionalDataManagerCompleteExplicit(TestTraditionalDataManagerBase):
-    MODEL_TYPE = ("Complete", "Explicit")
+    MODEL_TYPE = ModelType("Complete", "Explicit")
     EXPECTED_MODEL_TYPE = ("complete", "explicit")
     __test__ = True
 
 
 class TestTraditionalDataManagerCompleteImplicit(TestTraditionalDataManagerBase):
-    MODEL_TYPE = ("Complete", "Implicit")
+    MODEL_TYPE = ModelType("Complete", "Implicit")
     EXPECTED_MODEL_TYPE = ("complete", "implicit")
     __test__ = True
 
 
 class TestTraditionalDataManagerNoAFEExplicit(TestTraditionalDataManagerBase):
-    MODEL_TYPE = ("noAFE", "Explicit")
+    MODEL_TYPE = ModelType("noAFE", "Explicit")
     EXPECTED_MODEL_TYPE = ("noAFE", "explicit")
     __test__ = True
 
