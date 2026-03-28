@@ -41,7 +41,7 @@ if __name__ == "__main__":
     data = pipeline.get_data()
 
     print("Data Dimensions:")
-    if isinstance(data, tuple) and len(data) == 4:
+    if isinstance(data, tuple) and len(data) >= 4:
         x_train, x_test, y_train, y_test = data[:4]
         print(f"x_train: {x_train.shape}")
         print(f"x_test: {x_test.shape}")
