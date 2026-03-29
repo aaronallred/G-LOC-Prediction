@@ -1267,7 +1267,7 @@ def gloc_data(manager, file_paths, test_dir):
 def _get_imputed_data_fixture(model_type, manager, file_paths, gloc_data, test_dir):
     """Helper function to create imputed data for a specific model type."""
     # Create model-specific cache path
-    model_str = f"{model_type[0]}_{model_type[1]}"
+    model_str = f"{model_type.afe_filter}_{model_type.feature_set}"
     impute_path = os.path.join(test_dir, "testing_temp", f"gloc_data_imputed_{model_str}.pkl")
     
     # Try loading cached results
@@ -1297,17 +1297,17 @@ def _get_imputed_data_fixture(model_type, manager, file_paths, gloc_data, test_d
     data_copy = gloc_data.copy()
     
     # Get appropriate feature groups
-    if model_type[1] == "Explicit":
+    if model_type.feature_set == "Explicit":
         feature_groups = EXPLICIT_FEATURE_GROUPS
     else:  # Implicit
-        feature_groups = IMPLICIT_FEATURE_GROUPS.union({"AFE"}) if model_type[0] == "Complete" else IMPLICIT_FEATURE_GROUPS
+        feature_groups = IMPLICIT_FEATURE_GROUPS.union({"AFE"}) if model_type.afe_filter == "Complete" else IMPLICIT_FEATURE_GROUPS
     
     data_copy, features = manager._process_and_get_feature_names(
         data_copy, feature_groups, model_type, file_paths
     )
     labels = manager._label_gloc_events(data_copy)
     
-    if model_type[0] != "Complete":
+    if model_type.afe_filter != "Complete":
         data_copy, labels = manager._afe_subset(data_copy, labels)
     
     data_numpy, labels_numpy, metadata = manager._reduce_memory(data_copy, labels, features, model_type)
@@ -2484,7 +2484,6 @@ class TestAdvancedDataManagerBase:
         experiment_metadata = gloc_data_imputed_tuple[3].copy()
 
         baseline_methods_to_use = ["v0", "v1", "v2", "v5", "v6"]
-        model_type = ("Complete", "Explicit")
         baseline_window = 32.5
 
         # Get column indices for respective feature groups
@@ -2513,10 +2512,10 @@ class TestAdvancedDataManagerBase:
                 features["EEG"], 
                 file_paths["baseline"], 
                 file_paths["baseline_eeg_processed_list"],
-                model_type))
+                self.EXPECTED_MODEL_TYPE))
 
         # Get actual output
-        combined_baseline, combined_baseline_names = manager._get_combined_baseline_data(gloc_data_all_features_imputed_numpy, experiment_metadata, baseline_window, baseline_methods_to_use, features, file_paths, model_type)
+        combined_baseline, combined_baseline_names = manager._get_combined_baseline_data(gloc_data_all_features_imputed_numpy, experiment_metadata, baseline_window, baseline_methods_to_use, features, file_paths, self.MODEL_TYPE)
 
         assert all(np.array_equal(expected_combined_baseline[trial_id], combined_baseline[trial_id]) for trial_id in expected_combined_baseline.keys()), "Combined baseline data does not match expected data."
         assert np.array_equal(expected_combined_baseline_names, combined_baseline_names), "Combined baseline names do not match expected names."
@@ -2953,7 +2952,7 @@ def gloc_data_traditional(traditional_manager, file_paths_traditional, test_dir)
 def _get_imputed_data_traditional(model_type, traditional_manager, file_paths_traditional, gloc_data_traditional, test_dir):
     """Helper function to create imputed data for a specific model type."""
     # Create model-specific cache path
-    model_str = f"{model_type[0]}_{model_type[1]}"
+    model_str = f"{model_type.afe_filter}_{model_type.feature_set}"
     cache_version = "v3"
     impute_path = os.path.join(test_dir, "testing_temp", f"gloc_data_imputed_{model_str}_traditional_{cache_version}.pkl")
     
@@ -2993,10 +2992,10 @@ def _get_imputed_data_traditional(model_type, traditional_manager, file_paths_tr
     labels = traditional_manager._label_gloc_events(data_copy)
     data_copy, labels, _ = traditional_manager._remove_all_nan_trials(data_copy, features, labels)
     
-    if model_type[0] != "Complete":
+    if model_type.afe_filter != "Complete":
         data_copy, labels = traditional_manager._afe_subset(data_copy, labels)
     
-    data_numpy, labels_numpy, metadata = traditional_manager._reduce_memory(data_copy, labels, features, model_type)
+    data_numpy, labels_numpy, metadata = traditional_manager._reduce_memory(data_copy, labels, features)
     
     # Clear intermediate data
     del data_copy, labels
