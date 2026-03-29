@@ -444,7 +444,7 @@ class AdvancedDataPipeline:
         self._eeg_condition_impute(gloc_data, features, gloc_data["AFE_indicator"])
         return gloc_data
 
-    def _eeg_condition_impute(self, gloc_data: pd.DataFrame, features: Dict[str, List[str]], afe_indicator_column: pd.Series, verbose: bool = True) -> None:
+    def _eeg_condition_impute(self, gloc_data: pd.DataFrame, features: Dict[str, List[str]], afe_indicator_column: pd.Series, verbose: bool = False) -> None:
         """Mean-impute condition-specific EEG columns so both AFE/non-AFE have all features. Modifies gloc_data in-place."""
         # Create masks for each condition
         afe_mask = afe_indicator_column == 1
@@ -487,7 +487,7 @@ class AdvancedDataPipeline:
             gloc_data: pd.DataFrame,
             features: Dict[str, List[str]],
             gloc_labels: np.ndarray,
-            verbose: bool = True,
+            verbose: bool = False,
     ) -> Tuple[pd.DataFrame, np.ndarray, pd.DataFrame]:
         """Remove trials where at least one feature is entirely NaN. Returns NaN proportion table."""
         # All features and subject trial info to be put into a reduced dataframe from gloc_data
