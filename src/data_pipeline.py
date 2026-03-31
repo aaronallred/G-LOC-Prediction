@@ -45,8 +45,6 @@ from model_type import ModelType
 
 logger = logging.getLogger(__name__)
 
-PipelineKind = Literal["auto", "advanced", "traditional"]
-
 class DataPipeline:
     """Facade that routes data loading to the advanced or traditional backend.
 
@@ -132,11 +130,13 @@ class DataPipeline:
         pipeline_kind = self._resolve_pipeline_kind()
         
         if pipeline_kind == "traditional":
+            logger.info("Selected traditional data pipeline based on model type.")
             return TraditionalDataPipeline(
                 data_path=self._config_parser.get_data_path(),
                 random_seed=self._config_parser.get_random_seed()
             )
         else:
+            logger.info("Selected advanced data pipeline based on model type.")
             return AdvancedDataPipeline(
                 data_path=self._config_parser.get_data_path(),
                 random_seed=self._config_parser.get_random_seed()
