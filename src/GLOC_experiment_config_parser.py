@@ -44,6 +44,7 @@ class GLOCExperimentConfigParser:
         self.save_impute = self._parse_save_impute(shared_data_parameters)
         self.load_impute = self._parse_load_impute(shared_data_parameters)
         self.should_impute = self._parse_should_impute(shared_data_parameters)
+        self.output_feature_dtype = self._parse_output_feature_dtype(shared_data_parameters)
 
     def _parse_advanced_data_configs(self) -> None:
         advanced_data_parameters = self._get_advanced_data_parameters()
@@ -167,6 +168,12 @@ class GLOCExperimentConfigParser:
             raise ValueError("should_impute is missing from config. It should be a boolean indicating whether to perform KNN imputation on missing data.")
 
         return shared_data_parameters.get("should_impute")
+
+    def _parse_output_feature_dtype(self, shared_data_parameters: Dict) -> str:
+        if "output_feature_dtype" not in shared_data_parameters:
+            raise ValueError("output_feature_dtype is missing from config. It should be a string like 'float32', 'float64', etc. indicating the numpy dtype for the output feature matrix.")
+
+        return shared_data_parameters.get("output_feature_dtype")
     
 
     def get_subject_to_analyze(self) -> Optional[int]:
@@ -229,6 +236,9 @@ class GLOCExperimentConfigParser:
     
     def get_should_impute(self) -> bool:
         return self.should_impute
+    
+    def get_output_feature_dtype(self) -> str:
+        return self.output_feature_dtype
     
     def get_n_neighbors(self) -> int:
         return self.n_neighbors

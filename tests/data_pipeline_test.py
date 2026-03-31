@@ -78,6 +78,9 @@ class _DummyConfigParser:
 	def get_random_seed(self):
 		return 123
 
+	def get_output_feature_dtype(self):
+		return "float32"
+
 
 @pytest.mark.parametrize(
 	"is_traditional, expected_kind",
@@ -139,6 +142,7 @@ def test_get_data_for_advanced_pipeline_forwards_required_arguments(monkeypatch)
 		"kfold_ID": 1,
 		"impute_file_name": "imputed.pkl",
 		"should_impute": True,
+		"output_feature_dtype": "float32",
 		"n_neighbors": 4,
 		"baseline_window": 32.5,
 		"save_impute": False,
@@ -177,6 +181,7 @@ def test_get_data_for_traditional_pipeline_forwards_required_arguments(monkeypat
 		"time_start": 0.0,
 		"impute_file_name": "imputed.pkl",
 		"should_impute": True,
+		"output_feature_dtype": "float32",
 		"save_impute": False,
 		"load_impute": False,
 	}

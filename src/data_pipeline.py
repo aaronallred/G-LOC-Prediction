@@ -106,17 +106,18 @@ class DataPipeline:
             "subject_to_analyze": self._config_parser.get_subject_to_analyze(),
             "trial_to_analyze": self._config_parser.get_trial_to_analyze(),
             "analysis_type": self._config_parser.get_analysis_type(),
+            "output_feature_dtype": self._config_parser.get_output_feature_dtype(),
+            "impute_file_name": self._config_parser.get_impute_file_name(),
+            "should_impute": self._config_parser.get_should_impute(),
+            "save_impute": self._config_parser.get_save_impute(),
+            "load_impute": self._config_parser.get_load_impute()
         }
 
         if backend_type == "advanced":
             request_kwargs["num_splits"] = self._config_parser.get_num_splits()
             request_kwargs["kfold_ID"] = self._config_parser.get_kfold_ID()
-            request_kwargs["impute_file_name"] = self._config_parser.get_impute_file_name()
-            request_kwargs["should_impute"] = self._config_parser.get_should_impute()
             request_kwargs["n_neighbors"] = self._config_parser.get_n_neighbors()
             request_kwargs["baseline_window"] = self._config_parser.get_baseline_window()
-            request_kwargs["save_impute"] = self._config_parser.get_save_impute()
-            request_kwargs["load_impute"] = self._config_parser.get_load_impute()
         else:
             request_kwargs["classifier_type"] = self._resolve_classifier_name()
             request_kwargs["select_features"] = self._resolve_select_features(request_kwargs)
@@ -124,10 +125,6 @@ class DataPipeline:
             request_kwargs["data_rate"] = self._config_parser.get_data_rate()
             request_kwargs["offset"] = self._config_parser.get_offset()
             request_kwargs["time_start"] = self._config_parser.get_time_start()
-            request_kwargs["impute_file_name"] = self._config_parser.get_impute_file_name()
-            request_kwargs["should_impute"] = self._config_parser.get_should_impute()
-            request_kwargs["save_impute"] = self._config_parser.get_save_impute()
-            request_kwargs["load_impute"] = self._config_parser.get_load_impute()
 
         return backend_data_pipeline.get_data(**request_kwargs)
 
@@ -303,6 +300,7 @@ class AdvancedDataPipeline:
             num_splits: int,
             kfold_ID: int,
             impute_file_name: str,
+            output_feature_dtype: str = "float32",
             subject_to_analyze: Optional[str] = None,
             trial_to_analyze: Optional[str] = None,
             should_impute: bool = True,
@@ -321,6 +319,7 @@ class AdvancedDataPipeline:
             num_splits: Number of K-fold CV splits
             kfold_ID: Which fold to use (0 to num_splits-1)
             impute_file_name: Base file name used in data_path/Processed Data
+            output_feature_dtype: Numpy dtype for output feature matrix (e.g., 'float32', 'float64')
             subject_to_analyze: Participant number for single-subject analysis
             trial_to_analyze: Trial number for single-trial analysis
             should_impute: Whether to perform KNN imputation (True = KNN on raw data, False = no imputation)
@@ -368,9 +367,9 @@ class AdvancedDataPipeline:
             gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
 
         ################################################## REDUCE MEMORY ##################################################
-        logger.info("Reducing memory usage by converting to numpy arrays and float32 where possible.")
+        logger.info("Reducing memory usage by converting to numpy arrays with dtype=%s.", output_feature_dtype)
         gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(
-            gloc_data, gloc_labels, features, model_type
+            gloc_data, gloc_labels, features, output_feature_dtype
         )
 
         ################################################## Impute Missing ##################################################
@@ -740,12 +739,12 @@ class AdvancedDataPipeline:
             gloc_data: pd.DataFrame,
             gloc_labels: np.ndarray,
             features: Dict[str, List[str]],
-            model_type: ModelType,
+            output_feature_dtype: str = "float32",
     ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
         """Extract numpy arrays from DataFrame and free the DataFrame to reduce memory usage.
         
         Returns:
-            gloc_data_all_features_numpy: feature matrix with legacy-equivalent dtype by model
+            gloc_data_all_features_numpy: feature matrix with specified numpy dtype
             gloc_labels_numpy: boolean label array
             experiment_metadata: dict of metadata arrays
         """
@@ -759,7 +758,8 @@ class AdvancedDataPipeline:
             "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype=np.bool_).reshape(-1, 1),
         }
 
-        gloc_data_all_features_numpy = gloc_data[features["All"]].to_numpy(dtype = np.float32)
+        np_dtype = np.dtype(output_feature_dtype)
+        gloc_data_all_features_numpy = gloc_data[features["All"]].to_numpy(dtype = np_dtype)
         gloc_labels_numpy = gloc_labels.astype(np.bool_)
 
         del gloc_data, gloc_labels
@@ -1249,6 +1249,7 @@ class TraditionalDataPipeline:
             analysis_type,
             impute_file_name: Optional[str] = None,
             should_impute: bool = True,
+            output_feature_dtype: str = "float32",
             save_impute: bool = False,
             load_impute: bool = False,
     ):
@@ -1317,9 +1318,9 @@ class TraditionalDataPipeline:
             gloc_data[features["All"]] = imputed_features
         
         ################################################## REDUCE MEMORY ##################################################
-        logger.info("Reducing memory usage by converting to numpy arrays and float32 where possible.")
+        logger.info("Reducing memory usage by converting to numpy arrays with dtype=%s.", output_feature_dtype)
         # Extract out columns from gloc_data into experiment_metadata
-        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data, gloc_labels, features)
+        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data, gloc_labels, features, output_feature_dtype)
 
         ###################################################### Prediction Offset ###############################################
         logger.info("Applying prediction offset with backstep=%d, data_rate=%d", backstep, data_rate)
@@ -1746,15 +1747,23 @@ class TraditionalDataPipeline:
             gloc_data: pd.DataFrame,
             gloc_labels: np.ndarray,
             features: Dict[str, List[str]],
+            output_feature_dtype: str = "float32",
     ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
         """Extract numpy arrays from DataFrame and free the DataFrame to reduce memory usage.
         
+        Args:
+            gloc_data: DataFrame with features to convert
+            gloc_labels: Labels to convert
+            features: Dict mapping feature types to lists of column names
+            output_feature_dtype: Numpy dtype string for output feature matrix (default "float32")
+        
         Returns:
-            gloc_data_all_features_numpy: feature matrix with legacy-equivalent dtype by model
+            gloc_data_all_features_numpy: feature matrix with specified dtype
             gloc_labels_numpy: boolean label array
             experiment_metadata: dict of metadata arrays
         """
         trial_id_arr = gloc_data["trial_id"].to_numpy()
+        np_dtype = np.dtype(output_feature_dtype)
         experiment_metadata = {
             "trial_id": trial_id_arr,
             "trial_ints": self._convert_to_unique_ordered_integers(trial_id_arr),
@@ -1764,7 +1773,7 @@ class TraditionalDataPipeline:
             "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype = np.bool_).reshape(-1, 1),
         }
 
-        gloc_data_all_features_numpy = np.asarray(gloc_data[features["All"]].to_numpy(dtype = np.float32), dtype = np.float32)
+        gloc_data_all_features_numpy = np.asarray(gloc_data[features["All"]].to_numpy(dtype = np_dtype), dtype = np_dtype)
         gloc_labels_numpy = gloc_labels.astype(np.bool_)
 
         del gloc_data, gloc_labels
@@ -1779,10 +1788,12 @@ class TraditionalDataPipeline:
         """Build traditional cache path in data_path/Processed Data with prefix and model-name suffix."""
         processed_dir = Path(self.data_path) / "Processed Data"
         base_name = Path(impute_file_name)
+
         if base_name.suffix:
             file_name = f"traditional_{base_name.stem}_{classifier_type}{base_name.suffix}"
         else:
             file_name = f"traditional_{base_name.name}_{classifier_type}.pkl"
+
         return str((processed_dir / file_name).resolve())
 
     def _faster_knn_impute(self, X, k = 5, M = 32, efSearch = 64):
