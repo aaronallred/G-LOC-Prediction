@@ -2828,6 +2828,7 @@ class TestAdvancedDataManagerBase:
         assert np.array_equal(expected_x_test, x_test), "Test X matrix does not match expected test X matrix."
         assert np.array_equal(expected_y_test, y_test), "Test Y vector does not match expected test Y vector."
 
+    # This test now fails since we use multiple threads for FAISS KNN imputation
     def test_load_and_prepare_data(self):
         """End-to-end test for loading and preparing data."""
         model_type = self.MODEL_TYPE
@@ -5539,6 +5540,7 @@ class TestTraditionalDataManagerBase:
         assert np.array_equal(exp_x, act_x, equal_nan=True), "Final output feature matrix does not match expected output feature matrix."
         assert np.array_equal(exp_y, act_y),                 "Final output G-LOC labels do not match expected G-LOC labels."
 
+    # This test now fails since we use multiple threads for FAISS KNN imputation
     def test_load_and_prepare_data(self, traditional_manager, test_dir):
         # Variable Setup
         backstep = 0
