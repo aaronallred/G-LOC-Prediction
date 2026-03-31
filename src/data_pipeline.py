@@ -44,6 +44,15 @@ from features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
 from model_type import ModelType
 
 logger = logging.getLogger(__name__)
+SOURCE_DIR = Path(__file__).resolve().parent
+
+
+def _resolve_from_source_dir(path_value: str) -> str:
+    """Resolve relative paths against this module's directory."""
+    candidate = Path(path_value).expanduser()
+    if candidate.is_absolute():
+        return str(candidate)
+    return str((SOURCE_DIR / candidate).resolve())
 
 class DataPipeline:
     """Facade that routes data loading to the advanced or traditional backend.
@@ -280,7 +289,7 @@ class AdvancedDataPipeline:
     )
 
     def __init__(self, data_path: str = "../data/", random_seed: int = 42) -> None:
-        self.data_path = data_path
+        self.data_path = _resolve_from_source_dir(data_path)
         self._data_locations = None
         self.random_seed = random_seed
 
@@ -770,7 +779,9 @@ class AdvancedDataPipeline:
             n_neighbors: int,
     ) -> np.ndarray:
         # Load or compute imputed features
-        # NOTE: impute_path is PROVIDED by caller; do not overwrite it.
+        impute_path = _resolve_from_source_dir(impute_path)
+
+        # NOTE: impute_path is PROVIDED by caller; we only normalize it to an absolute path.
         if load_impute and os.path.exists(impute_path):
             with open(impute_path, 'rb') as f:
                 gloc_data_all_features_imputed_numpy = pickle.load(f)
@@ -783,7 +794,9 @@ class AdvancedDataPipeline:
             del gloc_data_all_features_numpy # Free memory of original data after imputation
 
             if save_impute:
-                os.makedirs(os.path.dirname(impute_path), exist_ok = True)
+                impute_dir = os.path.dirname(impute_path)
+                if impute_dir:
+                    os.makedirs(impute_dir, exist_ok = True)
                 with open(impute_path, 'wb') as f:
                     pickle.dump(gloc_data_all_features_imputed_numpy, f)
                 logger.info("Saved imputed data to %s.", impute_path)
@@ -1203,7 +1216,7 @@ class TraditionalDataPipeline:
     }
 
     def __init__(self, data_path: str = "../data/", random_seed: int = 42) -> None:
-        self.data_path = data_path
+        self.data_path = _resolve_from_source_dir(data_path)
         self._data_locations = None
         self.random_seed = random_seed
 
