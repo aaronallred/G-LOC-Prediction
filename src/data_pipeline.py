@@ -112,7 +112,7 @@ class DataPipeline:
             request_kwargs["num_splits"] = self._config_parser.get_num_splits()
             request_kwargs["kfold_ID"] = self._config_parser.get_kfold_ID()
             request_kwargs["impute_path"] = self._config_parser.get_impute_path()
-            request_kwargs["impute_type"] = self._config_parser.get_impute_type()
+            request_kwargs["should_impute"] = self._config_parser.get_should_impute()
             request_kwargs["n_neighbors"] = self._config_parser.get_n_neighbors()
             request_kwargs["baseline_window"] = self._config_parser.get_baseline_window()
             request_kwargs["save_impute"] = self._config_parser.get_save_impute()
@@ -124,6 +124,10 @@ class DataPipeline:
             request_kwargs["data_rate"] = self._config_parser.get_data_rate()
             request_kwargs["offset"] = self._config_parser.get_offset()
             request_kwargs["time_start"] = self._config_parser.get_time_start()
+            request_kwargs["impute_path"] = self._config_parser.get_impute_path()
+            request_kwargs["should_impute"] = self._config_parser.get_should_impute()
+            request_kwargs["save_impute"] = self._config_parser.get_save_impute()
+            request_kwargs["load_impute"] = self._config_parser.get_load_impute()
 
         return backend_data_pipeline.get_data(**request_kwargs)
 
@@ -301,7 +305,7 @@ class AdvancedDataPipeline:
             impute_path: str,
             subject_to_analyze: Optional[str] = None,
             trial_to_analyze: Optional[str] = None,
-            impute_type: int = 1,
+            should_impute: bool = True,
             n_neighbors: int = 4,
             baseline_window: float = 32.5,
             analysis_type: int = 2,
@@ -319,7 +323,7 @@ class AdvancedDataPipeline:
             impute_path: Path to save/load the imputed data pickle file
             subject_to_analyze: Participant number for single-subject analysis
             trial_to_analyze: Trial number for single-trial analysis
-            impute_type: Imputation method (1 = KNN on raw data)
+            should_impute: Whether to perform KNN imputation (True = KNN on raw data, False = no imputation)
             n_neighbors: Number of KNN imputation neighbors
             baseline_window: Baseline window duration in seconds
             analysis_type: 2=all data, 1=one participant, 0=one trial
@@ -355,8 +359,8 @@ class AdvancedDataPipeline:
         #     gloc_data = self._eeg_specific_imputation(gloc_data, features)
 
         ############################################### MISSING DATA HANDLING ###############################################
-        logger.info("Handling missing data with impute_type=%d, n_neighbors=%d, remove_NaN_trials=%s", impute_type, n_neighbors, remove_NaN_trials)
-        # Optional handling of raw NaN data, depending on remove_NaN_trials and impute_type
+        logger.info("Handling missing data with should_impute=%s, n_neighbors=%d, remove_NaN_trials=%s", should_impute, n_neighbors, remove_NaN_trials)
+        # Optional handling of raw NaN data, depending on remove_NaN_trials and should_impute
         if remove_NaN_trials:
             # This also returns a DataFrame with proportion of NaN values for each feature for each trial
             # Also modifies gloc_data and gloc_labels to remove trials with all NaNs in at least one feature
@@ -370,14 +374,14 @@ class AdvancedDataPipeline:
         )
 
         ################################################## Impute Missing ##################################################
-        logger.info("Imputing missing data with impute_type=%d, n_neighbors=%d, impute_path=%s, save_impute=%s, load_impute=%s", impute_type, n_neighbors, impute_path, save_impute, load_impute)
-        if impute_type == 1:
+        logger.info("Imputing missing data with should_impute=%s, n_neighbors=%d, impute_path=%s, save_impute=%s, load_impute=%s", should_impute, n_neighbors, impute_path, save_impute, load_impute)
+        if should_impute:
             gloc_data_all_features_imputed_numpy = self._impute_missing_data(
                 gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata,
                 impute_path, save_impute, load_impute, num_splits, kfold_ID, n_neighbors
             )
         else:
-            logger.info("Imputation type %d not recognized. Proceeding without imputation.", impute_type)
+            logger.info("Skipping KNN imputation as should_impute=False.")
             gloc_data_all_features_imputed_numpy = gloc_data_all_features_numpy
 
         ################################################## BASELINE DATA ##################################################
@@ -396,7 +400,7 @@ class AdvancedDataPipeline:
         ############################################# FEATURE CLEAN AND PREP ##############################################
         logger.info("Cleaning and preparing features for model_type=%s", model_type)
         x_feature_matrix, y_gloc_labels, features["All"], experiment_metadata["trial_ints"] = self._feature_clean_and_prep(
-            x_feature_matrix, gloc_labels_numpy, features, experiment_metadata, model_type, impute_type
+            x_feature_matrix, gloc_labels_numpy, features, experiment_metadata, model_type, should_impute
         )
 
         ################################################ TRAIN/TEST SPLIT  ################################################
@@ -1016,7 +1020,7 @@ class AdvancedDataPipeline:
             features: Dict[str, List[str]],
             experiment_metadata: Dict[str, Any],
             model_type: ModelType,
-            impute_type: int,
+            should_impute: bool,
     ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
         """Remove constant columns, optionally add AFE indicator, and remove NaN rows."""
         # CRITICAL: Extract trial_ints BEFORE removing constant columns,
@@ -1046,7 +1050,7 @@ class AdvancedDataPipeline:
         all_features = feature_names_without_trials  # Don't include trial_ints in feature names
 
         # List-wise deletion or clean any residual NaNs
-        if impute_type in (1, 2):
+        if should_impute:
             # Remove rows with NaN
             x_feature_matrix_noNaN, y_gloc_labels_noNaN, all_features, trials_noNaN = self._process_NaN(
                 x_feature_matrix,
@@ -1233,6 +1237,10 @@ class TraditionalDataPipeline:
             subject_to_analyze,
             trial_to_analyze,
             analysis_type,
+            impute_path: Optional[str] = None,
+            should_impute: bool = True,
+            save_impute: bool = False,
+            load_impute: bool = False,
     ):
         """Return data for a given set of parameters."""
         (
@@ -1269,12 +1277,33 @@ class TraditionalDataPipeline:
             gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
 
         ############################################### DATA CLEAN AND Some Imputation ###############################################
-        logger.info("Cleaning data and performing imputation with impute_type=%d, n_neighbors=%d", impute_type, n_neighbors)
+        logger.info("Cleaning data and performing imputation with should_impute=%s, n_neighbors=%d", should_impute, n_neighbors)
         if remove_NaN_trials:
             gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
 
-        if impute_type == 1:
-            imputed_features = self._faster_knn_impute(gloc_data[features["All"]].to_numpy(dtype = np.float32), k = n_neighbors)
+        if should_impute:
+            if impute_path is not None:
+                traditional_impute_path = self._resolve_traditional_impute_path(impute_path, classifier_type, model_type)
+            else:
+                traditional_impute_path = None
+
+            if load_impute and traditional_impute_path and os.path.exists(traditional_impute_path):
+                with open(traditional_impute_path, 'rb') as f:
+                    imputed_features = pickle.load(f)
+                logger.info("Loaded traditional imputed data from %s.", traditional_impute_path)
+            else:
+                imputed_features = self._faster_knn_impute(
+                    gloc_data[features["All"]].to_numpy(dtype=np.float32),
+                    k=n_neighbors,
+                )
+                if save_impute and traditional_impute_path:
+                    impute_dir = os.path.dirname(traditional_impute_path)
+                    if impute_dir:
+                        os.makedirs(impute_dir, exist_ok=True)
+                    with open(traditional_impute_path, 'wb') as f:
+                        pickle.dump(imputed_features, f)
+                    logger.info("Saved traditional imputed data to %s.", traditional_impute_path)
+
             gloc_data[features["All"]] = imputed_features
         
         ################################################## REDUCE MEMORY ##################################################
@@ -1735,6 +1764,14 @@ class TraditionalDataPipeline:
         """Convert strings to 1-based integers preserving first-appearance order."""
         codes, _ = pd.factorize(strings, sort=False)
         return (codes + 1).astype(np.float32)
+
+    def _resolve_traditional_impute_path(self, impute_path: str, classifier_type: str, model_type: ModelType) -> str:
+        """Create a traditional-only cache path to avoid collisions with advanced cache files."""
+        resolved = Path(_resolve_from_source_dir(impute_path))
+        suffix = f"_traditional_{classifier_type}_{model_type.afe_filter}_{model_type.feature_set}"
+        if resolved.suffix:
+            return str(resolved.with_name(f"{resolved.stem}{suffix}{resolved.suffix}"))
+        return f"{resolved}{suffix}.pkl"
 
     def _faster_knn_impute(self, X, k = 5, M = 32, efSearch = 64):
         """

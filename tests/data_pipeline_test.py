@@ -44,8 +44,8 @@ class _DummyConfigParser:
 	def get_impute_path(self):
 		return "tmp/imputed.pkl"
 
-	def get_impute_type(self):
-		return 1
+	def get_should_impute(self):
+		return True
 
 	def get_n_neighbors(self):
 		return 4
@@ -137,7 +137,7 @@ def test_get_data_for_advanced_pipeline_forwards_required_arguments(monkeypatch)
 		"num_splits": 5,
 		"kfold_ID": 1,
 		"impute_path": "tmp/imputed.pkl",
-		"impute_type": 1,
+		"should_impute": True,
 		"n_neighbors": 4,
 		"baseline_window": 32.5,
 		"save_impute": False,
@@ -174,4 +174,8 @@ def test_get_data_for_traditional_pipeline_forwards_required_arguments(monkeypat
 		"data_rate": 25,
 		"offset": 2.5,
 		"time_start": 0.0,
+		"impute_path": "tmp/imputed.pkl",
+		"should_impute": True,
+		"save_impute": False,
+		"load_impute": False,
 	}

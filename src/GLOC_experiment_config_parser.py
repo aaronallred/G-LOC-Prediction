@@ -40,17 +40,17 @@ class GLOCExperimentConfigParser:
         self.trial_to_analyze = self._parse_trial_to_analyze(shared_data_parameters)
         self.analysis_type = self._parse_analysis_type(shared_data_parameters)
         self.remove_NaN_trials = self._parse_remove_NaN_trials(shared_data_parameters)
+        self.impute_path = self._parse_impute_path(shared_data_parameters)
+        self.save_impute = self._parse_save_impute(shared_data_parameters)
+        self.load_impute = self._parse_load_impute(shared_data_parameters)
+        self.should_impute = self._parse_should_impute(shared_data_parameters)
 
     def _parse_advanced_data_configs(self) -> None:
         advanced_data_parameters = self._get_advanced_data_parameters()
         self.num_splits = self._parse_num_splits(advanced_data_parameters)
         self.kfold_ID = self._parse_kfold_ID(advanced_data_parameters)
-        self.impute_path = self._parse_impute_path(advanced_data_parameters)
-        self.impute_type = self._parse_impute_type(advanced_data_parameters)
         self.n_neighbors = self._parse_n_neighbors(advanced_data_parameters)
         self.baseline_window = self._parse_baseline_window(advanced_data_parameters)
-        self.save_impute = self._parse_save_impute(advanced_data_parameters)
-        self.load_impute = self._parse_load_impute(advanced_data_parameters)
 
     def _parse_traditional_data_configs(self) -> None:
         traditional_data_parameters = self._get_traditional_data_parameters()
@@ -143,6 +143,30 @@ class GLOCExperimentConfigParser:
             raise ValueError("remove_NaN_trials is missing from config. It should be a boolean indicating whether to remove trials with NaN values.")
 
         return shared_data_parameters.get("remove_NaN_trials")
+
+    def _parse_impute_path(self, shared_data_parameters: Dict) -> str:
+        if "impute_path" not in shared_data_parameters:
+            raise ValueError("impute_path is missing from config. It should be a string indicating the path to save/load imputed data.")
+
+        return shared_data_parameters.get("impute_path")
+
+    def _parse_save_impute(self, shared_data_parameters: Dict) -> bool:
+        if "save_impute" not in shared_data_parameters:
+            raise ValueError("save_impute is missing from config. It should be a boolean indicating whether to save imputed data to disk.")
+
+        return shared_data_parameters.get("save_impute")
+
+    def _parse_load_impute(self, shared_data_parameters: Dict) -> bool:
+        if "load_impute" not in shared_data_parameters:
+            raise ValueError("load_impute is missing from config. It should be a boolean indicating whether to load imputed data from disk if available.")
+
+        return shared_data_parameters.get("load_impute")
+
+    def _parse_should_impute(self, shared_data_parameters: Dict) -> bool:
+        if "should_impute" not in shared_data_parameters:
+            raise ValueError("should_impute is missing from config. It should be a boolean indicating whether to perform KNN imputation on missing data.")
+
+        return shared_data_parameters.get("should_impute")
     
 
     def get_subject_to_analyze(self) -> Optional[int]:
@@ -182,18 +206,6 @@ class GLOCExperimentConfigParser:
 
         return advanced_data_parameters.get("kfold_ID")
 
-    def _parse_impute_path(self, advanced_data_parameters: Dict) -> str:
-        if "impute_path" not in advanced_data_parameters:
-            raise ValueError("impute_path is missing from config. It should be a string indicating the path to save/load imputed data.")
-
-        return advanced_data_parameters.get("impute_path")
-
-    def _parse_impute_type(self, advanced_data_parameters: Dict) -> int:
-        if "impute_type" not in advanced_data_parameters:
-            raise ValueError("impute_type is missing from config. It should be an integer indicating the type of imputation to perform (e.g., 0 for no imputation, 1 for KNN imputation).")
-
-        return advanced_data_parameters.get("impute_type")
-
     def _parse_n_neighbors(self, advanced_data_parameters: Dict) -> int:
         if "n_neighbors" not in advanced_data_parameters:
             raise ValueError("n_neighbors is missing from config. It should be an integer indicating the number of neighbors to use for KNN imputation.")
@@ -206,18 +218,6 @@ class GLOCExperimentConfigParser:
 
         return advanced_data_parameters.get("baseline_window")
 
-    def _parse_save_impute(self, advanced_data_parameters: Dict) -> bool:
-        if "save_impute" not in advanced_data_parameters:
-            raise ValueError("save_impute is missing from config. It should be a boolean indicating whether to save imputed data to disk.")
-
-        return advanced_data_parameters.get("save_impute")
-
-    def _parse_load_impute(self, advanced_data_parameters: Dict) -> bool:
-        if "load_impute" not in advanced_data_parameters:
-            raise ValueError("load_impute is missing from config. It should be a boolean indicating whether to load imputed data from disk if available.")
-
-        return advanced_data_parameters.get("load_impute")
-
     def get_num_splits(self) -> int:
         return self.num_splits
     
@@ -227,8 +227,8 @@ class GLOCExperimentConfigParser:
     def get_impute_path(self) -> str:
         return self.impute_path
     
-    def get_impute_type(self) -> int:
-        return self.impute_type
+    def get_should_impute(self) -> bool:
+        return self.should_impute
     
     def get_n_neighbors(self) -> int:
         return self.n_neighbors
