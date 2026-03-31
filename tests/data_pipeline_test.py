@@ -2,7 +2,7 @@ import pytest
 from pathlib import Path
 
 from src.data_pipeline import DataPipeline, AdvancedDataPipeline, TraditionalDataPipeline
-from src.model_type import ModelType
+from model_type import ModelType
 
 
 class _DummyModel:
@@ -194,3 +194,45 @@ def test_traditional_impute_cache_path_has_prefix_processed_data_and_model_suffi
 	cache_path = pipeline._resolve_traditional_impute_path("imputed_data.pkl", "Logistic Regression")
 
 	assert cache_path.endswith(str(Path("Processed Data") / "traditional_imputed_data_Logistic_Regression.pkl"))
+
+def test_advanced_data_pipeline_has_correct_dimensions():
+	pipeline = AdvancedDataPipeline(data_path = "/home/gloc/G-LOC-Prediction/data/")
+	X_train, _, _, _, _ = pipeline.get_data(
+		model_type = ModelType("Complete", "Explicit"),
+		remove_NaN_trials = True,
+		subject_to_analyze = "01",
+		trial_to_analyze = "03",
+		analysis_type = 2,
+		num_splits = 10,
+		kfold_ID = 0,
+		impute_file_name = "imputed_data.pkl",
+		should_impute = True,
+		n_neighbors = 4,
+		baseline_window = 32.5,
+		save_impute = False,
+		load_impute = False,
+	)
+
+	assert X_train.shape == (1072086, 283)
+
+def test_traditional_data_pipeline_has_correct_dimensions():
+	pipeline = TraditionalDataPipeline(data_path = "/home/gloc/G-LOC-Prediction/data/")
+	X, y = pipeline.get_data(
+		model_type = ModelType("Complete", "Explicit"),
+		remove_NaN_trials = True,
+		subject_to_analyze = "01",
+		trial_to_analyze = "03",
+		analysis_type = 2,
+		classifier_type = "LogReg",
+		select_features = ["f1", "f2"],
+		backstep = 10,
+		data_rate = 25,
+		offset = 2.5,
+		time_start = 0.0,
+		impute_file_name = "imputed_data.pkl",
+		should_impute = True,
+		save_impute = False,
+		load_impute = False,
+	)
+
+	assert X.shape == (186539, 3959)
