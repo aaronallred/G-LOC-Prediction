@@ -111,7 +111,7 @@ class DataPipeline:
         if backend_type == "advanced":
             request_kwargs["num_splits"] = self._config_parser.get_num_splits()
             request_kwargs["kfold_ID"] = self._config_parser.get_kfold_ID()
-            request_kwargs["impute_path"] = self._config_parser.get_impute_path()
+            request_kwargs["impute_file_name"] = self._config_parser.get_impute_file_name()
             request_kwargs["should_impute"] = self._config_parser.get_should_impute()
             request_kwargs["n_neighbors"] = self._config_parser.get_n_neighbors()
             request_kwargs["baseline_window"] = self._config_parser.get_baseline_window()
@@ -124,7 +124,7 @@ class DataPipeline:
             request_kwargs["data_rate"] = self._config_parser.get_data_rate()
             request_kwargs["offset"] = self._config_parser.get_offset()
             request_kwargs["time_start"] = self._config_parser.get_time_start()
-            request_kwargs["impute_path"] = self._config_parser.get_impute_path()
+            request_kwargs["impute_file_name"] = self._config_parser.get_impute_file_name()
             request_kwargs["should_impute"] = self._config_parser.get_should_impute()
             request_kwargs["save_impute"] = self._config_parser.get_save_impute()
             request_kwargs["load_impute"] = self._config_parser.get_load_impute()
@@ -302,7 +302,7 @@ class AdvancedDataPipeline:
             model_type: ModelType,
             num_splits: int,
             kfold_ID: int,
-            impute_path: str,
+            impute_file_name: str,
             subject_to_analyze: Optional[str] = None,
             trial_to_analyze: Optional[str] = None,
             should_impute: bool = True,
@@ -320,7 +320,7 @@ class AdvancedDataPipeline:
             model_type: ModelType — e.g. ModelType('Complete', 'Explicit')
             num_splits: Number of K-fold CV splits
             kfold_ID: Which fold to use (0 to num_splits-1)
-            impute_path: Path to save/load the imputed data pickle file
+            impute_file_name: Base file name used in data_path/Processed Data
             subject_to_analyze: Participant number for single-subject analysis
             trial_to_analyze: Trial number for single-trial analysis
             should_impute: Whether to perform KNN imputation (True = KNN on raw data, False = no imputation)
@@ -374,11 +374,11 @@ class AdvancedDataPipeline:
         )
 
         ################################################## Impute Missing ##################################################
-        logger.info("Imputing missing data with should_impute=%s, n_neighbors=%d, impute_path=%s, save_impute=%s, load_impute=%s", should_impute, n_neighbors, impute_path, save_impute, load_impute)
+        logger.info("Imputing missing data with should_impute=%s, n_neighbors=%d, impute_file_name=%s, save_impute=%s, load_impute=%s", should_impute, n_neighbors, impute_file_name, save_impute, load_impute)
         if should_impute:
             gloc_data_all_features_imputed_numpy = self._impute_missing_data(
                 gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata,
-                impute_path, save_impute, load_impute, num_splits, kfold_ID, n_neighbors
+                impute_file_name, save_impute, load_impute, num_splits, kfold_ID, n_neighbors
             )
         else:
             logger.info("Skipping KNN imputation as should_impute=False.")
@@ -775,7 +775,7 @@ class AdvancedDataPipeline:
             gloc_data_all_features_numpy: np.ndarray,
             gloc_labels_numpy: np.ndarray,
             experiment_metadata: Dict[str, Any],
-            impute_path: str,
+            impute_file_name: str,
             save_impute: bool,
             load_impute: bool,
             num_splits: int,
@@ -783,9 +783,9 @@ class AdvancedDataPipeline:
             n_neighbors: int,
     ) -> np.ndarray:
         # Load or compute imputed features
-        impute_path = _resolve_from_source_dir(impute_path)
+        impute_path = self._resolve_advanced_impute_path(impute_file_name, kfold_ID)
 
-        # NOTE: impute_path is PROVIDED by caller; we only normalize it to an absolute path.
+        # NOTE: impute_path is derived from impute_file_name and kfold_ID in Processed Data.
         if load_impute and os.path.exists(impute_path):
             with open(impute_path, 'rb') as f:
                 gloc_data_all_features_imputed_numpy = pickle.load(f)
@@ -806,6 +806,16 @@ class AdvancedDataPipeline:
                 logger.info("Saved imputed data to %s.", impute_path)
 
         return gloc_data_all_features_imputed_numpy
+
+    def _resolve_advanced_impute_path(self, impute_file_name: str, kfold_ID: int) -> str:
+        """Build advanced cache path in data_path/Processed Data with prefix and k-fold suffix."""
+        processed_dir = Path(self.data_path) / "Processed Data"
+        base_name = Path(impute_file_name)
+        if base_name.suffix:
+            file_name = f"advanced_{base_name.stem}_kfold_{kfold_ID}{base_name.suffix}"
+        else:
+            file_name = f"advanced_{base_name.name}_kfold_{kfold_ID}.pkl"
+        return str((processed_dir / file_name).resolve())
 
     def _groupedtrial_kfold_split(
             self,
@@ -1237,7 +1247,7 @@ class TraditionalDataPipeline:
             subject_to_analyze,
             trial_to_analyze,
             analysis_type,
-            impute_path: Optional[str] = None,
+            impute_file_name: Optional[str] = None,
             should_impute: bool = True,
             save_impute: bool = False,
             load_impute: bool = False,
@@ -1282,8 +1292,8 @@ class TraditionalDataPipeline:
             gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
 
         if should_impute:
-            if impute_path is not None:
-                traditional_impute_path = self._resolve_traditional_impute_path(impute_path, classifier_type, model_type)
+            if impute_file_name is not None:
+                traditional_impute_path = self._resolve_traditional_impute_path(impute_file_name, classifier_type)
             else:
                 traditional_impute_path = None
 
@@ -1765,13 +1775,15 @@ class TraditionalDataPipeline:
         codes, _ = pd.factorize(strings, sort=False)
         return (codes + 1).astype(np.float32)
 
-    def _resolve_traditional_impute_path(self, impute_path: str, classifier_type: str, model_type: ModelType) -> str:
-        """Create a traditional-only cache path to avoid collisions with advanced cache files."""
-        resolved = Path(_resolve_from_source_dir(impute_path))
-        suffix = f"_traditional_{classifier_type}_{model_type.afe_filter}_{model_type.feature_set}"
-        if resolved.suffix:
-            return str(resolved.with_name(f"{resolved.stem}{suffix}{resolved.suffix}"))
-        return f"{resolved}{suffix}.pkl"
+    def _resolve_traditional_impute_path(self, impute_file_name: str, classifier_type: str) -> str:
+        """Build traditional cache path in data_path/Processed Data with prefix and model-name suffix."""
+        processed_dir = Path(self.data_path) / "Processed Data"
+        base_name = Path(impute_file_name)
+        if base_name.suffix:
+            file_name = f"traditional_{base_name.stem}_{classifier_type}{base_name.suffix}"
+        else:
+            file_name = f"traditional_{base_name.name}_{classifier_type}.pkl"
+        return str((processed_dir / file_name).resolve())
 
     def _faster_knn_impute(self, X, k = 5, M = 32, efSearch = 64):
         """

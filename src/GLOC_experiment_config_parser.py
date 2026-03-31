@@ -40,7 +40,7 @@ class GLOCExperimentConfigParser:
         self.trial_to_analyze = self._parse_trial_to_analyze(shared_data_parameters)
         self.analysis_type = self._parse_analysis_type(shared_data_parameters)
         self.remove_NaN_trials = self._parse_remove_NaN_trials(shared_data_parameters)
-        self.impute_path = self._parse_impute_path(shared_data_parameters)
+        self.impute_file_name = self._parse_impute_file_name(shared_data_parameters)
         self.save_impute = self._parse_save_impute(shared_data_parameters)
         self.load_impute = self._parse_load_impute(shared_data_parameters)
         self.should_impute = self._parse_should_impute(shared_data_parameters)
@@ -144,11 +144,11 @@ class GLOCExperimentConfigParser:
 
         return shared_data_parameters.get("remove_NaN_trials")
 
-    def _parse_impute_path(self, shared_data_parameters: Dict) -> str:
-        if "impute_path" not in shared_data_parameters:
-            raise ValueError("impute_path is missing from config. It should be a string indicating the path to save/load imputed data.")
+    def _parse_impute_file_name(self, shared_data_parameters: Dict) -> str:
+        if "impute_file_name" not in shared_data_parameters:
+            raise ValueError("impute_file_name is missing from config. It should be a string indicating the filename to save/load imputed data.")
 
-        return shared_data_parameters.get("impute_path")
+        return shared_data_parameters.get("impute_file_name")
 
     def _parse_save_impute(self, shared_data_parameters: Dict) -> bool:
         if "save_impute" not in shared_data_parameters:
@@ -224,8 +224,8 @@ class GLOCExperimentConfigParser:
     def get_kfold_ID(self) -> int:
         return self.kfold_ID
     
-    def get_impute_path(self) -> str:
-        return self.impute_path
+    def get_impute_file_name(self) -> str:
+        return self.impute_file_name
     
     def get_should_impute(self) -> bool:
         return self.should_impute

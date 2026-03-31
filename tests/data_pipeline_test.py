@@ -1,6 +1,7 @@
 import pytest
+from pathlib import Path
 
-from src.data_pipeline import DataPipeline
+from src.data_pipeline import DataPipeline, AdvancedDataPipeline, TraditionalDataPipeline
 from src.model_type import ModelType
 
 
@@ -41,8 +42,8 @@ class _DummyConfigParser:
 	def get_kfold_ID(self):
 		return 1
 
-	def get_impute_path(self):
-		return "tmp/imputed.pkl"
+	def get_impute_file_name(self):
+		return "imputed.pkl"
 
 	def get_should_impute(self):
 		return True
@@ -136,7 +137,7 @@ def test_get_data_for_advanced_pipeline_forwards_required_arguments(monkeypatch)
 		"analysis_type": 2,
 		"num_splits": 5,
 		"kfold_ID": 1,
-		"impute_path": "tmp/imputed.pkl",
+		"impute_file_name": "imputed.pkl",
 		"should_impute": True,
 		"n_neighbors": 4,
 		"baseline_window": 32.5,
@@ -174,8 +175,22 @@ def test_get_data_for_traditional_pipeline_forwards_required_arguments(monkeypat
 		"data_rate": 25,
 		"offset": 2.5,
 		"time_start": 0.0,
-		"impute_path": "tmp/imputed.pkl",
+		"impute_file_name": "imputed.pkl",
 		"should_impute": True,
 		"save_impute": False,
 		"load_impute": False,
 	}
+
+
+def test_advanced_impute_cache_path_has_prefix_processed_data_and_kfold_suffix():
+	pipeline = AdvancedDataPipeline(data_path="../data/")
+	cache_path = pipeline._resolve_advanced_impute_path("imputed_data.pkl", 3)
+
+	assert cache_path.endswith(str(Path("Processed Data") / "advanced_imputed_data_kfold_3.pkl"))
+
+
+def test_traditional_impute_cache_path_has_prefix_processed_data_and_model_suffix():
+	pipeline = TraditionalDataPipeline(data_path="../data/")
+	cache_path = pipeline._resolve_traditional_impute_path("imputed_data.pkl", "Logistic Regression")
+
+	assert cache_path.endswith(str(Path("Processed Data") / "traditional_imputed_data_Logistic_Regression.pkl"))
