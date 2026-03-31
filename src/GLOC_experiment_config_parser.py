@@ -56,7 +56,6 @@ class GLOCExperimentConfigParser:
         traditional_data_parameters = self._get_traditional_data_parameters()
         self.backstep = self._parse_backstep(traditional_data_parameters)
         self.data_rate = self._parse_data_rate(traditional_data_parameters)
-        self.classifier_type = self._parse_classifier_type(traditional_data_parameters)
         self.offset = self._parse_offset(traditional_data_parameters)
         self.time_start = self._parse_time_start(traditional_data_parameters)
             
@@ -268,12 +267,6 @@ class GLOCExperimentConfigParser:
 
         return traditional_data_parameters.get("data_rate")
 
-    def _parse_classifier_type(self, traditional_data_parameters: Dict) -> str:
-        if "classifier_type" not in traditional_data_parameters:
-            raise ValueError("classifier_type is missing from config. It should be a string indicating the type of classifier to use for traditional pipeline (e.g., 'SVM', 'KNN').")
-
-        return traditional_data_parameters.get("classifier_type")
-
     def _parse_offset(self, traditional_data_parameters: Dict) -> float:
         if "offset" not in traditional_data_parameters:
             raise ValueError("offset is missing from config. It should be a float indicating the offset (in seconds) to use for traditional pipeline.")
@@ -291,9 +284,6 @@ class GLOCExperimentConfigParser:
     
     def get_data_rate(self) -> int:
         return self.data_rate
-    
-    def get_classifier_type(self) -> str:
-        return self.classifier_type
     
     def get_offset(self) -> float:
         return self.offset
