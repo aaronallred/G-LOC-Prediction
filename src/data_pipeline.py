@@ -51,17 +51,7 @@ class DataPipeline:
             self,
             config_parser: GLOCExperimentConfigParser,
     ) -> None:
-        """Initialize DataPipeline with configuration from parser.
-        
-        Args:
-            config_parser: Parser instance that reads experiment configuration
-            model: Optional model for backend resolution. If not provided, model_type
-                   from config will be used for backend routing.
-            data_path_override: Optional override for data path (useful for testing)
-            
-        Raises:
-            ValueError: If required configuration is missing or invalid
-        """
+        """Initialize the facade with the experiment configuration parser."""
         self._config_parser = config_parser
 
     def get_data(self) -> Any:
@@ -107,14 +97,7 @@ class DataPipeline:
         return backend_data_pipeline.get_data(**request_kwargs)
 
     def _build_backend(self) -> Any:
-        """Build the appropriate backend pipeline based on model type.
-        
-        Returns:
-            Initialized backend pipeline (Advanced or Traditional)
-            
-        Raises:
-            ValueError: If backend type cannot be determined
-        """
+        """Instantiate the backend pipeline selected by model type."""
         pipeline_kind = self._resolve_pipeline_kind()
         
         if pipeline_kind == "traditional":
@@ -131,14 +114,7 @@ class DataPipeline:
             )
 
     def _resolve_pipeline_kind(self) -> Literal["advanced", "traditional"]:
-        """Determine which backend pipeline to use.
-        
-        Returns:
-            "traditional" if model is explicitly traditional, otherwise "advanced"
-            
-        Raises:
-            ValueError: If backend type cannot be determined
-        """
+        """Resolve whether the configured model maps to advanced or traditional flow."""
         model = self._config_parser.get_model()
 
         if model is None or not hasattr(model, "is_traditional"):
@@ -148,14 +124,7 @@ class DataPipeline:
     
 
     def _resolve_classifier_name(self) -> str:
-        """Get classifier name from model or config.
-        
-        Returns:
-            Classifier name/type
-            
-        Raises:
-            ValueError: If classifier name cannot be determined
-        """
+        """Resolve classifier name from the configured model."""
         model = self._config_parser.get_model()
         if model is None or not hasattr(model, "get_name"):
             raise ValueError("Unable to determine classifier name.")
@@ -163,22 +132,7 @@ class DataPipeline:
         return model.get_name()
 
     def _resolve_select_features(self, current_kwargs: dict[str, Any]) -> list[str]:
-        """Resolve which features to select for the pipeline.
-        
-        Priority order:
-        1. select_features kwarg passed to get_data()
-        2. model.config['select_features'] if model provided
-        3. select_features from experiment config
-        
-        Args:
-            current_kwargs: Keyword arguments passed to get_data()
-            
-        Returns:
-            List of feature names to use
-            
-        Raises:
-            ValueError: If select_features cannot be determined
-        """
+        """Load selected feature names from the median-hyperparameter cache."""
 
         # Function to load in median hyperparameters from a simple JSON
         BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -266,18 +220,13 @@ class BaseGLOCDataPipeline(ABC):
     )
 
     def __init__(self, data_path: str = "../data/", random_seed: int = 42) -> None:
-        """Initialize base pipeline with data path and random seed.
-        
-        Args:
-            data_path: Path to the data directory
-            random_seed: Random seed for reproducibility
-        """
+        """Initialize shared pipeline state."""
         self.data_path = _resolve_from_source_dir(data_path)
         self._data_locations = None
         self.random_seed = random_seed
 
     @abstractmethod
-    def get_data(self, **kwargs) -> Any:
+    def get_data(self, **kwargs: Any) -> Any:
         """Execute the data pipeline with specified parameters.
         
         Must be implemented by subclasses.
@@ -291,11 +240,7 @@ class BaseGLOCDataPipeline(ABC):
         pass
 
     def _get_data_locations(self) -> Dict[str, Any]:
-        """Get file locations for all relevant data files.
-
-        Returns:
-            dict with keys: "main", "baseline", "demographic", "eeg_list", "baseline_eeg_processed_list"
-        """
+        """Build and cache filesystem paths used by data loading."""
         if self._data_locations is not None:
             return self._data_locations
 
@@ -683,10 +628,12 @@ class BaseGLOCDataPipeline(ABC):
 
         return combined_baseline, combined_names, baseline_v0, baseline_names_v0
 
-    def _remove_constant_columns(self, x_feature_matrix, select_features):
-        """
-        This function removes all constant columns before feeding into the ML classifiers.
-        """
+    def _remove_constant_columns(
+            self,
+            x_feature_matrix: np.ndarray,
+            select_features: List[str],
+    ) -> Tuple[np.ndarray, List[str]]:
+        """Remove zero-variance columns from a feature matrix."""
         # Find all constant columns
         constant_columns = np.all(x_feature_matrix == x_feature_matrix[0, :], axis=0)
         keep_columns = ~constant_columns
@@ -1212,23 +1159,23 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
     def get_data(
             self,
-            backstep,
-            data_rate,
-            classifier_type,
+            backstep: int,
+            data_rate: int,
+            classifier_type: str,
             model_type: ModelType,
-            select_features,
-            remove_NaN_trials,
-            offset,
-            time_start,
-            subject_to_analyze,
-            trial_to_analyze,
-            analysis_type,
+            select_features: List[str],
+            remove_NaN_trials: bool,
+            offset: float,
+            time_start: float,
+            subject_to_analyze: Optional[str],
+            trial_to_analyze: Optional[str],
+            analysis_type: int,
             impute_file_name: Optional[str] = None,
             should_impute: bool = True,
             output_feature_dtype: str = "float32",
             save_impute: bool = False,
             load_impute: bool = False,
-    ):
+        ) -> Tuple[np.ndarray, np.ndarray]:
         """Return data for a given set of parameters."""
         (
             baseline_window,
@@ -1377,7 +1324,10 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         return gloc_data_all_features_numpy, gloc_labels_numpy
     
-    def _get_hyperparameters_by_classifier(self, classifier_type):
+    def _get_hyperparameters_by_classifier(
+            self,
+            classifier_type: str,
+    ) -> Tuple[float, float, float, str, List[str], str, int, int]:
         """Return hyperparameters for a given classifier type."""
         params = self._CLASSIFIER_HYPERPARAMETERS.get(classifier_type)
         if params is None:
@@ -1395,7 +1345,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             params["n_neighbors"],
         )
     
-    def _get_feature_groups(self, model_type: ModelType) -> Tuple[Sequence[str], List[str]]:
+    def _get_feature_groups(self, model_type: ModelType) -> Sequence[str]:
         feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
 
         # NOTE:
@@ -1416,17 +1366,14 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         return str((processed_dir / file_name).resolve())
 
-    def _faster_knn_impute(self, X, k = 5, M = 32, efSearch = 64):
-        """
-        Perform KNN imputation using FAISS HNSW index.
-        Parameters:
-        - X: (n_samples, n_features) matrix with missing values as np.nan
-        - k: Number of neighbors for imputation
-        - M: Number of neighbors in the HNSW graph (higher = more accurate, slower)
-        - efSearch: Number of candidates to consider during search (higher = better recall)
-        Returns:
-        - X_imputed: Matrix with missing values imputed
-        """
+    def _faster_knn_impute(
+            self,
+            X: np.ndarray,
+            k: int = 5,
+            M: int = 32,
+            efSearch: int = 64,
+    ) -> np.ndarray:
+        """Impute missing values with FAISS KNN."""
         mask = np.isnan(X)
         X_imputed = X.copy()
 
@@ -1458,11 +1405,14 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         return X_imputed
     
-    def _y_prediction_offset(self, y, backstep, data_rate, trial_set):
-        """
-        Shifts GLOC flags to the left by 'backstep' frames.
-        Truncates the beginning and pads the end with zeros.
-        """
+    def _y_prediction_offset(
+            self,
+            y: np.ndarray,
+            backstep: int,
+            data_rate: int,
+            trial_set: np.ndarray,
+    ) -> np.ndarray:
+        """Shift GLOC labels left by the configured prediction horizon."""
         y = np.asarray(y).copy()
         offset = int(backstep * data_rate) # the actual number of indices to offset.
         # if backstep is given as seconds and data rate as hz
@@ -1491,13 +1441,22 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         return y
 
-    def _feature_generation(self, time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column,
-                        combined_baseline_names,baseline_names_v0, baseline_v0, feature_groups_to_analyze):
-
-        """
-        Generates Features from Baseline Data
-        :return:
-        """
+    def _feature_generation(
+            self,
+            time_start: float,
+            offset: float,
+            stride: float,
+            window_size: float,
+            combined_baseline: Dict[str, np.ndarray],
+            gloc: np.ndarray,
+            trial_column: np.ndarray,
+            time_column: np.ndarray,
+            combined_baseline_names: List[str],
+            baseline_names_v0: Any,
+            baseline_v0: Dict[str, np.ndarray],
+            feature_groups_to_analyze: Sequence[str],
+    ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+        """Generate temporal engineered features from baseline data."""
 
         # Sliding Window Mean
         gloc_window, sliding_window_mean_s1, number_windows, all_features_mean_s1, sliding_window_mean_s2, all_features_mean_s2 = (
@@ -1564,12 +1523,11 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         return y_gloc_labels.astype(np.float32), x_feature_matrix.astype(np.float32), all_features
 
-    def _inter_trial_standardization(self, feature_dictionary):
-        """
-        This function takes the input of a feature dictionary and finds the inter-trial z-score by
-        first unpacking the dictionary, then taking the mean and standard deviation of every
-        column. The output is the inter-trial standardized feature dictionary.
-        """
+    def _inter_trial_standardization(
+            self,
+            feature_dictionary: Dict[str, np.ndarray],
+    ) -> Dict[str, np.ndarray]:
+        """Compute inter-trial z-score standardization for each trial matrix."""
 
         # Find Unique Trial ID
         trial_id_in_data = list(feature_dictionary.keys())
@@ -1620,15 +1578,19 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         return sliding_window_s2
 
-    def _sliding_window_mean_calc(self, time_start, offset, stride, window_size, combined_baseline, gloc, trial_column, time_column, combined_baseline_names):
-        """
-        This function creates the engineered features and gloc labels for the data. This includes a
-        sliding window mean for each of the features for each trial_id. The number of windows is
-        determined from the specified stride, window size, and offset. The gloc label is determined
-        by finding if there are any 1 GLOC labels within the window (at some offset from the engineered
-        feature window). A dictionary for the engineered feature, engineered label, and number of windows
-        is returned. These dictionaries are sorted by trial_id.
-        """
+    def _sliding_window_mean_calc(
+            self,
+            time_start: float,
+            offset: float,
+            stride: float,
+            window_size: float,
+            combined_baseline: Dict[str, np.ndarray],
+            gloc: np.ndarray,
+            trial_column: np.ndarray,
+            time_column: np.ndarray,
+            combined_baseline_names: List[str],
+    ) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.int32], List[str], Dict[str, np.ndarray], List[str]]:
+        """Compute sliding-window mean features and aligned GLOC labels."""
 
         # Find Unique Trial ID
         trial_id_in_data = pd.unique(trial_column)  # order-preserving, matching legacy script behavior
@@ -1718,13 +1680,18 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         return gloc_window, sliding_window_mean_s1, number_windows, all_features_mean_s1, sliding_window_mean_s2, all_features_mean_s2
 
-    def _sliding_window_calc(self, time_start, stride, window_size, combined_baseline, trial_column, time_column,
-                            number_windows, combined_baseline_names):
-        """
-        This function creates the engineered features and gloc labels for the data. This includes a
-        sliding window standard deviation for each of the features for each trial_id. A dictionary
-        sorted by trial_id for the engineered feature is returned.
-        """
+    def _sliding_window_calc(
+            self,
+            time_start: float,
+            stride: float,
+            window_size: float,
+            combined_baseline: Dict[str, np.ndarray],
+            trial_column: np.ndarray,
+            time_column: np.ndarray,
+            number_windows: Dict[str, np.int32],
+            combined_baseline_names: List[str],
+    ) -> Tuple[Any, ...]:
+        """Compute sliding-window std/max/range features with s1 and s2 variants."""
 
         # Find Unique Trial ID
         trial_id_in_data = pd.unique(trial_column)  # order-preserving, matching legacy script behavior
@@ -1861,12 +1828,19 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 all_features_range_s1, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2, all_features_stddev_s2,
                 all_features_max_s2, all_features_range_s2)
 
-    def _sliding_window_other_features(self, time_start, stride, window_size, trial_column, time_column, number_windows,
-                                    baseline_names_v0, baseline_v0, feature_groups_to_analyze):
-        """
-        This function creates the engineered features and gloc labels for the data. This includes a
-        sliding window mean of the difference between left and right pupil and HbO/Hbd ratio.
-        """
+    def _sliding_window_other_features(
+            self,
+            time_start: float,
+            stride: float,
+            window_size: float,
+            trial_column: np.ndarray,
+            time_column: np.ndarray,
+            number_windows: Dict[str, np.int32],
+            baseline_names_v0: Any,
+            baseline_v0: Dict[str, np.ndarray],
+            feature_groups_to_analyze: Sequence[str],
+    ) -> Tuple[Any, ...]:
+        """Compute additional temporal features (eye tracking, ECG, and cognitive)."""
 
         # Find Unique Trial ID
         trial_id_in_data = pd.unique(trial_column)  # order-preserving, matching legacy script behavior
@@ -2321,23 +2295,42 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
         sliding_window_cognitive_ies_s2)
 
-    def _unpack_dict(self, gloc_window, sliding_window_mean_s1, number_windows, sliding_window_stddev_s1, sliding_window_max_s1,
-                    sliding_window_range_s1, sliding_window_integral_left_pupil_s1, sliding_window_integral_right_pupil_s1,
-                    sliding_window_consecutive_elements_mean_left_pupil_s1, sliding_window_consecutive_elements_mean_right_pupil_s1,
-                    sliding_window_consecutive_elements_max_left_pupil_s1, sliding_window_consecutive_elements_max_right_pupil_s1,
-                    sliding_window_consecutive_elements_sum_left_pupil_s1, sliding_window_consecutive_elements_sum_right_pupil_s1,
-                    sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_cognitive_ies_s1,
-                    sliding_window_mean_s2, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2,
-                    sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
-                    sliding_window_consecutive_elements_mean_left_pupil_s2, sliding_window_consecutive_elements_mean_right_pupil_s2,
-                    sliding_window_consecutive_elements_max_left_pupil_s2, sliding_window_consecutive_elements_max_right_pupil_s2,
-                    sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
-                    sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2, sliding_window_cognitive_ies_s2):
-        """
-        This function unpacks the dictionary structure to create a large features matrix (X matrix) and
-        labels matrix (y matrix) for all trials being analyzed. This function will become unnecessary if
-        the data remains in dataframe or arrays (rather than a dictionary).
-        """
+    def _unpack_dict(
+            self,
+            gloc_window: Dict[str, np.ndarray],
+            sliding_window_mean_s1: Dict[str, np.ndarray],
+            number_windows: Dict[str, np.int32],
+            sliding_window_stddev_s1: Dict[str, np.ndarray],
+            sliding_window_max_s1: Dict[str, np.ndarray],
+            sliding_window_range_s1: Dict[str, np.ndarray],
+            sliding_window_integral_left_pupil_s1: Dict[str, np.ndarray],
+            sliding_window_integral_right_pupil_s1: Dict[str, np.ndarray],
+            sliding_window_consecutive_elements_mean_left_pupil_s1: Dict[str, np.ndarray],
+            sliding_window_consecutive_elements_mean_right_pupil_s1: Dict[str, np.ndarray],
+            sliding_window_consecutive_elements_max_left_pupil_s1: Dict[str, np.ndarray],
+            sliding_window_consecutive_elements_max_right_pupil_s1: Dict[str, np.ndarray],
+            sliding_window_consecutive_elements_sum_left_pupil_s1: Dict[str, np.ndarray],
+            sliding_window_consecutive_elements_sum_right_pupil_s1: Dict[str, np.ndarray],
+            sliding_window_hrv_sdnn_s1: Dict[str, np.ndarray],
+            sliding_window_hrv_rmssd_s1: Dict[str, np.ndarray],
+            sliding_window_cognitive_ies_s1: Dict[str, np.ndarray],
+            sliding_window_mean_s2: Dict[str, np.ndarray],
+            sliding_window_stddev_s2: Dict[str, np.ndarray],
+            sliding_window_max_s2: Dict[str, np.ndarray],
+            sliding_window_range_s2: Dict[str, np.ndarray],
+            sliding_window_integral_left_pupil_s2: Dict[str, np.ndarray],
+            sliding_window_integral_right_pupil_s2: Dict[str, np.ndarray],
+            sliding_window_consecutive_elements_mean_left_pupil_s2: Dict[str, np.ndarray],
+            sliding_window_consecutive_elements_mean_right_pupil_s2: Dict[str, np.ndarray],
+            sliding_window_consecutive_elements_max_left_pupil_s2: Dict[str, np.ndarray],
+            sliding_window_consecutive_elements_max_right_pupil_s2: Dict[str, np.ndarray],
+            sliding_window_consecutive_elements_sum_left_pupil_s2: Dict[str, np.ndarray],
+            sliding_window_consecutive_elements_sum_right_pupil_s2: Dict[str, np.ndarray],
+            sliding_window_hrv_sdnn_s2: Dict[str, np.ndarray],
+            sliding_window_hrv_rmssd_s2: Dict[str, np.ndarray],
+            sliding_window_cognitive_ies_s2: Dict[str, np.ndarray],
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Unpack per-trial dictionaries into global label and feature matrices."""
 
         # Find Unique Trial ID
         trial_id_in_data = list(sliding_window_mean_s1.keys())
@@ -2406,7 +2399,20 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         return y_gloc_labels, x_feature_matrix
 
-    def _reduce_features(self, model_type, offset, stride, window_size, time_start, gloc_data_all_features_imputed_numpy, gloc_labels, features, experiment_metadata, select_features):
+    def _reduce_features(
+            self,
+            model_type: ModelType,
+            offset: float,
+            stride: float,
+            window_size: float,
+            time_start: float,
+            gloc_data_all_features_imputed_numpy: np.ndarray,
+            gloc_labels: np.ndarray,
+            features: Dict[str, List[str]],
+            experiment_metadata: Dict[str, Any],
+            select_features: List[str],
+    ) -> np.ndarray:
+        """Reduce feature matrix columns to the requested selected features."""
         if model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit":
             afe_indicator_column_windowed, gloc_compare, _ = self._sliding_window_max(
                 experiment_metadata["AFE_indicator"], experiment_metadata["trial_id"], experiment_metadata["Time (s)"], gloc_labels,
@@ -2422,24 +2428,18 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         return gloc_data_all_features_imputed_numpy
 
-    def _sliding_window_max(self, data_array, trial_column, time_column, label_array, offset, stride, window_size,time_start=0):
-        """
-        Compute sliding window max features and labels from a full array with a trial column.
-
-        Input:
-        - data_array: np.array of shape [num_rows, num_features] (all trials concatenated)
-        - trial_column: array-like of trial IDs per row
-        - time_column: array-like of timestamps per row
-        - time_start: start time of first window
-        - offset: offset for label window relative to feature window
-        - stride: step size between windows
-        - window_size: size of the sliding window
-
-        Output:
-        - all_features: np.array [total_windows, num_features]
-        - all_labels: np.array [total_windows]
-        - all_trials: np.array [total_windows] indicating which trial each window came from
-        """
+    def _sliding_window_max(
+            self,
+            data_array: np.ndarray,
+            trial_column: np.ndarray,
+            time_column: np.ndarray,
+            label_array: np.ndarray,
+            offset: float,
+            stride: float,
+            window_size: float,
+            time_start: float = 0,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Compute sliding-window max features and aligned labels."""
 
         trial_ids = pd.unique(trial_column)  # order-preserving, matching legacy script behavior
 
@@ -2479,11 +2479,13 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         return all_features, all_labels, all_trials
     
-    def _process_NaN_temporal(self, y_gloc_labels, x_feature_matrix, all_features):
-        """
-        This is a temporary function for removing all rows with NaN values. This can be replaced by
-        another method in the future, but is necessary for feeding into ML Classifiers.
-        """
+    def _process_NaN_temporal(
+            self,
+            y_gloc_labels: np.ndarray,
+            x_feature_matrix: np.ndarray,
+            all_features: List[str],
+    ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
+        """Drop all-NaN columns and rows containing any NaN values."""
         # Find & remove columns if they have all NaN values
         nan_test = np.isnan(x_feature_matrix)
         index_column_all_NaN = np.all(nan_test, axis=0)
@@ -2505,7 +2507,12 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         return y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features, removed_row_indices
     
-    def _ready_outputs(self, x_feature_matrix, y_gloc_labels):
+    def _ready_outputs(
+            self,
+            x_feature_matrix: Any,
+            y_gloc_labels: Any,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Normalize outputs to numpy arrays with expected shapes."""
         x_feature_matrix = (
             x_feature_matrix.to_numpy() if hasattr(x_feature_matrix, "to_numpy") else np.asarray(x_feature_matrix)
         )
