@@ -1,28 +1,28 @@
 {
-    "model": "KNN",
+    "model": "Transformer",
     "model_type": ["Complete", "Explicit"],
     "random_seed": 42,
-    "data_path": "./../data/",
+    "data_path": "/home/gloc/G-LOC-Prediction/data",
     "shared_data_parameters": {
         "subject_to_analyze": null,
         "trial_to_analyze": null,
         "analysis_type": 2,
-        "remove_NaN_trials": true
+        "remove_NaN_trials": true,
+        "impute_file_name": "imputed_data.pkl",
+        "save_impute": true,
+        "load_impute": true,
+        "should_impute": true,
+        "output_feature_dtype": "float32"
     },
     "advanced_data_parameters": {
         "num_splits": 10,
         "kfold_ID": 0,
-        "impute_path": "./../data/imputed_data",
-        "impute_type": 1,
         "n_neighbors": 4,
-        "baseline_window": 32.5,
-        "save_impute": true,
-        "load_impute": true
+        "baseline_window": 32.5
     },
     "traditional_data_parameters": {
         "backstep": 0,
         "data_rate": 25,
-        "classifier_type": "SVM",
         "offset": 0,
         "time_start": 0
     }
