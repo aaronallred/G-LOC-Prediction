@@ -1094,6 +1094,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 class TraditionalDataPipeline(BaseGLOCDataPipeline):
     """Legacy-compatible data pipeline for temporal/traditional GLOC modeling."""
 
+    # From Nikki paper
     _CLASSIFIER_HYPERPARAMETERS: Dict[str, Dict[str, Any]] = {
         "LogReg": {
             "baseline_window": 5,

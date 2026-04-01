@@ -1,16 +1,33 @@
 from model_type import ModelType
 from models.base import BaseModel
 from models.logistic_regression import LogisticRegression
+from models.random_forest import RandomForestModel
+from models.linear_discriminant_analysis import LinearDiscriminantAnalysisModel
+from models.support_vector_machine import SupportVectorMachineModel
+from models.extreme_gradient_boosting import ExtremeGradientBoostingModel
+from models.k_nearest_neighbors import KNearestNeighborsModel
 from models.transformer import TransformerModel
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Type
 from pathlib import Path
 
 import json
 
 class GLOCExperimentConfigParser:
-    MODELS_BY_NAME: Dict[str, BaseModel] = {
-        "Logistic Regression": LogisticRegression(config = {}),
-        "Transformer": TransformerModel(config = {}),
+    MODEL_FACTORIES_BY_NAME: Dict[str, Type[BaseModel]] = {
+        "Logistic Regression": LogisticRegression,
+        "LogReg": LogisticRegression,
+        "Random Forest": RandomForestModel,
+        "RF": RandomForestModel,
+        "Linear Discriminant Analysis": LinearDiscriminantAnalysisModel,
+        "LDA": LinearDiscriminantAnalysisModel,
+        "Support Vector Machine": SupportVectorMachineModel,
+        "SVM": SupportVectorMachineModel,
+        "Extreme Gradient Boosting": ExtremeGradientBoostingModel,
+        "EGB": ExtremeGradientBoostingModel,
+        "K Nearest Neighbors": KNearestNeighborsModel,
+        "KNN": KNearestNeighborsModel,
+        "Transformer": TransformerModel,
+        "Trans": TransformerModel,
     }
 
     def __init__(self, config_location: Optional[str] = None) -> None:
@@ -65,10 +82,15 @@ class GLOCExperimentConfigParser:
             raise ValueError("model is missing from config. It should be a string of the name of the model.")
 
         model_config = self.config.get("model", "")
-        if model_config not in self.MODELS_BY_NAME:
-            raise ValueError(f"Model '{model_config}' is not recognized. Available models: {list(self.MODELS_BY_NAME.keys())}")
+        model_class = self.MODEL_FACTORIES_BY_NAME.get(model_config)
+        if model_class is None:
+            raise ValueError(f"Model '{model_config}' is not recognized. Available models: {list(self.MODEL_FACTORIES_BY_NAME.keys())}")
 
-        return self.MODELS_BY_NAME[model_config]
+        model_parameters = self.config.get("model_parameters", {})
+        if not isinstance(model_parameters, dict):
+            raise ValueError("model_parameters must be a JSON object when provided.")
+
+        return model_class(config=model_parameters)
             
     def _parse_model_type(self) -> ModelType:
         model_type_config = self.config.get("model_type", [])
