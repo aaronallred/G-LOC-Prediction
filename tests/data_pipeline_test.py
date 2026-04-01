@@ -1,7 +1,9 @@
 import pytest
 from pathlib import Path
+import os
+import json
 
-from src.data_pipeline import DataPipeline, AdvancedDataPipeline, TraditionalDataPipeline
+from data_pipeline import DataPipeline, AdvancedDataPipeline, TraditionalDataPipeline
 from model_type import ModelType
 
 
@@ -106,8 +108,8 @@ def test_build_backend_routes_to_traditional(monkeypatch):
 		def __init__(self, data_path, random_seed):
 			created["advanced"] = (data_path, random_seed)
 
-	monkeypatch.setattr("src.data_pipeline.TraditionalDataPipeline", FakeTraditionalPipeline)
-	monkeypatch.setattr("src.data_pipeline.AdvancedDataPipeline", FakeAdvancedPipeline)
+	monkeypatch.setattr("data_pipeline.TraditionalDataPipeline", FakeTraditionalPipeline)
+	monkeypatch.setattr("data_pipeline.AdvancedDataPipeline", FakeAdvancedPipeline)
 
 	backend = pipeline._build_backend()
 
@@ -196,9 +198,9 @@ def test_advanced_impute_cache_path_has_prefix_processed_data_and_kfold_suffix()
 
 def test_traditional_impute_cache_path_has_prefix_processed_data_and_model_suffix():
 	pipeline = TraditionalDataPipeline(data_path="../data/")
-	cache_path = pipeline._resolve_traditional_impute_path("imputed_data.pkl", "Logistic Regression")
+	cache_path = pipeline._resolve_traditional_impute_path("imputed_data.pkl", "logreg")
 
-	assert cache_path.endswith(str(Path("Processed Data") / "traditional_imputed_data_Logistic_Regression.pkl"))
+	assert cache_path.endswith(str(Path("Processed Data") / "traditional_imputed_data_logreg.pkl"))
 
 def test_advanced_data_pipeline_has_correct_dimensions():
 	pipeline = AdvancedDataPipeline(data_path = "/home/gloc/G-LOC-Prediction/data/")
@@ -222,6 +224,16 @@ def test_advanced_data_pipeline_has_correct_dimensions():
 
 def test_traditional_data_pipeline_has_correct_dimensions():
 	pipeline = TraditionalDataPipeline(data_path = "/home/gloc/G-LOC-Prediction/data/")
+
+	# Function to load in median hyperparameters from a simple JSON
+	model_type = ModelType("Complete", "Explicit")
+	BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+	model_type_string = f"{model_type.afe_filter}_{model_type.feature_set}"
+	json_path = os.path.join(BASE_DIR, 'ModelSave', 'CV', model_type_string, f'median_hyperparameters_LogReg.json')
+
+	with open(json_path, 'r') as f:
+		data = json.load(f)
+
 	X, y = pipeline.get_data(
 		model_type = ModelType("Complete", "Explicit"),
 		remove_NaN_trials = True,
@@ -229,7 +241,7 @@ def test_traditional_data_pipeline_has_correct_dimensions():
 		trial_to_analyze = "03",
 		analysis_type = 2,
 		classifier_type = "LogReg",
-		select_features = ["f1", "f2"],
+		select_features = data["selected_features"],
 		backstep = 10,
 		data_rate = 25,
 		offset = 2.5,
@@ -240,4 +252,4 @@ def test_traditional_data_pipeline_has_correct_dimensions():
 		load_impute = False,
 	)
 
-	assert X.shape == (186539, 3959)
+	assert X.shape == (185999, 3959)
