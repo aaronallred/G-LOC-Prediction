@@ -10,6 +10,7 @@ from models.transformer import TransformerModel
 from typing import Optional, Dict, List, Type
 from pathlib import Path
 
+import numpy as np
 import json
 
 class GLOCExperimentConfigParser:
@@ -191,12 +192,17 @@ class GLOCExperimentConfigParser:
 
         return shared_data_parameters.get("should_impute")
 
-    def _parse_output_feature_dtype(self, shared_data_parameters: Dict) -> str:
+    def _parse_output_feature_dtype(self, shared_data_parameters: Dict) -> np.dtype:
         if "output_feature_dtype" not in shared_data_parameters:
             raise ValueError("output_feature_dtype is missing from config. It should be a string like 'float32', 'float64', etc. indicating the numpy dtype for the output feature matrix.")
 
-        return shared_data_parameters.get("output_feature_dtype")
-    
+        dtype = shared_data_parameters.get("output_feature_dtype")
+
+        valid_dtypes = ["float16", "float32", "float64", "int8", "int16", "int32", "int64"]
+        if dtype not in valid_dtypes:
+            raise ValueError(f"output_feature_dtype must be one of {valid_dtypes}.")
+        
+        return np.dtype(dtype)
 
     def get_subject_to_analyze(self) -> Optional[int]:
         return self.subject_to_analyze
@@ -259,7 +265,7 @@ class GLOCExperimentConfigParser:
     def get_should_impute(self) -> bool:
         return self.should_impute
     
-    def get_output_feature_dtype(self) -> str:
+    def get_output_feature_dtype(self) -> np.dtype:
         return self.output_feature_dtype
     
     def get_n_neighbors(self) -> int:

@@ -266,9 +266,8 @@ class BaseGLOCDataPipeline(ABC):
 
         return self._data_locations
     
-    def _load_data(self, file_paths: Dict[str, Any]) -> pd.DataFrame:
+    def _load_data(self, file_paths: Dict[str, Any], output_feature_dtype: np.dtype = np.dtype(np.float32)) -> pd.DataFrame:
         """Load data from CSV or pickle files. If pickle does not exist, create it from CSV."""
-
         main_data_pickle_file = file_paths["main"].replace(".csv", ".pkl")
 
         # Check if pickle exists, if not create it then save it
@@ -281,16 +280,15 @@ class BaseGLOCDataPipeline(ABC):
             gloc_data = pd.read_pickle(main_data_pickle_file)
         
         # Add GOR and EEG data from other files
-        gloc_data = self._process_EEG_GOR(file_paths["eeg_list"], gloc_data)
+        gloc_data = self._process_EEG_GOR(file_paths["eeg_list"], gloc_data, output_feature_dtype)
 
         # Adjust AFE condition column always
         gloc_data["condition"] = gloc_data["condition"].map({"N": 0, "AFE": 1})
         gloc_data = gloc_data.rename(columns = {"condition": "AFE_indicator"})
 
-        # Convert float64 to float32 to save memory, and copy to defragment the DataFrame
         float64_cols = gloc_data.select_dtypes(include="float64").columns
         if len(float64_cols) > 0:
-            gloc_data = gloc_data.astype({col: "float32" for col in float64_cols}).copy()
+            gloc_data = gloc_data.astype({col: output_feature_dtype for col in float64_cols}).copy()
         
         # Extracting subject and trial into separate columns
         trial_ids = gloc_data["trial_id"].to_numpy().astype("str")
@@ -301,7 +299,7 @@ class BaseGLOCDataPipeline(ABC):
         # Decouple from original dataframe to prevent unwanted modifications later on
         return gloc_data
 
-    def _process_EEG_GOR(self, list_of_eeg_data_files: List[str], gloc_data: pd.DataFrame) -> pd.DataFrame:
+    def _process_EEG_GOR(self, list_of_eeg_data_files: List[str], gloc_data: pd.DataFrame, output_feature_dtype: np.dtype = np.dtype(np.float32)) -> pd.DataFrame:
         """Slot in GOR EEG band power data from xlsx files, replacing NaNs in the main CSV."""
         trial_indices_map = gloc_data.groupby("trial_id", sort=False).indices
         event_validated = gloc_data["event_validated"].to_numpy()
@@ -348,7 +346,7 @@ class BaseGLOCDataPipeline(ABC):
             column_names = band_dfs["delta"].columns
             for band in band_names:
                 cols = [f"{c}_{band} - EEG" for c in column_names]
-                gloc_data.loc[trial_indexer, cols] = band_dfs[band].to_numpy(dtype=np.float32)
+                gloc_data.loc[trial_indexer, cols] = band_dfs[band].to_numpy(dtype=output_feature_dtype)
 
         return gloc_data
 
@@ -375,9 +373,9 @@ class BaseGLOCDataPipeline(ABC):
             feature_groups_to_analyze: Sequence[str],
             model_type: ModelType,
             file_names: Dict[str, Any],
+            output_feature_dtype: np.dtype = np.dtype(np.float32),
     ) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
         """Process data and extract feature names based on specified feature groups."""
-        # Defining which features go into which group of feature groups
         GROUPS_OF_FEATURE_GROUPS = {
             "Phys": {"ECG", "BR", "temp", "fnirs", "eyetracking", "rawEEG", "processedEEG"},
             "ECG": {"ECG"},
@@ -550,22 +548,20 @@ class BaseGLOCDataPipeline(ABC):
             gloc_data: pd.DataFrame,
             gloc_labels: np.ndarray,
             features: Dict[str, List[str]],
-            output_feature_dtype: str = "float32",
+            output_feature_dtype: np.dtype = np.dtype(np.float32),
     ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
         """Extract numpy arrays from DataFrame and free the DataFrame to reduce memory usage."""
-
         trial_id_arr = gloc_data["trial_id"].to_numpy()
-        np_dtype = np.dtype(output_feature_dtype)
         experiment_metadata = {
             "trial_id": trial_id_arr,
             "trial_ints": self._convert_to_unique_ordered_integers(trial_id_arr),
-            "Time (s)": gloc_data["Time (s)"].to_numpy(dtype = np_dtype),
+            "Time (s)": gloc_data["Time (s)"].to_numpy(dtype = output_feature_dtype),
             "event_validated": gloc_data["event_validated"].to_numpy(dtype = str),
             "subject": gloc_data["subject"].to_numpy(dtype = str),
             "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype = np.bool_).reshape(-1, 1),
         }
 
-        gloc_data_all_features_numpy = np.asarray(gloc_data[features["All"]].to_numpy(dtype = np_dtype), dtype = np_dtype)
+        gloc_data_all_features_numpy = np.asarray(gloc_data[features["All"]].to_numpy(dtype = output_feature_dtype), dtype = output_feature_dtype)
         gloc_labels_numpy = gloc_labels.astype(np.bool_)
 
         del gloc_data, gloc_labels
@@ -667,7 +663,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             num_splits: int,
             kfold_ID: int,
             impute_file_name: str,
-            output_feature_dtype: str = "float32",
+            output_feature_dtype: np.dtype = np.dtype(np.float32),
             subject_to_analyze: Optional[str] = None,
             trial_to_analyze: Optional[str] = None,
             should_impute: bool = True,
@@ -707,9 +703,9 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         ############################################# LOAD AND PROCESS DATA #############################################
         logger.info("Loading and processing data with parameters: model_type=%s, subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d", model_type, subject_to_analyze, trial_to_analyze, analysis_type)
         file_paths = self._get_data_locations()
-        gloc_data = self._load_data(file_paths)
+        gloc_data = self._load_data(file_paths, output_feature_dtype)
         gloc_data = self._filter_data_by_analysis_type(analysis_type, gloc_data, subject_to_analyze, trial_to_analyze)
-        gloc_data, features = self._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
+        gloc_data, features = self._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths, output_feature_dtype)
         gloc_labels = self._label_gloc_events(gloc_data)
         if model_type.afe_filter != "Complete":
             gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
@@ -760,7 +756,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         ################################################ GENERATE FEATURES ################################################
         logger.info("Generating features for model_type=%s", model_type)
         x_feature_matrix, features["All"] = self._generate_features(
-            baseline_methods_to_use, combined_baseline, combined_baseline_names, experiment_metadata
+            baseline_methods_to_use, combined_baseline, combined_baseline_names, experiment_metadata, output_feature_dtype
         )
 
         ############################################# FEATURE CLEAN AND PREP ##############################################
@@ -918,6 +914,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             combined_baseline: Dict[str, np.ndarray],
             combined_baseline_names: List[str],
             experiment_metadata: Dict[str, Any],
+            output_feature_dtype: np.dtype = np.dtype(np.float32),
     ) -> Tuple[np.ndarray, List[str]]:
         """Generate feature matrices from baseline data using only unengineered data streams."""
         # Get trial_order from metadata (passed from baseline_data)
@@ -932,7 +929,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         x_feature_matrix = np.concatenate(
             [combined_baseline[tid] for tid in trial_order], 
             axis = 0
-        ).astype(np.float32)
+        ).astype(output_feature_dtype)
         
         # Build baseline suffixes as frozenset for faster membership testing
         baseline_suffixes = frozenset(baseline_methods_to_use)
@@ -1173,7 +1170,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             analysis_type: int,
             impute_file_name: Optional[str] = None,
             should_impute: bool = True,
-            output_feature_dtype: str = "float32",
+            output_feature_dtype: np.dtype = np.dtype(np.float32),
             save_impute: bool = False,
             load_impute: bool = False,
         ) -> Tuple[np.ndarray, np.ndarray]:
@@ -1196,9 +1193,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         file_paths = self._get_data_locations()
 
         # Load data and slot in GOR EEG features from xlsx files, then filter to specified analysis type and process features based on specified feature groups
-        gloc_data = self._load_data(file_paths)
+        gloc_data = self._load_data(file_paths, output_feature_dtype)
         gloc_data = self._filter_data_by_analysis_type(analysis_type, gloc_data, subject_to_analyze, trial_to_analyze)
-        gloc_data, features = self._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths)
+        gloc_data, features = self._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths, output_feature_dtype)
         
         # Create GLOC categorical vector
         gloc_labels = self._label_gloc_events(gloc_data)
@@ -1228,7 +1225,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 logger.info("Loaded traditional imputed data from %s.", traditional_impute_path)
             else:
                 imputed_features = self._faster_knn_impute(
-                    gloc_data[features["All"]].to_numpy(dtype=np.float32),
+                    gloc_data[features["All"]].to_numpy(dtype=output_feature_dtype),
                     k=n_neighbors,
                 )
                 if save_impute and traditional_impute_path:
@@ -1278,7 +1275,8 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             combined_baseline_names,
             baseline_names_v0,
             baseline_v0,
-            feature_groups_to_analyze
+            feature_groups_to_analyze,
+            output_feature_dtype
         )
 
         ################################################ Feature Reduction ################################################
@@ -1456,9 +1454,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             baseline_names_v0: Any,
             baseline_v0: Dict[str, np.ndarray],
             feature_groups_to_analyze: Sequence[str],
+            output_feature_dtype: np.dtype = np.dtype(np.float32),
     ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
         """Generate temporal engineered features from baseline data."""
-
         # Sliding Window Mean
         gloc_window, sliding_window_mean_s1, number_windows, all_features_mean_s1, sliding_window_mean_s2, all_features_mean_s2 = (
             self._sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column,
@@ -1515,14 +1513,15 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                                                             sliding_window_consecutive_elements_sum_left_pupil_s2,
                                                             sliding_window_consecutive_elements_sum_right_pupil_s2,
                                                             sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
-                                                            sliding_window_cognitive_ies_s2)
+                                                            sliding_window_cognitive_ies_s2,
+                                                            output_feature_dtype)
 
         # Combine all features into array
         all_features = (all_features_mean_s1 + all_features_stddev_s1 + all_features_max_s1 + all_features_range_s1 +
                         all_features_additional_s1 + all_features_mean_s2 + all_features_stddev_s2 + all_features_max_s2 +
                         all_features_range_s2 + all_features_additional_s2)
 
-        return y_gloc_labels.astype(np.float32), x_feature_matrix.astype(np.float32), all_features
+        return y_gloc_labels.astype(output_feature_dtype), x_feature_matrix.astype(output_feature_dtype), all_features
 
     def _inter_trial_standardization(
             self,
@@ -2330,9 +2329,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             sliding_window_hrv_sdnn_s2: Dict[str, np.ndarray],
             sliding_window_hrv_rmssd_s2: Dict[str, np.ndarray],
             sliding_window_cognitive_ies_s2: Dict[str, np.ndarray],
+            output_feature_dtype: np.dtype = np.dtype(np.float32),
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Unpack per-trial dictionaries into global label and feature matrices."""
-
         # Find Unique Trial ID
         trial_id_in_data = list(sliding_window_mean_s1.keys())
 
@@ -2368,8 +2367,8 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             num_cols = num_cols + np.shape(current_dictionary[trial_id_in_data[0]])[1]
 
         # Pre-allocate
-        x_feature_matrix = np.zeros((total_rows, num_cols), dtype=np.float32)
-        y_gloc_labels = np.zeros((total_rows, 1), dtype=np.float32)
+        x_feature_matrix = np.zeros((total_rows, num_cols), dtype=output_feature_dtype)
+        y_gloc_labels = np.zeros((total_rows, 1), dtype=output_feature_dtype)
 
         # Iterate through unique trial_id
         current_index = 0
@@ -2387,13 +2386,13 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
                 # Set rows and columns in x_feature_matrix equal to current dictionary
                 x_feature_matrix[current_index:num_rows + current_index,
-                column_index:np.shape(current_dictionary[trial_id_in_data[i]])[1] + column_index] = current_dictionary[trial_id_in_data[i]].astype(np.float32)
+                column_index:np.shape(current_dictionary[trial_id_in_data[i]])[1] + column_index] = current_dictionary[trial_id_in_data[i]].astype(output_feature_dtype)
 
                 # Increment column index
                 column_index += np.shape(current_dictionary[trial_id_in_data[i]])[1]
 
             # Set corresponding gloc labels from current trial
-            y_gloc_labels[current_index:num_rows+current_index, :] = gloc_window[trial_id_in_data[i]].astype(np.float32)
+            y_gloc_labels[current_index:num_rows+current_index, :] = gloc_window[trial_id_in_data[i]].astype(output_feature_dtype)
 
             # Increment row index
             current_index += num_rows
