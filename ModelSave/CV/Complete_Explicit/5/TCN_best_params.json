@@ -1,0 +1,13 @@
+{
+    "baseline_method": 0,
+    "batch_size": 128,
+    "optimizer_type": "AdamW",
+    "lr": 0.0001124642458227602,
+    "weight_decay": 3.928054335918751e-05,
+    "hidden_dim": 256,
+    "num_layers": 1,
+    "sequence_length": 218,
+    "step_size": 57,
+    "kernel_size": 3,
+    "threshold": 0.4839293754352384
+}

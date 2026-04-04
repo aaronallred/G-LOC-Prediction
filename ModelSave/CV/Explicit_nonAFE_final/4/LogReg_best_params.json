@@ -1,0 +1,10 @@
+{
+    "baseline_method": 3,
+    "batch_size": 256,
+    "optimizer_type": "AdamW",
+    "weight_decay": 0.00013094873546499192,
+    "lr": 1.5884495753134022e-05,
+    "sequence_length": 43,
+    "threshold": 0.4593875543160516,
+    "step_size": 75
+}
