@@ -16,13 +16,14 @@ def configure_logging() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the G-LOC data pipeline with a configurable JSON experiment file.",
+        description = "Run the G-LOC data pipeline with a configurable JSON experiment file.",
     )
     parser.add_argument(
         "--config",
         default=None,
-        help="Path to experiment config JSON (defaults to project-level GLOC_experiment_config.json).",
+        help = "Path to experiment config JSON (defaults to project-level GLOC_experiment_config.json).",
     )
+    
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -34,6 +35,7 @@ if __name__ == "__main__":
         resolved_config_path = Path(args.config).expanduser().resolve()
         if not resolved_config_path.is_file():
             raise FileNotFoundError(f"Config file not found: {resolved_config_path}")
+        
         config_path = str(resolved_config_path)
 
     config_parser = GLOCExperimentConfigParser(config_location=config_path)
