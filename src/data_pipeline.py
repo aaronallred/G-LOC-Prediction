@@ -640,6 +640,57 @@ class BaseGLOCDataPipeline(ABC):
 
         return x_feature_matrix, select_features
 
+    def _build_faiss_knn_index(
+            self,
+            d: int,
+            M: int = 32,
+            efSearch: int = 64,
+    ) -> Any:
+        """Create a FAISS index using GPU FlatL2 when available, otherwise CPU HNSW."""
+        get_num_gpus = getattr(faiss, "get_num_gpus", None)
+        gpu_count = 0
+
+        if callable(get_num_gpus):
+            try:
+                gpu_count = int(get_num_gpus())
+            except Exception as exc:
+                logger.warning("Unable to query FAISS GPU count; defaulting to CPU HNSW. Error: %s", exc)
+
+        if gpu_count > 0:
+            gpu_resources_ctor = getattr(faiss, "StandardGpuResources", None)
+            gpu_flat_l2_ctor = getattr(faiss, "GpuIndexFlatL2", None)
+
+            if callable(gpu_resources_ctor) and callable(gpu_flat_l2_ctor):
+                try:
+                    gpu_resources = gpu_resources_ctor()
+                    metric_l2 = getattr(faiss, "METRIC_L2", 1)
+                    try:
+                        index = gpu_flat_l2_ctor(gpu_resources, d, metric_l2)
+                    except TypeError:
+                        index = gpu_flat_l2_ctor(gpu_resources, d)
+
+                    logger.info("Using FAISS GPU GpuIndexFlatL2 index for KNN imputation.")
+                    return index
+                except Exception as exc:
+                    logger.warning(
+                        "GPU detected but FAISS GPU FlatL2 setup failed; falling back to CPU HNSW. Error: %s",
+                        exc,
+                    )
+            else:
+                logger.warning(
+                    "GPU detected but FAISS GPU FlatL2 bindings are unavailable; falling back to CPU HNSW."
+                )
+
+        index = faiss.IndexHNSWFlat(d, M)
+        index.hnsw.efSearch = efSearch
+
+        # Use fixed RNG seed for deterministic HNSW graph construction on CPU.
+        rng = faiss.RandomGenerator(self.random_seed)
+        index.hnsw.rng = rng
+
+        logger.info("Using FAISS CPU IndexHNSWFlat index for KNN imputation.")
+        return index
+
 
 class AdvancedDataPipeline(BaseGLOCDataPipeline):
     """
@@ -872,12 +923,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 
         # Build FAISS HNSW index on training data
         d = X_train.shape[1]
-        index = faiss.IndexHNSWFlat(d, M)
-        index.hnsw.efSearch = efSearch
-
-        # Use fixed RNG seed for deterministic HNSW graph construction
-        rng = faiss.RandomGenerator(self.random_seed)
-        index.hnsw.rng = rng
+        index = self._build_faiss_knn_index(d, M=M, efSearch=efSearch)
         
         index.add(X_train_temp.astype(np.float32))
 
@@ -1381,11 +1427,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         # Build FAISS index (HNSW)
         d = X.shape[1] # dimension
-        index = faiss.IndexHNSWFlat(d, M)
-        index.hnsw.efSearch = efSearch
-        
-        rng = faiss.RandomGenerator(self.random_seed)
-        index.hnsw.rng = rng
+        index = self._build_faiss_knn_index(d, M=M, efSearch=efSearch)
         
         index.add(X_temp.astype(np.float32))
 
