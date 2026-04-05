@@ -7,7 +7,7 @@ from models.support_vector_machine import SupportVectorMachineModel
 from models.extreme_gradient_boosting import ExtremeGradientBoostingModel
 from models.k_nearest_neighbors import KNearestNeighborsModel
 from models.transformer import TransformerModel
-from typing import Optional, Dict, List, Type
+from typing import Any, Optional, Dict, List, Type
 from pathlib import Path
 
 import numpy as np
@@ -77,6 +77,14 @@ class GLOCExperimentConfigParser:
         self.data_rate = self._parse_data_rate(traditional_data_parameters)
         self.offset = self._parse_offset(traditional_data_parameters)
         self.time_start = self._parse_time_start(traditional_data_parameters)
+
+    def _parse_sensor_ablation_configs(self) -> Dict[str, Any]:
+        """
+            Parse optional sensor ablation settings.
+        """
+        sensor_ablation_parameters = self.get_sensor_ablation_parameters()
+        self.sensor_ablation_enabled = self._parse_sensor_ablation_enabled(sensor_ablation_parameters)
+        self.sensor_ablation_streams = self._parse_sensor_ablation_streams(sensor_ablation_parameters)
             
     def _parse_model(self) -> BaseModel:
         if "model" not in self.config:
@@ -328,3 +336,44 @@ class GLOCExperimentConfigParser:
     
     def get_time_start(self) -> float:
         return self.time_start
+    
+
+    
+    # Sensor Ablation Configurations
+    def _get_sensor_ablation_parameters(self) -> Dict:
+        if "sensor_ablation_parameters" not in self.config:
+            raise ValueError("sensor_ablation_parameters is missing from config. It should be an object containing sensor ablation settings.")
+        
+        sensor_ablation_parameters = self.config.get("sensor_ablation_parameters")
+        if not isinstance(sensor_ablation_parameters, dict):
+            raise ValueError("sensor_ablation_parameters must be a JSON object.")
+        
+        return sensor_ablation_parameters
+
+    def _parse_sensor_ablation_enabled(self, sensor_ablation_parameters: Dict) -> bool:
+        if "enabled" not in sensor_ablation_parameters:
+            raise ValueError("sensor_ablation.enabled is missing from config. It should be a boolean indicating whether to perform sensor ablation.")
+
+        return sensor_ablation_parameters.get("enabled", False)
+    
+    def _parse_sensor_ablation_streams(self, sensor_ablation_parameters: Dict) -> List[str]:
+        if "streams" not in sensor_ablation_parameters:
+            raise ValueError("sensor_ablation.streams is missing from config. It should be a list of strings indicating the names of streams to ablate when sensor ablation is enabled.")
+
+        streams = sensor_ablation_parameters.get("streams", [])
+        if not isinstance(streams, list) or any(not isinstance(s, str) for s in streams):
+            raise ValueError("sensor_ablation.streams must be a list of strings indicating the names of streams to ablate when sensor ablation is enabled.")
+
+        cleaned_streams = []
+        for stream_name in streams:
+            normalized = stream_name.strip()
+            if normalized:
+                cleaned_streams.append(normalized)
+
+        return cleaned_streams
+
+    def get_sensor_ablation_enabled(self) -> bool:
+        return self.sensor_ablation["enabled"]
+
+    def get_sensor_ablation_streams(self) -> List[str]:
+        return self.sensor_ablation["streams"]

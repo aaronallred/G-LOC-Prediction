@@ -190,6 +190,58 @@ def test_get_data_for_traditional_pipeline_forwards_required_arguments(monkeypat
 	}
 
 
+def test_apply_sensor_ablation_disabled_returns_original_features():
+	parser = _DummyConfigParser(_DummyModel(is_traditional=True, name="RF"))
+	pipeline = DataPipeline(parser)
+
+	selected_features = ["HR (bpm) - Equivital_mean_s1", "Fz_alpha - EEG_mean_s1"]
+	assert pipeline._apply_sensor_ablation(selected_features) == selected_features
+
+
+def test_apply_sensor_ablation_enabled_filters_selected_features():
+	parser = _DummyConfigParser(_DummyModel(is_traditional=True, name="RF"))
+	parser.get_sensor_ablation_enabled = lambda: True
+	parser.get_sensor_ablation_streams = lambda: ["EEG", "Pupil"]
+	pipeline = DataPipeline(parser)
+
+	selected_features = [
+		"HR (bpm) - Equivital_mean_s1",
+		"Pupil diameter left [mm] - Tobii_mean_s1",
+		"Fz_alpha - EEG_mean_s1",
+	]
+
+	assert pipeline._apply_sensor_ablation(selected_features) == [
+		"Pupil diameter left [mm] - Tobii_mean_s1",
+		"Fz_alpha - EEG_mean_s1",
+	]
+
+
+def test_get_data_for_traditional_pipeline_applies_sensor_ablation(monkeypatch):
+	parser = _DummyConfigParser(_DummyModel(is_traditional=True, name="RF"))
+	parser.get_sensor_ablation_enabled = lambda: True
+	parser.get_sensor_ablation_streams = lambda: ["EEG"]
+	pipeline = DataPipeline(parser)
+
+	captured = {}
+
+	class FakeBackend:
+		def get_data(self, **kwargs):
+			captured.update(kwargs)
+			return "traditional-ok"
+
+	monkeypatch.setattr(pipeline, "_build_backend", lambda: FakeBackend())
+	monkeypatch.setattr(
+		pipeline,
+		"_resolve_select_features",
+		lambda _kwargs: ["HR (bpm) - Equivital_mean_s1", "Fz_alpha - EEG_mean_s1"],
+	)
+
+	result = pipeline.get_data()
+
+	assert result == "traditional-ok"
+	assert captured["select_features"] == ["Fz_alpha - EEG_mean_s1"]
+
+
 def test_advanced_impute_cache_path_has_prefix_processed_data_and_kfold_suffix():
 	pipeline = AdvancedDataPipeline(data_path="../data/")
 	cache_path = pipeline._resolve_advanced_impute_path("imputed_data.pkl", 3)

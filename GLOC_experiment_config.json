@@ -25,5 +25,9 @@
         "data_rate": 25,
         "offset": 0,
         "time_start": 0
+    },
+    "sensor_ablation_parameters": {
+        "enabled": false,
+        "streams": []
     }
 }

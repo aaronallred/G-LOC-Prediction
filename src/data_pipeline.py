@@ -54,6 +54,22 @@ class DataPipeline:
         """Initialize the facade with the experiment configuration parser."""
         self._config_parser = config_parser
 
+    _SENSOR_STREAM_PATTERNS: dict[str, tuple[str, ...]] = {
+        # Equivital streams
+        "ECG": (r"ecg",),
+        "HR": (r"hr", r"participant_hr"),
+        "BR": (r"br",),
+        "Temperature": (r"temp", r"temperature"),
+        # Other device streams
+        "Pupil": (r"pupil",),
+        "Centrifuge": (r"centrifuge",),
+        "EEG": (r"eeg",),
+        "Strain": (r"strain",),
+        # Demographics
+        "Participant": (r"participant_",),
+        "Demographics": (r"participant_",),
+    }
+
     def get_data(self) -> Any:
         """Execute the selected backend data pipeline.
 
@@ -88,7 +104,9 @@ class DataPipeline:
             request_kwargs["baseline_window"] = self._config_parser.get_baseline_window()
         else:
             request_kwargs["classifier_type"] = self._resolve_classifier_name()
-            request_kwargs["select_features"] = self._resolve_select_features(request_kwargs)
+            selected_features = self._resolve_select_features(request_kwargs)
+            selected_features = self._apply_sensor_ablation(selected_features)
+            request_kwargs["select_features"] = selected_features
             request_kwargs["backstep"] = self._config_parser.get_backstep()
             request_kwargs["data_rate"] = self._config_parser.get_data_rate()
             request_kwargs["offset"] = self._config_parser.get_offset()
@@ -143,6 +161,62 @@ class DataPipeline:
             data = json.load(f)
 
         return data['selected_features']
+
+    def _apply_sensor_ablation(self, selected_features: list[str]) -> list[str]:
+        """Optionally restrict selected features to configured sensor streams.
+
+        This is a no-op unless shared_data_parameters.sensor_ablation.enabled is true.
+        """
+        enabled, streams = self._get_sensor_ablation_config()
+        if not enabled:
+            return selected_features
+
+        requested_streams = [s.strip() for s in streams if s and s.strip()]
+        unknown_streams = [s for s in requested_streams if s not in self._SENSOR_STREAM_PATTERNS]
+        if unknown_streams:
+            supported = ", ".join(sorted(self._SENSOR_STREAM_PATTERNS.keys()))
+            raise ValueError(
+                f"Unknown sensor_ablation stream(s): {unknown_streams}. Supported streams: {supported}."
+            )
+
+        matched_features: list[str] = []
+        compiled_patterns = [
+            re.compile(pattern, flags=re.IGNORECASE)
+            for stream in requested_streams
+            for pattern in self._SENSOR_STREAM_PATTERNS[stream]
+        ]
+
+        for feature_name in selected_features:
+            if any(pattern.search(feature_name) for pattern in compiled_patterns):
+                matched_features.append(feature_name)
+
+        if len(matched_features) == 0:
+            raise ValueError(
+                "Sensor ablation removed all selected features. "
+                f"Requested streams={requested_streams}. "
+                "Check stream names and selected feature naming conventions."
+            )
+
+        logger.info(
+            "Applied sensor ablation for streams=%s. Selected features reduced from %d to %d.",
+            requested_streams,
+            len(selected_features),
+            len(matched_features),
+        )
+        return matched_features
+
+    def _get_sensor_ablation_config(self) -> tuple[bool, list[str]]:
+        """Fetch ablation settings if parser provides them; otherwise default to disabled.
+
+        The attribute checks preserve backward compatibility with parser test doubles.
+        """
+        get_enabled = getattr(self._config_parser, "get_sensor_ablation_enabled", None)
+        get_streams = getattr(self._config_parser, "get_sensor_ablation_streams", None)
+
+        if not callable(get_enabled) or not callable(get_streams):
+            return False, []
+
+        return bool(get_enabled()), list(get_streams())
     
 
 
