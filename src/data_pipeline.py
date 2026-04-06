@@ -132,13 +132,15 @@ class DataPipeline:
             logger.info("Selected traditional data pipeline based on model type.")
             return TraditionalDataPipeline(
                 data_path=self._config_parser.get_data_path(),
-                random_seed=self._config_parser.get_random_seed()
+                random_seed=self._config_parser.get_random_seed(),
+                config_parser=self._config_parser
             )
         else:
             logger.info("Selected advanced data pipeline based on model type.")
             return AdvancedDataPipeline(
                 data_path=self._config_parser.get_data_path(),
-                random_seed=self._config_parser.get_random_seed()
+                random_seed=self._config_parser.get_random_seed(),
+                config_parser=self._config_parser
             )
 
     def _resolve_pipeline_kind(self) -> Literal["advanced", "traditional"]:
@@ -304,11 +306,18 @@ class BaseGLOCDataPipeline(ABC):
         + [f'{ch}_{band} - EEG' for ch in _RAW_EEG_CHANNELS for band in ["delta", "theta", "alpha", "beta"]]
     )
 
-    def __init__(self, data_path: str = "../data/", random_seed: int = 42) -> None:
-        """Initialize shared pipeline state."""
+    def __init__(self, data_path: str = "../data/", random_seed: int = 42, config_parser: Optional[GLOCExperimentConfigParser] = None) -> None:
+        """Initialize shared pipeline state.
+        
+        Args:
+            data_path: Path to data directory
+            random_seed: Random seed for reproducibility
+            config_parser: GLOCExperimentConfigParser instance for accessing config settings
+        """
         self.data_path = _resolve_from_source_dir(data_path)
         self._data_locations = None
         self.random_seed = random_seed
+        self.config_parser = config_parser
 
     @abstractmethod
     def get_data(self, **kwargs: Any) -> Any:
@@ -731,17 +740,28 @@ class BaseGLOCDataPipeline(ABC):
             M: int = 32,
             efSearch: int = 64,
     ) -> Any:
-        """Create a FAISS index using GPU FlatL2 when available, otherwise CPU HNSW."""
+        """Create a FAISS index based on config setting (auto/cpu/gpu).
+        
+        If faiss_index_type is 'auto': Uses GPU FlatL2 when available, otherwise CPU HNSW.
+        If faiss_index_type is 'gpu': Attempts GPU FlatL2, falls back to CPU HNSW if unavailable.
+        If faiss_index_type is 'cpu': Always uses CPU HNSW.
+        """
+        faiss_index_type = self.config_parser.get_faiss_index_type()
+        
+        # Determine whether to attempt GPU index based on config
+        should_try_gpu = faiss_index_type in ["auto", "gpu"]
+        
+        # Only query GPU count if we're willing to use GPU
         get_num_gpus = getattr(faiss, "get_num_gpus", None)
         gpu_count = 0
 
-        if callable(get_num_gpus):
+        if should_try_gpu and callable(get_num_gpus):
             try:
                 gpu_count = int(get_num_gpus())
             except Exception as exc:
-                logger.warning("Unable to query FAISS GPU count; defaulting to CPU HNSW. Error: %s", exc)
+                logger.warning("Unable to query FAISS GPU count; falling back based on faiss_index_type. Error: %s", exc)
 
-        if gpu_count > 0:
+        if should_try_gpu and gpu_count > 0:
             gpu_resources_ctor = getattr(faiss, "StandardGpuResources", None)
             gpu_flat_l2_ctor = getattr(faiss, "GpuIndexFlatL2", None)
 
@@ -766,6 +786,11 @@ class BaseGLOCDataPipeline(ABC):
                     "GPU detected but FAISS GPU FlatL2 bindings are unavailable; falling back to CPU HNSW."
                 )
 
+        if faiss_index_type == "cpu":
+            logger.info("faiss_index_type is set to 'cpu'; using FAISS CPU IndexHNSWFlat index for KNN imputation.")
+        else:
+            logger.info("Using FAISS CPU IndexHNSWFlat index for KNN imputation.")
+
         index = faiss.IndexHNSWFlat(d, M)
         index.hnsw.efSearch = efSearch
 
@@ -773,7 +798,6 @@ class BaseGLOCDataPipeline(ABC):
         rng = faiss.RandomGenerator(self.random_seed)
         index.hnsw.rng = rng
 
-        logger.info("Using FAISS CPU IndexHNSWFlat index for KNN imputation.")
         return index
 
 

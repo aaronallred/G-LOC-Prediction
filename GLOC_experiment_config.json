@@ -1,5 +1,5 @@
 {
-    "model": "Transformer",
+    "model": "LogReg",
     "model_type": ["Complete", "Explicit"],
     "random_seed": 42,
     "data_path": "/home/gloc/G-LOC-Prediction/data",
@@ -12,7 +12,8 @@
         "save_impute": true,
         "load_impute": true,
         "should_impute": true,
-        "output_feature_dtype": "float32"
+        "output_feature_dtype": "float32",
+        "faiss_index_type": "auto"
     },
     "advanced_data_parameters": {
         "num_splits": 10,

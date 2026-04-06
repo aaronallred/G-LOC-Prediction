@@ -64,6 +64,7 @@ class GLOCExperimentConfigParser:
         self.load_impute = self._parse_load_impute(shared_data_parameters)
         self.should_impute = self._parse_should_impute(shared_data_parameters)
         self.output_feature_dtype = self._parse_output_feature_dtype(shared_data_parameters)
+        self.faiss_index_type = self._parse_faiss_index_type(shared_data_parameters)
 
     def _parse_advanced_data_configs(self) -> None:
         advanced_data_parameters = self._get_advanced_data_parameters()
@@ -221,6 +222,17 @@ class GLOCExperimentConfigParser:
         
         return np.dtype(dtype)
 
+    def _parse_faiss_index_type(self, shared_data_parameters: Dict) -> str:
+        if "faiss_index_type" not in shared_data_parameters:
+            raise ValueError("faiss_index_type is missing from config. It should be a string ('auto', 'cpu', or 'gpu') indicating which FAISS index to use for KNN imputation.")
+
+        faiss_index_type = shared_data_parameters.get("faiss_index_type")
+        valid_types = ["auto", "cpu", "gpu"]
+        if faiss_index_type not in valid_types:
+            raise ValueError(f"faiss_index_type must be one of {valid_types}. Got '{faiss_index_type}'.")
+
+        return faiss_index_type
+
     def get_subject_to_analyze(self) -> Optional[int]:
         return self.subject_to_analyze
     
@@ -232,6 +244,9 @@ class GLOCExperimentConfigParser:
     
     def get_remove_NaN_trials(self) -> bool:
         return self.remove_NaN_trials
+    
+    def get_faiss_index_type(self) -> str:
+        return self.faiss_index_type
     
 
 
