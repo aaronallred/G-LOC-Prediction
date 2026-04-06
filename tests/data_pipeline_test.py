@@ -132,7 +132,7 @@ def test_get_data_for_advanced_pipeline_forwards_required_arguments(monkeypatch)
 
 	monkeypatch.setattr(pipeline, "_build_backend", lambda: FakeBackend())
 
-	result = pipeline.get_data()
+	result = pipeline.get_data(kfold_id=3, feature_streams=["EEG"])
 
 	assert result == "advanced-ok"
 	assert captured == {
@@ -142,7 +142,7 @@ def test_get_data_for_advanced_pipeline_forwards_required_arguments(monkeypatch)
 		"trial_to_analyze": "03",
 		"analysis_type": 2,
 		"num_splits": 5,
-		"kfold_ID": 1,
+		"kfold_ID": 3,
 		"impute_file_name": "imputed.pkl",
 		"should_impute": True,
 		"output_feature_dtype": "float32",
@@ -167,7 +167,7 @@ def test_get_data_for_traditional_pipeline_forwards_required_arguments(monkeypat
 	monkeypatch.setattr(pipeline, "_build_backend", lambda: FakeBackend())
 	monkeypatch.setattr(pipeline, "_resolve_select_features", lambda _kwargs: ["f1", "f2"])
 
-	result = pipeline.get_data()
+	result = pipeline.get_data(kfold_id=0, feature_streams=[])
 
 	assert result == "traditional-ok"
 	assert captured == {
@@ -195,13 +195,11 @@ def test_apply_sensor_ablation_disabled_returns_original_features():
 	pipeline = DataPipeline(parser)
 
 	selected_features = ["HR (bpm) - Equivital_mean_s1", "Fz_alpha - EEG_mean_s1"]
-	assert pipeline._apply_sensor_ablation(selected_features) == selected_features
+	assert pipeline._apply_sensor_ablation(selected_features, feature_streams=[]) == selected_features
 
 
 def test_apply_sensor_ablation_enabled_filters_selected_features():
 	parser = _DummyConfigParser(_DummyModel(is_traditional=True, name="RF"))
-	parser.get_sensor_ablation_enabled = lambda: True
-	parser.get_sensor_ablation_streams = lambda: ["EEG", "Pupil"]
 	pipeline = DataPipeline(parser)
 
 	selected_features = [
@@ -210,7 +208,7 @@ def test_apply_sensor_ablation_enabled_filters_selected_features():
 		"Fz_alpha - EEG_mean_s1",
 	]
 
-	assert pipeline._apply_sensor_ablation(selected_features) == [
+	assert pipeline._apply_sensor_ablation(selected_features, feature_streams=["EEG", "Pupil"]) == [
 		"Pupil diameter left [mm] - Tobii_mean_s1",
 		"Fz_alpha - EEG_mean_s1",
 	]
@@ -218,8 +216,6 @@ def test_apply_sensor_ablation_enabled_filters_selected_features():
 
 def test_get_data_for_traditional_pipeline_applies_sensor_ablation(monkeypatch):
 	parser = _DummyConfigParser(_DummyModel(is_traditional=True, name="RF"))
-	parser.get_sensor_ablation_enabled = lambda: True
-	parser.get_sensor_ablation_streams = lambda: ["EEG"]
 	pipeline = DataPipeline(parser)
 
 	captured = {}
@@ -236,7 +232,7 @@ def test_get_data_for_traditional_pipeline_applies_sensor_ablation(monkeypatch):
 		lambda _kwargs: ["HR (bpm) - Equivital_mean_s1", "Fz_alpha - EEG_mean_s1"],
 	)
 
-	result = pipeline.get_data()
+	result = pipeline.get_data(kfold_id=0, feature_streams=["EEG"])
 
 	assert result == "traditional-ok"
 	assert captured["select_features"] == ["Fz_alpha - EEG_mean_s1"]

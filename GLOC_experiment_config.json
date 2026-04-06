@@ -27,7 +27,11 @@
         "time_start": 0
     },
     "sensor_ablation_parameters": {
-        "enabled": false,
-        "streams": []
+        "enabled": true,
+        "streams": [
+            ["ECG", "HR", "BR", "Temperature"],
+            ["EEG"],
+            ["Pupil"]
+        ]
     }
 }

@@ -44,6 +44,7 @@ class GLOCExperimentConfigParser:
         self._parse_shared_data_configs()
         self._parse_advanced_data_configs()
         self._parse_traditional_data_configs()
+        self._parse_sensor_ablation_configs()
 
     # General Configurations
     def _parse_general_configs(self) -> None:
@@ -78,13 +79,21 @@ class GLOCExperimentConfigParser:
         self.offset = self._parse_offset(traditional_data_parameters)
         self.time_start = self._parse_time_start(traditional_data_parameters)
 
-    def _parse_sensor_ablation_configs(self) -> Dict[str, Any]:
-        """
-            Parse optional sensor ablation settings.
-        """
-        sensor_ablation_parameters = self.get_sensor_ablation_parameters()
-        self.sensor_ablation_enabled = self._parse_sensor_ablation_enabled(sensor_ablation_parameters)
-        self.sensor_ablation_streams = self._parse_sensor_ablation_streams(sensor_ablation_parameters)
+    def _parse_sensor_ablation_configs(self) -> None:
+        """Parse sensor ablation settings into a validated internal structure."""
+        sensor_ablation_parameters = self._get_sensor_ablation_parameters()
+        enabled = self._parse_sensor_ablation_enabled(sensor_ablation_parameters)
+        streams = self._parse_sensor_ablation_streams(sensor_ablation_parameters)
+
+        if enabled and len(streams) == 0:
+            raise ValueError(
+                "sensor_ablation.streams cannot be empty when sensor_ablation.enabled is true."
+            )
+
+        self.sensor_ablation = {
+            "enabled": enabled,
+            "streams": streams,
+        }
             
     def _parse_model(self) -> BaseModel:
         if "model" not in self.config:
@@ -341,10 +350,7 @@ class GLOCExperimentConfigParser:
     
     # Sensor Ablation Configurations
     def _get_sensor_ablation_parameters(self) -> Dict:
-        if "sensor_ablation_parameters" not in self.config:
-            raise ValueError("sensor_ablation_parameters is missing from config. It should be an object containing sensor ablation settings.")
-        
-        sensor_ablation_parameters = self.config.get("sensor_ablation_parameters")
+        sensor_ablation_parameters = self.config.get("sensor_ablation_parameters", {"enabled": False, "streams": []})
         if not isinstance(sensor_ablation_parameters, dict):
             raise ValueError("sensor_ablation_parameters must be a JSON object.")
         
@@ -356,24 +362,43 @@ class GLOCExperimentConfigParser:
 
         return sensor_ablation_parameters.get("enabled", False)
     
-    def _parse_sensor_ablation_streams(self, sensor_ablation_parameters: Dict) -> List[str]:
+    def _parse_sensor_ablation_streams(self, sensor_ablation_parameters: Dict) -> List[List[str]]:
         if "streams" not in sensor_ablation_parameters:
-            raise ValueError("sensor_ablation.streams is missing from config. It should be a list of strings indicating the names of streams to ablate when sensor ablation is enabled.")
+            raise ValueError(
+                "sensor_ablation.streams is missing from config. "
+                "It should be a list of stream groups, where each stream group is a list of strings."
+            )
 
         streams = sensor_ablation_parameters.get("streams", [])
-        if not isinstance(streams, list) or any(not isinstance(s, str) for s in streams):
-            raise ValueError("sensor_ablation.streams must be a list of strings indicating the names of streams to ablate when sensor ablation is enabled.")
+        if not isinstance(streams, list):
+            raise ValueError(
+                "sensor_ablation.streams must be a list of stream groups (list[list[str]])."
+            )
 
-        cleaned_streams = []
-        for stream_name in streams:
-            normalized = stream_name.strip()
-            if normalized:
-                cleaned_streams.append(normalized)
+        cleaned_stream_groups: List[List[str]] = []
+        for stream_group in streams:
+            if not isinstance(stream_group, list):
+                raise ValueError(
+                    "sensor_ablation.streams must be a list of stream groups (list[list[str]])."
+                )
 
-        return cleaned_streams
+            cleaned_group: List[str] = []
+            for stream_name in stream_group:
+                if not isinstance(stream_name, str):
+                    raise ValueError(
+                        "Each stream name in sensor_ablation.streams must be a string."
+                    )
+                normalized = stream_name.strip()
+                if normalized:
+                    cleaned_group.append(normalized)
+
+            if cleaned_group:
+                cleaned_stream_groups.append(cleaned_group)
+
+        return cleaned_stream_groups
 
     def get_sensor_ablation_enabled(self) -> bool:
         return self.sensor_ablation["enabled"]
 
-    def get_sensor_ablation_streams(self) -> List[str]:
+    def get_sensor_ablation_streams(self) -> List[List[str]]:
         return self.sensor_ablation["streams"]

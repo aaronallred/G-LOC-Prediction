@@ -70,7 +70,7 @@ class DataPipeline:
         "Demographics": (r"participant_",),
     }
 
-    def get_data(self) -> Any:
+    def get_data(self, kfold_id: int, feature_streams: Optional[List[str]]) -> Any:
         """Execute the selected backend data pipeline.
 
         For advanced pipelines this returns:
@@ -99,13 +99,13 @@ class DataPipeline:
 
         if backend_type == "advanced":
             request_kwargs["num_splits"] = self._config_parser.get_num_splits()
-            request_kwargs["kfold_ID"] = self._config_parser.get_kfold_ID()
+            request_kwargs["kfold_ID"] = kfold_id
             request_kwargs["n_neighbors"] = self._config_parser.get_n_neighbors()
             request_kwargs["baseline_window"] = self._config_parser.get_baseline_window()
         else:
             request_kwargs["classifier_type"] = self._resolve_classifier_name()
             selected_features = self._resolve_select_features(request_kwargs)
-            selected_features = self._apply_sensor_ablation(selected_features)
+            selected_features = self._apply_sensor_ablation(selected_features, feature_streams)
             request_kwargs["select_features"] = selected_features
             request_kwargs["backstep"] = self._config_parser.get_backstep()
             request_kwargs["data_rate"] = self._config_parser.get_data_rate()
@@ -162,16 +162,15 @@ class DataPipeline:
 
         return data['selected_features']
 
-    def _apply_sensor_ablation(self, selected_features: list[str]) -> list[str]:
-        """Optionally restrict selected features to configured sensor streams.
-
-        This is a no-op unless shared_data_parameters.sensor_ablation.enabled is true.
-        """
-        enabled, streams = self._get_sensor_ablation_config()
-        if not enabled:
+    def _apply_sensor_ablation(self, selected_features: list[str], feature_streams: Optional[List[str]]) -> list[str]:
+        """Optionally restrict selected features to user-provided sensor streams."""
+        if not feature_streams:
             return selected_features
 
-        requested_streams = [s.strip() for s in streams if s and s.strip()]
+        requested_streams = [s.strip() for s in feature_streams if s and s.strip()]
+        if len(requested_streams) == 0:
+            return selected_features
+
         unknown_streams = [s for s in requested_streams if s not in self._SENSOR_STREAM_PATTERNS]
         if unknown_streams:
             supported = ", ".join(sorted(self._SENSOR_STREAM_PATTERNS.keys()))
@@ -204,19 +203,6 @@ class DataPipeline:
             len(matched_features),
         )
         return matched_features
-
-    def _get_sensor_ablation_config(self) -> tuple[bool, list[str]]:
-        """Fetch ablation settings if parser provides them; otherwise default to disabled.
-
-        The attribute checks preserve backward compatibility with parser test doubles.
-        """
-        get_enabled = getattr(self._config_parser, "get_sensor_ablation_enabled", None)
-        get_streams = getattr(self._config_parser, "get_sensor_ablation_streams", None)
-
-        if not callable(get_enabled) or not callable(get_streams):
-            return False, []
-
-        return bool(get_enabled()), list(get_streams())
     
 
 
