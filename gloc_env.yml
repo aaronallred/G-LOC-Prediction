@@ -1,0 +1,24 @@
+name: gloc
+channels:
+  - defaults
+dependencies:
+  - matplotlib=3.9.2
+  - numpy=1.26.4
+  - pandas=2.2.2
+  - python=3.12.5
+  - scikit-learn=1.5.1
+  - seaborn=0.13.2
+  - openpyxl
+  - imbalanced-learn
+  - statsmodels
+  - scipy
+  - contourpy 
+  - pip
+  - pip:
+    - feature-engine
+    - faiss-cpu==1.11.0
+    - scikit-optimize
+    - torch 
+    - torchvision 
+    - torchaudio
+    - optuna

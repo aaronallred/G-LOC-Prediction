@@ -3,6 +3,7 @@ data.mat
 /data
 *.asv
 /outputs
+scripts/feature_importance
 .idea/inspectionProfiles/profiles_settings.xml
 .idea/misc.xml
 .idea/vcs.xml

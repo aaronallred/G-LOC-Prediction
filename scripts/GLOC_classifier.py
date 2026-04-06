@@ -17,6 +17,7 @@ from skopt.space import Real, Integer, Categorical
 from GLOC_visualization import create_confusion_matrix
 from sklearn.linear_model import Lasso
 from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold
+from sklearn.inspection import permutation_importance
 from itertools import islice
 from imblearn.metrics import geometric_mean_score
 from GLOC_data_processing import *
@@ -264,7 +265,7 @@ def classify_lda(x_train, x_test, y_train, y_test, random_state,
 
 # k Nearest Neighbors
 def classify_knn(x_train, x_test, y_train, y_test, random_state,
-                 save_folder,model_name, retrain, temporal = False, best_params = None):
+                 save_folder,model_name, retrain, temporal = False, best_params = None, selected_features = None):
     """
     This function fits and assesses performance of a K Nearest Neighbors ML classifier for
     the data specified. Within this function, a separate confusion matrix function is called.
@@ -286,6 +287,13 @@ def classify_knn(x_train, x_test, y_train, y_test, random_state,
 
     # Predict
     label_predictions = neigh.predict(x_test)
+
+    r = permutation_importance(neigh, x_test, y_test, n_repeats=30, random_state=0)
+    for i in r.importances_mean.argsort()[::-1]:
+        if r.importances_mean[i] - 2 * r.importances_std[i] > 0:
+            print(f"{selected_features[i]:<8}"
+                  f"{r.importances_mean[i]:.3f}"
+                  f" +/- {r.importances_std[i]:.3f}")
 
     # Assess Performance
     accuracy = metrics.accuracy_score(y_test, label_predictions)

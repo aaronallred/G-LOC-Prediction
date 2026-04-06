@@ -32,7 +32,7 @@ import seaborn as sns
 
 offset_ranges = (0,1,1) # No longer doing any offset (no temporal eval)
 data_rate = 25 # (hz)
-preference = 11 # Which section of the code do we want to run
+preference = 7 # Which section of the code do we want to run
 random_state = 42
 class_weight_imb = None
 
@@ -339,60 +339,59 @@ if preference == 7:
     model_type = ['complete', 'explicit']
 
     # Classifiers to evaluate for each stream combination
-    classifiers_to_test = ['EGB', 'KNN', 'RF']
+    classifiers_to_test = ['KNN']
 
     # Defines which sensor ablation method to use - OPTIONS: 'manual', 'feature_select'
-    ablation_method = 'manual'
-
-    if ablation_method == 'manual':
-        sensor_features = ['RF', 'RF', 'RF'] # Use RF since it includes all features
-    elif ablation_method == 'feature_select':
-        sensor_features = classifiers_to_test # Use features selected in sequential optimization
-    else:
-        raise ValueError(f"Unknown ablation_method: {ablation_method}")
+    # ablation_method = 'manual'
+    #
+    # if ablation_method == 'manual':
+    #     sensor_features = ['RF', 'RF', 'RF'] # Use RF since it includes all features
+    # elif ablation_method == 'feature_select':
+    #     sensor_features = classifiers_to_test # Use features selected in sequential optimization
+    # else:
+    #     raise ValueError(f"Unknown ablation_method: {ablation_method}")
 
     # Load selected features from JSON for each classifier
     # These represent the *full* feature sets before restriction of data streams
-    _, select_featuresEGB, _, _ = get_hyperparameters_from_json(sensor_features[0], get_model_subfolder(model_type))
-    _, select_featuresKNN, _, _ = get_hyperparameters_from_json(sensor_features[1], get_model_subfolder(model_type))
-    _, select_featuresRF, _, _ = get_hyperparameters_from_json(sensor_features[2], get_model_subfolder(model_type))
+    _, select_featuresEGB, _, _ = get_hyperparameters_from_json('EGB', get_model_subfolder(model_type))
+    _, select_featuresKNN, _, _ = get_hyperparameters_from_json('KNN', get_model_subfolder(model_type))
+    _, select_featuresRF, _, _ = get_hyperparameters_from_json('RF', get_model_subfolder(model_type))
 
     # Define stream combinations to iterate through
     # Each entry is a list of data streams that will be used to restrict the feature space
     # These represent all combinations of the four source groups
     stream_combos = [
-        ['ECG', 'HR', 'BR', 'Temperature'], # Equivital Data Stream
-        ['EEG'], # EEG Data Stream
-        ['Pupil'], # Tobii/Eye Tracking Data Stream
-        ['Centrifuge'], # Centrifuge/G Force Data Stream
-        ['Participant'], # Demographics Data Stream
-        ['Centrifuge', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'Pupil'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'Centrifuge'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'Centrifuge', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Centrifuge', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Centrifuge'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'Pupil', 'Centrifuge'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'Pupil', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'Pupil', 'Centrifuge', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil', 'Centrifuge', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil', 'Centrifuge'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil', 'Participant'],
-        ['EEG', 'Pupil'],
-        ['EEG', 'Centrifuge', 'Participant'],
-        ['EEG', 'Centrifuge'],
-        ['EEG', 'Participant'],
-        ['EEG', 'Pupil', 'Centrifuge', 'Participant'],
-        ['EEG', 'Pupil', 'Centrifuge'],
-        ['EEG', 'Pupil', 'Participant'],
-        ['Pupil', 'Centrifuge', 'Participant'],
-        ['Pupil', 'Centrifuge'],
-        ['Pupil', 'Participant'],
-
+        # ['ECG', 'HR', 'BR', 'Temperature'], # Equivital Data Stream
+        # ['EEG'], # EEG Data Stream
+        # ['Pupil'], # Tobii/Eye Tracking Data Stream
+        # ['Centrifuge'], # Centrifuge/G Force Data Stream
+        # ['Participant'], # Demographics Data Stream
+        # ['Centrifuge', 'Participant'],
+        # ['ECG', 'HR', 'BR', 'Temperature', 'EEG'],
+        # ['ECG', 'HR', 'BR', 'Temperature', 'Pupil'],
+        # ['ECG', 'HR', 'BR', 'Temperature', 'Centrifuge'],
+        # ['ECG', 'HR', 'BR', 'Temperature', 'Participant'],
+        # ['ECG', 'HR', 'BR', 'Temperature', 'Centrifuge', 'Participant'],
+        # ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil'],
+        # ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Centrifuge', 'Participant'],
+        # ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Centrifuge'],
+        # ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Participant'],
+        # ['ECG', 'HR', 'BR', 'Temperature', 'Pupil', 'Centrifuge'],
+        # ['ECG', 'HR', 'BR', 'Temperature', 'Pupil', 'Participant'],
+        # ['ECG', 'HR', 'BR', 'Temperature', 'Pupil', 'Centrifuge', 'Participant'],
+        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil', 'Centrifuge', 'Participant']
+        # ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil', 'Centrifuge'],
+        # ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil', 'Participant'],
+        # ['EEG', 'Pupil'],
+        # ['EEG', 'Centrifuge', 'Participant'],
+        # ['EEG', 'Centrifuge'],
+        # ['EEG', 'Participant'],
+        # ['EEG', 'Pupil', 'Centrifuge', 'Participant'],
+        # ['EEG', 'Pupil', 'Centrifuge'],
+        # ['EEG', 'Pupil', 'Participant'],
+        # ['Pupil', 'Centrifuge', 'Participant'],
+        # ['Pupil', 'Centrifuge'],
+        # ['Pupil', 'Participant']
     ]
 
     # Nested dict: classifier -> stream -> F1 scores
@@ -404,10 +403,9 @@ if preference == 7:
         print(f"\n=== Evaluating streams: {streams_of_interest} ===")
 
         # Restrict features per classifier based on the current stream subset
-        # usable_featuresKNN = restrict_feature_space(select_featuresKNN, streams_of_interest)
+        usable_featuresKNN = restrict_feature_space(select_featuresKNN, streams_of_interest)
         usable_featuresRF = restrict_feature_space(select_featuresRF, streams_of_interest)
-        # usable_featuresEGB = restrict_feature_space(select_featuresEGB, streams_of_interest)
-        # exit()
+        usable_featuresEGB = restrict_feature_space(select_featuresEGB, streams_of_interest)
 
         # Bundle restricted features for easy lookup
         usable_features_dict = {
@@ -461,7 +459,7 @@ if preference == 7:
                     _, _, _, f1, _, _ = classify_knn(
                         x_train, x_test, y_train, y_test, random_state,
                         save_folder, model_name="knn_feature_study.pkl", retrain=False,
-                        temporal=True, best_params=hyperparameters)
+                        temporal=True, best_params=hyperparameters, selected_features=select_features)
                 elif classifier == 'EGB':
                     _, _, _, f1, _, _ = classify_ensemble_with_gradboost(
                         x_train, x_test, y_train, y_test, random_state,
@@ -894,8 +892,27 @@ if preference == 11:
         if combined_scores:
             stream_median_map[stream] = np.median(combined_scores)
 
+    # Convert to DataFrame
+    df = pd.DataFrame(stream_median_map.items(), columns=['Feature_Set', 'Score'])
+
+    # Optional: sort by score descending
+    df = df.sort_values(by='Score', ascending=False)
+
+    # Save to CSV
+    df.to_csv('feature_scores.csv', index=False)
+
     # Sort streams by median
     sorted_streams = sorted(stream_median_map, key=stream_median_map.get, reverse=True)
+
+    # Truncate streams to show top performing combinations
+    # Complete Explicit KNN (Man Abl): 12 to compare to unablated data, 24 to compare before drop-off
+    # Complete Explicit KNN (Feat Select): 9 to compare to unablated data, 24 to compare before drop-off
+    # Complete Explicit RF: 9 to compare to unablated data, 16 to compare before drop-off
+    # Complete Explicit EGB (Man Abl): 8 to compare to unablated data, 24 to compare before drop-off
+    # Complete Explicit EGB (Feat Select): 5 to compare to unablated data, 24 to compare before drop-off
+    # noAFE Explicit KNN:
+    # noAFE Explicit RF:
+    sorted_streams = sorted_streams[:16]
 
     # -----------------------------------------
     # BUILD FILTERED RESULTS AND PLOT
@@ -905,7 +922,7 @@ if preference == 11:
     filtered_results = {
         clf: {
             # stream: f1_results_by_stream[clf][stream]
-            stream.replace('ECG-HR-BR-Temperature', 'Equivital').replace('Participant', 'Demographics').replace('Centrifuge','G Force'): f1_results_by_stream[clf][stream]
+            stream.replace('ECG-HR-BR-Temperature', 'Equivital').replace('Equivital-HRV', 'Equivital').replace('Participant', 'Demographics').replace('Centrifuge','G Force').replace('Pupil','Eye Tracking'): f1_results_by_stream[clf][stream]
             for stream in sorted_streams
             if stream in f1_results_by_stream[clf]
         }
