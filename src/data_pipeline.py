@@ -70,7 +70,7 @@ class DataPipeline:
         "Demographics": (r"participant_",),
     }
 
-    def get_data(self, kfold_id: int, feature_streams: Optional[List[str]]) -> Any:
+    def get_data(self, kfold_id: Optional[int] = None, feature_streams: Optional[List[str]] = None) -> Any:
         """Execute the selected backend data pipeline.
 
         For advanced pipelines this returns:
@@ -98,6 +98,8 @@ class DataPipeline:
         }
 
         if backend_type == "advanced":
+            if kfold_id is None:
+                raise ValueError("kfold_id is required for advanced pipelines.")
             request_kwargs["num_splits"] = self._config_parser.get_num_splits()
             request_kwargs["kfold_ID"] = kfold_id
             request_kwargs["n_neighbors"] = self._config_parser.get_n_neighbors()
