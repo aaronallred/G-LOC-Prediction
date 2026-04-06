@@ -18,8 +18,9 @@ class _DummyModel:
 
 
 class _DummyConfigParser:
-	def __init__(self, model: _DummyModel) -> None:
+	def __init__(self, model: _DummyModel, faiss_index_type: str = "auto") -> None:
 		self._model = model
+		self._faiss_index_type = faiss_index_type
 
 	def get_model(self):
 		return self._model
@@ -84,6 +85,9 @@ class _DummyConfigParser:
 	def get_output_feature_dtype(self):
 		return "float32"
 
+	def get_faiss_index_type(self):
+		return self._faiss_index_type
+
 
 @pytest.mark.parametrize(
 	"is_traditional, expected_kind",
@@ -117,6 +121,45 @@ def test_build_backend_routes_to_traditional(monkeypatch):
 	assert isinstance(backend, FakeTraditionalPipeline)
 	assert created["traditional"] == ("../data/", 123)
 	assert "advanced" not in created
+
+
+@pytest.mark.parametrize(
+	"faiss_index_type, gpu_count, expected_backend",
+	[("cpu", 1, "cpu"), ("gpu", 1, "gpu"), ("auto", 0, "cpu")],
+)
+def test_build_faiss_knn_index_honors_configured_index_type(monkeypatch, faiss_index_type, gpu_count, expected_backend):
+	parser = _DummyConfigParser(_DummyModel(is_traditional=True, name="RF"), faiss_index_type=faiss_index_type)
+	pipeline = TraditionalDataPipeline(data_path="../data/", random_seed=123, config_parser=parser)
+
+	class _FakeHNSWState:
+		def __init__(self) -> None:
+			self.efSearch = None
+			self.rng = None
+
+	class _FakeCPUIndex:
+		def __init__(self) -> None:
+			self.hnsw = _FakeHNSWState()
+
+	class _FakeGPUIndex:
+		pass
+
+	cpu_index = _FakeCPUIndex()
+	gpu_index = _FakeGPUIndex()
+
+	monkeypatch.setattr("data_pipeline.faiss.get_num_gpus", lambda: gpu_count, raising=False)
+	monkeypatch.setattr("data_pipeline.faiss.StandardGpuResources", lambda: object(), raising=False)
+	monkeypatch.setattr("data_pipeline.faiss.GpuIndexFlatL2", lambda *args: gpu_index, raising=False)
+	monkeypatch.setattr("data_pipeline.faiss.IndexHNSWFlat", lambda d, M: cpu_index, raising=False)
+	monkeypatch.setattr("data_pipeline.faiss.RandomGenerator", lambda seed: f"rng:{seed}", raising=False)
+
+	index = pipeline._build_faiss_knn_index(d=8)
+
+	if expected_backend == "gpu":
+		assert index is gpu_index
+	else:
+		assert index is cpu_index
+		assert cpu_index.hnsw.efSearch == 64
+		assert cpu_index.hnsw.rng == "rng:123"
 
 
 def test_get_data_for_advanced_pipeline_forwards_required_arguments(monkeypatch):
