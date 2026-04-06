@@ -5,35 +5,6 @@ from pathlib import Path
 from GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from data_pipeline import DataPipeline
 
-
-def _resolve_feature_stream_groups(config_parser: GLOCExperimentConfigParser) -> list[list[str]]:
-    """Resolve feature stream groups for sensor ablation runs.
-
-    Returns one default empty group when sensor ablation is disabled.
-    """
-    enabled = config_parser.get_sensor_ablation_enabled()
-    stream_groups = config_parser.get_sensor_ablation_streams()
-
-    if not enabled:
-        return [[]]
-
-    if not isinstance(stream_groups, list):
-        raise ValueError("sensor_ablation.streams must be a list of stream groups.")
-
-    cleaned_groups: list[list[str]] = []
-    for stream_group in stream_groups:
-        if not isinstance(stream_group, list):
-            raise ValueError("Each sensor ablation stream group must be a list of stream names.")
-
-        cleaned_group = [stream.strip() for stream in stream_group if isinstance(stream, str) and stream.strip()]
-        if cleaned_group:
-            cleaned_groups.append(cleaned_group)
-
-    if len(cleaned_groups) == 0:
-        raise ValueError("Sensor ablation is enabled, but no valid stream groups were provided.")
-
-    return cleaned_groups
-
 def configure_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -67,7 +38,7 @@ if __name__ == "__main__":
 
     config_parser = GLOCExperimentConfigParser(config_location=config_path)
     pipeline = DataPipeline(config_parser = config_parser)
-    feature_stream_groups = _resolve_feature_stream_groups(config_parser)
+    feature_stream_groups = config_parser.get_sensor_ablation_stream_groups()
     num_splits = config_parser.get_num_splits()
 
     for group_index, feature_streams in enumerate(feature_stream_groups, start=1):

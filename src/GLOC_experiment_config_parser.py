@@ -402,3 +402,14 @@ class GLOCExperimentConfigParser:
 
     def get_sensor_ablation_streams(self) -> List[List[str]]:
         return self.sensor_ablation["streams"]
+
+    def get_sensor_ablation_stream_groups(self) -> List[List[str]]:
+        """Return stream groups in a run-ready format for orchestration code.
+
+        Returns [[]] when ablation is disabled, meaning "use all streams".
+        """
+        if not self.get_sensor_ablation_enabled():
+            return [[]]
+
+        # Defensive copy to keep parser-owned config immutable to callers.
+        return [list(stream_group) for stream_group in self.get_sensor_ablation_streams()]
