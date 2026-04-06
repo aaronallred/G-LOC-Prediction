@@ -389,34 +389,33 @@ class GLOCExperimentConfigParser:
             raise ValueError(
                 "sensor_ablation.streams must be a list of stream groups (list[list[str]])."
             )
-
-        cleaned_stream_groups: List[List[str]] = []
-        for stream_group in streams:
-            if not isinstance(stream_group, list):
+        
+        # Validate stream names against a known set of valid streams to catch typos and ensure correctness.
+        VALID_STREAMS = {"ECG", "BR", "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain", "demographics"}
+        for group_of_streams in streams:
+            if not isinstance(group_of_streams, list):
                 raise ValueError(
-                    "sensor_ablation.streams must be a list of stream groups (list[list[str]])."
+                    "Each item in sensor_ablation.streams must be a list of stream names."
                 )
-
-            cleaned_group: List[str] = []
-            for stream_name in stream_group:
+            
+            for stream_name in group_of_streams:
                 if not isinstance(stream_name, str):
                     raise ValueError(
                         "Each stream name in sensor_ablation.streams must be a string."
                     )
-                normalized = stream_name.strip()
-                if normalized:
-                    cleaned_group.append(normalized)
+                
+                if stream_name not in VALID_STREAMS:
+                    raise ValueError(
+                        f"Invalid stream name '{stream_name}' in sensor_ablation.streams. Valid streams are: {VALID_STREAMS}."
+                    )
 
-            if cleaned_group:
-                cleaned_stream_groups.append(cleaned_group)
-
-        return cleaned_stream_groups
+        return streams
 
     def get_sensor_ablation_enabled(self) -> bool:
         return self.sensor_ablation["enabled"]
 
     def get_sensor_ablation_streams(self) -> List[List[str]]:
-        return self.sensor_ablation["streams"]
+        return self.sensor_ablation["streams"].copy()
 
     def get_sensor_ablation_stream_groups(self) -> List[List[str]]:
         """Return stream groups in a run-ready format for orchestration code.
