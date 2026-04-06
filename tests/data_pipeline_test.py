@@ -106,12 +106,12 @@ def test_build_backend_routes_to_traditional(monkeypatch):
 	created = {}
 
 	class FakeTraditionalPipeline:
-		def __init__(self, data_path, random_seed):
-			created["traditional"] = (data_path, random_seed)
+		def __init__(self, data_path, random_seed, config_parser=None):
+			created["traditional"] = (data_path, random_seed, config_parser)
 
 	class FakeAdvancedPipeline:
-		def __init__(self, data_path, random_seed):
-			created["advanced"] = (data_path, random_seed)
+		def __init__(self, data_path, random_seed, config_parser=None):
+			created["advanced"] = (data_path, random_seed, config_parser)
 
 	monkeypatch.setattr("data_pipeline.TraditionalDataPipeline", FakeTraditionalPipeline)
 	monkeypatch.setattr("data_pipeline.AdvancedDataPipeline", FakeAdvancedPipeline)
@@ -119,7 +119,7 @@ def test_build_backend_routes_to_traditional(monkeypatch):
 	backend = pipeline._build_backend()
 
 	assert isinstance(backend, FakeTraditionalPipeline)
-	assert created["traditional"] == ("../data/", 123)
+	assert created["traditional"] == ("../data/", 123, parser)
 	assert "advanced" not in created
 
 
