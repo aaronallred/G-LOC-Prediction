@@ -39,7 +39,6 @@ if __name__ == "__main__":
     config_parser = GLOCExperimentConfigParser(config_location=config_path)
     pipeline = DataPipeline(config_parser = config_parser)
     feature_stream_groups = config_parser.get_sensor_ablation_stream_groups()
-    is_traditional = config_parser.get_model().is_traditional
     num_splits = config_parser.get_num_splits()
 
     for group_index, feature_streams in enumerate(feature_stream_groups, start=1):
@@ -49,24 +48,6 @@ if __name__ == "__main__":
             len(feature_stream_groups),
             feature_streams if feature_streams else "ALL_STREAMS",
         )
-
-        if is_traditional:
-            data = pipeline.get_data(feature_streams=feature_streams)
-            print("Data Dimensions:")
-            print(f"stream_group={feature_streams if feature_streams else ['ALL_STREAMS']} | fold=N/A")
-            if isinstance(data, tuple) and len(data) >= 4:
-                x_train, x_test, y_train, y_test = data[:4]
-                print(f"x_train: {x_train.shape}")
-                print(f"x_test: {x_test.shape}")
-                print(f"y_train: {y_train.shape}")
-                print(f"y_test: {y_test.shape}")
-            elif isinstance(data, tuple) and len(data) == 2:
-                x_feature_matrix, y_gloc_labels = data
-                print(f"x_feature_matrix: {x_feature_matrix.shape}")
-                print(f"y_gloc_labels: {y_gloc_labels.shape}")
-            else:
-                print("Unexpected data format returned from pipeline.")
-            continue
 
         for kfold_id in range(num_splits):
             logging.info("Running fold %d/%d", kfold_id + 1, num_splits)

@@ -57,8 +57,8 @@ class DataPipeline:
     _SENSOR_STREAM_PATTERNS: dict[str, tuple[str, ...]] = {
         # Equivital streams
         "ECG": (r"ecg",),
-        "HR": (r"hr", r"participant_hr"),
-        "BR": (r"br",),
+        "HR": (r"\bhr\b", r"participant_hr"),
+        "BR": (r"\bbr\b",),
         "Temperature": (r"temp", r"temperature"),
         # Other device streams
         "Pupil": (r"pupil",),
@@ -68,6 +68,14 @@ class DataPipeline:
         # Demographics
         "Participant": (r"participant_",),
         "Demographics": (r"participant_",),
+    }
+
+    _SENSOR_STREAM_ALIASES: dict[str, str] = {
+        "demographic": "Demographics",
+        "demographics": "Demographics",
+        "participant": "Participant",
+        "gforce": "Centrifuge",
+        "g force": "Centrifuge",
     }
 
     def get_data(self, kfold_id: Optional[int] = None, feature_streams: Optional[List[str]] = None) -> Any:
@@ -94,7 +102,7 @@ class DataPipeline:
             "impute_file_name": self._config_parser.get_impute_file_name(),
             "should_impute": self._config_parser.get_should_impute(),
             "save_impute": self._config_parser.get_save_impute(),
-            "load_impute": self._config_parser.get_load_impute()
+            "load_impute": self._config_parser.get_load_impute(),
         }
 
         if backend_type == "advanced":
@@ -165,11 +173,8 @@ class DataPipeline:
         return data['selected_features']
 
     def _apply_sensor_ablation(self, selected_features: list[str], feature_streams: Optional[List[str]]) -> list[str]:
-        """Optionally restrict selected features to user-provided sensor streams."""
-        if not feature_streams:
-            return selected_features
-
-        requested_streams = [s.strip() for s in feature_streams if s and s.strip()]
+        """Restrict selected features to usable features for requested streams."""
+        requested_streams = self._normalize_feature_streams(feature_streams)
         if len(requested_streams) == 0:
             return selected_features
 
@@ -177,25 +182,24 @@ class DataPipeline:
         if unknown_streams:
             supported = ", ".join(sorted(self._SENSOR_STREAM_PATTERNS.keys()))
             raise ValueError(
-                f"Unknown sensor_ablation stream(s): {unknown_streams}. Supported streams: {supported}."
+                f"Unknown stream(s): {unknown_streams}. Supported streams: {supported}."
             )
 
-        matched_features: list[str] = []
-        compiled_patterns = [
-            re.compile(pattern, flags=re.IGNORECASE)
-            for stream in requested_streams
-            for pattern in self._SENSOR_STREAM_PATTERNS[stream]
+        matched_features: list[str] = [
+            feature_name
+            for feature_name in selected_features
+            if any(
+                re.search(pattern, feature_name, flags=re.IGNORECASE)
+                for stream in requested_streams
+                for pattern in self._SENSOR_STREAM_PATTERNS[stream]
+            )
         ]
-
-        for feature_name in selected_features:
-            if any(pattern.search(feature_name) for pattern in compiled_patterns):
-                matched_features.append(feature_name)
 
         if len(matched_features) == 0:
             raise ValueError(
-                "Sensor ablation removed all selected features. "
+                "Stream filtering removed all selected features. "
                 f"Requested streams={requested_streams}. "
-                "Check stream names and selected feature naming conventions."
+                "Check stream names and feature naming conventions."
             )
 
         logger.info(
@@ -205,6 +209,25 @@ class DataPipeline:
             len(matched_features),
         )
         return matched_features
+
+    def _normalize_feature_streams(self, feature_streams: Optional[List[str]]) -> list[str]:
+        """Normalize stream names and de-duplicate while preserving order."""
+        if not feature_streams:
+            return []
+
+        normalized_streams: list[str] = []
+        for stream in feature_streams:
+            if not isinstance(stream, str):
+                continue
+
+            candidate = stream.strip()
+            if not candidate:
+                continue
+
+            canonical = self._SENSOR_STREAM_ALIASES.get(candidate.lower(), candidate)
+            normalized_streams.append(canonical)
+
+        return list(dict.fromkeys(normalized_streams))
     
 
 
