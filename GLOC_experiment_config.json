@@ -50,7 +50,7 @@
             ["ECG", "HR", "BR", "Temperature", "Pupil", "Centrifuge", "Participant"],
             ["ECG", "HR", "BR", "Temperature", "EEG", "Pupil", "Centrifuge", "Participant"],
             ["ECG", "HR", "BR", "Temperature", "EEG", "Pupil", "Centrifuge"],
-            ["ECG", "HR", "BR", "Temperature", "EEG", "Pupil", "Participant"]
+            ["ECG", "HR", "BR", "Temperature", "EEG", "Pupil", "Participant"],
             ["EEG", "Pupil"],
             ["EEG", "Centrifuge", "Participant"],
             ["EEG", "Centrifuge"],
