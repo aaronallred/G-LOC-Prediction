@@ -1,5 +1,5 @@
 {
-    "models": ["LogReg"],
+    "models": ["EGB", "KNN", "RF"],
     "model_type": ["Complete", "Explicit"],
     "random_seed": 42,
     "data_path": "/home/gloc/G-LOC-Prediction/data",
