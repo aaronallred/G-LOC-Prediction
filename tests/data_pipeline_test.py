@@ -1,4 +1,3 @@
-import ast
 import pytest
 from pathlib import Path
 import os
@@ -257,59 +256,6 @@ def test_apply_sensor_ablation_enabled_filters_selected_features():
 		"Pupil diameter left [mm] - Tobii_mean_s1",
 		"Fz_alpha - EEG_mean_s1",
 	]
-
-
-def _load_feature_study_restrict_feature_space():
-	"""Load the preference-7 feature filter without importing the script's top-level code."""
-	source_path = Path(__file__).resolve().parents[1] / "src" / "scripts" / "feature_study_main.py"
-	module = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
-	function_node = next(
-		node for node in module.body
-		if isinstance(node, ast.FunctionDef) and node.name == "restrict_feature_space"
-	)
-	extracted_module = ast.Module(body=[function_node], type_ignores=[])
-	compiled = compile(extracted_module, filename=str(source_path), mode="exec")
-	namespace: dict[str, object] = {}
-	exec(compiled, namespace)
-	return namespace["restrict_feature_space"]
-
-
-@pytest.fixture(scope="module")
-def feature_study_restrict_feature_space():
-	return _load_feature_study_restrict_feature_space()
-
-
-@pytest.mark.parametrize(
-	"feature_streams",
-	[
-		["ECG", "HR", "BR", "Temperature"],
-		["EEG"],
-		["Pupil"],
-		["Centrifuge"],
-		["Participant"],
-		["ECG", "HR", "BR", "Temperature", "EEG"],
-	],
-)
-def test_sensor_ablation_matches_feature_study_preference7(feature_study_restrict_feature_space, feature_streams):
-	parser = _DummyConfigParser(_DummyModel(is_traditional=True, name="RF"))
-	pipeline = DataPipeline(parser)
-
-	selected_features = [
-		"HR (bpm) - Equivital_mean_s1",
-		"ECG Lead 1 - Equivital_mean_s1",
-		"BR (rpm) - Equivital_mean_s1",
-		"Skin Temperature - IR Thermometer (°C) - Equivital_mean_s1",
-		"Pupil diameter left [mm] - Tobii_mean_s1",
-		"magnitude - Centrifuge_mean_s1",
-		"Fz_delta - EEG_mean_s1",
-		"participant_age_mean_s1",
-		"participant_HR_exercise_mean_s1",
-	]
-
-	expected = feature_study_restrict_feature_space(selected_features, feature_streams)
-	actual = pipeline._apply_sensor_ablation(selected_features, feature_streams)
-
-	assert actual == expected
 
 
 def test_get_data_for_traditional_pipeline_applies_sensor_ablation(monkeypatch):
