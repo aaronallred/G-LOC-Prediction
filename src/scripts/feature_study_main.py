@@ -8,16 +8,18 @@ from matplotlib_venn import venn2, venn3
 from upsetplot import from_contents, UpSet
 
 
-from .GLOC_data_processing_traditional import *
-from .GLOC_classifier_traditional import stratified_kfold_split, classify_logistic_regression, classify_random_forest, \
+from GLOC_data_processing_traditional import *
+from GLOC_classifier_traditional import stratified_kfold_split, classify_logistic_regression, classify_random_forest, \
     classify_lda, classify_svm, classify_knn, classify_ensemble_with_gradboost
-from .imbalance_techniques_traditional import resample_ros
-from .temporal_functions_traditional import plotting_offset_models, data_with_prediction, \
+from imbalance_techniques_traditional import resample_ros
+from temporal_functions_traditional import plotting_offset_models, data_with_prediction, \
     plot_f1_scores_across_classifiers, get_model_subfolder, \
      get_median_hyperparameters, get_hyperparameters_from_json, \
     plot_metrics_from_cache
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
+from src.data_pipeline import DataPipeline
 
+import sys
 import pickle
 import warnings
 warnings.filterwarnings("ignore", message="Could not find the number of physical cores")
@@ -336,95 +338,27 @@ def restrict_feature_space(select_features, streams):
 
 if preference == 7:
     config_parser = GLOCExperimentConfigParser(config_location = "/home/gloc/G-LOC-Prediction/GLOC_experiment_config.json")
+    pipeline = DataPipeline(config_parser = config_parser)
 
-    # Restrict feature space after features have been selected
+    models_to_test = config_parser.get_models()
+    stream_groups_to_test = config_parser.get_sensor_ablation_stream()
+    model_type_obj = config_parser.get_model_type()
+    model_type = [model_type_obj.afe_filter.lower(), model_type_obj.feature_set.lower()]
+    num_kfold = config_parser.get_num_splits()
 
-    # This defines which model folder to load hyperparameters from
-    model_type = ['complete', 'explicit']
+    # Store results for plotting later
+    f1_results_by_stream = {model.get_name(): {} for model in models_to_test}
 
-    # Classifiers to evaluate for each stream combination
-    classifiers_to_test = ['EGB', 'KNN', 'RF']
-
-    # Defines which sensor ablation method to use - OPTIONS: 'manual', 'feature_select'
-    ablation_method = 'manual'
-
-    if ablation_method == 'manual':
-        sensor_features = ['RF', 'RF', 'RF'] # Use RF since it includes all features
-    elif ablation_method == 'feature_select':
-        sensor_features = classifiers_to_test # Use features selected in sequential optimization
-    else:
-        raise ValueError(f"Unknown ablation_method: {ablation_method}")
-
-    # Load selected features from JSON for each classifier
-    # These represent the *full* feature sets before restriction of data streams
-    _, select_featuresEGB, _, _ = get_hyperparameters_from_json(sensor_features[0], get_model_subfolder(model_type))
-    _, select_featuresKNN, _, _ = get_hyperparameters_from_json(sensor_features[1], get_model_subfolder(model_type))
-    _, select_featuresRF, _, _ = get_hyperparameters_from_json(sensor_features[2], get_model_subfolder(model_type))
-
-    # Define stream combinations to iterate through
-    # Each entry is a list of data streams that will be used to restrict the feature space
-    # These represent all combinations of the four source groups
-    stream_combos = [
-        ['ECG', 'HR', 'BR', 'Temperature'], # Equivital Data Stream
-        ['EEG'], # EEG Data Stream
-        ['Pupil'], # Tobii/Eye Tracking Data Stream
-        ['Centrifuge'], # Centrifuge/G Force Data Stream
-        ['Participant'], # Demographics Data Stream
-        ['Centrifuge', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'Pupil'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'Centrifuge'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'Centrifuge', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Centrifuge', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Centrifuge'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'Pupil', 'Centrifuge'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'Pupil', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'Pupil', 'Centrifuge', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil', 'Centrifuge', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil', 'Centrifuge'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil', 'Participant'],
-        ['EEG', 'Pupil'],
-        ['EEG', 'Centrifuge', 'Participant'],
-        ['EEG', 'Centrifuge'],
-        ['EEG', 'Participant'],
-        ['EEG', 'Pupil', 'Centrifuge', 'Participant'],
-        ['EEG', 'Pupil', 'Centrifuge'],
-        ['EEG', 'Pupil', 'Participant'],
-        ['Pupil', 'Centrifuge', 'Participant'],
-        ['Pupil', 'Centrifuge'],
-        ['Pupil', 'Participant'],
-
-    ]
-
-    # Nested dict: classifier -> stream -> F1 scores
-    # This will store all results for later plotting
-    f1_results_by_stream = {clf: {} for clf in classifiers_to_test}
-
-    # Loop over every stream combination
-    for streams_of_interest in stream_combos:
-        print(f"\n=== Evaluating streams: {streams_of_interest} ===")
-
-        # Restrict features per classifier based on the current stream subset
-        # usable_featuresKNN = restrict_feature_space(select_featuresKNN, streams_of_interest)
-        usable_featuresRF = restrict_feature_space(select_featuresRF, streams_of_interest)
-        # usable_featuresEGB = restrict_feature_space(select_featuresEGB, streams_of_interest)
-        # exit()
-
-        # Bundle restricted features for easy lookup
-        usable_features_dict = {
-            "KNN": usable_featuresKNN,
-            "RF": usable_featuresRF,
-            "EGB": usable_featuresEGB
-        }
+    for stream_group in stream_groups_to_test:
+        print(f"Running stream group: {stream_group}")
 
         # Convert stream list into a string for filenames and dict keys
-        stream_str = "-".join(streams_of_interest)
+        stream_str = "-".join(stream_group)
 
-        # Evaluate each classifier on the restricted feature set
-        for classifier in classifiers_to_test:
+        for model in models_to_test:
+            print(f"Running model: {model}")
+            classifier = model.get_name()
+            
             start_time = time.time()
             num_kfold = 10  # Number of CV folds
 
@@ -433,26 +367,25 @@ if preference == 7:
 
             # Determine model folder
             subfolder_name = get_model_subfolder(model_type)
-            feature_subfolder = stream_str
 
-            # Load hyperparameters for this classifier
-            hyperparameters, select_features, _, _ = get_hyperparameters_from_json(classifier, subfolder_name)
+            # DataPipeline already loads selected features and applies stream ablation.
+            # Keep only classifier hyperparameters here for model fitting.
+            hyperparameters, _, _, _ = get_hyperparameters_from_json(classifier, subfolder_name)
 
-            # Override features with restricted ones
-            select_features = usable_features_dict[classifier]
-
-            print('Starting eval for ', classifier)
+            print("Starting evaluation for model:", classifier)
 
             # Folder for saving trained models (not the F1 results)
             save_folder = os.path.join("../RestrictedFeatureEval", subfolder_name)
             os.makedirs(save_folder, exist_ok=True)
 
-            # Always pass offset=0 when generating data
-            x, y = data_with_prediction(0, data_rate, classifier, model_type, select_features)
+            # Pull feature matrix and labels directly from DataPipeline.
+            x, y = pipeline.get_data(model=model, feature_streams=stream_group if stream_group else None)
 
             # Perform stratified k-fold evaluation
             for k in range(num_kfold):
                 x_train, x_test, y_train, y_test = stratified_kfold_split(ravel(y), x, num_kfold, k, random_state)
+
+                sys.exit() # Exit before any further processing is done
 
                 # Classifier-specific evaluation
                 if classifier == 'RF':
