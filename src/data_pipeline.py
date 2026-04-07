@@ -15,11 +15,11 @@ import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
 
-from baseline import BaselineContext, baseline_data
-from features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
-from GLOC_experiment_config_parser import GLOCExperimentConfigParser
-from model_type import ModelType
-from models.base import BaseModel
+from .baseline import BaselineContext, baseline_data
+from .features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
+from .GLOC_experiment_config_parser import GLOCExperimentConfigParser
+from .model_type import ModelType
+from .models.base import BaseModel
 
 logger = logging.getLogger(__name__)
 SOURCE_DIR = Path(__file__).resolve().parent

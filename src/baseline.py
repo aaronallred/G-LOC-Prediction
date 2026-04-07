@@ -8,7 +8,7 @@ import pandas as pd
 from typing import Dict, Tuple, List
 from dataclasses import dataclass
 
-from model_type import ModelType
+from src.model_type import ModelType
 
 
 @dataclass

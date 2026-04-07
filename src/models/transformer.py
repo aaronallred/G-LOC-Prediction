@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from models.base import BaseModel
+from src.models.base import BaseModel
 
 logger = logging.getLogger(__name__)
 

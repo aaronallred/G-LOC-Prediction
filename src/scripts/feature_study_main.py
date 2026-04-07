@@ -8,11 +8,11 @@ from matplotlib_venn import venn2, venn3
 from upsetplot import from_contents, UpSet
 
 
-from GLOC_data_processing_traditional import *
-from GLOC_classifier_traditional import stratified_kfold_split, classify_logistic_regression, classify_random_forest, \
+from .GLOC_data_processing_traditional import *
+from .GLOC_classifier_traditional import stratified_kfold_split, classify_logistic_regression, classify_random_forest, \
     classify_lda, classify_svm, classify_knn, classify_ensemble_with_gradboost
-from imbalance_techniques_traditional import resample_ros
-from temporal_functions_traditional import plotting_offset_models, data_with_prediction, \
+from .imbalance_techniques_traditional import resample_ros
+from .temporal_functions_traditional import plotting_offset_models, data_with_prediction, \
     plot_f1_scores_across_classifiers, get_model_subfolder, \
      get_median_hyperparameters, get_hyperparameters_from_json, \
     plot_metrics_from_cache
@@ -36,7 +36,7 @@ import seaborn as sns
 
 offset_ranges = (0,1,1) # No longer doing any offset (no temporal eval)
 data_rate = 25 # (hz)
-preference = 11 # Which section of the code do we want to run
+preference = 7 # Which section of the code do we want to run
 random_state = 42
 class_weight_imb = None
 
@@ -341,7 +341,7 @@ if preference == 7:
     pipeline = DataPipeline(config_parser = config_parser)
 
     models_to_test = config_parser.get_models()
-    stream_groups_to_test = config_parser.get_sensor_ablation_stream()
+    stream_groups_to_test = config_parser.get_sensor_ablation_streams()
     model_type_obj = config_parser.get_model_type()
     model_type = [model_type_obj.afe_filter.lower(), model_type_obj.feature_set.lower()]
     num_kfold = config_parser.get_num_splits()
@@ -356,8 +356,8 @@ if preference == 7:
         stream_str = "-".join(stream_group)
 
         for model in models_to_test:
-            print(f"Running model: {model}")
             classifier = model.get_name()
+            print(f"Running model: {classifier}")
             
             start_time = time.time()
             num_kfold = 10  # Number of CV folds
@@ -384,6 +384,8 @@ if preference == 7:
             # Perform stratified k-fold evaluation
             for k in range(num_kfold):
                 x_train, x_test, y_train, y_test = stratified_kfold_split(ravel(y), x, num_kfold, k, random_state)
+
+                print("Finished splitting data!!!")
 
                 sys.exit() # Exit before any further processing is done
 

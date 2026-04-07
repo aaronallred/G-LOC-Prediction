@@ -5,7 +5,7 @@ import numpy as np
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
-from models.base import BaseModel
+from src.models.base import BaseModel
 
 
 class ExtremeGradientBoostingModel(BaseModel):
