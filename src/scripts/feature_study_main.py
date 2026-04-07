@@ -385,10 +385,6 @@ if preference == 7:
             for k in range(num_kfold):
                 x_train, x_test, y_train, y_test = stratified_kfold_split(ravel(y), x, num_kfold, k, random_state)
 
-                print("Finished splitting data!!!")
-
-                sys.exit() # Exit before any further processing is done
-
                 # Classifier-specific evaluation
                 if classifier == 'RF':
                     _, _, _, f1, _, _, _ = classify_random_forest(
