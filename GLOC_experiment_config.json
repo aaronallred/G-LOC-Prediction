@@ -9,8 +9,8 @@
         "analysis_type": 2,
         "remove_NaN_trials": true,
         "impute_file_name": "imputed_data.pkl",
-        "save_impute": true,
-        "load_impute": true,
+        "save_impute": false,
+        "load_impute": false,
         "should_impute": true,
         "output_feature_dtype": "float32",
         "faiss_index_type": "auto"
