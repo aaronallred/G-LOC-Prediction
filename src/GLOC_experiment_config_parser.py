@@ -1,17 +1,18 @@
-from model_type import ModelType
-from models.base import BaseModel
-from models.logistic_regression import LogisticRegression
-from models.random_forest import RandomForestModel
-from models.linear_discriminant_analysis import LinearDiscriminantAnalysisModel
-from models.support_vector_machine import SupportVectorMachineModel
-from models.extreme_gradient_boosting import ExtremeGradientBoostingModel
-from models.k_nearest_neighbors import KNearestNeighborsModel
-from models.transformer import TransformerModel
+from src.model_type import ModelType
+from src.models.base import BaseModel
+from src.models.logistic_regression import LogisticRegression
+from src.models.random_forest import RandomForestModel
+from src.models.linear_discriminant_analysis import LinearDiscriminantAnalysisModel
+from src.models.support_vector_machine import SupportVectorMachineModel
+from src.models.extreme_gradient_boosting import ExtremeGradientBoostingModel
+from src.models.k_nearest_neighbors import KNearestNeighborsModel
+from src.models.transformer import TransformerModel
 from typing import Any, Optional, Dict, List, Type
 from pathlib import Path
 
 import numpy as np
 import json
+import copy
 
 class GLOCExperimentConfigParser:
     MODEL_FACTORIES_BY_NAME: Dict[str, Type[BaseModel]] = {
@@ -429,14 +430,4 @@ class GLOCExperimentConfigParser:
         return self.sensor_ablation["enabled"]
 
     def get_sensor_ablation_streams(self) -> List[List[str]]:
-        return self.sensor_ablation["streams"].copy()
-
-    def get_sensor_ablation_stream_groups(self) -> List[List[str]]:
-        """Return stream groups in a run-ready format for orchestration code.
-
-        Returns [[]] when ablation is disabled, meaning "use all streams".
-        """
-        if not self.get_sensor_ablation_enabled():
-            return [[]]
-
-        return [list(stream_group) for stream_group in self.get_sensor_ablation_streams()]
+        return copy.deepcopy(self.sensor_ablation["streams"])
