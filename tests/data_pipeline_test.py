@@ -94,10 +94,11 @@ class _DummyConfigParser:
 	[(True, "traditional"), (False, "advanced")],
 )
 def test_resolve_pipeline_kind_uses_model_flag(is_traditional, expected_kind):
-	parser = _DummyConfigParser(_DummyModel(is_traditional=is_traditional, name="RF"))
+	model = _DummyModel(is_traditional=is_traditional, name="RF")
+	parser = _DummyConfigParser(model)
 	pipeline = DataPipeline(parser)
 
-	assert pipeline._resolve_pipeline_kind() == expected_kind
+	assert pipeline._resolve_pipeline_kind(model) == expected_kind
 
 def test_build_backend_routes_to_traditional(monkeypatch):
 	parser = _DummyConfigParser(_DummyModel(is_traditional=True, name="RF"))
@@ -116,7 +117,7 @@ def test_build_backend_routes_to_traditional(monkeypatch):
 	monkeypatch.setattr("data_pipeline.TraditionalDataPipeline", FakeTraditionalPipeline)
 	monkeypatch.setattr("data_pipeline.AdvancedDataPipeline", FakeAdvancedPipeline)
 
-	backend = pipeline._build_backend()
+	backend = pipeline._build_backend(parser.get_model())
 
 	assert isinstance(backend, FakeTraditionalPipeline)
 	assert created["traditional"] == ("../data/", 123, parser)
@@ -173,9 +174,9 @@ def test_get_data_for_advanced_pipeline_forwards_required_arguments(monkeypatch)
 			captured.update(kwargs)
 			return "advanced-ok"
 
-	monkeypatch.setattr(pipeline, "_build_backend", lambda: FakeBackend())
+	monkeypatch.setattr(pipeline, "_build_backend", lambda _model: FakeBackend())
 
-	result = pipeline.get_data(kfold_id=3, feature_streams=["EEG"])
+	result = pipeline.get_data(model=parser.get_model(), kfold_id=3, feature_streams=["EEG"])
 
 	assert result == "advanced-ok"
 	assert captured == {
@@ -207,10 +208,10 @@ def test_get_data_for_traditional_pipeline_forwards_required_arguments(monkeypat
 			captured.update(kwargs)
 			return "traditional-ok"
 
-	monkeypatch.setattr(pipeline, "_build_backend", lambda: FakeBackend())
+	monkeypatch.setattr(pipeline, "_build_backend", lambda _model: FakeBackend())
 	monkeypatch.setattr(pipeline, "_resolve_select_features", lambda _kwargs: ["f1", "f2"])
 
-	result = pipeline.get_data(feature_streams=[])
+	result = pipeline.get_data(model=parser.get_model(), feature_streams=[])
 
 	assert result == "traditional-ok"
 	assert captured == {
@@ -268,14 +269,14 @@ def test_get_data_for_traditional_pipeline_applies_sensor_ablation(monkeypatch):
 			captured.update(kwargs)
 			return "traditional-ok"
 
-	monkeypatch.setattr(pipeline, "_build_backend", lambda: FakeBackend())
+	monkeypatch.setattr(pipeline, "_build_backend", lambda _model: FakeBackend())
 	monkeypatch.setattr(
 		pipeline,
 		"_resolve_select_features",
 		lambda _kwargs: ["HR (bpm) - Equivital_mean_s1", "Fz_alpha - EEG_mean_s1"],
 	)
 
-	result = pipeline.get_data(feature_streams=["EEG"])
+	result = pipeline.get_data(model=parser.get_model(), feature_streams=["EEG"])
 
 	assert result == "traditional-ok"
 	assert captured["select_features"] == ["Fz_alpha - EEG_mean_s1"]
@@ -289,10 +290,10 @@ def test_get_data_for_advanced_pipeline_requires_kfold_id(monkeypatch):
 		def get_data(self, **kwargs):
 			return kwargs
 
-	monkeypatch.setattr(pipeline, "_build_backend", lambda: FakeBackend())
+	monkeypatch.setattr(pipeline, "_build_backend", lambda _model: FakeBackend())
 
 	with pytest.raises(ValueError, match="kfold_id is required for advanced pipelines"):
-		pipeline.get_data(feature_streams=["EEG"])
+		pipeline.get_data(model=parser.get_model(), feature_streams=["EEG"])
 
 
 def test_advanced_impute_cache_path_has_prefix_processed_data_and_kfold_suffix():

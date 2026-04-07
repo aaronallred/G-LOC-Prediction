@@ -16,6 +16,8 @@ from .temporal_functions_traditional import plotting_offset_models, data_with_pr
     plot_f1_scores_across_classifiers, get_model_subfolder, \
      get_median_hyperparameters, get_hyperparameters_from_json, \
     plot_metrics_from_cache
+from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
+
 import pickle
 import warnings
 warnings.filterwarnings("ignore", message="Could not find the number of physical cores")
@@ -333,6 +335,8 @@ def restrict_feature_space(select_features, streams):
 
 
 if preference == 7:
+    config_parser = GLOCExperimentConfigParser(config_location = "/home/gloc/G-LOC-Prediction/GLOC_experiment_config.json")
+
     # Restrict feature space after features have been selected
 
     # This defines which model folder to load hyperparameters from

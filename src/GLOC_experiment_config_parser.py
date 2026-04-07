@@ -48,7 +48,7 @@ class GLOCExperimentConfigParser:
 
     # General Configurations
     def _parse_general_configs(self) -> None:
-        self.model = self._parse_model()
+        self.models = self._parse_models()
         self.model_type = self._parse_model_type()
         self.random_seed = self._parse_random_seed()
         self.data_path = self._parse_data_path()
@@ -96,20 +96,31 @@ class GLOCExperimentConfigParser:
             "streams": streams,
         }
             
-    def _parse_model(self) -> BaseModel:
-        if "model" not in self.config:
-            raise ValueError("model is missing from config. It should be a string of the name of the model.")
+    def _parse_models(self) -> List[BaseModel]:
+        if "models" not in self.config:
+            raise ValueError("models is missing from config. It should be a list of model names.")
 
-        model_config = self.config.get("model", "")
-        model_class = self.MODEL_FACTORIES_BY_NAME.get(model_config)
-        if model_class is None:
-            raise ValueError(f"Model '{model_config}' is not recognized. Available models: {list(self.MODEL_FACTORIES_BY_NAME.keys())}")
+        model_names = self.config.get("models", [])
+        if not isinstance(model_names, list) or len(model_names) == 0:
+            raise ValueError("models must be a non-empty list of model names.")
+
+        for model_name in model_names:
+            if not isinstance(model_name, str):
+                raise ValueError("Each item in models must be a string model name.")
+
+            if model_name not in self.MODEL_FACTORIES_BY_NAME:
+                raise ValueError(
+                    f"Model '{model_name}' is not recognized. Available models: {list(self.MODEL_FACTORIES_BY_NAME.keys())}"
+                )
 
         model_parameters = self.config.get("model_parameters", {})
         if not isinstance(model_parameters, dict):
             raise ValueError("model_parameters must be a JSON object when provided.")
 
-        return model_class(config=model_parameters)
+        return [
+            self.MODEL_FACTORIES_BY_NAME[model_name](config=model_parameters)
+            for model_name in model_names
+        ]
             
     def _parse_model_type(self) -> ModelType:
         model_type_config = self.config.get("model_type", [])
@@ -137,8 +148,8 @@ class GLOCExperimentConfigParser:
 
         return self.config.get("data_path")
     
-    def get_model(self) -> BaseModel:
-        return self.model
+    def get_models(self) -> List[BaseModel]:
+        return self.models.copy()
     
     def get_model_type(self) -> ModelType:
         return self.model_type
@@ -391,7 +402,10 @@ class GLOCExperimentConfigParser:
             )
         
         # Validate stream names against a known set of valid streams to catch typos and ensure correctness.
-        VALID_STREAMS = {"ECG", "BR", "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain", "demographics"}
+        VALID_STREAMS = {
+            "ECG", "HR", "BR", "Temperature", "Pupil", "Centrifuge", "EEG", "Strain", "Participant", "Demographics",
+            "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain", "demographics",
+        }
         for group_of_streams in streams:
             if not isinstance(group_of_streams, list):
                 raise ValueError(
@@ -425,5 +439,4 @@ class GLOCExperimentConfigParser:
         if not self.get_sensor_ablation_enabled():
             return [[]]
 
-        # Defensive copy to keep parser-owned config immutable to callers.
         return [list(stream_group) for stream_group in self.get_sensor_ablation_streams()]

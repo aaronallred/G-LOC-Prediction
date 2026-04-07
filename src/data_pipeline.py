@@ -78,7 +78,12 @@ class DataPipeline:
         "g force": "Centrifuge",
     }
 
-    def get_data(self, kfold_id: Optional[int] = None, feature_streams: Optional[List[str]] = None) -> Any:
+    def get_data(
+            self,
+            model: BaseModel,
+            kfold_id: Optional[int] = None,
+            feature_streams: Optional[List[str]] = None,
+    ) -> Any:
         """Execute the selected backend data pipeline.
 
         For advanced pipelines this returns:
@@ -90,8 +95,8 @@ class DataPipeline:
         Returns:
             Tuple or data from the backend pipeline
         """
-        backend_type = self._resolve_pipeline_kind()
-        backend_data_pipeline = self._build_backend()
+        backend_type = self._resolve_pipeline_kind(model)
+        backend_data_pipeline = self._build_backend(model)
         request_kwargs: dict[str, Any] = {
             "model_type": self._config_parser.get_model_type(),
             "remove_NaN_trials": self._config_parser.get_remove_NaN_trials(),
@@ -113,7 +118,7 @@ class DataPipeline:
             request_kwargs["n_neighbors"] = self._config_parser.get_n_neighbors()
             request_kwargs["baseline_window"] = self._config_parser.get_baseline_window()
         else:
-            request_kwargs["classifier_type"] = self._resolve_classifier_name()
+            request_kwargs["classifier_type"] = self._resolve_classifier_name(model)
             selected_features = self._resolve_select_features(request_kwargs)
             selected_features = self._apply_sensor_ablation(selected_features, feature_streams)
             request_kwargs["select_features"] = selected_features
@@ -124,9 +129,9 @@ class DataPipeline:
 
         return backend_data_pipeline.get_data(**request_kwargs)
 
-    def _build_backend(self) -> Any:
+    def _build_backend(self, model: BaseModel) -> Any:
         """Instantiate the backend pipeline selected by model type."""
-        pipeline_kind = self._resolve_pipeline_kind()
+        pipeline_kind = self._resolve_pipeline_kind(model)
         
         if pipeline_kind == "traditional":
             logger.info("Selected traditional data pipeline based on model type.")
@@ -143,19 +148,16 @@ class DataPipeline:
                 config_parser=self._config_parser
             )
 
-    def _resolve_pipeline_kind(self) -> Literal["advanced", "traditional"]:
+    def _resolve_pipeline_kind(self, model: BaseModel) -> Literal["advanced", "traditional"]:
         """Resolve whether the configured model maps to advanced or traditional flow."""
-        model = self._config_parser.get_model()
-
         if model is None or not hasattr(model, "is_traditional"):
             raise ValueError("Model does not have 'is_traditional' attribute. Unable to determine pipeline kind.")
 
         return "traditional" if model.is_traditional else "advanced"
     
 
-    def _resolve_classifier_name(self) -> str:
+    def _resolve_classifier_name(self, model: BaseModel) -> str:
         """Resolve classifier name from the configured model."""
-        model = self._config_parser.get_model()
         if model is None or not hasattr(model, "get_name"):
             raise ValueError("Unable to determine classifier name.")
 
