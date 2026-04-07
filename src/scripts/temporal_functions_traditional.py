@@ -793,7 +793,7 @@ def get_model_subfolder(model_type):
     elif model_type == ['complete', 'implicit']:
         return 'Implicit_Complete'
     elif model_type == ['complete', 'explicit']:
-        return 'Explicit_Complete_final'
+        return 'Complete_Explicit'
     else:
         raise ValueError(f"Unrecognized model_type: {model_type}")
 
