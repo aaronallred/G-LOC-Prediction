@@ -33,6 +33,10 @@ class BaseModel(ABC):
         """Load artifacts"""
         pass
 
+    def is_traditiona(self) -> bool:
+        """Return True if model is traditional (non-deep learning)"""
+        return self.is_traditional
+
     @abstractmethod
     def get_name(self) -> str:
         """Return model name"""
