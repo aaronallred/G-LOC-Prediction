@@ -2,8 +2,8 @@ import logging
 import argparse
 from pathlib import Path
 
-from GLOC_experiment_config_parser import GLOCExperimentConfigParser
-from data_pipeline import DataPipeline
+from .GLOC_experiment_config_parser import GLOCExperimentConfigParser
+from .data_pipeline import DataPipeline
 
 def configure_logging() -> None:
     logging.basicConfig(
@@ -38,7 +38,7 @@ if __name__ == "__main__":
 
     config_parser = GLOCExperimentConfigParser(config_location=config_path)
     pipeline = DataPipeline(config_parser = config_parser)
-    feature_stream_groups = config_parser.get_sensor_ablation_stream_groups()
+    feature_stream_groups = config_parser.get_sensor_ablation_streams()
     configured_models = config_parser.get_models()
     num_splits = config_parser.get_num_splits()
 

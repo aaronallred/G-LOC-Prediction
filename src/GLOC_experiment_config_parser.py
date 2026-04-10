@@ -239,7 +239,7 @@ class GLOCExperimentConfigParser:
             raise ValueError("faiss_index_type is missing from config. It should be a string ('auto', 'cpu', or 'gpu') indicating which FAISS index to use for KNN imputation.")
 
         faiss_index_type = shared_data_parameters.get("faiss_index_type")
-        valid_types = ["auto", "cpu", "gpu"]
+        valid_types = ["cpu", "gpu"]
         if faiss_index_type not in valid_types:
             raise ValueError(f"faiss_index_type must be one of {valid_types}. Got '{faiss_index_type}'.")
 

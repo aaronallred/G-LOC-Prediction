@@ -13,7 +13,7 @@
         "load_impute": false,
         "should_impute": true,
         "output_feature_dtype": "float32",
-        "faiss_index_type": "auto"
+        "faiss_index_type": "cpu"
     },
     "advanced_data_parameters": {
         "num_splits": 10,

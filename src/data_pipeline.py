@@ -320,6 +320,9 @@ class BaseGLOCDataPipeline(ABC):
         self._data_locations = None
         self.random_seed = random_seed
         self.config_parser = config_parser
+        # Keep GPU resources alive for the lifetime of this pipeline instance.
+        # FAISS GPU indices may hold non-owning references to these resources.
+        self._faiss_gpu_resources: Dict[int, Any] = {}
 
     @abstractmethod
     def get_data(self, **kwargs: Any) -> Any:
@@ -739,66 +742,173 @@ class BaseGLOCDataPipeline(ABC):
     def _build_faiss_knn_index(
             self,
             d: int,
+            n_vectors: Optional[int] = None,
             M: int = 32,
             efSearch: int = 64,
     ) -> Any:
         """Create a FAISS index based on config setting (auto/cpu/gpu).
         
-        If faiss_index_type is 'auto': Uses GPU FlatL2 when available, otherwise CPU HNSW.
-        If faiss_index_type is 'gpu': Attempts GPU FlatL2, falls back to CPU HNSW if unavailable.
-        If faiss_index_type is 'cpu': Always uses CPU HNSW.
+        If faiss_index_type is 'gpu': Attempts GPU CAGRA, falls back to CPU HNSWFlat if unavailable.
+        If faiss_index_type is 'cpu': Always uses CPU HNSWFlat.
+        
+        GPU Indexing (CAGRA):
+        - CAGRA (Compositional And Graph-based Approximate Retrieval Algorithm)
+        - Optimized for GPU-accelerated large-scale approximate nearest neighbor search
+        - Faster than flat L2 for imputation workloads
+        - Configured via GpuIndexCagraConfig (graph degree parameters)
+        
+        CPU Indexing (HNSWFlat):
+        - Hierarchical Navigable Small World graph-based index
+        - Uses M=32 and efSearch=64 for imputation (configurable via parameters)
+        - Deterministically seeded for reproducible graph construction
         """
+        def _cpu_hnsw() -> Any:
+            cpu_index = faiss.IndexHNSWFlat(d, M)
+            cpu_index.hnsw.efSearch = efSearch
+            rng = faiss.RandomGenerator(self.random_seed)
+            cpu_index.hnsw.rng = rng
+            return cpu_index
+
         faiss_index_type = self.config_parser.get_faiss_index_type()
-        
-        # Determine whether to attempt GPU index based on config
-        should_try_gpu = faiss_index_type in ["auto", "gpu"]
-        
-        # Only query GPU count if we're willing to use GPU
-        get_num_gpus = getattr(faiss, "get_num_gpus", None)
-        gpu_count = 0
-
-        if should_try_gpu and callable(get_num_gpus):
-            try:
-                gpu_count = int(get_num_gpus())
-            except Exception as exc:
-                logger.warning("Unable to query FAISS GPU count; falling back based on faiss_index_type. Error: %s", exc)
-
-        if should_try_gpu and gpu_count > 0:
-            gpu_resources_ctor = getattr(faiss, "StandardGpuResources", None)
-            gpu_flat_l2_ctor = getattr(faiss, "GpuIndexFlatL2", None)
-
-            if callable(gpu_resources_ctor) and callable(gpu_flat_l2_ctor):
-                try:
-                    gpu_resources = gpu_resources_ctor()
-                    metric_l2 = getattr(faiss, "METRIC_L2", 1)
-                    try:
-                        index = gpu_flat_l2_ctor(gpu_resources, d, metric_l2)
-                    except TypeError:
-                        index = gpu_flat_l2_ctor(gpu_resources, d)
-
-                    logger.info("Using FAISS GPU GpuIndexFlatL2 index for KNN imputation.")
-                    return index
-                except Exception as exc:
-                    logger.warning(
-                        "GPU detected but FAISS GPU FlatL2 setup failed; falling back to CPU HNSW. Error: %s",
-                        exc,
-                    )
-            else:
+        if faiss_index_type != "gpu":
+            if faiss_index_type != "cpu":
                 logger.warning(
-                    "GPU detected but FAISS GPU FlatL2 bindings are unavailable; falling back to CPU HNSW."
+                    "Unrecognized faiss_index_type '%s'. Defaulting to CPU HNSWFlat index for KNN imputation.",
+                    faiss_index_type,
                 )
+            return _cpu_hnsw()
 
-        if faiss_index_type == "cpu":
-            logger.info("faiss_index_type is set to 'cpu'; using FAISS CPU IndexHNSWFlat index for KNN imputation.")
-        else:
-            logger.info("Using FAISS CPU IndexHNSWFlat index for KNN imputation.")
+        gpu_ctor = getattr(faiss, "GpuIndexCagra", None)
+        gpu_cfg_ctor = getattr(faiss, "GpuIndexCagraConfig", None)
+        gpu_res_ctor = getattr(faiss, "StandardGpuResources", None)
+        get_num_gpus = getattr(faiss, "get_num_gpus", None)
+        if not (callable(gpu_ctor) and callable(gpu_cfg_ctor) and callable(gpu_res_ctor) and callable(get_num_gpus)):
+            logger.warning("GPU CAGRA bindings/resources unavailable; using CPU HNSWFlat for KNN imputation.")
+            return _cpu_hnsw()
 
-        index = faiss.IndexHNSWFlat(d, M)
-        index.hnsw.efSearch = efSearch
+        try:
+            gpu_count = int(get_num_gpus())
+        except Exception as exc:
+            logger.warning("Could not query FAISS GPU count (%s); using CPU HNSWFlat.", exc)
+            return _cpu_hnsw()
 
-        # Use fixed RNG seed for deterministic HNSW graph construction on CPU.
-        rng = faiss.RandomGenerator(self.random_seed)
-        index.hnsw.rng = rng
+        if gpu_count <= 0:
+            logger.warning("No visible CUDA devices for FAISS; using CPU HNSWFlat for KNN imputation.")
+            return _cpu_hnsw()
+
+        # Avoid unstable CAGRA configs when dataset is too small for graph construction.
+        if n_vectors is not None and n_vectors < 128:
+            logger.warning(
+                "Dataset too small for stable CAGRA graph build (n_vectors=%d). Using CPU HNSWFlat.",
+                n_vectors,
+            )
+            return _cpu_hnsw()
+
+        device = 0
+        gpu_resources = self._faiss_gpu_resources.get(device)
+        if gpu_resources is None:
+            gpu_resources = gpu_res_ctor()
+            self._faiss_gpu_resources[device] = gpu_resources
+
+        cfg = gpu_cfg_ctor()
+        cfg.device = device
+        # Default IVF_PQ CAGRA build mode is unstable on this environment
+        # (repro: cudaErrorInvalidValue / illegal memory access). NN_DESCENT is stable.
+        build_algo_nn_descent = getattr(faiss, "graph_build_algo_NN_DESCENT", None)
+        if build_algo_nn_descent is not None:
+            cfg.build_algo = build_algo_nn_descent
+        cfg.nn_descent_niter = 20
+        cfg.store_dataset = True
+
+        max_degree = max(2, (n_vectors - 1) if n_vectors is not None else max(4 * M, 64))
+        cfg.graph_degree = min(max(2 * M, 32), max_degree)
+        cfg.intermediate_graph_degree = min(max(4 * M, 64), max_degree)
+        if cfg.intermediate_graph_degree < cfg.graph_degree:
+            cfg.intermediate_graph_degree = cfg.graph_degree
+
+        should_use_cuvs = getattr(faiss, "should_use_cuvs", None)
+        if callable(should_use_cuvs):
+            try:
+                if not bool(should_use_cuvs(cfg)):
+                    logger.warning("FAISS reports cuVS/CAGRA should not be used on this setup; using CPU HNSWFlat.")
+                    return _cpu_hnsw()
+            except Exception as exc:
+                logger.warning("Unable to evaluate should_use_cuvs (%s); using CPU HNSWFlat.", exc)
+                return _cpu_hnsw()
+
+        try:
+            index = gpu_ctor(gpu_resources, d, faiss.METRIC_L2, cfg)
+            logger.info(
+                "Using GPU CAGRA for KNN imputation (device=%d, graph_degree=%d, intermediate_graph_degree=%d).",
+                device,
+                cfg.graph_degree,
+                cfg.intermediate_graph_degree,
+            )
+            return index
+        except Exception as exc:
+            logger.warning("GPU CAGRA initialization failed (%s); using CPU HNSWFlat.", exc)
+            return _cpu_hnsw()
+
+
+
+        
+        # # Only query GPU count if we're willing to use GPU
+        # get_num_gpus = getattr(faiss, "get_num_gpus", None)
+        # gpu_count = 0
+
+        # if should_try_gpu and callable(get_num_gpus):
+        #     try:
+        #         gpu_count = int(get_num_gpus())
+        #     except Exception as exc:
+        #         logger.warning("Unable to query FAISS GPU count; falling back based on faiss_index_type. Error: %s", exc)
+
+        # logger.info(
+        #     "FAISS index setup: faiss_index_type=%s, should_try_gpu=%s, gpu_count=%d.",
+        #     faiss_index_type,     should_try_gpu, gpu_count
+        # )
+
+        # if should_try_gpu and gpu_count > 0:
+        #     gpu_resources_ctor = getattr(faiss, "StandardGpuResources", None)
+        #     gpu_cagra_ctor = getattr(faiss, "GpuIndexCagra", None)
+        #     gpu_cagra_config_ctor = getattr(faiss, "GpuIndexCagraConfig", None)
+
+        #     if callable(gpu_resources_ctor) and callable(gpu_cagra_ctor) and callable(gpu_cagra_config_ctor):
+        #         try:
+        #             gpu_resources = gpu_resources_ctor()
+        #             cagra_config = gpu_cagra_config_ctor()
+        #             cagra_config.device = 0
+        #             cagra_config.graph_degree = max(2 * M, 32)
+        #             cagra_config.intermediate_graph_degree = max(4 * M, 64)
+
+        #             index = gpu_cagra_ctor(gpu_resources, d, faiss.METRIC_L2, cagra_config)
+
+        #             logger.info(
+        #                 "Using FAISS GPU GpuIndexCagra index for KNN imputation (graph_degree=%d, intermediate_graph_degree=%d).",
+        #                 cagra_config.graph_degree,
+        #                 cagra_config.intermediate_graph_degree,
+        #             )
+        #             return index
+        #         except Exception as exc:
+        #             logger.warning(
+        #                 "GPU detected but FAISS GPU CAGRA setup failed; falling back to CPU HNSWFlat. Error: %s",
+        #                 exc,
+        #             )
+        #     else:
+        #         logger.warning(
+        #             "GPU detected but FAISS GPU CAGRA bindings are unavailable; falling back to CPU HNSWFlat."
+        #         )
+
+        # if faiss_index_type == "cpu":
+        #     logger.info("faiss_index_type is set to 'cpu'; using FAISS CPU IndexHNSWFlat index for KNN imputation.")
+        # else:
+        #     logger.info("Using FAISS CPU IndexHNSWFlat index for KNN imputation.")
+
+        # index = faiss.IndexHNSWFlat(d, M)
+        # index.hnsw.efSearch = efSearch
+
+        # # Use fixed RNG seed for deterministic HNSW graph construction on CPU.
+        # rng = faiss.RandomGenerator(self.random_seed)
+        # index.hnsw.rng = rng
 
         return index
 
@@ -1032,30 +1142,50 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         X_train_temp = np.where(mask_train, mean_vals, X_train)
         X_test_temp = np.where(mask_test, mean_vals, X_test)
 
+        # CAGRA is sensitive to non-finite values; sanitize before add/search.
+        X_train_temp32 = np.ascontiguousarray(
+            np.nan_to_num(X_train_temp, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32, copy=False)
+        )
+        X_test_temp32 = np.ascontiguousarray(
+            np.nan_to_num(X_test_temp, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32, copy=False)
+        )
+
         # Build FAISS HNSW index on training data
         d = X_train.shape[1]
-        index = self._build_faiss_knn_index(d, M=M, efSearch=efSearch)
-        
-        index.add(X_train_temp.astype(np.float32))
+        index = self._build_faiss_knn_index(d, n_vectors=X_train_temp32.shape[0], M=M, efSearch=efSearch)
+
+        try:
+            if index.__class__.__name__.startswith("GpuIndexCagra"):
+                # CAGRA is built from a full dataset via train(), not incremental add().
+                index.train(X_train_temp32)
+            else:
+                index.add(X_train_temp32)
+        except Exception as exc:
+            logger.warning("Primary FAISS index build failed (%s). Retrying with CPU HNSWFlat.", exc)
+            index = faiss.IndexHNSWFlat(d, M)
+            index.hnsw.efSearch = efSearch
+            rng = faiss.RandomGenerator(self.random_seed)
+            index.hnsw.rng = rng
+            index.add(X_train_temp32)
 
         # Impute training data
-        distances, indices = index.search(X_train_temp.astype(np.float32), k + 1)
+        distances, indices = index.search(X_train_temp32, k + 1)
         X_train_imputed = X_train.copy()
         for i in range(X_train.shape[0]):
             neighbors = indices[i, 1:]  # skip self
             for j in range(X_train.shape[1]):
                 if mask_train[i, j]:
-                    neighbor_values = X_train_temp[neighbors, j]
+                    neighbor_values = X_train_temp32[neighbors, j]
                     X_train_imputed[i, j] = np.nanmean(neighbor_values)
 
         # Impute test data
-        distances_test, indices_test = index.search(X_test_temp.astype(np.float32), k)
+        distances_test, indices_test = index.search(X_test_temp32, k)
         X_test_imputed = X_test.copy()
         for i in range(X_test.shape[0]):
             neighbors = indices_test[i]
             for j in range(X_test.shape[1]):
                 if mask_test[i, j]:
-                    neighbor_values = X_train_temp[neighbors, j]
+                    neighbor_values = X_train_temp32[neighbors, j]
                     X_test_imputed[i, j] = np.nanmean(neighbor_values)
 
         # Rebuild into single array
@@ -1535,15 +1665,30 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         # Temporarily mean impute missing values
         X_temp = np.where(mask, np.nanmean(X, axis=0), X)
+        X_temp32 = np.ascontiguousarray(
+            np.nan_to_num(X_temp, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32, copy=False)
+        )
 
         # Build FAISS index (HNSW)
         d = X.shape[1] # dimension
-        index = self._build_faiss_knn_index(d, M=M, efSearch=efSearch)
-        
-        index.add(X_temp.astype(np.float32))
+        index = self._build_faiss_knn_index(d, n_vectors=X_temp32.shape[0], M=M, efSearch=efSearch)
+
+        try:
+            if index.__class__.__name__.startswith("GpuIndexCagra"):
+                # CAGRA is built from a full dataset via train(), not incremental add().
+                index.train(X_temp32)
+            else:
+                index.add(X_temp32)
+        except Exception as exc:
+            logger.warning("Primary FAISS index build failed (%s). Retrying with CPU HNSWFlat.", exc)
+            index = faiss.IndexHNSWFlat(d, M)
+            index.hnsw.efSearch = efSearch
+            rng = faiss.RandomGenerator(self.random_seed)
+            index.hnsw.rng = rng
+            index.add(X_temp32)
 
         # Find k nearest neighbors
-        distances, indices = index.search(X_temp.astype(np.float32), k + 1)
+        distances, indices = index.search(X_temp32, k + 1)
 
         # Impute missing values (skip self, which is always the first neighbor)
         for i in range(X.shape[0]):
@@ -1552,7 +1697,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 continue
             neighbors = indices[i, 1:] # skip self
             for j in missing_cols:
-                neighbor_values = X_temp[neighbors, j]
+                neighbor_values = X_temp32[neighbors, j]
                 X_imputed[i, j] = np.nanmean(neighbor_values)
 
         return X_imputed
