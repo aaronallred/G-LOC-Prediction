@@ -249,11 +249,14 @@ def test_apply_sensor_ablation_enabled_filters_selected_features():
 
 	selected_features = [
 		"HR (bpm) - Equivital_mean_s1",
+		"HRV (SDNN)_mean_s1",
 		"Pupil diameter left [mm] - Tobii_mean_s1",
 		"Fz_alpha - EEG_mean_s1",
 	]
 
-	assert pipeline._apply_sensor_ablation(selected_features, feature_streams=["EEG", "Pupil"]) == [
+	assert pipeline._apply_sensor_ablation(selected_features, feature_streams=["EEG", "Pupil", "ECG"]) == [
+		"HR (bpm) - Equivital_mean_s1",
+		"HRV (SDNN)_mean_s1",
 		"Pupil diameter left [mm] - Tobii_mean_s1",
 		"Fz_alpha - EEG_mean_s1",
 	]

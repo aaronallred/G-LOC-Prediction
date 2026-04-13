@@ -56,7 +56,7 @@ class DataPipeline:
 
     _SENSOR_STREAM_PATTERNS: dict[str, tuple[str, ...]] = {
         # Equivital streams
-        "ECG": (r"ecg",),
+        "ECG": (r"ecg", r"equivital", r"hrv"),
         "HR": (r"\bhr\b", r"participant_hr"),
         "BR": (r"\bbr\b",),
         "Temperature": (r"temp", r"temperature"),
