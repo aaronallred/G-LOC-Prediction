@@ -9,6 +9,8 @@ import os
 import numpy as np
 from sklearn.model_selection import StratifiedKFold
 
+from src.model_type import ModelType
+
 
 def stratified_kfold_split(Y, X, num_splits, kfold_ID, random_state=42):
     """Split arrays using a reproducible stratified k-fold index."""
@@ -26,28 +28,17 @@ def stratified_kfold_split(Y, X, num_splits, kfold_ID, random_state=42):
 
 def get_model_subfolder(model_type):
     """Map the configured model_type tuple to its on-disk results folder."""
-    if model_type == ['noAFE', 'phys']:
-        return 'Implicit noAFE'
-    elif model_type == ['noAFE', 'phys+']:
-        return 'Explicit noAFE'
-    elif model_type == ['combined', 'phys']:
-        return 'Implicit complete'
-    elif model_type == ['combined', 'phys+']:
-        return 'Explicit complete'
-    elif model_type == ['noAFE', 'explicit']:
-        return 'Explicit_nonAFE_final'
-    elif model_type == ['combined', 'implicit']:
-        return 'Implicit complete'
-    elif model_type == ['combined', 'explicit']:
-        return 'Explicit complete'
-    elif model_type == ['noAFE', 'implicit']:
-        return 'Implicit noAFE'
-    elif model_type == ['complete', 'implicit']:
-        return 'Implicit_Complete'
-    elif model_type == ['complete', 'explicit']:
-        return 'Complete_Explicit'
-    else:
+    subfolders = {
+        ModelType("Complete", "Explicit"): "Complete_Explicit",
+        ModelType("Complete", "Implicit"): "Complete_Implicit",
+        ModelType("noAFE", "Explicit"): "noAFE_Explicit",
+        ModelType("noAFE", "Implicit"): "noAFE_Implicit"
+    }
+
+    if model_type not in subfolders:
         raise ValueError(f"Unrecognized model_type: {model_type}")
+    
+    return subfolders[model_type]
 
 
 def get_hyperparameters_from_json(classifier: str, model_type: str):
