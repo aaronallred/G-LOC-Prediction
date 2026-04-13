@@ -4,8 +4,8 @@ import os
 import json
 import numpy as np
 
-from data_pipeline import DataPipeline, AdvancedDataPipeline, TraditionalDataPipeline
-from model_type import ModelType
+from src.data_pipeline import DataPipeline, AdvancedDataPipeline, TraditionalDataPipeline
+from src.model_type import ModelType
 
 
 class _DummyModel:
@@ -114,8 +114,8 @@ def test_build_backend_routes_to_traditional(monkeypatch):
 		def __init__(self, data_path, random_seed, config_parser=None):
 			created["advanced"] = (data_path, random_seed, config_parser)
 
-	monkeypatch.setattr("data_pipeline.TraditionalDataPipeline", FakeTraditionalPipeline)
-	monkeypatch.setattr("data_pipeline.AdvancedDataPipeline", FakeAdvancedPipeline)
+	monkeypatch.setattr("src.data_pipeline.TraditionalDataPipeline", FakeTraditionalPipeline)
+	monkeypatch.setattr("src.data_pipeline.AdvancedDataPipeline", FakeAdvancedPipeline)
 
 	backend = pipeline._build_backend(parser.get_model())
 
@@ -147,11 +147,11 @@ def test_build_faiss_knn_index_honors_configured_index_type(monkeypatch, faiss_i
 	cpu_index = _FakeCPUIndex()
 	gpu_index = _FakeGPUIndex()
 
-	monkeypatch.setattr("data_pipeline.faiss.get_num_gpus", lambda: gpu_count, raising=False)
-	monkeypatch.setattr("data_pipeline.faiss.StandardGpuResources", lambda: object(), raising=False)
-	monkeypatch.setattr("data_pipeline.faiss.GpuIndexFlatL2", lambda *args: gpu_index, raising=False)
-	monkeypatch.setattr("data_pipeline.faiss.IndexHNSWFlat", lambda d, M: cpu_index, raising=False)
-	monkeypatch.setattr("data_pipeline.faiss.RandomGenerator", lambda seed: f"rng:{seed}", raising=False)
+	monkeypatch.setattr("src.data_pipeline.faiss.get_num_gpus", lambda: gpu_count, raising=False)
+	monkeypatch.setattr("src.data_pipeline.faiss.StandardGpuResources", lambda: object(), raising=False)
+	monkeypatch.setattr("src.data_pipeline.faiss.GpuIndexFlatL2", lambda *args: gpu_index, raising=False)
+	monkeypatch.setattr("src.data_pipeline.faiss.IndexHNSWFlat", lambda d, M: cpu_index, raising=False)
+	monkeypatch.setattr("src.data_pipeline.faiss.RandomGenerator", lambda seed: f"rng:{seed}", raising=False)
 
 	index = pipeline._build_faiss_knn_index(d=8)
 
@@ -221,6 +221,7 @@ def test_get_data_for_traditional_pipeline_forwards_required_arguments(monkeypat
 		"trial_to_analyze": "03",
 		"analysis_type": 2,
 		"classifier_type": "RF",
+			"model": parser.get_model(),
 		"select_features": ["f1", "f2"],
 		"backstep": 10,
 		"data_rate": 25,

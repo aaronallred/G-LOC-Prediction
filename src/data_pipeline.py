@@ -119,6 +119,7 @@ class DataPipeline:
             request_kwargs["baseline_window"] = self._config_parser.get_baseline_window()
         else:
             request_kwargs["classifier_type"] = self._resolve_classifier_name(model)
+            request_kwargs["model"] = model
             selected_features = self._resolve_select_features(request_kwargs)
             selected_features = self._apply_sensor_ablation(selected_features, feature_streams)
             request_kwargs["select_features"] = selected_features
@@ -1378,70 +1379,6 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 class TraditionalDataPipeline(BaseGLOCDataPipeline):
     """Legacy-compatible data pipeline for temporal/traditional GLOC modeling."""
 
-    # From Nikki paper
-    _CLASSIFIER_HYPERPARAMETERS: Dict[str, Dict[str, Any]] = {
-        "LogReg": {
-            "baseline_window": 5,
-            "window_size": 12.5,
-            "stride": 0.25,
-            "feature_reduction_type": "lasso",
-            "baseline_methods_to_use": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
-            "imbalance_type": "none",
-            "impute_type": 1,
-            "n_neighbors": 5,
-        },
-        "RF": {
-            "baseline_window": 18.75,
-            "window_size": 7.5,
-            "stride": 0.25,
-            "feature_reduction_type": "none",
-            "baseline_methods_to_use": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
-            "imbalance_type": "none",
-            "impute_type": 1,
-            "n_neighbors": 3,
-        },
-        "LDA": {
-            "baseline_window": 46.25,
-            "window_size": 15,
-            "stride": 0.25,
-            "feature_reduction_type": "lasso",
-            "baseline_methods_to_use": ["v0", "v1", "v2"],
-            "imbalance_type": "none",
-            "impute_type": 1,
-            "n_neighbors": 3,
-        },
-        "SVM": {
-            "baseline_window": 32.5,
-            "window_size": 15,
-            "stride": 0.25,
-            "feature_reduction_type": "ridge",
-            "baseline_methods_to_use": ["v0", "v1", "v2"],
-            "imbalance_type": "none",
-            "impute_type": 1,
-            "n_neighbors": 3,
-        },
-        "EGB": {
-            "baseline_window": 46.25,
-            "window_size": 12.5,
-            "stride": 0.25,
-            "feature_reduction_type": "lasso",
-            "baseline_methods_to_use": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
-            "imbalance_type": "none",
-            "impute_type": 1,
-            "n_neighbors": 3,
-        },
-        "KNN": {
-            "baseline_window": 32.5,
-            "window_size": 15,
-            "stride": 0.25,
-            "feature_reduction_type": "performance",
-            "baseline_methods_to_use": ["v0", "v1", "v2"],
-            "imbalance_type": "ros",
-            "impute_type": 1,
-            "n_neighbors": 5,
-        },
-    }
-
     def get_data(
             self,
             backstep: int,
@@ -1460,18 +1397,18 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             output_feature_dtype: np.dtype = np.dtype(np.float32),
             save_impute: bool = False,
             load_impute: bool = False,
+            model: Optional[BaseModel] = None,
         ) -> Tuple[np.ndarray, np.ndarray]:
         """Return data for a given set of parameters."""
-        (
-            baseline_window,
-            window_size,
-            stride,
-            _feature_reduction_type,
-            baseline_methods_to_use,
-            _imbalance_type,
-            impute_type,
-            n_neighbors,
-        ) = self._get_hyperparameters_by_classifier(classifier_type)
+        traditional_hyperparameters = self._resolve_traditional_hyperparameters(model, classifier_type)
+        baseline_window = traditional_hyperparameters["baseline_window"]
+        window_size = traditional_hyperparameters["window_size"]
+        stride = traditional_hyperparameters["stride"]
+        _feature_reduction_type = traditional_hyperparameters["feature_reduction_type"]
+        baseline_methods_to_use = traditional_hyperparameters["baseline_methods_to_use"]
+        _imbalance_type = traditional_hyperparameters["imbalance_type"]
+        impute_type = traditional_hyperparameters["impute_type"]
+        n_neighbors = traditional_hyperparameters["n_neighbors"]
         feature_groups_to_analyze = self._get_feature_groups(model_type)
 
         ############################################# LOAD AND PROCESS DATA #############################################
@@ -1610,26 +1547,45 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         return gloc_data_all_features_numpy, gloc_labels_numpy
     
-    def _get_hyperparameters_by_classifier(
+    def _resolve_traditional_hyperparameters(
             self,
-            classifier_type: str,
-    ) -> Tuple[float, float, float, str, List[str], str, int, int]:
-        """Return hyperparameters for a given classifier type."""
-        params = self._CLASSIFIER_HYPERPARAMETERS.get(classifier_type)
-        if params is None:
-            available = ", ".join(sorted(self._CLASSIFIER_HYPERPARAMETERS.keys()))
-            raise ValueError(f"Unknown classifier_type '{classifier_type}'. Available: {available}")
+            model: Optional[BaseModel],
+            classifier_type: Optional[str],
+    ) -> Dict[str, Any]:
+        """Return the traditional pipeline hyperparameters from the model class."""
+        resolved_model = model
+        if resolved_model is None:
+            if classifier_type is None:
+                raise ValueError("A model or classifier_type is required for traditional hyperparameter lookup.")
 
-        return (
-            params["baseline_window"],
-            params["window_size"],
-            params["stride"],
-            params["feature_reduction_type"],
-            params["baseline_methods_to_use"],
-            params["imbalance_type"],
-            params["impute_type"],
-            params["n_neighbors"],
-        )
+            model_factory = GLOCExperimentConfigParser.MODEL_FACTORIES_BY_NAME.get(classifier_type)
+            if model_factory is None:
+                available = ", ".join(sorted(GLOCExperimentConfigParser.MODEL_FACTORIES_BY_NAME.keys()))
+                raise ValueError(f"Unknown classifier_type '{classifier_type}'. Available: {available}")
+
+            resolved_model = model_factory(config={})
+
+        if not hasattr(resolved_model, "get_traditional_hyperparameters"):
+            raise ValueError(f"Model '{resolved_model}' does not provide traditional hyperparameters.")
+
+        hyperparameters = resolved_model.get_traditional_hyperparameters()
+        required_keys = {
+            "baseline_window",
+            "window_size",
+            "stride",
+            "feature_reduction_type",
+            "baseline_methods_to_use",
+            "imbalance_type",
+            "impute_type",
+            "n_neighbors",
+        }
+        missing_keys = sorted(required_keys - set(hyperparameters.keys()))
+        if missing_keys:
+            raise ValueError(
+                f"Traditional hyperparameters for {resolved_model.get_name()} are missing required keys: {missing_keys}"
+            )
+
+        return hyperparameters
     
     def _get_feature_groups(self, model_type: ModelType) -> Sequence[str]:
         feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]

@@ -1,3 +1,4 @@
+import copy
 from abc import ABC, abstractmethod
 from typing import Dict, Any
 
@@ -5,6 +6,8 @@ from imblearn.metrics import geometric_mean_score
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
 class BaseModel(ABC):
+    TRADITIONAL_HYPERPARAMETERS: Dict[str, Any] = {}
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.best_params = {}
@@ -39,6 +42,14 @@ class BaseModel(ABC):
     def is_traditiona(self) -> bool:
         """Return True if model is traditional (non-deep learning)"""
         return self.is_traditional
+
+    def get_traditional_hyperparameters(self) -> Dict[str, Any]:
+        """Return the traditional data-pipeline hyperparameters for this model."""
+        traditional_hyperparameters = copy.deepcopy(self.TRADITIONAL_HYPERPARAMETERS)
+        overrides = self.config.get("traditional_hyperparameters")
+        if isinstance(overrides, dict):
+            traditional_hyperparameters.update(copy.deepcopy(overrides))
+        return traditional_hyperparameters
 
     def classify_traditional(
         self,

@@ -12,6 +12,17 @@ from src.models.base import BaseModel
 class KNearestNeighborsModel(BaseModel):
     """K-nearest neighbors classifier wrapper."""
 
+    TRADITIONAL_HYPERPARAMETERS = {
+        "baseline_window": 32.5,
+        "window_size": 15,
+        "stride": 0.25,
+        "feature_reduction_type": "performance",
+        "baseline_methods_to_use": ["v0", "v1", "v2"],
+        "imbalance_type": "ros",
+        "impute_type": 1,
+        "n_neighbors": 5,
+    }
+
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.model = None

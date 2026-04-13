@@ -15,6 +15,17 @@ logger = logging.getLogger(__name__)
 class RandomForestModel(BaseModel):
     """Random Forest classifier wrapper used by the traditional pipeline."""
 
+    TRADITIONAL_HYPERPARAMETERS = {
+        "baseline_window": 18.75,
+        "window_size": 7.5,
+        "stride": 0.25,
+        "feature_reduction_type": "none",
+        "baseline_methods_to_use": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
+        "imbalance_type": "none",
+        "impute_type": 1,
+        "n_neighbors": 3,
+    }
+
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.model = None

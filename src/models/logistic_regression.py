@@ -18,6 +18,17 @@ class LogisticRegression(BaseModel):
     Supports hyperparameter tuning via Optuna or BayesSearchCV.
     """
 
+    TRADITIONAL_HYPERPARAMETERS = {
+        "baseline_window": 5,
+        "window_size": 12.5,
+        "stride": 0.25,
+        "feature_reduction_type": "lasso",
+        "baseline_methods_to_use": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
+        "imbalance_type": "none",
+        "impute_type": 1,
+        "n_neighbors": 5,
+    }
+
     def __init__(self, config: Dict[str, Any]):
         """
         Initialize LogisticRegression model.
