@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any
 
+from imblearn.metrics import geometric_mean_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+
 class BaseModel(ABC):
     def __init__(self, config: Dict[str, Any]):
         self.config = config
@@ -36,6 +39,41 @@ class BaseModel(ABC):
     def is_traditiona(self) -> bool:
         """Return True if model is traditional (non-deep learning)"""
         return self.is_traditional
+
+    def classify_traditional(
+        self,
+        x_train,
+        x_test,
+        y_train,
+        y_test,
+        class_weight_imb,
+        random_state,
+        save_folder,
+        model_name,
+        retrain,
+        temporal=False,
+        best_params=None,
+    ):
+        """Legacy-compatible traditional classifier entry point.
+
+        Traditional model wrappers should override this method and return the same
+        tuple structure as the legacy classify_* functions in
+        src/scripts/GLOC_classifier_traditional.py.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement classify_traditional()."
+        )
+
+    @staticmethod
+    def _legacy_binary_metrics(y_true, y_pred) -> tuple[float, float, float, float, float, float]:
+        """Compute legacy metric set with matching defaults and ordering."""
+        accuracy = accuracy_score(y_true, y_pred)
+        precision = precision_score(y_true, y_pred)
+        recall = recall_score(y_true, y_pred)
+        f1 = f1_score(y_true, y_pred)
+        specificity = recall_score(y_true, y_pred, pos_label=0)
+        g_mean = geometric_mean_score(y_true, y_pred)
+        return accuracy, precision, recall, f1, specificity, g_mean
 
     @abstractmethod
     def get_name(self) -> str:

@@ -1,4 +1,5 @@
 import joblib
+import os
 from typing import Any, Dict
 
 import numpy as np
@@ -75,3 +76,39 @@ class ExtremeGradientBoostingModel(BaseModel):
     def get_name(self) -> str:
         """Return classifier key for hyperparameter lookup."""
         return "EGB"
+
+    def classify_traditional(
+        self,
+        x_train,
+        x_test,
+        y_train,
+        y_test,
+        class_weight_imb,
+        random_state,
+        save_folder,
+        model_name,
+        retrain,
+        temporal=False,
+        best_params=None,
+    ):
+        """Return legacy-compatible metric tuple for gradient boosting evaluation."""
+        del class_weight_imb
+
+        if retrain:
+            estimator = GradientBoostingClassifier(random_state=random_state).fit(
+                x_train,
+                np.ravel(y_train),
+            )
+        else:
+            if temporal:
+                estimator = GradientBoostingClassifier(
+                    **(best_params or {}),
+                    random_state=random_state,
+                ).fit(x_train, np.ravel(y_train))
+            else:
+                model_path = os.path.join(save_folder, model_name)
+                estimator = joblib.load(model_path)
+
+        self.model = estimator
+        predictions = estimator.predict(x_test)
+        return self._legacy_binary_metrics(y_test, predictions)

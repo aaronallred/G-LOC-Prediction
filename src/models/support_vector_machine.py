@@ -1,4 +1,5 @@
 import joblib
+import os
 from typing import Any, Dict
 
 import numpy as np
@@ -76,3 +77,36 @@ class SupportVectorMachineModel(BaseModel):
     def get_name(self) -> str:
         """Return classifier key for hyperparameter lookup."""
         return "SVM"
+
+    def classify_traditional(
+        self,
+        x_train,
+        x_test,
+        y_train,
+        y_test,
+        class_weight_imb,
+        random_state,
+        save_folder,
+        model_name,
+        retrain,
+        temporal=False,
+        best_params=None,
+    ):
+        """Return legacy-compatible metric tuple for SVM traditional evaluation."""
+        del random_state
+
+        if retrain:
+            estimator = SVC(class_weight=class_weight_imb).fit(x_train, np.ravel(y_train))
+        else:
+            if temporal:
+                estimator = SVC(
+                    **(best_params or {}),
+                    class_weight=class_weight_imb,
+                ).fit(x_train, np.ravel(y_train))
+            else:
+                model_path = os.path.join(save_folder, model_name)
+                estimator = joblib.load(model_path)
+
+        self.model = estimator
+        predictions = estimator.predict(x_test)
+        return self._legacy_binary_metrics(y_test, predictions)
