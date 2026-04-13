@@ -17,7 +17,7 @@ class KNearestNeighborsModel(BaseModel):
         "window_size": 15,
         "stride": 0.25,
         "feature_reduction_type": "performance",
-        "baseline_methods_to_use": ["v0", "v1", "v2", "v5", "v6"],
+        "baseline_methods_to_use": ["v0", "v1", "v2"],
         "imbalance_type": "ros",
         "impute_type": 1,
         "n_neighbors": 5,

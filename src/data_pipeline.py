@@ -309,6 +309,11 @@ class BaseGLOCDataPipeline(ABC):
         + [f'{ch}_{band} - EEG' for ch in _RAW_EEG_CHANNELS for band in ["delta", "theta", "alpha", "beta"]]
     )
 
+    BASELINING_CHARACTERISTICS_BY_MODEL_TYPE = {
+        "noAFE": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
+        "Complete": ["v0", "v1", "v2", "v5", "v6"],
+    }
+
     def __init__(self, data_path: str = "../data/", random_seed: int = 42, config_parser: Optional[GLOCExperimentConfigParser] = None) -> None:
         """Initialize shared pipeline state.
         
@@ -852,77 +857,10 @@ class BaseGLOCDataPipeline(ABC):
 
 
 
-        
-        # # Only query GPU count if we're willing to use GPU
-        # get_num_gpus = getattr(faiss, "get_num_gpus", None)
-        # gpu_count = 0
-
-        # if should_try_gpu and callable(get_num_gpus):
-        #     try:
-        #         gpu_count = int(get_num_gpus())
-        #     except Exception as exc:
-        #         logger.warning("Unable to query FAISS GPU count; falling back based on faiss_index_type. Error: %s", exc)
-
-        # logger.info(
-        #     "FAISS index setup: faiss_index_type=%s, should_try_gpu=%s, gpu_count=%d.",
-        #     faiss_index_type,     should_try_gpu, gpu_count
-        # )
-
-        # if should_try_gpu and gpu_count > 0:
-        #     gpu_resources_ctor = getattr(faiss, "StandardGpuResources", None)
-        #     gpu_cagra_ctor = getattr(faiss, "GpuIndexCagra", None)
-        #     gpu_cagra_config_ctor = getattr(faiss, "GpuIndexCagraConfig", None)
-
-        #     if callable(gpu_resources_ctor) and callable(gpu_cagra_ctor) and callable(gpu_cagra_config_ctor):
-        #         try:
-        #             gpu_resources = gpu_resources_ctor()
-        #             cagra_config = gpu_cagra_config_ctor()
-        #             cagra_config.device = 0
-        #             cagra_config.graph_degree = max(2 * M, 32)
-        #             cagra_config.intermediate_graph_degree = max(4 * M, 64)
-
-        #             index = gpu_cagra_ctor(gpu_resources, d, faiss.METRIC_L2, cagra_config)
-
-        #             logger.info(
-        #                 "Using FAISS GPU GpuIndexCagra index for KNN imputation (graph_degree=%d, intermediate_graph_degree=%d).",
-        #                 cagra_config.graph_degree,
-        #                 cagra_config.intermediate_graph_degree,
-        #             )
-        #             return index
-        #         except Exception as exc:
-        #             logger.warning(
-        #                 "GPU detected but FAISS GPU CAGRA setup failed; falling back to CPU HNSWFlat. Error: %s",
-        #                 exc,
-        #             )
-        #     else:
-        #         logger.warning(
-        #             "GPU detected but FAISS GPU CAGRA bindings are unavailable; falling back to CPU HNSWFlat."
-        #         )
-
-        # if faiss_index_type == "cpu":
-        #     logger.info("faiss_index_type is set to 'cpu'; using FAISS CPU IndexHNSWFlat index for KNN imputation.")
-        # else:
-        #     logger.info("Using FAISS CPU IndexHNSWFlat index for KNN imputation.")
-
-        # index = faiss.IndexHNSWFlat(d, M)
-        # index.hnsw.efSearch = efSearch
-
-        # # Use fixed RNG seed for deterministic HNSW graph construction on CPU.
-        # rng = faiss.RandomGenerator(self.random_seed)
-        # index.hnsw.rng = rng
-
-        return index
-
-
 class AdvancedDataPipeline(BaseGLOCDataPipeline):
     """
     Advanced data pipeline for GLOC event prediction, refactored from load_and_prepare_data_advanced.
     """
-
-    BASELINING_CHARACTERISTICS_BY_MODEL_TYPE = {
-        "noAFE": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
-        "Complete": ["v0", "v1", "v2", "v5", "v6"],
-    }
 
     def _get_feature_groups_and_baseline_methods(self, model_type: ModelType) -> Tuple[Sequence[str], List[str]]:
         """Resolve feature groups and baseline methods for advanced pipeline variants."""
@@ -1409,7 +1347,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         _imbalance_type = traditional_hyperparameters["imbalance_type"]
         impute_type = traditional_hyperparameters["impute_type"]
         n_neighbors = traditional_hyperparameters["n_neighbors"]
-        feature_groups_to_analyze = self._get_feature_groups(model_type)
+        feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
 
         ############################################# LOAD AND PROCESS DATA #############################################
         logger.info("Loading and processing data with parameters: classifier_type=%s, model_type=%s, select_features=%s, remove_NaN_trials=%s, offset=%.2f, time_start=%.2f, subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d",)
@@ -1586,15 +1524,15 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             )
 
         return hyperparameters
-    
-    def _get_feature_groups(self, model_type: ModelType) -> Sequence[str]:
+
+    def _get_feature_groups_and_baseline_methods(self, model_type: ModelType, baseline_methods_to_use: List[str]) -> Tuple[Sequence[str], List[str]]:
+        """Resolve feature groups and baseline methods for advanced pipeline variants."""
         feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
 
-        # NOTE:
-        # AFE indicator is required for EEG imputation in complete models,
-        # but is only included as a predictive feature for explicit models.
-
-        return feature_groups_to_analyze
+        if model_type.afe_filter == "Complete":
+            baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE["Complete"]
+            
+        return feature_groups_to_analyze, baseline_methods_to_use
 
     def _resolve_traditional_impute_path(self, impute_file_name: str, classifier_type: str) -> str:
         """Build traditional cache path in data_path/Processed Data with prefix and model-name suffix."""
