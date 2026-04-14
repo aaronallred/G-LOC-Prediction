@@ -49,10 +49,11 @@ def _extract_f1_score(metrics_tuple: tuple) -> float:
 
 def _persist_streamwise_f1_results(
     f1_results_by_stream: dict[str, dict[str, np.ndarray]],
+    feature_study_dir: Path,
     subfolder_name: str,
 ) -> Path:
     """Persist streamwise F1 arrays per model for downstream analysis parity with legacy preference 7."""
-    results_dir = Path("./feature_study") / subfolder_name / "streamwise"
+    results_dir = feature_study_dir / subfolder_name / "streamwise"
     results_dir.mkdir(parents=True, exist_ok=True)
 
     for model_name, stream_map in f1_results_by_stream.items():
@@ -73,28 +74,27 @@ def run(config_path: str | None = None) -> None:
     feature_stream_groups: list[list[str]] = config_parser.get_sensor_ablation_streams()
     models_to_test: list = config_parser.get_models()
     num_splits: int = config_parser.get_num_splits()
-    sensor_ablation_enabled: bool = config_parser.get_sensor_ablation_enabled()
+    feature_study_dir: Path = Path(config_parser.get_feature_study_dir())
+    restricted_feature_eval_dir: Path = Path(config_parser.get_restricted_feature_eval_dir())
 
     # Preference 7 in Legacy
     # If sensor ablation is enabled, we need to load the best hyperparameters for each model and stream group from JSON before running the classification. 
     # Otherwise, we can run the classification without loading hyperparameters.
-    if sensor_ablation_enabled:
-        model_type: str = config_parser.get_model_type()
-        subfolder_name: str = get_model_subfolder(model_type)
-        f1_results_by_stream: dict[str, dict[str, np.ndarray]] = { model.get_name() for model in models_to_test }
+    if config_parser.get_sensor_ablation_enabled():
+        model_type = config_parser.get_model_type()
+        f1_results_by_stream: dict[str, dict[str, np.ndarray]] = { model.get_name(): {} for model in models_to_test }
 
         for model in models_to_test:
             model_name = model.get_name() if hasattr(model, "get_name") else str(model)
             logging.info("Running model: %s", model_name)
 
-            hyperparameters, _, _, _ = get_hyperparameters_from_json(model_name, subfolder_name)
-            save_folder = f"../RestrictedFeatureEval/{subfolder_name}"
+            hyperparameters, _, _, _ = get_hyperparameters_from_json(model_name, model_type.get_folder_name())
 
             for group_index, feature_streams in enumerate(feature_stream_groups, start = 1):
                 logging.info("Running stream group %d/%d: %s", group_index, len(feature_stream_groups), feature_streams)
 
                 x, y = pipeline.get_data(model = model, feature_streams = feature_streams)
-                stream_key = _stream_group_key(feature_streams)
+                stream_str = "-".join(feature_streams)
                 f1_scores = np.zeros(num_splits, dtype=float)
 
                 for kfold_id in range(num_splits):
@@ -114,7 +114,7 @@ def run(config_path: str | None = None) -> None:
                         y_test,
                         None,
                         config_parser.get_random_seed(),
-                        save_folder,
+                        save_folder = "", # TODO: Implement saving and loading of trained models
                         model_name=f"{model_name.lower()}_feature_study.pkl",
                         retrain=False,
                         temporal=True,
@@ -127,47 +127,16 @@ def run(config_path: str | None = None) -> None:
                     logging.info(
                         "Metrics for %s | streams=%s | fold=%d: %s",
                         model_name,
-                        feature_streams if feature_streams else ["ALL_STREAMS"],
+                        feature_streams,
                         kfold_id,
                         metrics_tuple,
                     )
 
-                f1_results_by_stream[model_name][stream_key] = f1_scores
+                f1_results_by_stream[model_name][stream_str] = f1_scores
 
-        results_dir = _persist_streamwise_f1_results(f1_results_by_stream, subfolder_name)
+        results_dir = _persist_streamwise_f1_results(f1_results_by_stream, feature_study_dir, model_type.get_folder_name())
         logging.info("Saved streamwise F1 results to %s", results_dir)
         return
-
-    for model in models_to_test:
-        model_name = model.get_name() if hasattr(model, "get_name") else str(model)
-        logging.info("Running model: %s", model_name)
-
-        for group_index, feature_streams in enumerate(feature_stream_groups, start=1):
-            logging.info(
-                "Running stream group %d/%d: %s",
-                group_index,
-                len(feature_stream_groups),
-                feature_streams if feature_streams else "ALL_STREAMS",
-            )
-
-            for kfold_id in range(num_splits):
-                logging.info("Running fold %d/%d", kfold_id + 1, num_splits)
-                data = pipeline.get_data(model=model, kfold_id=kfold_id, feature_streams=feature_streams)
-
-                print("Data Dimensions:")
-                print(f"model={model_name} | stream_group={feature_streams if feature_streams else ['ALL_STREAMS']} | fold={kfold_id}")
-                if isinstance(data, tuple) and len(data) >= 4:
-                    x_train, x_test, y_train, y_test = data[:4]
-                    print(f"x_train: {x_train.shape}")
-                    print(f"x_test: {x_test.shape}")
-                    print(f"y_train: {y_train.shape}")
-                    print(f"y_test: {y_test.shape}")
-                elif isinstance(data, tuple) and len(data) == 2:
-                    x_feature_matrix, y_gloc_labels = data
-                    print(f"x_feature_matrix: {x_feature_matrix.shape}")
-                    print(f"y_gloc_labels: {y_gloc_labels.shape}")
-                else:
-                    print("Unexpected data format returned from pipeline.")
 
 if __name__ == "__main__":
     args = parse_args()
@@ -179,4 +148,5 @@ if __name__ == "__main__":
             raise FileNotFoundError(f"Config file not found: {resolved_config_path}")
         
         config_path = str(resolved_config_path)
+
     run(config_path)
