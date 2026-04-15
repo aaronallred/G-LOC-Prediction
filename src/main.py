@@ -10,6 +10,7 @@ from .data_pipeline import DataPipeline
 from .traditional_experiment_utils import (
     get_hyperparameters_from_json,
     stratified_kfold_split,
+    plot_f1_violin_by_stream
 )
 
 def configure_logging() -> None:
@@ -67,21 +68,24 @@ def run(config_path: str | None = None) -> None:
     # Otherwise, we can run the classification without loading hyperparameters.
     if config_parser.get_sensor_ablation_enabled():
         model_type = config_parser.get_model_type()
+        f1_results_by_stream: dict[str, dict[str, np.ndarray]] = {
+            model.get_name(): {}
+            for model in models_to_test
+        }
 
         sensor_ablation_results_dir = project_root / "Results" / "Sensor_Ablation" / model_type.get_folder_name()
         sensor_ablation_results_dir.mkdir(parents = True, exist_ok = True)
 
-        for model in models_to_test:
-            model_name = model.get_name()
-            logging.info("Running model: %s", model_name)
+        for group_index, feature_streams in enumerate(feature_stream_groups, start = 1):
+            logging.info("Running stream group %d/%d: %s", group_index, len(feature_stream_groups), feature_streams)
+            stream_str = "-".join(feature_streams)
 
-            hyperparameters, _, _, _ = get_hyperparameters_from_json(model_name, model_type.get_folder_name())
+            for model in models_to_test:
+                model_name = model.get_name()
+                logging.info("Running model: %s", model_name)
 
-            for group_index, feature_streams in enumerate(feature_stream_groups, start = 1):
-                logging.info("Running stream group %d/%d: %s", group_index, len(feature_stream_groups), feature_streams)
-
+                hyperparameters, _, _, _ = get_hyperparameters_from_json(model_name, model_type.get_folder_name())
                 x, y = pipeline.get_data(model = model, feature_streams = feature_streams)
-                stream_str = "-".join(feature_streams)
                 f1_scores = np.zeros(num_splits, dtype = float)
 
                 for kfold_id in range(num_splits):
@@ -125,7 +129,15 @@ def run(config_path: str | None = None) -> None:
                     stream_str = stream_str,
                     f1_scores = f1_scores,
                 )
+                f1_results_by_stream[model_name][stream_str] = f1_scores
                 logging.info("Saved F1 scores to %s", output_path)
+
+        plot_f1_violin_by_stream(
+            f1_results_by_stream = f1_results_by_stream,
+            model_type = model_type,
+            stream_str = stream_str,
+            save_folder = sensor_ablation_results_dir,
+        )
 
         return
 
