@@ -122,4 +122,7 @@ class ExtremeGradientBoostingModel(BaseModel):
 
         self.model = estimator
         predictions = estimator.predict(x_test)
-        return self._legacy_binary_metrics(y_test, predictions)
+        metrics = self._legacy_binary_metrics(y_test, predictions)
+        self._print_legacy_metrics("Ensemble Learner with Gradient Boosting Performance Metrics:", metrics)
+        self._display_confusion_matrix(y_test, predictions, "Ensemble Learner with Gradient Boosting")
+        return metrics

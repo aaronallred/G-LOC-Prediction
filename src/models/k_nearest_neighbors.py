@@ -119,4 +119,7 @@ class KNearestNeighborsModel(BaseModel):
 
         self.model = estimator
         predictions = estimator.predict(x_test)
-        return self._legacy_binary_metrics(y_test, predictions)
+        metrics = self._legacy_binary_metrics(y_test, predictions)
+        self._print_legacy_metrics("KNN Performance Metrics:", metrics)
+        self._display_confusion_matrix(y_test, predictions, "KNN")
+        return metrics
