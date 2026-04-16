@@ -11,8 +11,8 @@ from typing import Any, Optional, Dict, List, Type
 from pathlib import Path
 
 import numpy as np
-import json
 import copy
+import yaml
 
 class GLOCExperimentConfigParser:
     MODEL_FACTORIES_BY_NAME: Dict[str, Type[BaseModel]] = {
@@ -34,12 +34,15 @@ class GLOCExperimentConfigParser:
 
     def __init__(self, config_location: Optional[str] = None) -> None:
         if config_location is None:
-            config_path = Path(__file__).resolve().parent.parent / "GLOC_experiment_config.json"
+            config_path = Path(__file__).resolve().parent.parent / "GLOC_experiment_config.yaml"
         else:
             config_path = Path(config_location).expanduser().resolve()
 
         with open(config_path, "r") as f:
-            self.config = json.load(f)
+            self.config = yaml.safe_load(f)
+
+        if not isinstance(self.config, dict):
+            raise ValueError("Config file must contain a top-level YAML mapping.")
 
         self._parse_general_configs()
         self._parse_shared_data_configs()

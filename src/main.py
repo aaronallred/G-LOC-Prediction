@@ -22,12 +22,12 @@ def configure_logging() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description = "Run the G-LOC data pipeline with a configurable JSON experiment file.",
+        description = "Run the G-LOC data pipeline with a configurable YAML experiment file.",
     )
     parser.add_argument(
         "--config",
         default=None,
-        help = "Path to experiment config JSON (defaults to project-level GLOC_experiment_config.json).",
+        help = "Path to experiment config YAML (defaults to project-level GLOC_experiment_config.yaml).",
     )
     
     return parser.parse_args()
