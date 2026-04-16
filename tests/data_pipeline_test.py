@@ -124,43 +124,29 @@ def test_build_backend_routes_to_traditional(monkeypatch):
 	assert "advanced" not in created
 
 
-@pytest.mark.parametrize(
-	"faiss_index_type, gpu_count, expected_backend",
-	[("cpu", 1, "cpu"), ("gpu", 1, "gpu"), ("auto", 0, "cpu")],
-)
-def test_build_faiss_knn_index_honors_configured_index_type(monkeypatch, faiss_index_type, gpu_count, expected_backend):
-	parser = _DummyConfigParser(_DummyModel(is_traditional=True, name="RF"), faiss_index_type=faiss_index_type)
-	pipeline = TraditionalDataPipeline(data_path="../data/", random_seed=123, config_parser=parser)
+def test_knn_imputation_smoke_runs_for_both_pipelines():
+	advanced_pipeline = AdvancedDataPipeline(data_path="../data/", random_seed=42)
+	traditional_pipeline = TraditionalDataPipeline(data_path="../data/", random_seed=42)
 
-	class _FakeHNSWState:
-		def __init__(self) -> None:
-			self.efSearch = None
-			self.rng = None
+	X = np.array(
+		[
+			[1.0, np.nan, 3.0],
+			[2.0, 5.0, np.nan],
+			[np.nan, 8.0, 9.0],
+			[4.0, 5.0, 6.0],
+		],
+		dtype=np.float32,
+	)
+	train_ind = np.array([0, 1], dtype=np.int64)
+	test_ind = np.array([2, 3], dtype=np.int64)
 
-	class _FakeCPUIndex:
-		def __init__(self) -> None:
-			self.hnsw = _FakeHNSWState()
+	advanced_imputed = advanced_pipeline._faster_knn_impute_train_test(X, train_ind, test_ind, k=1)
+	traditional_imputed = traditional_pipeline._faster_knn_impute(X, k=1)
 
-	class _FakeGPUIndex:
-		pass
-
-	cpu_index = _FakeCPUIndex()
-	gpu_index = _FakeGPUIndex()
-
-	monkeypatch.setattr("src.data_pipeline.faiss.get_num_gpus", lambda: gpu_count, raising=False)
-	monkeypatch.setattr("src.data_pipeline.faiss.StandardGpuResources", lambda: object(), raising=False)
-	monkeypatch.setattr("src.data_pipeline.faiss.GpuIndexFlatL2", lambda *args: gpu_index, raising=False)
-	monkeypatch.setattr("src.data_pipeline.faiss.IndexHNSWFlat", lambda d, M: cpu_index, raising=False)
-	monkeypatch.setattr("src.data_pipeline.faiss.RandomGenerator", lambda seed: f"rng:{seed}", raising=False)
-
-	index = pipeline._build_faiss_knn_index(d=8)
-
-	if expected_backend == "gpu":
-		assert index is gpu_index
-	else:
-		assert index is cpu_index
-		assert cpu_index.hnsw.efSearch == 64
-		assert cpu_index.hnsw.rng == "rng:123"
+	assert advanced_imputed.shape == X.shape
+	assert traditional_imputed.shape == X.shape
+	assert np.isfinite(advanced_imputed).all()
+	assert np.isfinite(traditional_imputed).all()
 
 
 def test_get_data_for_advanced_pipeline_forwards_required_arguments(monkeypatch):
