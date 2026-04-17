@@ -136,6 +136,5 @@ class RandomForestModel(BaseModel):
             predictions,
         )
         self._print_legacy_metrics("Random Forest Performance Metrics:", (accuracy, precision, recall, f1, specificity, g_mean))
-        self._display_confusion_matrix(y_test, predictions, "Random Forest")
         tree_depth = [tree.get_depth() for tree in estimator.estimators_]
         return accuracy, precision, recall, f1, tree_depth, specificity, g_mean

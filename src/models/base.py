@@ -2,12 +2,8 @@ import copy
 from abc import ABC, abstractmethod
 from typing import Dict, Any
 
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import seaborn as sns
 from imblearn.metrics import geometric_mean_score
-from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
 class BaseModel(ABC):
     TRADITIONAL_HYPERPARAMETERS: Dict[str, Any] = {}
@@ -101,24 +97,6 @@ class BaseModel(ABC):
         print(f"F1 Score:  {f1}")
         print(f"Specificity:  {specificity}")
         print(f"G-Mean:  {g_mean}")
-
-    @staticmethod
-    def _display_confusion_matrix(y_true, y_pred, model_type: str) -> None:
-        """Display confusion matrix as a heatmap, similar to legacy visualization."""
-        cm = confusion_matrix(y_true, y_pred)
-        
-        prediction_names = ['No GLOC', 'GLOC']
-        fig, ax = plt.subplots()
-        tick_marks = np.arange(len(prediction_names))
-        plt.xticks(tick_marks, prediction_names)
-        plt.yticks(tick_marks, prediction_names)
-        sns.heatmap(pd.DataFrame(cm), annot=True, cmap="YlGnBu", fmt='g')
-        ax.xaxis.set_label_position("top")
-        plt.title(f'Confusion matrix: {model_type}', y=1.1)
-        plt.ylabel('Actual label')
-        plt.xlabel('Predicted label')
-        plt.show(block=False)
-        plt.pause(1)
 
     @abstractmethod
     def get_name(self) -> str:
