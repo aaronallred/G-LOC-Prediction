@@ -15,14 +15,15 @@ import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
 
-from .baseline import BaselineContext, baseline_data
-from .features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
-from .GLOC_experiment_config_parser import GLOCExperimentConfigParser
-from .model_type import ModelType
-from .models.base import BaseModel
+from src.baseline import BaselineContext, baseline_data
+from src.features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
+from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
+from src.model_type import ModelType
+from src.models.base import BaseModel
 
 logger = logging.getLogger(__name__)
-SOURCE_DIR = Path(__file__).resolve().parent
+# Keep path resolution behavior consistent with the original module location under src/.
+SOURCE_DIR = Path(__file__).resolve().parents[1]
 
 
 def _resolve_from_source_dir(path_value: str) -> str:
@@ -936,7 +937,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             raise ValueError(f"Fold index {kfold_ID} out of range (must be between 0 and {n_folds - 1})")
 
         # Get train and test indices for the specified fold
-        trials = experiment_metadata["trial_ints"].reshape(-1, 1)
+        trials = experiment_metadata["trial_ints"]
         train_index, test_index = next(islice(gkf.split(X, Y, trials), kfold_ID, kfold_ID + 1))
 
         # Extract split data
