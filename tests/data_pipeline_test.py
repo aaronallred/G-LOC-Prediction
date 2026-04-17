@@ -4,7 +4,7 @@ import os
 import json
 import numpy as np
 
-from src.data_pipeline import DataPipeline, AdvancedDataPipeline, TraditionalDataPipeline
+from src.Data_Pipeline.data_pipeline import DataPipeline, AdvancedDataPipeline, TraditionalDataPipeline
 from src.model_type import ModelType
 
 
@@ -114,8 +114,8 @@ def test_build_backend_routes_to_traditional(monkeypatch):
 		def __init__(self, data_path, random_seed, config_parser=None):
 			created["advanced"] = (data_path, random_seed, config_parser)
 
-	monkeypatch.setattr("src.data_pipeline.TraditionalDataPipeline", FakeTraditionalPipeline)
-	monkeypatch.setattr("src.data_pipeline.AdvancedDataPipeline", FakeAdvancedPipeline)
+	monkeypatch.setattr("src.Data_Pipeline.data_pipeline.TraditionalDataPipeline", FakeTraditionalPipeline)
+	monkeypatch.setattr("src.Data_Pipeline.data_pipeline.AdvancedDataPipeline", FakeAdvancedPipeline)
 
 	backend = pipeline._build_backend(parser.get_model())
 
