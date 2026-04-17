@@ -15,8 +15,8 @@ import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
 
-from src.baseline import BaselineContext, baseline_data
-from src.features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
+from src.Data_Pipeline.baseline import BaselineContext, baseline_data
+from src.Data_Pipeline.features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
 from src.models.base import BaseModel
@@ -169,7 +169,7 @@ class DataPipeline:
         """Load selected feature names from the median-hyperparameter cache."""
 
         # Function to load in median hyperparameters from a simple JSON
-        BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
         model_type_string = f"{current_kwargs['model_type'].afe_filter}_{current_kwargs['model_type'].feature_set}"
         json_path = os.path.join(BASE_DIR, 'ModelSave', 'CV', model_type_string, f'median_hyperparameters_{current_kwargs["classifier_type"]}.json')
 

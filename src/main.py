@@ -6,7 +6,7 @@ from numpy import ravel
 import numpy as np
 
 from .GLOC_experiment_config_parser import GLOCExperimentConfigParser
-from .data_pipeline import DataPipeline
+from .Data_Pipeline.data_pipeline import DataPipeline
 from .traditional_experiment_utils import (
     get_hyperparameters_from_json,
     stratified_kfold_split,

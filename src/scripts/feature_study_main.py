@@ -17,7 +17,7 @@ from .temporal_functions_traditional import plotting_offset_models, data_with_pr
      get_median_hyperparameters, get_hyperparameters_from_json, \
     plot_metrics_from_cache
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
-from src.data_pipeline import DataPipeline
+from src.Data_Pipeline.data_pipeline import DataPipeline
 
 import sys
 import pickle
@@ -337,7 +337,7 @@ def restrict_feature_space(select_features, streams):
 
 
 if preference == 7:
-    config_parser = GLOCExperimentConfigParser(config_location = "/home/gloc/G-LOC-Prediction/GLOC_experiment_config.json")
+    config_parser = GLOCExperimentConfigParser(config_location = "/home/gloc/G-LOC-Prediction/test.yaml")
     pipeline = DataPipeline(config_parser = config_parser)
 
     models_to_test = config_parser.get_models()
