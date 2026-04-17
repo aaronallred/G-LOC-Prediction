@@ -203,7 +203,7 @@ def classify_random_forest(x_train, x_test, y_train, y_test, class_weight_imb, r
     # plt.show()
 
     # Create Confusion Matrix
-    create_confusion_matrix(y_test, label_predictions, 'Random Forest')
+    # create_confusion_matrix(y_test, label_predictions, 'Random Forest')
 
     # # Save model
     # if retrain:
@@ -305,7 +305,7 @@ def classify_knn(x_train, x_test, y_train, y_test, random_state,
     print("G-Mean: ", g_mean)
 
     # Create Confusion Matrix
-    create_confusion_matrix(y_test, label_predictions, 'kNN')
+    # create_confusion_matrix(y_test, label_predictions, 'kNN')
 
     # # Save model
     # if retrain:
@@ -406,7 +406,7 @@ def classify_ensemble_with_gradboost(x_train, x_test, y_train, y_test, random_st
     print("G-Mean: ", g_mean)
 
     # Create Confusion Matrix
-    create_confusion_matrix(y_test, label_predictions, 'Gradient Boosting')
+    # create_confusion_matrix(y_test, label_predictions, 'Gradient Boosting')
 
     # # Save model
     # if retrain:
