@@ -34,16 +34,23 @@ def _base_config_dict():
             "offset": 0,
             "time_start": 0,
         },
-        "sensor_ablation_parameters": {
-            "enabled": False,
-            "streams": [["EEG"]],
+        "sensor_ablation": {
+            "training": {
+                "enabled": False,
+                "streams": [["EEG"]],
+            },
+            "review": {
+                "enabled": False,
+                "models": [],
+                "stream_group": [],
+            },
         },
     }
 
 
 def test_parser_reads_yaml_and_parses_sensor_ablation_review_parameters(tmp_path):
     config_dict = _base_config_dict()
-    config_dict["sensor_ablation_review_parameters"] = {
+    config_dict["sensor_ablation"]["review"] = {
         "enabled": True,
         "models": ["KNN"],
         "stream_group": ["EEG", "Pupil"],
@@ -84,7 +91,7 @@ def test_parser_rejects_json_config_extension(tmp_path):
 
 def test_parser_requires_review_models_and_stream_group_when_enabled(tmp_path):
     config_dict = _base_config_dict()
-    config_dict["sensor_ablation_review_parameters"] = {
+    config_dict["sensor_ablation"]["review"] = {
         "enabled": True,
         "models": [],
         "stream_group": [],
