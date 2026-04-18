@@ -62,7 +62,7 @@ def plot_f1_violin_by_stream(f1_results_by_stream: dict, model_type: ModelType, 
     model_type : ModelType
         Model type specifier (e.g. ModelType("Complete", "Explicit")).
     save_folder : str, optional
-        Extra subfolder name for saving results.
+        Directory used to save the plot. If omitted, the plot is only displayed.
     """
 
     # ------------------------------------------------------------
@@ -119,13 +119,14 @@ def plot_f1_violin_by_stream(f1_results_by_stream: dict, model_type: ModelType, 
     )
 
     # ------------------------------------------------------------
-    # Save the plot to the appropriate folder
+    # Save the plot only when the caller provides a destination.
     # ------------------------------------------------------------
-    os.makedirs(save_folder, exist_ok = True)
+    if save_folder is not None:
+        os.makedirs(save_folder, exist_ok = True)
 
-    plot_path = os.path.join(save_folder, f"f1_violin_by_stream.png")
-    g.savefig(plot_path)
-    print(f"Saved faceted F1 violin plot to {plot_path}")
+        plot_path = os.path.join(save_folder, f"f1_violin_by_stream.png")
+        g.savefig(plot_path)
+        print(f"Saved faceted F1 violin plot to {plot_path}")
     plt.tight_layout()
 
     # Display the plot

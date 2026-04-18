@@ -159,3 +159,10 @@ sensor_ablation_parameters:
       - Centrifuge
     - - Pupil
       - Participant
+sensor_ablation_review_parameters:
+  enabled: false
+  models:
+    - KNN
+    - EGB
+  stream_group:
+    - EEG

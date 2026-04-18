@@ -31,6 +31,10 @@ class GLOCExperimentConfigParser:
         "Transformer": TransformerModel,
         "Trans": TransformerModel,
     }
+    SENSOR_ABLATION_STREAM_LABELS = {
+        "ECG", "HR", "BR", "Temperature", "Pupil", "Centrifuge", "EEG", "Strain", "Participant",
+        "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain", "demographics",
+    }
 
     def __init__(self, config_location: Optional[str] = None) -> None:
         if config_location is None:
@@ -39,16 +43,23 @@ class GLOCExperimentConfigParser:
             config_path = Path(config_location).expanduser().resolve()
 
         with open(config_path, "r") as f:
+            if config_path.suffix.lower() not in {".yaml", ".yml"}:
+                raise ValueError(
+                    f"Unsupported config file extension '{config_path.suffix}'. "
+                    "Expected .yaml or .yml."
+                )
+
             self.config = yaml.safe_load(f)
 
         if not isinstance(self.config, dict):
-            raise ValueError("Config file must contain a top-level YAML mapping.")
+            raise ValueError("Config file must parse into a YAML mapping/object.")
 
         self._parse_general_configs()
         self._parse_shared_data_configs()
         self._parse_advanced_data_configs()
         self._parse_traditional_data_configs()
         self._parse_sensor_ablation_configs()
+        self._parse_sensor_ablation_review_configs()
 
     # General Configurations
     def _parse_general_configs(self) -> None:
@@ -98,6 +109,31 @@ class GLOCExperimentConfigParser:
         self.sensor_ablation = {
             "enabled": enabled,
             "streams": streams,
+        }
+
+    def _parse_sensor_ablation_review_configs(self) -> None:
+        """Parse sensor ablation review settings used to inspect precomputed F1 results."""
+        review_parameters = self._get_sensor_ablation_review_parameters()
+        enabled = self._parse_sensor_ablation_review_enabled(review_parameters)
+        models = self._parse_sensor_ablation_review_models(review_parameters)
+        stream_group = self._parse_sensor_ablation_review_stream_group(review_parameters)
+
+        if enabled and len(models) == 0:
+            raise ValueError(
+                "sensor_ablation_review_parameters.models must be a non-empty list when "
+                "sensor_ablation_review_parameters.enabled is true."
+            )
+
+        if enabled and len(stream_group) == 0:
+            raise ValueError(
+                "sensor_ablation_review_parameters.stream_group must be a non-empty list when "
+                "sensor_ablation_review_parameters.enabled is true."
+            )
+
+        self.sensor_ablation_review = {
+            "enabled": enabled,
+            "models": models,
+            "stream_group": stream_group,
         }
             
     def _parse_models(self) -> List[BaseModel]:
@@ -386,6 +422,16 @@ class GLOCExperimentConfigParser:
         
         return sensor_ablation_parameters
 
+    def _get_sensor_ablation_review_parameters(self) -> Dict:
+        review_parameters = self.config.get(
+            "sensor_ablation_review_parameters",
+            {"enabled": False, "models": [], "stream_group": []},
+        )
+        if not isinstance(review_parameters, dict):
+            raise ValueError("sensor_ablation_review_parameters must be a YAML object.")
+
+        return review_parameters
+
     def _parse_sensor_ablation_enabled(self, sensor_ablation_parameters: Dict) -> bool:
         if "enabled" not in sensor_ablation_parameters:
             raise ValueError("sensor_ablation.enabled is missing from config. It should be a boolean indicating whether to perform sensor ablation.")
@@ -429,8 +475,68 @@ class GLOCExperimentConfigParser:
 
         return streams
 
+    def _parse_sensor_ablation_review_enabled(self, review_parameters: Dict) -> bool:
+        enabled = review_parameters.get("enabled", False)
+        if not isinstance(enabled, bool):
+            raise ValueError("sensor_ablation_review_parameters.enabled must be a boolean.")
+
+        return enabled
+
+    def _parse_sensor_ablation_review_models(self, review_parameters: Dict) -> List[str]:
+        models = review_parameters.get("models", [])
+        if models is None:
+            return []
+
+        if not isinstance(models, list):
+            raise ValueError("sensor_ablation_review_parameters.models must be a list of model names.")
+
+        for model_name in models:
+            if not isinstance(model_name, str):
+                raise ValueError("Each model in sensor_ablation_review_parameters.models must be a string.")
+
+            if model_name not in self.MODEL_FACTORIES_BY_NAME:
+                raise ValueError(
+                    f"Model '{model_name}' is not recognized for sensor_ablation_review_parameters.models. "
+                    f"Available models: {list(self.MODEL_FACTORIES_BY_NAME.keys())}"
+                )
+
+        return models
+
+    def _parse_sensor_ablation_review_stream_group(self, review_parameters: Dict) -> List[str]:
+        stream_group = review_parameters.get("stream_group", [])
+        if stream_group is None:
+            return []
+
+        if not isinstance(stream_group, list):
+            raise ValueError("sensor_ablation_review_parameters.stream_group must be a list of stream labels.")
+
+        validated_stream_group: List[str] = []
+        for stream_name in stream_group:
+            if not isinstance(stream_name, str):
+                raise ValueError(
+                    "Each stream in sensor_ablation_review_parameters.stream_group must be a string."
+                )
+
+            if stream_name not in self.SENSOR_ABLATION_STREAM_LABELS:
+                raise ValueError(
+                    f"Stream '{stream_name}' is not recognized for sensor_ablation_review_parameters.stream_group. "
+                    f"Available streams: {sorted(self.SENSOR_ABLATION_STREAM_LABELS)}"
+                )
+            validated_stream_group.append(stream_name)
+
+        return validated_stream_group
+
     def get_sensor_ablation_enabled(self) -> bool:
         return self.sensor_ablation["enabled"]
 
     def get_sensor_ablation_streams(self) -> List[List[str]]:
         return copy.deepcopy(self.sensor_ablation["streams"])
+
+    def get_sensor_ablation_review_enabled(self) -> bool:
+        return self.sensor_ablation_review["enabled"]
+
+    def get_sensor_ablation_review_models(self) -> List[str]:
+        return copy.deepcopy(self.sensor_ablation_review["models"])
+
+    def get_sensor_ablation_review_stream_group(self) -> List[str]:
+        return copy.deepcopy(self.sensor_ablation_review["stream_group"])
