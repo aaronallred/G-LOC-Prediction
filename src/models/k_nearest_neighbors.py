@@ -35,6 +35,8 @@ class KNearestNeighborsModel(BaseModel):
         """Train KNN with provided or default parameters."""
         if params is None:
             params = self.best_params if self.best_params else self._get_default_params()
+        params = dict(params)
+        params.setdefault("n_jobs", -1)
         self.model = KNeighborsClassifier(**params)
         self.model.fit(X, y)
 
@@ -106,10 +108,12 @@ class KNearestNeighborsModel(BaseModel):
         del class_weight_imb, random_state
 
         if retrain:
-            estimator = KNeighborsClassifier().fit(x_train, np.ravel(y_train))
+            estimator = KNeighborsClassifier(n_jobs=-1).fit(x_train, np.ravel(y_train))
         else:
             if temporal:
-                estimator = KNeighborsClassifier(**(best_params or {})).fit(
+                runtime_params = dict(best_params or {})
+                runtime_params.setdefault("n_jobs", -1)
+                estimator = KNeighborsClassifier(**runtime_params).fit(
                     x_train,
                     np.ravel(y_train),
                 )

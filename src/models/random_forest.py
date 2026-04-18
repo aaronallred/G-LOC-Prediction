@@ -39,6 +39,8 @@ class RandomForestModel(BaseModel):
         """Train a random forest model with provided or default parameters."""
         if params is None:
             params = self.best_params if self.best_params else self._get_default_params()
+        params = dict(params)
+        params.setdefault("n_jobs", -1)
         self.model = RandomForestClassifier(**params)
         self.model.fit(X, y)
 
@@ -117,11 +119,14 @@ class RandomForestModel(BaseModel):
             estimator = RandomForestClassifier(
                 class_weight=class_weight_imb,
                 random_state=random_state,
+                n_jobs=-1,
             ).fit(x_train, np.ravel(y_train))
         else:
             if temporal:
+                runtime_params = dict(best_params or {})
+                runtime_params.setdefault("n_jobs", -1)
                 estimator = RandomForestClassifier(
-                    **(best_params or {}),
+                    **runtime_params,
                     class_weight=class_weight_imb,
                     random_state=random_state,
                 ).fit(x_train, np.ravel(y_train))

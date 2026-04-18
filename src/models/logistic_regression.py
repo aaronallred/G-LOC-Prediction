@@ -73,6 +73,8 @@ class LogisticRegression(BaseModel):
         # TODO: Initialize and train the model with provided or best parameters
         if params is None:
             params = self.best_params if self.best_params else self._get_default_params()
+        params = dict(params)
+        params.setdefault("n_jobs", -1)
         
         logger.info(f"Training LogisticRegression with params: {params}")
         
@@ -255,11 +257,14 @@ class LogisticRegression(BaseModel):
                 class_weight=class_weight_imb,
                 random_state=random_state,
                 max_iter=1000,
+                n_jobs=-1,
             ).fit(x_train, np.ravel(y_train))
         else:
             if temporal:
+                runtime_params = dict(best_params or {})
+                runtime_params.setdefault("n_jobs", -1)
                 estimator = SklearnLogisticRegression(
-                    **(best_params or {}),
+                    **runtime_params,
                     class_weight=class_weight_imb,
                     random_state=random_state,
                 ).fit(x_train, np.ravel(y_train))
