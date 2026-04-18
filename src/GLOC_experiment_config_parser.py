@@ -97,13 +97,14 @@ class GLOCExperimentConfigParser:
 
     def _parse_sensor_ablation_configs(self) -> None:
         """Parse sensor ablation settings into a validated internal structure."""
-        sensor_ablation_parameters = self._get_sensor_ablation_parameters()
-        enabled = self._parse_sensor_ablation_enabled(sensor_ablation_parameters)
-        streams = self._parse_sensor_ablation_streams(sensor_ablation_parameters)
+        sensor_ablation_root = self._get_sensor_ablation_root()
+        training_parameters = sensor_ablation_root.get("training", {})
+        enabled = self._parse_sensor_ablation_enabled(training_parameters)
+        streams = self._parse_sensor_ablation_streams(training_parameters)
 
         if enabled and len(streams) == 0:
             raise ValueError(
-                "sensor_ablation.streams cannot be empty when sensor_ablation.enabled is true."
+                "sensor_ablation.training.streams cannot be empty when sensor_ablation.training.enabled is true."
             )
 
         self.sensor_ablation = {
@@ -113,21 +114,22 @@ class GLOCExperimentConfigParser:
 
     def _parse_sensor_ablation_review_configs(self) -> None:
         """Parse sensor ablation review settings used to inspect precomputed F1 results."""
-        review_parameters = self._get_sensor_ablation_review_parameters()
+        sensor_ablation_root = self._get_sensor_ablation_root()
+        review_parameters = sensor_ablation_root.get("review", {})
         enabled = self._parse_sensor_ablation_review_enabled(review_parameters)
         models = self._parse_sensor_ablation_review_models(review_parameters)
         stream_group = self._parse_sensor_ablation_review_stream_group(review_parameters)
 
         if enabled and len(models) == 0:
             raise ValueError(
-                "sensor_ablation_review_parameters.models must be a non-empty list when "
-                "sensor_ablation_review_parameters.enabled is true."
+                "sensor_ablation.review.models must be a non-empty list when "
+                "sensor_ablation.review.enabled is true."
             )
 
         if enabled and len(stream_group) == 0:
             raise ValueError(
-                "sensor_ablation_review_parameters.stream_group must be a non-empty list when "
-                "sensor_ablation_review_parameters.enabled is true."
+                "sensor_ablation.review.stream_group must be a non-empty list when "
+                "sensor_ablation.review.enabled is true."
             )
 
         self.sensor_ablation_review = {
@@ -415,37 +417,31 @@ class GLOCExperimentConfigParser:
 
     
     # Sensor Ablation Configurations
-    def _get_sensor_ablation_parameters(self) -> Dict:
-        sensor_ablation_parameters = self.config.get("sensor_ablation_parameters", {"enabled": False, "streams": []})
-        if not isinstance(sensor_ablation_parameters, dict):
-            raise ValueError("sensor_ablation_parameters must be a JSON object.")
-        
-        return sensor_ablation_parameters
-
-    def _get_sensor_ablation_review_parameters(self) -> Dict:
-        review_parameters = self.config.get(
-            "sensor_ablation_review_parameters",
-            {"enabled": False, "models": [], "stream_group": []},
+    def _get_sensor_ablation_root(self) -> Dict:
+        """Get the root sensor_ablation configuration object."""
+        sensor_ablation_root = self.config.get(
+            "sensor_ablation",
+            {"training": {"enabled": False, "streams": []}, "review": {"enabled": False, "models": [], "stream_group": []}},
         )
-        if not isinstance(review_parameters, dict):
-            raise ValueError("sensor_ablation_review_parameters must be a YAML object.")
+        if not isinstance(sensor_ablation_root, dict):
+            raise ValueError("sensor_ablation must be a YAML object.")
+        
+        return sensor_ablation_root
 
-        return review_parameters
+    def _parse_sensor_ablation_enabled(self, training_parameters: Dict) -> bool:
+        if "enabled" not in training_parameters:
+            raise ValueError("sensor_ablation.training.enabled is missing from config. It should be a boolean indicating whether to perform sensor ablation.")
 
-    def _parse_sensor_ablation_enabled(self, sensor_ablation_parameters: Dict) -> bool:
-        if "enabled" not in sensor_ablation_parameters:
-            raise ValueError("sensor_ablation.enabled is missing from config. It should be a boolean indicating whether to perform sensor ablation.")
-
-        return sensor_ablation_parameters.get("enabled", False)
+        return training_parameters.get("enabled", False)
     
-    def _parse_sensor_ablation_streams(self, sensor_ablation_parameters: Dict) -> List[List[str]]:
-        if "streams" not in sensor_ablation_parameters:
+    def _parse_sensor_ablation_streams(self, training_parameters: Dict) -> List[List[str]]:
+        if "streams" not in training_parameters:
             raise ValueError(
-                "sensor_ablation.streams is missing from config. "
+                "sensor_ablation.training.streams is missing from config. "
                 "It should be a list of stream groups, where each stream group is a list of strings."
             )
 
-        streams = sensor_ablation_parameters.get("streams", [])
+        streams = training_parameters.get("streams", [])
         if not isinstance(streams, list):
             raise ValueError(
                 "sensor_ablation.streams must be a list of stream groups (list[list[str]])."
@@ -478,7 +474,7 @@ class GLOCExperimentConfigParser:
     def _parse_sensor_ablation_review_enabled(self, review_parameters: Dict) -> bool:
         enabled = review_parameters.get("enabled", False)
         if not isinstance(enabled, bool):
-            raise ValueError("sensor_ablation_review_parameters.enabled must be a boolean.")
+            raise ValueError("sensor_ablation.review.enabled must be a boolean.")
 
         return enabled
 
@@ -488,15 +484,15 @@ class GLOCExperimentConfigParser:
             return []
 
         if not isinstance(models, list):
-            raise ValueError("sensor_ablation_review_parameters.models must be a list of model names.")
+            raise ValueError("sensor_ablation.review.models must be a list of model names.")
 
         for model_name in models:
             if not isinstance(model_name, str):
-                raise ValueError("Each model in sensor_ablation_review_parameters.models must be a string.")
+                raise ValueError("Each model in sensor_ablation.review.models must be a string.")
 
             if model_name not in self.MODEL_FACTORIES_BY_NAME:
                 raise ValueError(
-                    f"Model '{model_name}' is not recognized for sensor_ablation_review_parameters.models. "
+                    f"Model '{model_name}' is not recognized for sensor_ablation.review.models. "
                     f"Available models: {list(self.MODEL_FACTORIES_BY_NAME.keys())}"
                 )
 
@@ -508,18 +504,18 @@ class GLOCExperimentConfigParser:
             return []
 
         if not isinstance(stream_group, list):
-            raise ValueError("sensor_ablation_review_parameters.stream_group must be a list of stream labels.")
+            raise ValueError("sensor_ablation.review.stream_group must be a list of stream labels.")
 
         validated_stream_group: List[str] = []
         for stream_name in stream_group:
             if not isinstance(stream_name, str):
                 raise ValueError(
-                    "Each stream in sensor_ablation_review_parameters.stream_group must be a string."
+                    "Each stream in sensor_ablation.review.stream_group must be a string."
                 )
 
             if stream_name not in self.SENSOR_ABLATION_STREAM_LABELS:
                 raise ValueError(
-                    f"Stream '{stream_name}' is not recognized for sensor_ablation_review_parameters.stream_group. "
+                    f"Stream '{stream_name}' is not recognized for sensor_ablation.review.stream_group. "
                     f"Available streams: {sorted(self.SENSOR_ABLATION_STREAM_LABELS)}"
                 )
             validated_stream_group.append(stream_name)
