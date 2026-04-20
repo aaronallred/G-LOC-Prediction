@@ -229,6 +229,12 @@ def run(config_path: str | None = None) -> None:
     configure_logging()
 
     config_parser: GLOCExperimentConfigParser = GLOCExperimentConfigParser(config_location = config_path)
+
+    # Install cuML sklearn acceleration after config/model imports so imblearn
+    # class definitions run against unpatched sklearn internals.
+    import cuml.accel
+    cuml.accel.install()
+
     project_root = Path(__file__).resolve().parent.parent
 
     did_run_any_mode = False
