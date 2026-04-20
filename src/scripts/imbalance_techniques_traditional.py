@@ -1,9 +1,21 @@
 from imblearn.under_sampling import RandomUnderSampler
 from imblearn.over_sampling import RandomOverSampler
 from imblearn.over_sampling import SMOTE
-from skopt import BayesSearchCV
-from skopt.space import Real, Integer, Categorical
+try:
+    from skopt import BayesSearchCV
+    from skopt.space import Real, Integer, Categorical
+except Exception:
+    BayesSearchCV = None
+    Real = Integer = Categorical = None
 import numpy as np
+
+
+def _require_skopt(function_name):
+    if BayesSearchCV is None:
+        raise ImportError(
+            f"{function_name} requires scikit-optimize, but skopt failed to import. "
+            "Your current environment likely has an incompatible numpy/skopt combination."
+        )
 
 def resample_rus(x_train, y_train, random_state):
     # Define Model
@@ -24,6 +36,8 @@ def resample_ros(x_train, y_train, random_state):
     return resampled_x, resampled_y
 
 def resample_smote(x_train, y_train, random_state):
+
+    _require_skopt("resample_smote")
 
     # # parameters to be tested on GridSearchCV
     # param = {"k_neighbors": [3, 5, 7, 9, 11, 13, 15]}

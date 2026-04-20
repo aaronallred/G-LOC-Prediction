@@ -12,14 +12,27 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.inspection import DecisionBoundaryDisplay
 from sklearn import svm
 from sklearn.ensemble import GradientBoostingClassifier
-from skopt import BayesSearchCV
-from skopt.space import Real, Integer, Categorical
+try:
+    from skopt import BayesSearchCV
+    from skopt.space import Real, Integer, Categorical
+except Exception:
+    BayesSearchCV = None
+    Real = Integer = Categorical = None
 from .GLOC_visualization_traditional import create_confusion_matrix
 from sklearn.linear_model import Lasso
 from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold
 from itertools import islice
 from imblearn.metrics import geometric_mean_score
 from .GLOC_data_processing_traditional import *
+
+
+def _require_skopt(function_name):
+    if BayesSearchCV is None:
+        raise ImportError(
+            f"{function_name} requires scikit-optimize, but skopt failed to import. "
+            "Your current environment likely has an incompatible numpy/skopt combination. "
+            "Use preference paths that do not require Bayesian search, or install compatible versions."
+        )
 
 def check_event_columns(gloc_data):
     """
@@ -535,6 +548,8 @@ def classify_logistic_regression_hpo(x_train, x_test, y_train, y_test, class_wei
     """
 
     if retrain:
+        _require_skopt("classify_logistic_regression_hpo")
+
         # # Determine optimal hyperparameters of the model
         # param_grid = {'penalty': ['l1', 'l2', 'elasticnet', None],
         #               'C': [0.01, 0.1, 0.5, 1, 5, 10, 100],
@@ -614,6 +629,8 @@ def classify_random_forest_hpo(x_train, x_test, y_train, y_test, class_weight_im
     """
 
     if retrain:
+        _require_skopt("classify_random_forest_hpo")
+
         # Determine optimal hyperparameters of the model
         # param_grid = {'n_estimators': [10, 50, 100, 300,  500, 1000],
         #               'criterion': ['gini', 'entropy', 'log_loss'],
@@ -715,6 +732,8 @@ def classify_lda_hpo(x_train, x_test, y_train, y_test, random_state,
     """
 
     if retrain:
+        _require_skopt("classify_lda_hpo")
+
         # Determine optimal hyperparameters of the model
         # param_grid = {'solver': ['svd', 'lsqr', 'eigen'],
         #               'shrinkage': [None, 0.1, 0.2, 0.4, 0.6, 0.8, 1, 'auto'],
