@@ -4,6 +4,9 @@ import pickle
 from pathlib import Path
 from numpy import ravel
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib_venn import venn2, venn3
+from upsetplot import from_contents, UpSet
 
 from .GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from .Data_Pipeline.data_pipeline import DataPipeline
@@ -37,6 +40,73 @@ def _extract_f1_score(metrics_tuple: tuple) -> float:
     if len(metrics_tuple) <= 3:
         raise ValueError(f"Unexpected metrics tuple format. Expected F1 at index 3, got: {metrics_tuple}")
     return float(metrics_tuple[3])
+
+
+def investigate_feature_space(model_type, classifiers):
+    """Inspect feature overlap across classifiers and render the matching set visualization."""
+    features_dict = {}
+    for clf in classifiers:
+        _, selected_features, _, _ = get_hyperparameters_from_json(clf, model_type.get_folder_name())
+        features_dict[clf] = set(selected_features)
+
+    if len(features_dict) == 0:
+        raise ValueError("At least one classifier is required to inspect feature overlap.")
+
+    shared_features = set.intersection(*features_dict.values())
+    unique_features = {
+        clf: features - shared_features
+        for clf, features in features_dict.items()
+    }
+
+    print(f"\nShared features across all ({len(shared_features)}):")
+    for feat in sorted(shared_features):
+        print(f"  - {feat}")
+
+    for clf, feats in unique_features.items():
+        print(f"\nFeatures unique to {clf} ({len(feats)}):")
+        for feat in sorted(feats):
+            print(f"  - {feat}")
+
+    num_classifiers = len(classifiers)
+    if num_classifiers == 2:
+        if venn2 is None:
+            raise ImportError("matplotlib_venn is required for two-classifier overlap plots.")
+        clf1, clf2 = classifiers
+        plt.figure(figsize=(6, 5))
+        venn2([features_dict[clf1], features_dict[clf2]], set_labels=(clf1, clf2))
+        plt.title(f"Feature Overlap: {clf1} vs {clf2}")
+        plt.show()
+    elif num_classifiers == 3:
+        if venn3 is None:
+            raise ImportError("matplotlib_venn is required for three-classifier overlap plots.")
+        clf1, clf2, clf3 = classifiers
+        plt.figure(figsize=(6, 5))
+        venn3(
+            [features_dict[clf1], features_dict[clf2], features_dict[clf3]],
+            set_labels=(clf1, clf2, clf3),
+        )
+        plt.title(f"Feature Overlap: {clf1} vs {clf2} vs {clf3}")
+        plt.show()
+    elif num_classifiers >= 4:
+        if from_contents is None or UpSet is None:
+            raise ImportError("upsetplot is required for four-or-more-classifier overlap plots.")
+        upset_data = from_contents(features_dict)
+        UpSet(upset_data).plot()
+        plt.title("Feature Overlap Across Classifiers")
+        plt.show()
+
+    return shared_features, unique_features
+
+
+def _run_feature_space_review(config_parser: GLOCExperimentConfigParser) -> None:
+    model_type = config_parser.get_model_type()
+    classifiers = config_parser.get_feature_space_review_models()
+
+    if len(classifiers) == 0:
+        raise ValueError("feature_space_review.models must be a non-empty list when enabled.")
+
+    investigate_feature_space(model_type, classifiers)
+
 
 def _save_model_stream_f1_scores(
     results_root_dir: Path,
@@ -230,11 +300,6 @@ def run(config_path: str | None = None) -> None:
 
     config_parser: GLOCExperimentConfigParser = GLOCExperimentConfigParser(config_location = config_path)
 
-    # Install cuML sklearn acceleration after config/model imports so imblearn
-    # class definitions run against unpatched sklearn internals.
-    import cuml.accel
-    cuml.accel.install()
-
     project_root = Path(__file__).resolve().parent.parent
 
     did_run_any_mode = False
@@ -253,6 +318,10 @@ def run(config_path: str | None = None) -> None:
             config_parser = config_parser,
             project_root = project_root,
         )
+        did_run_any_mode = True
+
+    if config_parser.get_feature_space_review_enabled():
+        _run_feature_space_review(config_parser = config_parser)
         did_run_any_mode = True
 
     if not did_run_any_mode:

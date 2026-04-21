@@ -77,6 +77,8 @@ def test_parser_sensor_ablation_review_defaults_when_not_provided(tmp_path):
     assert parser.get_sensor_ablation_review_enabled() is False
     assert parser.get_sensor_ablation_review_models() == []
     assert parser.get_sensor_ablation_review_stream_group() == []
+    assert parser.get_feature_space_review_enabled() is False
+    assert parser.get_feature_space_review_models() == ["KNN", "EGB", "RF"]
 
 
 def test_parser_rejects_json_config_extension(tmp_path):

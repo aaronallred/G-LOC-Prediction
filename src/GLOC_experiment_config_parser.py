@@ -60,6 +60,7 @@ class GLOCExperimentConfigParser:
         self._parse_traditional_data_configs()
         self._parse_sensor_ablation_configs()
         self._parse_sensor_ablation_review_configs()
+        self._parse_feature_space_review_configs()
 
     # General Configurations
     def _parse_general_configs(self) -> None:
@@ -135,6 +136,27 @@ class GLOCExperimentConfigParser:
             "enabled": enabled,
             "models": models,
             "stream_group": stream_group,
+        }
+
+    def _parse_feature_space_review_configs(self) -> None:
+        """Parse optional feature-space review settings for classifier feature overlap inspection."""
+        feature_space_review_root = self.config.get("feature_space_review", {})
+        if feature_space_review_root is None:
+            feature_space_review_root = {}
+        if not isinstance(feature_space_review_root, dict):
+            raise ValueError("feature_space_review must be a JSON object.")
+
+        enabled = self._parse_feature_space_review_enabled(feature_space_review_root)
+        models = self._parse_feature_space_review_models(feature_space_review_root)
+
+        if enabled and len(models) == 0:
+            raise ValueError(
+                "feature_space_review.models must be a non-empty list when feature_space_review.enabled is true."
+            )
+
+        self.feature_space_review = {
+            "enabled": enabled,
+            "models": models,
         }
             
     def _parse_models(self) -> List[BaseModel]:
@@ -507,6 +529,32 @@ class GLOCExperimentConfigParser:
 
         return validated_stream_group
 
+    def _parse_feature_space_review_enabled(self, feature_space_review_root: Dict) -> bool:
+        enabled = feature_space_review_root.get("enabled", False)
+        if not isinstance(enabled, bool):
+            raise ValueError("feature_space_review.enabled must be a boolean.")
+
+        return enabled
+
+    def _parse_feature_space_review_models(self, feature_space_review_root: Dict) -> List[str]:
+        models = feature_space_review_root.get("models", ["KNN", "EGB", "RF"])
+        if not isinstance(models, list):
+            raise ValueError("feature_space_review.models must be a list of model names.")
+
+        validated_models: List[str] = []
+        for model_name in models:
+            if not isinstance(model_name, str):
+                raise ValueError("Each item in feature_space_review.models must be a string model name.")
+
+            if model_name not in self.MODEL_FACTORIES_BY_NAME:
+                raise ValueError(
+                    f"Model '{model_name}' is not recognized. Available models: {list(self.MODEL_FACTORIES_BY_NAME.keys())}"
+                )
+
+            validated_models.append(model_name)
+
+        return validated_models
+
     def get_sensor_ablation_enabled(self) -> bool:
         return self.sensor_ablation["enabled"]
 
@@ -521,3 +569,9 @@ class GLOCExperimentConfigParser:
 
     def get_sensor_ablation_review_stream_group(self) -> List[str]:
         return copy.deepcopy(self.sensor_ablation_review["stream_group"])
+
+    def get_feature_space_review_enabled(self) -> bool:
+        return self.feature_space_review["enabled"]
+
+    def get_feature_space_review_models(self) -> List[str]:
+        return copy.deepcopy(self.feature_space_review["models"])

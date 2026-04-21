@@ -48,12 +48,23 @@ class DummyModel:
 
 
 class DummyConfigParser:
-    def __init__(self, enabled: bool, model, review_enabled: bool = False, review_models=None, review_stream_group=None):
+    def __init__(
+        self,
+        enabled: bool,
+        model,
+        review_enabled: bool = False,
+        review_models=None,
+        review_stream_group=None,
+        feature_space_review_enabled: bool = False,
+        feature_space_review_models=None,
+    ):
         self._enabled = enabled
         self._model = model
         self._review_enabled = review_enabled
         self._review_models = [] if review_models is None else review_models
         self._review_stream_group = [] if review_stream_group is None else review_stream_group
+        self._feature_space_review_enabled = feature_space_review_enabled
+        self._feature_space_review_models = ["KNN", "EGB", "RF"] if feature_space_review_models is None else feature_space_review_models
 
     def get_sensor_ablation_enabled(self):
         return self._enabled
@@ -69,6 +80,12 @@ class DummyConfigParser:
 
     def get_sensor_ablation_review_stream_group(self):
         return list(self._review_stream_group)
+
+    def get_feature_space_review_enabled(self):
+        return self._feature_space_review_enabled
+
+    def get_feature_space_review_models(self):
+        return list(self._feature_space_review_models)
 
     def get_models(self):
         return [self._model]
@@ -297,3 +314,119 @@ def test_run_sensor_ablation_review_enabled_invokes_plot_with_filtered_results(m
     assert set(captured["results"].keys()) == {"KNN"}
     assert set(captured["results"]["KNN"].keys()) == {"EEG"}
     assert captured["save_folder"] is None
+
+
+def test_investigate_feature_space_uses_venn3_and_returns_expected_sets(monkeypatch, capsys):
+    model_type = ModelType("Complete", "Explicit")
+
+    feature_map = {
+        "KNN": ["A", "B", "C"],
+        "EGB": ["B", "C", "D"],
+        "RF": ["C", "D", "E"],
+    }
+
+    monkeypatch.setattr(
+        main_module,
+        "get_hyperparameters_from_json",
+        lambda classifier, model_type_name: ({}, feature_map[classifier], None, None),
+    )
+
+    venn3_calls = {}
+
+    def _capture_venn3(sets, set_labels=None):
+        venn3_calls["sets"] = sets
+        venn3_calls["set_labels"] = set_labels
+
+    monkeypatch.setattr(main_module, "venn3", _capture_venn3)
+    monkeypatch.setattr(main_module.plt, "show", lambda: None)
+
+    shared_features, unique_features = main_module.investigate_feature_space(model_type, ["KNN", "EGB", "RF"])
+
+    assert shared_features == {"C"}
+    assert unique_features == {
+        "KNN": {"A", "B"},
+        "EGB": {"B", "D"},
+        "RF": {"D", "E"},
+    }
+    assert venn3_calls["set_labels"] == ("KNN", "EGB", "RF")
+    assert venn3_calls["sets"][0] == {"A", "B", "C"}
+    assert venn3_calls["sets"][1] == {"B", "C", "D"}
+    assert venn3_calls["sets"][2] == {"C", "D", "E"}
+
+    captured = capsys.readouterr().out
+    assert "Shared features across all (1):" in captured
+    assert "Features unique to KNN (2):" in captured
+
+
+def test_investigate_feature_space_uses_upset_for_four_or_more_classifiers(monkeypatch):
+    model_type = ModelType("Complete", "Explicit")
+
+    feature_map = {
+        "KNN": ["A", "B"],
+        "EGB": ["B", "C"],
+        "RF": ["C", "D"],
+        "LDA": ["D", "E"],
+    }
+
+    monkeypatch.setattr(
+        main_module,
+        "get_hyperparameters_from_json",
+        lambda classifier, model_type_name: ({}, feature_map[classifier], None, None),
+    )
+
+    upset_calls = {}
+
+    def _capture_from_contents(contents):
+        upset_calls["contents"] = contents
+        return contents
+
+    class _FakeUpSet:
+        def __init__(self, data):
+            upset_calls["data"] = data
+
+        def plot(self):
+            upset_calls["plotted"] = True
+
+    monkeypatch.setattr(main_module, "from_contents", _capture_from_contents)
+    monkeypatch.setattr(main_module, "UpSet", _FakeUpSet)
+    monkeypatch.setattr(main_module.plt, "show", lambda: None)
+
+    shared_features, unique_features = main_module.investigate_feature_space(
+        model_type,
+        ["KNN", "EGB", "RF", "LDA"],
+    )
+
+    assert shared_features == set()
+    assert unique_features["KNN"] == {"A", "B"}
+    assert unique_features["EGB"] == {"B", "C"}
+    assert unique_features["RF"] == {"C", "D"}
+    assert unique_features["LDA"] == {"D", "E"}
+    assert upset_calls["contents"] == {
+        "KNN": {"A", "B"},
+        "EGB": {"B", "C"},
+        "RF": {"C", "D"},
+        "LDA": {"D", "E"},
+    }
+    assert upset_calls["data"] == upset_calls["contents"]
+    assert upset_calls["plotted"] is True
+
+
+def test_run_feature_space_review_enabled_invokes_feature_space_review(monkeypatch):
+    model = DummyModel("KNN")
+    config_parser = DummyConfigParser(
+        enabled=False,
+        model=model,
+        review_enabled=False,
+        feature_space_review_enabled=True,
+        feature_space_review_models=["KNN", "EGB", "RF"],
+    )
+
+    captured = {}
+
+    monkeypatch.setattr(main_module, "configure_logging", lambda: None)
+    monkeypatch.setattr(main_module, "GLOCExperimentConfigParser", lambda config_location=None: config_parser)
+    monkeypatch.setattr(main_module, "_run_feature_space_review", lambda config_parser: captured.update(models=config_parser.get_feature_space_review_models()))
+
+    main_module.run()
+
+    assert captured["models"] == ["KNN", "EGB", "RF"]

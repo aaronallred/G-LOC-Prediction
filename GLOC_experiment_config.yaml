@@ -167,3 +167,10 @@ sensor_ablation:
       - EGB
     stream_group:
       - EEG
+
+feature_space_review:
+  enabled: false
+  models:
+    - KNN
+    - EGB
+    - RF
