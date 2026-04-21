@@ -61,6 +61,7 @@ class GLOCExperimentConfigParser:
         self._parse_sensor_ablation_configs()
         self._parse_sensor_ablation_review_configs()
         self._parse_feature_space_review_configs()
+        self._parse_hyperparameter_save_configs()
 
     # General Configurations
     def _parse_general_configs(self) -> None:
@@ -155,6 +156,27 @@ class GLOCExperimentConfigParser:
             )
 
         self.feature_space_review = {
+            "enabled": enabled,
+            "models": models,
+        }
+
+    def _parse_hyperparameter_save_configs(self) -> None:
+        """Parse optional hyperparameter save settings for extracting median fold hyperparameters."""
+        hyperparameter_save_root = self.config.get("hyperparameter_save", {})
+        if hyperparameter_save_root is None:
+            hyperparameter_save_root = {}
+        if not isinstance(hyperparameter_save_root, dict):
+            raise ValueError("hyperparameter_save must be a JSON object.")
+
+        enabled = self._parse_hyperparameter_save_enabled(hyperparameter_save_root)
+        models = self._parse_hyperparameter_save_models(hyperparameter_save_root)
+
+        if enabled and len(models) == 0:
+            raise ValueError(
+                "hyperparameter_save.models must be a non-empty list when hyperparameter_save.enabled is true."
+            )
+
+        self.hyperparameter_save = {
             "enabled": enabled,
             "models": models,
         }
@@ -575,3 +597,34 @@ class GLOCExperimentConfigParser:
 
     def get_feature_space_review_models(self) -> List[str]:
         return copy.deepcopy(self.feature_space_review["models"])
+
+    def _parse_hyperparameter_save_enabled(self, hyperparameter_save_root: Dict) -> bool:
+        enabled = hyperparameter_save_root.get("enabled", False)
+        if not isinstance(enabled, bool):
+            raise ValueError("hyperparameter_save.enabled must be a boolean.")
+        return enabled
+
+    def _parse_hyperparameter_save_models(self, hyperparameter_save_root: Dict) -> List[str]:
+        models = hyperparameter_save_root.get("models", [])
+        if not isinstance(models, list):
+            raise ValueError("hyperparameter_save.models must be a list of model names.")
+
+        validated_models: List[str] = []
+        for model_name in models:
+            if not isinstance(model_name, str):
+                raise ValueError("Each item in hyperparameter_save.models must be a string model name.")
+
+            if model_name not in self.MODEL_FACTORIES_BY_NAME:
+                raise ValueError(
+                    f"Model '{model_name}' is not recognized. Available models: {list(self.MODEL_FACTORIES_BY_NAME.keys())}"
+                )
+
+            validated_models.append(model_name)
+
+        return validated_models
+
+    def get_hyperparameter_save_enabled(self) -> bool:
+        return self.hyperparameter_save["enabled"]
+
+    def get_hyperparameter_save_models(self) -> List[str]:
+        return copy.deepcopy(self.hyperparameter_save["models"])

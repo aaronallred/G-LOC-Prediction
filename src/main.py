@@ -13,7 +13,8 @@ from .Data_Pipeline.data_pipeline import DataPipeline
 from .traditional_experiment_utils import (
     get_hyperparameters_from_json,
     stratified_kfold_split,
-    plot_f1_violin_by_stream
+    plot_f1_violin_by_stream,
+    save_median_hyperparameters,
 )
 
 def configure_logging() -> None:
@@ -295,6 +296,51 @@ def _run_sensor_ablation_review(
     )
 
 
+def _run_hyperparameter_save(
+    config_parser: GLOCExperimentConfigParser,
+    project_root: Path,
+) -> None:
+    """Save median fold hyperparameters and selected features to JSON for configured models.
+    
+    This mode extracts hyperparameters from the best-performing fold (by F1 score)
+    across all 10 cross-validation folds and saves them for later use.
+    """
+    model_type = config_parser.get_model_type()
+    models_to_save = config_parser.get_hyperparameter_save_models()
+
+    if len(models_to_save) == 0:
+        raise ValueError("hyperparameter_save.models must be a non-empty list when enabled.")
+
+    logging.info(
+        "Saving median fold hyperparameters for %d models: %s",
+        len(models_to_save),
+        ", ".join(models_to_save),
+    )
+
+    model_type_folder = model_type.get_folder_name()
+
+    for model_name in models_to_save:
+        logging.info("Saving hyperparameters for %s", model_name)
+        try:
+            output_path = save_median_hyperparameters(
+                classifier = model_name,
+                model_type_folder_name = model_type_folder,
+                project_root = project_root,
+            )
+            logging.info(
+                "Successfully saved hyperparameters for %s to %s",
+                model_name,
+                output_path,
+            )
+        except (FileNotFoundError, ValueError) as e:
+            logging.error(
+                "Failed to save hyperparameters for %s: %s",
+                model_name,
+                str(e),
+            )
+            raise
+
+
 def run(config_path: str | None = None) -> None:
     configure_logging()
 
@@ -324,10 +370,18 @@ def run(config_path: str | None = None) -> None:
         _run_feature_space_review(config_parser = config_parser)
         did_run_any_mode = True
 
+    if config_parser.get_hyperparameter_save_enabled():
+        _run_hyperparameter_save(
+            config_parser = config_parser,
+            project_root = project_root,
+        )
+        did_run_any_mode = True
+
     if not did_run_any_mode:
         logging.info(
-            "No runnable mode enabled. Set sensor_ablation_parameters.enabled or "
-            "sensor_ablation_review_parameters.enabled to true in the config."
+            "No runnable mode enabled. Set sensor_ablation_parameters.enabled, "
+            "sensor_ablation_review_parameters.enabled, feature_space_review.enabled, or "
+            "hyperparameter_save.enabled to true in the config."
         )
 
 if __name__ == "__main__":

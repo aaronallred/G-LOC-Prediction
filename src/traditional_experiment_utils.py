@@ -2,10 +2,12 @@ from collections import OrderedDict
 from itertools import islice
 from pathlib import Path
 from typing import Any
+import logging
 
 import json
 import os
 
+import joblib
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -42,6 +44,183 @@ def get_hyperparameters_from_json(classifier: str, model_type: str):
     fold_id = int(data['fold_id'])
 
     return best_params, selected_features, fold_id, score
+
+
+def _sanitize_for_json(obj: Any) -> Any:
+    """Convert non-JSON-serializable objects to JSON-compatible format.
+    
+    Parameters
+    ----------
+    obj : Any
+        Object to sanitize (numpy arrays, dicts, lists, or primitives).
+        
+    Returns
+    -------
+    Any
+        JSON-serializable version of the object.
+    """
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(v) for v in obj]
+    else:
+        return obj
+
+
+def save_median_hyperparameters(
+    classifier: str, 
+    model_type_folder_name: str,
+    project_root: Path | None = None,
+) -> Path:
+    """Save median-performing fold hyperparameters and features to JSON.
+    
+    This function loads F1 scores from all 10 cross-validation folds' HPO summaries,
+    identifies the median-performing fold, loads its model and selected features,
+    and saves them to a standardized JSON file for later retrieval.
+    
+    Parameters
+    ----------
+    classifier : str
+        Type of classifier ('RF', 'KNN', 'EGB', 'logreg', 'SVM', 'LDA').
+    model_type_folder_name : str
+        Model type subfolder name (e.g., 'Complete_Explicit').
+    project_root : Path, optional
+        Root directory of the project. If None, inferred from this file's location.
+        
+    Returns
+    -------
+    Path
+        Path to the saved JSON file containing median hyperparameters.
+        
+    Raises
+    ------
+    ValueError
+        If classifier is not recognized or required files are not found.
+    FileNotFoundError
+        If fold summary or model files cannot be located.
+    """
+    if project_root is None:
+        project_root = Path(__file__).resolve().parent.parent
+    else:
+        project_root = Path(project_root)
+    
+    # Validate classifier
+    valid_classifiers = {'RF', 'KNN', 'EGB', 'logreg', 'SVM', 'LDA'}
+    if classifier not in valid_classifiers:
+        raise ValueError(
+            f"Unsupported classifier: '{classifier}'. "
+            f"Valid options: {', '.join(sorted(valid_classifiers))}"
+        )
+    
+    logging.info(f"Loading F1 scores from 10 folds for {classifier} ({model_type_folder_name})")
+    
+    # --------
+    # Step 1: Load F1 scores from each fold's HPO summary
+    # --------
+    fold_scores = []
+    
+    for fold_id in range(10):
+        fold_str = str(fold_id)
+        
+        # Build path to the fold summary depending on classifier type
+        classifier_to_hpo = {
+            'RF': 'rf_hpo',
+            'KNN': 'KNN_hpo',
+            'EGB': 'EGB_hpo',
+            'logreg': 'logreg_hpo',
+            'SVM': 'SVM_hpo',
+            'LDA': 'LDA_hpo',
+        }
+        hpo_folder = classifier_to_hpo[classifier]
+        perf_path = (
+            project_root / 'PerformanceSave' / 'CrossValidation' / 
+            hpo_folder / model_type_folder_name / fold_str / 'FoldSummary.pkl'
+        )
+        
+        if not perf_path.exists():
+            raise FileNotFoundError(f"Fold summary not found: {perf_path}")
+        
+        # Load fold summary and extract F1 score
+        perf_dict = joblib.load(str(perf_path))
+        perf_df = perf_dict[fold_str]
+        f1_score = float(perf_df['f1-score'].iloc[0])
+        
+        fold_scores.append({'fold_id': fold_str, 'f1_score': f1_score})
+        logging.debug(f"  Fold {fold_id}: F1 = {f1_score:.4f}")
+    
+    # --------
+    # Step 2: Identify the median-performing fold
+    # --------
+    fold_scores.sort(key=lambda x: x['f1_score'])  # sort by F1
+    median_fold = fold_scores[len(fold_scores) // 2]
+    median_fold_id = median_fold['fold_id']
+    median_f1 = median_fold['f1_score']
+    
+    logging.info(f"Median fold: {median_fold_id} with F1 = {median_f1:.4f}")
+    
+    # --------
+    # Step 3: Load model + selected features for the median fold
+    # --------
+    classifier_to_model_file = {
+        'RF': 'random_forest_model.pkl',
+        'KNN': 'KNN_model.pkl',
+        'EGB': 'ensemble_model.pkl',
+        'logreg': 'logistic_regression_model.pkl',
+        'SVM': 'SVM_model.pkl',
+        'LDA': 'LDA_model.pkl',
+    }
+    model_filename = classifier_to_model_file[classifier]
+    model_path = (
+        project_root / 'ModelSave' / 'CV' / model_type_folder_name / 
+        median_fold_id / model_filename
+    )
+    
+    if not model_path.exists():
+        raise FileNotFoundError(f"Model file not found: {model_path}")
+    
+    # Determine features file path
+    if classifier == 'logreg':
+        features_filename = 'SelectedFeaturesLR.pkl'
+    else:
+        features_filename = f'SelectedFeatures{classifier}.pkl'
+    
+    features_path = (
+        project_root / 'ModelSave' / 'CV' / model_type_folder_name / 
+        median_fold_id / features_filename
+    )
+    
+    if not features_path.exists():
+        raise FileNotFoundError(f"Features file not found: {features_path}")
+    
+    # Load model and selected features
+    logging.debug(f"Loading model from {model_path}")
+    model = joblib.load(str(model_path))
+    
+    logging.debug(f"Loading features from {features_path}")
+    selected_features = joblib.load(str(features_path))
+    
+    # --------
+    # Step 4: Package and save median fold results
+    # --------
+    median_result = {
+        'fold_id': median_fold_id,
+        'f1_score': median_f1,
+        'best_params': model.best_params_,
+        'selected_features': selected_features
+    }
+    
+    output_dir = project_root / 'ModelSave' / 'CV' / model_type_folder_name
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    output_path = output_dir / f'median_hyperparameters_{classifier}.json'
+    
+    with open(output_path, 'w') as f:
+        json.dump(_sanitize_for_json(median_result), f, indent=4)
+    
+    logging.info(f"Saved median fold data to {output_path}")
+    return output_path
 
 
 

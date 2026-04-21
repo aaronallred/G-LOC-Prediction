@@ -174,3 +174,13 @@ feature_space_review:
     - KNN
     - EGB
     - RF
+
+hyperparameter_save:
+  enabled: false
+  models:
+    - KNN
+    - EGB
+    - RF
+    - LogReg
+    - SVM
+    - LDA
