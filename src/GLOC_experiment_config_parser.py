@@ -120,6 +120,7 @@ class GLOCExperimentConfigParser:
         enabled = self._parse_sensor_ablation_review_enabled(review_parameters)
         models = self._parse_sensor_ablation_review_models(review_parameters)
         stream_group = self._parse_sensor_ablation_review_stream_group(review_parameters)
+        sort_streams_by_median = self._parse_sensor_ablation_review_sort_streams_by_median(review_parameters)
 
         if enabled and len(models) == 0:
             raise ValueError(
@@ -127,16 +128,18 @@ class GLOCExperimentConfigParser:
                 "sensor_ablation.review.enabled is true."
             )
 
-        if enabled and len(stream_group) == 0:
+        if enabled and (not sort_streams_by_median) and len(stream_group) == 0:
             raise ValueError(
                 "sensor_ablation.review.stream_group must be a non-empty list when "
-                "sensor_ablation.review.enabled is true."
+                "sensor_ablation.review.enabled is true and "
+                "sensor_ablation.review.sort_streams_by_median is false."
             )
 
         self.sensor_ablation_review = {
             "enabled": enabled,
             "models": models,
             "stream_group": stream_group,
+            "sort_streams_by_median": sort_streams_by_median,
         }
 
     def _parse_feature_space_review_configs(self) -> None:
@@ -551,6 +554,13 @@ class GLOCExperimentConfigParser:
 
         return validated_stream_group
 
+    def _parse_sensor_ablation_review_sort_streams_by_median(self, review_parameters: Dict) -> bool:
+        sort_streams_by_median = review_parameters.get("sort_streams_by_median", False)
+        if not isinstance(sort_streams_by_median, bool):
+            raise ValueError("sensor_ablation.review.sort_streams_by_median must be a boolean.")
+
+        return sort_streams_by_median
+
     def _parse_feature_space_review_enabled(self, feature_space_review_root: Dict) -> bool:
         enabled = feature_space_review_root.get("enabled", False)
         if not isinstance(enabled, bool):
@@ -591,6 +601,9 @@ class GLOCExperimentConfigParser:
 
     def get_sensor_ablation_review_stream_group(self) -> List[str]:
         return copy.deepcopy(self.sensor_ablation_review["stream_group"])
+
+    def get_sensor_ablation_review_sort_streams_by_median(self) -> bool:
+        return self.sensor_ablation_review["sort_streams_by_median"]
 
     def get_feature_space_review_enabled(self) -> bool:
         return self.feature_space_review["enabled"]

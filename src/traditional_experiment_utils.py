@@ -310,3 +310,122 @@ def plot_f1_violin_by_stream(f1_results_by_stream: dict, model_type: ModelType, 
 
     # Display the plot
     plt.show()
+
+
+def plot_f1_violin_with_stream_matrix(
+    f1_results_by_stream: dict,
+    model_type: ModelType,
+    save_folder = None,
+):
+    """Plot classifier-wise F1 violins with a stream-component matrix under each panel."""
+    import matplotlib.gridspec as gridspec
+
+    records = []
+    for clf, stream_dict in f1_results_by_stream.items():
+        for stream, f1_scores in stream_dict.items():
+            for score in f1_scores:
+                records.append(
+                    {
+                        "Classifier": clf,
+                        "Stream": stream,
+                        "F1 Score": score,
+                    }
+                )
+
+    df = pd.DataFrame(records)
+    if df.empty:
+        raise ValueError("Cannot plot empty F1 results.")
+
+    classifiers = df["Classifier"].unique()
+    unique_streams = df["Stream"].unique()
+
+    components = set()
+    for stream_name in unique_streams:
+        components.update(stream_name.split("-"))
+    sorted_components = sorted(components)
+
+    matrix_rows = []
+    for component in sorted_components:
+        row = []
+        for stream_name in unique_streams:
+            is_present = 1 if component in stream_name.split("-") else 0
+            row.append(is_present)
+        matrix_rows.append(row)
+
+    matrix_df = pd.DataFrame(matrix_rows, index = sorted_components, columns = unique_streams)
+
+    num_classifiers = len(classifiers)
+    fig = plt.figure(figsize = (6 * num_classifiers, 10))
+    fig.suptitle(
+        f"F1 Score Distributions by Feature Stream | Model: {model_type.get_folder_name()}",
+        fontsize = 16,
+        fontweight = "bold",
+        y = 0.95,
+    )
+
+    outer_grid = gridspec.GridSpec(1, num_classifiers, wspace = 0.1)
+
+    for idx, classifier in enumerate(classifiers):
+        inner_grid = gridspec.GridSpecFromSubplotSpec(
+            2,
+            1,
+            subplot_spec = outer_grid[idx],
+            height_ratios = [4, 1.5],
+            hspace = 0.05,
+        )
+
+        ax_top = plt.Subplot(fig, inner_grid[0])
+        ax_bottom = plt.Subplot(fig, inner_grid[1])
+        fig.add_subplot(ax_top)
+        fig.add_subplot(ax_bottom)
+
+        classifier_data = df[df["Classifier"] == classifier]
+        sns.violinplot(
+            data = classifier_data,
+            x = "Stream",
+            y = "F1 Score",
+            order = unique_streams,
+            ax = ax_top,
+            palette = "Set2",
+            inner = "box",
+            hue = "Stream",
+            legend = False,
+        )
+
+        ax_top.set_title(classifier, fontsize = 14, fontweight = "bold")
+        ax_top.set_xlabel("")
+        ax_top.set_xticklabels([])
+
+        if idx > 0:
+            ax_top.set_ylabel("")
+            ax_top.set_yticklabels([])
+        else:
+            ax_top.set_ylabel("F1 Score", fontsize = 12)
+
+        sns.heatmap(
+            matrix_df,
+            ax = ax_bottom,
+            cbar = False,
+            cmap = "Greens",
+            linewidths = 1,
+            linecolor = "lightgray",
+            vmin = 0,
+            vmax = 1.5,
+        )
+
+        ax_bottom.set_xlabel("Data Stream Combination", fontsize = 10)
+        ax_bottom.set_xticklabels([])
+        ax_bottom.tick_params(left = False, bottom = False)
+
+        if idx > 0:
+            ax_bottom.set_yticklabels([])
+        else:
+            ax_bottom.set_yticklabels(sorted_components, rotation = 0, fontsize = 10)
+
+    if save_folder is not None:
+        os.makedirs(save_folder, exist_ok = True)
+        plot_path = os.path.join(save_folder, "f1_violin_by_stream.png")
+        fig.savefig(plot_path, bbox_inches = "tight")
+        print(f"Saved faceted F1 violin plot to {plot_path}")
+
+    plt.show()

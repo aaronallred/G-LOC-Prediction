@@ -54,6 +54,7 @@ def test_parser_reads_yaml_and_parses_sensor_ablation_review_parameters(tmp_path
         "enabled": True,
         "models": ["KNN"],
         "stream_group": ["EEG", "Pupil"],
+        "sort_streams_by_median": False,
     }
 
     config_path = tmp_path / "config.yaml"
@@ -64,6 +65,7 @@ def test_parser_reads_yaml_and_parses_sensor_ablation_review_parameters(tmp_path
     assert parser.get_sensor_ablation_review_enabled() is True
     assert parser.get_sensor_ablation_review_models() == ["KNN"]
     assert parser.get_sensor_ablation_review_stream_group() == ["EEG", "Pupil"]
+    assert parser.get_sensor_ablation_review_sort_streams_by_median() is False
 
 
 def test_parser_sensor_ablation_review_defaults_when_not_provided(tmp_path):
@@ -77,6 +79,7 @@ def test_parser_sensor_ablation_review_defaults_when_not_provided(tmp_path):
     assert parser.get_sensor_ablation_review_enabled() is False
     assert parser.get_sensor_ablation_review_models() == []
     assert parser.get_sensor_ablation_review_stream_group() == []
+    assert parser.get_sensor_ablation_review_sort_streams_by_median() is False
     assert parser.get_feature_space_review_enabled() is False
     assert parser.get_feature_space_review_models() == ["KNN", "EGB", "RF"]
 
@@ -104,3 +107,23 @@ def test_parser_requires_review_models_and_stream_group_when_enabled(tmp_path):
 
     with pytest.raises(ValueError, match="models must be a non-empty list"):
         GLOCExperimentConfigParser(config_location=str(config_path))
+
+
+def test_parser_allows_empty_stream_group_when_median_sorting_enabled(tmp_path):
+    config_dict = _base_config_dict()
+    config_dict["sensor_ablation"]["review"] = {
+        "enabled": True,
+        "models": ["KNN", "RF"],
+        "stream_group": [],
+        "sort_streams_by_median": True,
+    }
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(config_dict), encoding="utf-8")
+
+    parser = GLOCExperimentConfigParser(config_location=str(config_path))
+
+    assert parser.get_sensor_ablation_review_enabled() is True
+    assert parser.get_sensor_ablation_review_models() == ["KNN", "RF"]
+    assert parser.get_sensor_ablation_review_stream_group() == []
+    assert parser.get_sensor_ablation_review_sort_streams_by_median() is True

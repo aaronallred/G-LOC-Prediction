@@ -14,8 +14,16 @@ from .traditional_experiment_utils import (
     get_hyperparameters_from_json,
     stratified_kfold_split,
     plot_f1_violin_by_stream,
+    plot_f1_violin_with_stream_matrix,
     save_median_hyperparameters,
 )
+
+
+STREAM_LABEL_ALIASES = {
+    "ECG-HR-BR-Temperature": "Equivital",
+    "Participant": "Demographics",
+    "Centrifuge": "G Force",
+}
 
 def configure_logging() -> None:
     logging.basicConfig(
@@ -179,6 +187,56 @@ def _filter_sensor_ablation_review_results(
     return filtered
 
 
+def _apply_stream_label_aliases(stream_name: str, stream_label_aliases: dict[str, str]) -> str:
+    """Apply ordered string replacements to stream labels for plot readability."""
+    aliased_name = stream_name
+    for source_label, target_label in stream_label_aliases.items():
+        aliased_name = aliased_name.replace(source_label, target_label)
+    return aliased_name
+
+
+def _build_ranked_sensor_ablation_review_results(
+    f1_results_by_stream: dict[str, dict[str, np.ndarray]],
+    classifiers: list[str],
+) -> dict[str, dict[str, np.ndarray]]:
+    """Replicate preference-11 review behavior using config-selected classifiers."""
+    all_streams = {
+        stream_name
+        for classifier in classifiers
+        for stream_name in f1_results_by_stream.get(classifier, {}).keys()
+    }
+
+    if len(all_streams) == 0:
+        return {}
+
+    stream_median_map: dict[str, float] = {}
+    for stream_name in all_streams:
+        combined_scores = []
+        for classifier in classifiers:
+            if stream_name in f1_results_by_stream.get(classifier, {}):
+                combined_scores.extend(np.asarray(f1_results_by_stream[classifier][stream_name], dtype = float).tolist())
+
+        if len(combined_scores) > 0:
+            stream_median_map[stream_name] = float(np.median(np.asarray(combined_scores, dtype = float)))
+
+    sorted_streams = sorted(stream_median_map, key = stream_median_map.get, reverse = True)
+
+    ranked_results: dict[str, dict[str, np.ndarray]] = {}
+    for classifier in classifiers:
+        classifier_streams = f1_results_by_stream.get(classifier, {})
+        renamed_streams: dict[str, np.ndarray] = {}
+        for stream_name in sorted_streams:
+            if stream_name not in classifier_streams:
+                continue
+            aliased_stream_name = _apply_stream_label_aliases(stream_name, STREAM_LABEL_ALIASES)
+            renamed_streams[aliased_stream_name] = np.asarray(classifier_streams[stream_name], dtype = float)
+
+        if len(renamed_streams) > 0:
+            ranked_results[classifier] = renamed_streams
+
+    return ranked_results
+
+
 def _run_sensor_ablation_training(
     config_parser: GLOCExperimentConfigParser,
     pipeline: DataPipeline,
@@ -268,11 +326,17 @@ def _run_sensor_ablation_review(
     sensor_ablation_results_dir = project_root / "Results" / "Sensor_Ablation" / model_type.get_folder_name()
 
     classifiers_to_load = config_parser.get_sensor_ablation_review_models()
+    sort_streams_by_median = config_parser.get_sensor_ablation_review_sort_streams_by_median()
+    review_stream_group = config_parser.get_sensor_ablation_review_stream_group()
+
+    loading_stream_group = None
+    if (not sort_streams_by_median) and len(review_stream_group) > 0:
+        loading_stream_group = review_stream_group
 
     f1_results_by_stream = _load_sensor_ablation_f1_results(
         results_root_dir = sensor_ablation_results_dir,
         classifiers = classifiers_to_load,
-        stream_group = config_parser.get_sensor_ablation_review_stream_group(),
+        stream_group = loading_stream_group,
     )
     if len(f1_results_by_stream) == 0:
         raise ValueError(
@@ -280,20 +344,38 @@ def _run_sensor_ablation_review(
             f"{sensor_ablation_results_dir}."
         )
 
-    filtered_results = _filter_sensor_ablation_review_results(
-        f1_results_by_stream = f1_results_by_stream,
-        stream_group = config_parser.get_sensor_ablation_review_stream_group(),
-    )
-    if len(filtered_results) == 0:
-        raise ValueError(
-            "Sensor ablation review filters removed all streams. "
-            "Update sensor_ablation_review_parameters.stream_group in the config."
+    if sort_streams_by_median:
+        filtered_results = _build_ranked_sensor_ablation_review_results(
+            f1_results_by_stream = f1_results_by_stream,
+            classifiers = classifiers_to_load,
+        )
+    else:
+        filtered_results = _filter_sensor_ablation_review_results(
+            f1_results_by_stream = f1_results_by_stream,
+            stream_group = review_stream_group,
         )
 
-    plot_f1_violin_by_stream(
-        f1_results_by_stream = filtered_results,
-        model_type = model_type,
-    )
+    if len(filtered_results) == 0:
+        if sort_streams_by_median:
+            raise ValueError(
+                "Sensor ablation review is enabled with median ranking, but no streams were available "
+                "for the requested classifiers."
+            )
+        raise ValueError(
+            "Sensor ablation review filters removed all streams. "
+            "Update sensor_ablation.review.stream_group in the config."
+        )
+
+    if sort_streams_by_median:
+        plot_f1_violin_with_stream_matrix(
+            f1_results_by_stream = filtered_results,
+            model_type = model_type,
+        )
+    else:
+        plot_f1_violin_by_stream(
+            f1_results_by_stream = filtered_results,
+            model_type = model_type,
+        )
 
 
 def _run_hyperparameter_save(

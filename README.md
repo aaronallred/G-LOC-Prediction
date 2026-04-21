@@ -154,15 +154,60 @@ sensor_ablation:
       - RF
     stream_group:
       - EEG
+    sort_streams_by_median: false
 ```
 
 Rules enforced by the parser:
 
 - `models` must be a non-empty list when review is enabled.
-- `stream_group` must be a non-empty list when review is enabled.
+- `stream_group` must be a non-empty list when review is enabled and `sort_streams_by_median` is `false`.
 - The stream group is matched as a set, so order does not matter when loading cached results.
 
+When `sort_streams_by_median: true`, the review path mirrors legacy preference 11 behavior:
+
+- Loads all cached streams for the selected models.
+- Ranks streams by combined median F1 score across selected models.
+- Uses the matrix-style violin plot layout.
+- Applies hard-coded label replacements (not configurable in YAML):
+  - `ECG-HR-BR-Temperature` -> `Equivital`
+  - `Participant` -> `Demographics`
+  - `Centrifuge` -> `G Force`
+
 In the current root config, review is disabled.
+
+### `feature_space_review` (Legacy preference 9)
+
+Enable this section to inspect overlap of selected features across classifiers.
+
+```yaml
+feature_space_review:
+  enabled: true
+  models:
+    - KNN
+    - EGB
+    - RF
+```
+
+This is the YAML-driven equivalent of legacy preference 9.
+
+### `hyperparameter_save` (Legacy preference 10)
+
+Enable this section to save median-fold hyperparameters and selected features to JSON for configured models.
+
+```yaml
+hyperparameter_save:
+  enabled: true
+  models:
+    - KNN
+```
+
+This is the YAML-driven equivalent of legacy preference 10.
+
+### Preference mapping summary
+
+- Legacy preference 9 -> `feature_space_review.enabled: true`
+- Legacy preference 10 -> `hyperparameter_save.enabled: true`
+- Legacy preference 11 -> `sensor_ablation.review.enabled: true` with `sort_streams_by_median: true`
 
 ## Current config behavior
 

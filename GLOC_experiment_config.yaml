@@ -167,6 +167,7 @@ sensor_ablation:
       - EGB
     stream_group:
       - EEG
+    sort_streams_by_median: false
 
 feature_space_review:
   enabled: false
