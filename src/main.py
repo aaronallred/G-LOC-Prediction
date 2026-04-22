@@ -25,11 +25,30 @@ STREAM_LABEL_ALIASES = {
     "Centrifuge": "G Force",
 }
 
+
+def _try_enable_cuml_acceleration() -> None:
+    """Enable cuML sklearn acceleration when the RAPIDS stack is available."""
+    try:
+        from cuml.accel import install as cuml_accel_install
+    except ImportError:
+        logging.info("cuML acceleration is unavailable; continuing with CPU estimators.")
+        return
+
+    try:
+        cuml_accel_install()
+        logging.info("cuML acceleration enabled for sklearn-compatible estimators.")
+    except Exception as exc:
+        logging.warning(
+            "cuML acceleration initialization failed (%s). Continuing with CPU estimators.",
+            exc,
+        )
+
 def configure_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
         force=True,
+        
     )
 
 def parse_args() -> argparse.Namespace:
@@ -427,6 +446,7 @@ def run(config_path: str | None = None) -> None:
     configure_logging()
 
     config_parser: GLOCExperimentConfigParser = GLOCExperimentConfigParser(config_location = config_path)
+    _try_enable_cuml_acceleration()
 
     project_root = Path(__file__).resolve().parent.parent
 

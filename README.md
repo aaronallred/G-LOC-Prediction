@@ -209,27 +209,6 @@ This is the YAML-driven equivalent of legacy preference 10.
 - Legacy preference 10 -> `hyperparameter_save.enabled: true`
 - Legacy preference 11 -> `sensor_ablation.review.enabled: true` with `sort_streams_by_median: true`
 
-## Current config behavior
-
-The checked-in `GLOC_experiment_config.yaml` currently does the following:
-
-- Runs sensor ablation training.
-- Uses the `Complete` / `Explicit` model type.
-- Trains `EGB`, `KNN`, and `RF`.
-- Uses 10 splits and random seed 42.
-- Points `data_path` at the repository's `data/` directory.
-- Leaves sensor ablation review disabled.
-
-<!-- ## Outputs
-
-Sensor ablation training writes one pickle per model and stream group under:
-
-```text
-Results/Sensor_Ablation/<model_type>/<model_name>/<stream-group>.pkl
-```
-
-Plots are generated from the cached F1 values in the same result area. -->
-
 ## Testing
 
 The repository includes pytest coverage for config parsing, the sensor ablation flow, and pipeline parity checks.
