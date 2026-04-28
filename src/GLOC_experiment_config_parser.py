@@ -58,6 +58,8 @@ class GLOCExperimentConfigParser:
         model_names = self.config.get("models")
         if not isinstance(model_names, list):
             raise ValueError("models must be a list of model names.")
+        
+        model_config = self.config.get("model_config", {})
 
         built_models: List[BaseModel] = []
         for model_name in model_names:
@@ -67,7 +69,7 @@ class GLOCExperimentConfigParser:
                     f"Model '{model_name}' is not recognized. "
                     f"Available models: {list(self.MODEL_FACTORIES_BY_NAME.keys())}"
                 )
-            built_models.append(model_factory(config = None))
+            built_models.append(model_factory(config = model_config))
 
         return built_models
 
