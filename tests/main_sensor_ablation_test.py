@@ -6,6 +6,10 @@ import builtins
 from src.model_type import ModelType
 import src.main as main_module
 
+import matplotlib.pyplot as plt
+from matplotlib_venn import venn2, venn3
+from upsetplot import UpSet, from_contents
+from src.scripts.temporal_functions_traditional import get_hyperparameters_from_json
 
 class DummyModel:
     def __init__(self, name: str):
@@ -176,31 +180,101 @@ def test_run_uses_traditional_classification_when_sensor_ablation_enabled(monkey
     model = DummyModel("KNN")
     config_parser = DummyConfigParser(enabled=True, model=model)
     pipeline = DummyPipeline(config_parser)
+    captured = {}
 
     monkeypatch.setattr(main_module, "configure_logging", lambda: None)
     monkeypatch.setattr(main_module, "GLOCExperimentConfigParser", lambda config_location=None: config_parser)
+    monkeypatch.setattr(main_module, "_try_enable_cuml_acceleration", lambda: None)
     monkeypatch.setattr(main_module, "DataPipeline", lambda config_parser: pipeline)
-    monkeypatch.setattr(main_module, "get_hyperparameters_from_json", lambda *args, **kwargs: ({"n_neighbors": 5}, None, None, None))
-    monkeypatch.setattr(main_module, "plot_f1_violin_by_stream", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         main_module,
-        "stratified_kfold_split",
-        lambda Y, X, num_splits, kfold_ID, random_state: (
-            np.array([[1.0, 2.0]]),
-            np.array([[3.0, 4.0]]),
-            np.array([0]),
-            np.array([1]),
-        ),
+        "run_sensor_ablation_training",
+        lambda **kwargs: captured.update(kwargs=kwargs),
     )
 
     main_module.run()
 
+    assert "kwargs" in captured
+    assert captured["kwargs"]["config_parser"] is config_parser
+    assert captured["kwargs"]["pipeline"] is pipeline
+    assert captured["kwargs"]["project_root"] == Path(main_module.__file__).resolve().parent.parent
+    assert captured["kwargs"]["get_hyperparameters_from_json_fn"] is main_module.get_hyperparameters_from_json
+    assert captured["kwargs"]["stratified_kfold_split_fn"] is main_module.stratified_kfold_split
+    assert captured["kwargs"]["plot_f1_violin_by_stream_fn"] is main_module.plot_f1_violin_by_stream
+    assert captured["kwargs"]["extract_f1_score_fn"] is main_module.extract_f1_score
+    assert captured["kwargs"]["save_model_stream_f1_scores_fn"] is main_module.save_model_stream_f1_scores
+
+
+def test_run_sensor_ablation_training_passes_expected_parameters(tmp_path):
+    model = DummyModel("KNN")
+    config_parser = DummyConfigParser(enabled=True, model=model)
+    pipeline = DummyPipeline(config_parser)
+
+    hyperparameter_calls = []
+    split_calls = []
+    save_calls = []
+    plot_calls = []
+
+    def _get_hyperparameters_from_json_fn(classifier, model_type_name):
+        hyperparameter_calls.append((classifier, model_type_name))
+        return ({"alpha": 1.0}, ["EEG"], None, None)
+
+    def _stratified_kfold_split_fn(**kwargs):
+        split_calls.append(kwargs)
+        return (
+            np.array([[10.0]]),
+            np.array([[20.0]]),
+            np.array([0]),
+            np.array([1]),
+        )
+
+    def _save_model_stream_f1_scores_fn(**kwargs):
+        save_calls.append(kwargs)
+        return kwargs["results_root_dir"] / kwargs["model_name"] / f"{kwargs['stream_str']}.pkl"
+
+    def _plot_f1_violin_by_stream_fn(**kwargs):
+        plot_calls.append(kwargs)
+
+    project_root = tmp_path / "project"
+
+    main_module.run_sensor_ablation_training(
+        config_parser=config_parser,
+        pipeline=pipeline,
+        project_root=project_root,
+        get_hyperparameters_from_json_fn=_get_hyperparameters_from_json_fn,
+        stratified_kfold_split_fn=_stratified_kfold_split_fn,
+        plot_f1_violin_by_stream_fn=_plot_f1_violin_by_stream_fn,
+        save_model_stream_f1_scores_fn=_save_model_stream_f1_scores_fn,
+    )
+
+    expected_results_dir = project_root / "Results" / "Sensor_Ablation" / config_parser.get_model_type().get_folder_name()
+
+    assert hyperparameter_calls == [("KNN", config_parser.get_model_type().get_folder_name())]
     assert len(pipeline.calls) == 1
-    assert pipeline.calls[0]["feature_streams"] == ["EEG"]
-    assert len(model.calls) == 2
+    assert pipeline.calls[0] == {"model": model, "feature_streams": ["EEG"]}
+    assert len(split_calls) == config_parser.get_num_splits()
+    assert [call["kfold_ID"] for call in split_calls] == [0, 1]
+    assert all(call["num_splits"] == config_parser.get_num_splits() for call in split_calls)
+    assert all(call["random_state"] == config_parser.get_random_seed() for call in split_calls)
+    assert len(model.calls) == config_parser.get_num_splits()
+    assert model.calls[0]["class_weight_imb"] is None
+    assert model.calls[0]["random_state"] == config_parser.get_random_seed()
+    assert model.calls[0]["save_folder"] == ""
     assert model.calls[0]["model_name"] == "knn_feature_study.pkl"
+    assert model.calls[0]["retrain"] is False
     assert model.calls[0]["temporal"] is True
-    assert model.calls[0]["best_params"] == {"n_neighbors": 5}
+    assert model.calls[0]["best_params"] == {"alpha": 1.0}
+    assert len(save_calls) == 1
+    assert save_calls[0]["results_root_dir"] == expected_results_dir
+    assert save_calls[0]["model_name"] == "KNN"
+    assert save_calls[0]["stream_str"] == "EEG"
+    assert np.allclose(save_calls[0]["f1_scores"], np.array([0.6, 0.6]))
+    assert len(plot_calls) == 1
+    assert plot_calls[0]["model_type"] == config_parser.get_model_type()
+    assert plot_calls[0]["save_folder"] == expected_results_dir
+    assert set(plot_calls[0]["f1_results_by_stream"].keys()) == {"KNN"}
+    assert set(plot_calls[0]["f1_results_by_stream"]["KNN"].keys()) == {"EEG"}
+    assert np.allclose(plot_calls[0]["f1_results_by_stream"]["KNN"]["EEG"], np.array([0.6, 0.6]))
 
 
 def test_run_no_enabled_modes_logs_and_exits(monkeypatch):
@@ -211,6 +285,7 @@ def test_run_no_enabled_modes_logs_and_exits(monkeypatch):
 
     monkeypatch.setattr(main_module, "configure_logging", lambda: None)
     monkeypatch.setattr(main_module, "GLOCExperimentConfigParser", lambda config_location=None: config_parser)
+    monkeypatch.setattr(main_module, "_try_enable_cuml_acceleration", lambda: None)
     monkeypatch.setattr(main_module.logging, "info", lambda msg, *args: logs.append(msg % args if args else msg))
 
     main_module.run()
@@ -230,7 +305,7 @@ def test_load_sensor_ablation_f1_results_reads_pickles(tmp_path):
     with open(rf_dir / "ECG-HR-BR.pkl", "wb") as handle:
         pickle.dump(np.array([0.9]), handle)
 
-    loaded = main_module._load_sensor_ablation_f1_results(
+    loaded = main_module.load_sensor_ablation_f1_results(
         results_root_dir=results_root_dir,
         classifiers=["KNN", "RF"],
     )
@@ -260,7 +335,7 @@ def test_load_sensor_ablation_f1_results_skips_non_matching_pickles(monkeypatch,
 
     monkeypatch.setattr(builtins, "open", _tracking_open)
 
-    loaded = main_module._load_sensor_ablation_f1_results(
+    loaded = main_module.load_sensor_ablation_f1_results(
         results_root_dir=results_root_dir,
         classifiers=["KNN"],
         stream_group=["EEG"],
@@ -279,7 +354,7 @@ def test_filter_sensor_ablation_review_results_matches_selected_stream_labels():
             "Pupil-Centrifuge-Participant": np.array([0.8]),
         }
     }
-    filtered = main_module._filter_sensor_ablation_review_results(
+    filtered = main_module.filter_sensor_ablation_review_results(
         f1_results_by_stream=f1_results_by_stream,
         stream_group=["Pupil", "Centrifuge", "Participant"],
     )
@@ -297,35 +372,89 @@ def test_run_sensor_ablation_review_enabled_invokes_plot_with_filtered_results(m
         review_stream_group=["EEG"],
     )
 
-    monkeypatch.setattr(main_module, "configure_logging", lambda: None)
-    monkeypatch.setattr(main_module, "GLOCExperimentConfigParser", lambda config_location=None: config_parser)
-
-    monkeypatch.setattr(
-        main_module,
-        "_load_sensor_ablation_f1_results",
-        lambda results_root_dir, classifiers, stream_group=None: {
-            "KNN": {
-                "EEG": np.array([0.91, 0.92]),
-                "Pupil": np.array([0.51]),
-            }
-        },
-    )
-
     captured = {}
 
-    def _capture_plot(f1_results_by_stream, model_type, save_folder=None):
-        captured["results"] = f1_results_by_stream
-        captured["model_type"] = model_type
-        captured["save_folder"] = save_folder
-
-    monkeypatch.setattr(main_module, "plot_f1_violin_by_stream", _capture_plot)
-    monkeypatch.setattr(main_module, "plot_f1_violin_with_stream_matrix", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main_module, "configure_logging", lambda: None)
+    monkeypatch.setattr(main_module, "GLOCExperimentConfigParser", lambda config_location=None: config_parser)
+    monkeypatch.setattr(main_module, "_try_enable_cuml_acceleration", lambda: None)
+    monkeypatch.setattr(
+        main_module,
+        "run_sensor_ablation_review",
+        lambda **kwargs: captured.update(kwargs=kwargs),
+    )
 
     main_module.run()
 
-    assert set(captured["results"].keys()) == {"KNN"}
-    assert set(captured["results"]["KNN"].keys()) == {"EEG"}
-    assert captured["save_folder"] is None
+    assert captured["kwargs"]["config_parser"] is config_parser
+    assert captured["kwargs"]["load_sensor_ablation_f1_results_fn"] is main_module.load_sensor_ablation_f1_results
+    assert captured["kwargs"]["build_ranked_sensor_ablation_review_results_fn"] is main_module.build_ranked_sensor_ablation_review_results
+    assert captured["kwargs"]["filter_sensor_ablation_review_results_fn"] is main_module.filter_sensor_ablation_review_results
+    assert captured["kwargs"]["plot_f1_violin_with_stream_matrix_fn"] is main_module.plot_f1_violin_with_stream_matrix
+    assert captured["kwargs"]["plot_f1_violin_by_stream_fn"] is main_module.plot_f1_violin_by_stream
+    assert captured["kwargs"]["stream_label_aliases"] == main_module.STREAM_LABEL_ALIASES
+
+
+def test_run_sensor_ablation_review_passes_expected_parameters(tmp_path):
+    model = DummyModel("KNN")
+    config_parser = DummyConfigParser(
+        enabled=False,
+        model=model,
+        review_enabled=True,
+        review_models=["KNN"],
+        review_stream_group=["EEG"],
+    )
+
+    load_calls = []
+    filter_calls = []
+    plot_calls = []
+
+    def _load_sensor_ablation_f1_results_fn(**kwargs):
+        load_calls.append(kwargs)
+        return {"KNN": {"EEG": np.array([0.2, 0.4])}}
+
+    def _build_ranked_sensor_ablation_review_results_fn(**kwargs):
+        raise AssertionError("Ranked review should not be used when sort_streams_by_median is disabled")
+
+    def _filter_sensor_ablation_review_results_fn(**kwargs):
+        filter_calls.append(kwargs)
+        return {"KNN": {"EEG": np.array([0.2, 0.4])}}
+
+    def _plot_f1_violin_by_stream_fn(**kwargs):
+        plot_calls.append(("by_stream", kwargs))
+
+    def _plot_f1_violin_with_stream_matrix_fn(**kwargs):
+        plot_calls.append(("matrix", kwargs))
+
+    main_module.run_sensor_ablation_review(
+        config_parser=config_parser,
+        project_root=tmp_path,
+        load_sensor_ablation_f1_results_fn=_load_sensor_ablation_f1_results_fn,
+        build_ranked_sensor_ablation_review_results_fn=_build_ranked_sensor_ablation_review_results_fn,
+        filter_sensor_ablation_review_results_fn=_filter_sensor_ablation_review_results_fn,
+        plot_f1_violin_with_stream_matrix_fn=_plot_f1_violin_with_stream_matrix_fn,
+        plot_f1_violin_by_stream_fn=_plot_f1_violin_by_stream_fn,
+        stream_label_aliases=main_module.STREAM_LABEL_ALIASES,
+    )
+
+    expected_results_dir = tmp_path / "Results" / "Sensor_Ablation" / config_parser.get_model_type().get_folder_name()
+
+    assert load_calls == [
+        {
+            "results_root_dir": expected_results_dir,
+            "classifiers": ["KNN"],
+            "stream_group": ["EEG"],
+        }
+    ]
+    assert len(filter_calls) == 1
+    assert filter_calls[0]["stream_group"] == ["EEG"]
+    assert set(filter_calls[0]["f1_results_by_stream"].keys()) == {"KNN"}
+    assert set(filter_calls[0]["f1_results_by_stream"]["KNN"].keys()) == {"EEG"}
+    assert np.allclose(filter_calls[0]["f1_results_by_stream"]["KNN"]["EEG"], np.array([0.2, 0.4]))
+    assert len(plot_calls) == 1
+    assert plot_calls[0][0] == "by_stream"
+    assert plot_calls[0][1]["model_type"] == config_parser.get_model_type()
+    assert set(plot_calls[0][1]["f1_results_by_stream"].keys()) == {"KNN"}
+    assert np.allclose(plot_calls[0][1]["f1_results_by_stream"]["KNN"]["EEG"], np.array([0.2, 0.4]))
 
 
 def test_build_ranked_sensor_ablation_review_results_sorts_and_aliases_streams():
@@ -340,9 +469,10 @@ def test_build_ranked_sensor_ablation_review_results_sorts_and_aliases_streams()
             "EEG-Centrifuge-Participant": np.array([0.85]),
         },
     }
-    ranked = main_module._build_ranked_sensor_ablation_review_results(
+    ranked = main_module.build_ranked_sensor_ablation_review_results(
         f1_results_by_stream = f1_results_by_stream,
         classifiers = ["KNN", "RF"],
+        stream_label_aliases = main_module.STREAM_LABEL_ALIASES,
     )
 
     assert list(ranked["KNN"].keys()) == [
@@ -367,38 +497,26 @@ def test_run_sensor_ablation_review_ranked_mode_invokes_matrix_plot(monkeypatch)
         review_sort_streams_by_median = True,
     )
 
-    monkeypatch.setattr(main_module, "configure_logging", lambda: None)
-    monkeypatch.setattr(main_module, "GLOCExperimentConfigParser", lambda config_location=None: config_parser)
-
-    monkeypatch.setattr(
-        main_module,
-        "_load_sensor_ablation_f1_results",
-        lambda results_root_dir, classifiers, stream_group=None: {
-            "KNN": {
-                "EEG": np.array([0.8, 0.9]),
-                "ECG-HR-BR-Temperature": np.array([0.95]),
-            },
-            "RF": {
-                "EEG": np.array([0.7]),
-            },
-        },
-    )
-
     captured = {}
 
-    def _capture_matrix_plot(f1_results_by_stream, model_type, save_folder=None):
-        captured["results"] = f1_results_by_stream
-        captured["model_type"] = model_type
-        captured["save_folder"] = save_folder
-
-    monkeypatch.setattr(main_module, "plot_f1_violin_with_stream_matrix", _capture_matrix_plot)
-    monkeypatch.setattr(main_module, "plot_f1_violin_by_stream", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main_module, "configure_logging", lambda: None)
+    monkeypatch.setattr(main_module, "GLOCExperimentConfigParser", lambda config_location=None: config_parser)
+    monkeypatch.setattr(main_module, "_try_enable_cuml_acceleration", lambda: None)
+    monkeypatch.setattr(
+        main_module,
+        "run_sensor_ablation_review",
+        lambda **kwargs: captured.update(kwargs=kwargs),
+    )
 
     main_module.run()
 
-    assert list(captured["results"]["KNN"].keys()) == ["Equivital", "EEG"]
-    assert list(captured["results"]["RF"].keys()) == ["EEG"]
-    assert captured["save_folder"] is None
+    assert captured["kwargs"]["config_parser"] is config_parser
+    assert captured["kwargs"]["load_sensor_ablation_f1_results_fn"] is main_module.load_sensor_ablation_f1_results
+    assert captured["kwargs"]["build_ranked_sensor_ablation_review_results_fn"] is main_module.build_ranked_sensor_ablation_review_results
+    assert captured["kwargs"]["filter_sensor_ablation_review_results_fn"] is main_module.filter_sensor_ablation_review_results
+    assert captured["kwargs"]["plot_f1_violin_with_stream_matrix_fn"] is main_module.plot_f1_violin_with_stream_matrix
+    assert captured["kwargs"]["plot_f1_violin_by_stream_fn"] is main_module.plot_f1_violin_by_stream
+    assert captured["kwargs"]["stream_label_aliases"] == main_module.STREAM_LABEL_ALIASES
 
 
 def test_investigate_feature_space_uses_venn3_and_returns_expected_sets(monkeypatch, capsys):
@@ -425,7 +543,16 @@ def test_investigate_feature_space_uses_venn3_and_returns_expected_sets(monkeypa
     monkeypatch.setattr(main_module, "venn3", _capture_venn3)
     monkeypatch.setattr(main_module.plt, "show", lambda: None)
 
-    shared_features, unique_features = main_module.investigate_feature_space(model_type, ["KNN", "EGB", "RF"])
+    shared_features, unique_features = main_module.investigate_feature_space(
+        model_type = model_type,
+        classifiers = ["KNN", "EGB", "RF"],
+        get_hyperparameters_from_json_fn = main_module.get_hyperparameters_from_json,
+        venn2_fn = main_module.venn2,
+        venn3_fn = main_module.venn3,
+        from_contents_fn = main_module.from_contents,
+        upset_cls = main_module.UpSet,
+        plt_module = main_module.plt,
+    )
 
     assert shared_features == {"C"}
     assert unique_features == {
@@ -477,8 +604,14 @@ def test_investigate_feature_space_uses_upset_for_four_or_more_classifiers(monke
     monkeypatch.setattr(main_module.plt, "show", lambda: None)
 
     shared_features, unique_features = main_module.investigate_feature_space(
-        model_type,
-        ["KNN", "EGB", "RF", "LDA"],
+        model_type = model_type,
+        classifiers = ["KNN", "EGB", "RF", "LDA"],
+        get_hyperparameters_from_json_fn = main_module.get_hyperparameters_from_json,
+        venn2_fn = main_module.venn2,
+        venn3_fn = main_module.venn3,
+        from_contents_fn = main_module.from_contents,
+        upset_cls = main_module.UpSet,
+        plt_module = main_module.plt,
     )
 
     assert shared_features == set()
@@ -510,8 +643,51 @@ def test_run_feature_space_review_enabled_invokes_feature_space_review(monkeypat
 
     monkeypatch.setattr(main_module, "configure_logging", lambda: None)
     monkeypatch.setattr(main_module, "GLOCExperimentConfigParser", lambda config_location=None: config_parser)
-    monkeypatch.setattr(main_module, "_run_feature_space_review", lambda config_parser: captured.update(models=config_parser.get_feature_space_review_models()))
+    monkeypatch.setattr(main_module, "_try_enable_cuml_acceleration", lambda: None)
+    monkeypatch.setattr(
+        main_module,
+        "run_feature_space_review",
+        lambda **kwargs: captured.update(kwargs=kwargs),
+    )
 
     main_module.run()
 
-    assert captured["models"] == ["KNN", "EGB", "RF"]
+    assert captured["kwargs"]["config_parser"] is config_parser
+    assert captured["kwargs"]["investigate_feature_space_fn"] is main_module.investigate_feature_space
+
+
+def test_run_feature_space_review_passes_expected_parameters():
+    model = DummyModel("KNN")
+    config_parser = DummyConfigParser(
+        enabled=False,
+        model=model,
+        review_enabled=False,
+        feature_space_review_enabled=True,
+        feature_space_review_models=["KNN", "EGB", "RF"],
+    )
+
+    captured = {}
+
+    def _investigate_feature_space_fn(*args):
+        captured["args"] = args
+        return set(), {}
+
+    main_module.run_feature_space_review(
+        config_parser=config_parser,
+        investigate_feature_space_fn=_investigate_feature_space_fn,
+        get_hyperparameters_from_json_fn=main_module.get_hyperparameters_from_json,
+        venn2_fn=main_module.venn2,
+        venn3_fn=main_module.venn3,
+        from_contents_fn=main_module.from_contents,
+        upset_cls=main_module.UpSet,
+        plt_module=main_module.plt,
+    )
+
+    assert captured["args"][0] == config_parser.get_model_type()
+    assert captured["args"][1] == ["KNN", "EGB", "RF"]
+    assert captured["args"][2] is main_module.get_hyperparameters_from_json
+    assert captured["args"][3] is main_module.venn2
+    assert captured["args"][4] is main_module.venn3
+    assert captured["args"][5] is main_module.from_contents
+    assert captured["args"][6] is main_module.UpSet
+    assert captured["args"][7] is main_module.plt
