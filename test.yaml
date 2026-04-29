@@ -1,0 +1,56 @@
+models:
+  - EGB
+  - KNN
+model_type:
+  - Complete
+  - Explicit
+random_seed: 42
+data_path: /home/gloc/G-LOC-Prediction/data
+shared_data_parameters:
+  subject_to_analyze: null
+  trial_to_analyze: null
+  analysis_type: 2
+  remove_NaN_trials: true
+  impute_file_name: imputed_data.pkl
+  save_impute: false
+  load_impute: false
+  should_impute: true
+  output_feature_dtype: float32
+advanced_data_parameters:
+  num_splits: 2
+  kfold_ID: 0
+  n_neighbors: 4
+  baseline_window: 32.5
+traditional_data_parameters:
+  backstep: 0
+  data_rate: 25
+  offset: 0
+  time_start: 0
+sensor_ablation:
+  training:
+    enabled: false
+    streams:
+      - [ECG, HR, BR, Temperature]
+      - [EEG]
+  review:
+    enabled: false
+    models:
+      - KNN
+      - EGB
+    stream_group:
+      - EEG
+    sort_streams_by_median: false
+
+feature_space_review:
+  enabled: false
+  models:
+    - KNN
+    - EGB
+    - RF
+
+hyperparameter_save:
+  enabled: true
+  models:
+    - KNN
+    - EGB
+    - RF
