@@ -9,6 +9,7 @@ from upsetplot import UpSet, from_contents
 
 from .Data_Pipeline.data_pipeline import DataPipeline
 from .GLOC_experiment_config_parser import GLOCExperimentConfigParser
+from .modes.cross_validation import run_cross_validation
 from .modes.feature_space_review import (
     investigate_feature_space,
     run_feature_space_review,
@@ -133,6 +134,19 @@ def run(config_path: str | None = None) -> None:
                 save_median_hyperparameters_fn = save_median_hyperparameters,
             ),
         ),
+        (
+            config_parser.get_cross_validation_enabled(),
+            lambda: run_cross_validation(
+                config = config_parser,
+                pipeline = DataPipeline(config_parser = config_parser),
+                results_root = project_root / config_parser.get_cross_validation_save_results_folder(),
+                models = config_parser.get_models(),
+                num_splits = config_parser.get_cross_validation_num_splits(),
+                random_seed = config_parser.get_cross_validation_random_seed(),
+                class_weight = config_parser.get_cross_validation_class_weight(),
+                support_deep_learning = config_parser.get_cross_validation_support_deep_learning(),
+            ),
+        ),
     ]
 
     for is_enabled, runner in mode_runners:
@@ -142,9 +156,9 @@ def run(config_path: str | None = None) -> None:
 
     if not did_run_any_mode:
         logging.info(
-            "No runnable mode enabled. Set sensor_ablation_parameters.enabled, "
-            "sensor_ablation_review_parameters.enabled, feature_space_review.enabled, or "
-            "hyperparameter_save.enabled to true in the config."
+            "No runnable mode enabled. Set sensor_ablation.training.enabled, "
+            "sensor_ablation.review.enabled, feature_space_review.enabled, "
+            "hyperparameter_save.enabled, or cross_validation.enabled to true in the config."
         )
 
 

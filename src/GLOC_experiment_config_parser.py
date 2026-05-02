@@ -186,3 +186,30 @@ class GLOCExperimentConfigParser:
 
     def get_hyperparameter_save_models(self) -> Any:
         return copy.deepcopy(self._get_nested("hyperparameter_save", "models"))
+
+    def get_cross_validation_enabled(self) -> bool:
+        return self._get_enabled("cross_validation", "enabled")
+
+    def get_cross_validation_num_splits(self) -> int:
+        return self._get_nested("cross_validation", "num_splits")
+
+    def get_cross_validation_kfold_ID(self) -> int:
+        return self._get_nested("cross_validation", "kfold_ID")
+
+    def get_cross_validation_classifiers(self) -> list:
+        return copy.deepcopy(self._get_nested("cross_validation", "classifiers"))
+
+    def get_cross_validation_save_results_folder(self) -> str:
+        return self._get_nested("cross_validation", "save_results_folder")
+
+    def get_cross_validation_random_seed(self) -> int:
+        return self._get_nested("cross_validation", "random_seed")
+
+    def get_cross_validation_class_weight(self) -> Any:
+        return self._get_nested("cross_validation", "class_weight")
+
+    def get_cross_validation_support_deep_learning(self) -> bool:
+        return self._get_nested("cross_validation", "support_deep_learning")
+
+    def get_cross_validation_impute_handling(self) -> dict:
+        return copy.deepcopy(self._get_nested("cross_validation", "impute_handling"))
