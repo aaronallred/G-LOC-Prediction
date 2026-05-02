@@ -1,6 +1,5 @@
 models:
-  - EGB
-  - KNN
+  - RF
 model_type:
   - Complete
   - Explicit
@@ -60,7 +59,6 @@ cross_validation:
   num_splits: 2
   kfold_ID: 0
   classifiers:
-    - KNN
     - RF
   save_results_folder: Results/CrossValidation
   random_seed: 42

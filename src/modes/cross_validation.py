@@ -157,7 +157,8 @@ def _run_advanced_model_cv_fold(
 
 def _run_traditional_model_cv_fold(
     model: BaseModel,
-    pipeline: DataPipeline,
+    X: np.ndarray,
+    y: np.ndarray,
     kfold_id: int,
     num_splits: int,
     random_seed: int,
@@ -170,28 +171,63 @@ def _run_traditional_model_cv_fold(
     
     Unlike advanced models, traditional models expect the full dataset and do their own
     fold splitting via stratified_kfold_split.
+    
+    Args:
+        model: The traditional model to evaluate
+        X: Full feature matrix (pre-loaded)
+        y: Full label vector (pre-loaded)
+        kfold_id: Which fold to extract
+        num_splits: Total number of splits
+        random_seed: Seed for reproducibility
+        class_weight: Class weighting strategy
     """
     logger.info(
         f"Running traditional CV fold {kfold_id} for model {model.get_name()}"
     )
 
-    # Get full data from pipeline (traditional path does not accept kfold_id)
-    X, y = pipeline.get_data(model=model)
-
-    # Do fold splitting using stratified_kfold_split
+    # Do fold splitting using stratified_kfold_split on pre-loaded data
     X_train, X_test, y_train, y_test = stratified_kfold_split(
         y, X, num_splits, kfold_id, random_state=random_seed
     )
 
     # Call legacy classify_traditional interface
     # Legacy contract: returns (accuracy, precision, recall, f1, specificity, g_mean)
+    # Signature: classify_traditional(x_train, x_test, y_train, y_test, class_weight_imb, 
+    #                                  random_state, save_folder, model_name, retrain,
+    #                                  temporal=False, best_params=None)
     result = model.classify_traditional(
-        X_train, X_test, y_train, y_test, class_weight=class_weight, random_seed=random_seed
+        x_train=X_train,
+        x_test=X_test,
+        y_train=y_train,
+        y_test=y_test,
+        class_weight_imb=class_weight,
+        random_state=random_seed,
+        save_folder=None,
+        model_name=None,
+        retrain=True,
+        temporal=False,
+        best_params=None,
     )
 
-    # Parse legacy tuple
-    if isinstance(result, tuple) and len(result) == 6:
-        accuracy, precision, recall, f1, specificity, g_mean = result
+    # Parse legacy tuple - handle variable-length returns
+    if isinstance(result, tuple):
+        # Legacy tuple contract (variable length, but first 6 are always the same):
+        # (accuracy, precision, recall, f1, [optional: tree_depth/other], specificity, g_mean)
+        if len(result) == 6:
+            # Standard 6-tuple: (accuracy, precision, recall, f1, specificity, g_mean)
+            accuracy, precision, recall, f1, specificity, g_mean = result
+        elif len(result) == 7:
+            # 7-tuple with extra field: (accuracy, precision, recall, f1, extra, specificity, g_mean)
+            accuracy, precision, recall, f1, _, specificity, g_mean = result
+        else:
+            # Unknown tuple format; try to extract first 4 mandatory + last 2 metrics
+            accuracy = result[0] if len(result) > 0 else 0
+            precision = result[1] if len(result) > 1 else 0
+            recall = result[2] if len(result) > 2 else 0
+            f1 = result[3] if len(result) > 3 else 0
+            specificity = result[-2] if len(result) > 1 else 0
+            g_mean = result[-1] if len(result) > 0 else 0
+        
         metrics = {
             "accuracy": float(accuracy),
             "precision": float(precision),
@@ -296,6 +332,21 @@ def run_cross_validation(
         model_results = []
         model_results_dir = results_root / model_name
 
+        # IMPORTANT: Load data ONCE per model to avoid reprocessing for each fold
+        logger.info(f"Loading data for model {model_name}...")
+        
+        if _is_traditional_model(model):
+            # Load full dataset once for traditional models
+            X, y = pipeline.get_data(model=model)
+            logger.info(f"Loaded traditional data: X shape {X.shape}, y shape {y.shape}")
+        elif _is_dl_adapter(model):
+            # For DL models, load data appropriately (may need adaptation based on DL framework)
+            X, y = pipeline.get_data(model=model)
+            logger.info(f"Loaded DL data: X shape {X.shape}, y shape {y.shape}")
+        else:
+            # Advanced models: data will be loaded per-fold by pipeline
+            X, y = None, None
+
         for fold_idx in range(num_splits):
             fold_dir = model_results_dir / f"fold_{fold_idx}"
             fold_dir.mkdir(parents=True, exist_ok=True)
@@ -314,8 +365,9 @@ def run_cross_validation(
                     )
 
                 elif _is_traditional_model(model):
+                    # Use pre-loaded data for traditional models
                     fold_result = _run_traditional_model_cv_fold(
-                        model, pipeline, fold_idx, num_splits, random_seed, class_weight
+                        model, X, y, fold_idx, num_splits, random_seed, class_weight
                     )
 
                 else:

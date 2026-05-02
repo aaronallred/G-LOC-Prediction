@@ -1,5 +1,4 @@
 models:
-  - EGB
   - KNN
 model_type:
   - Complete
@@ -61,7 +60,6 @@ cross_validation:
   kfold_ID: 0
   classifiers:
     - KNN
-    - RF
   save_results_folder: Results/CrossValidation
   random_seed: 42
   class_weight: null
