@@ -42,7 +42,7 @@ sensor_ablation:
     sort_streams_by_median: false
 
 feature_space_review:
-  enabled: false
+  enabled: true
   models:
     - KNN
     - EGB

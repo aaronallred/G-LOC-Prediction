@@ -26,6 +26,8 @@ This file captures repository-specific guidance for Copilot-style assistants.
 - Tests: `pytest.ini` sets `pythonpath = src` so tests run from repo root. There is an `integration` marker for long/data-heavy tests.
 - Sensor stream aliasing: `STREAM_LABEL_ALIASES` in `src/main.py` contains human-readable replacements for some stream sets (e.g., `ECG-HR-BR-Temperature` -> `Equivital`).
 - Running: always run commands from the repository root so relative paths resolve correctly.
+- Cross-validation: `src/modes/cross_validation.py` provides a unified CV runner that auto-detects model types (traditional, advanced, DL-adapted) and saves results to `Results/CrossValidation/<model_name>/`. Configure via `cross_validation:` section in YAML. Legacy models use `metrics_fold_<i>.pkl` naming; advanced models use `fold_<i>/metrics.pkl`.
+- Deep-learning adapters: Custom DL models can be integrated via `DLModelAdapter` subclass in `src/models/dl_adapter.py`. Adapters translate between numpy arrays and framework-specific tensors without adding heavy deps to core.
 
 ## Where to look for more details
 - `README.md` contains an expanded YAML config overview and usage examples.

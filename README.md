@@ -203,6 +203,42 @@ hyperparameter_save:
 
 This is the YAML-driven equivalent of legacy preference 10.
 
+### `cross_validation` (New unified CV runner)
+
+Enable this section to run cross-validation with automatic model-type detection and results aggregation.
+
+```yaml
+cross_validation:
+  enabled: true
+  num_splits: 5
+  kfold_ID: 0
+  classifiers:
+    - KNN
+    - RF
+    - EGB
+  save_results_folder: Results/CrossValidation
+  random_seed: 42
+  class_weight: balanced
+  support_deep_learning: false
+  impute_handling: {}
+```
+
+Key features:
+- **Automatic model detection**: Detects traditional (legacy `classify_traditional` contract), advanced (modern `train/evaluate` interface), or DL-adapted models.
+- **Unified fold management**: Uses `stratified_kfold_split` for deterministic, reproducible cross-validation splits.
+- **Legacy compatibility**: Preserves traditional model metrics filenames (`metrics_fold_<i>.pkl`) and advanced model nested structure (`fold_<i>/metrics.pkl`).
+- **Deep-learning support**: Via an adapter pattern (see `src/models/dl_adapter.py`); users can subclass `DLModelAdapter` to integrate PyTorch, TensorFlow, or other frameworks without heavy core dependencies.
+- **Result aggregation**: Computes mean and std of metrics across folds; saves to `summary.json` and per-fold `metrics.pkl`.
+
+Example CV run:
+```yaml
+cross_validation:
+  enabled: true
+  num_splits: 10
+  classifiers: [KNN, RF, EGB, LogReg]
+  random_seed: 42
+```
+
 ### Preference mapping summary
 
 - Legacy preference 9 -> `feature_space_review.enabled: true`
