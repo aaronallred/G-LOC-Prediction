@@ -15,7 +15,6 @@ shared_data_parameters:
   save_impute: false
   load_impute: false
   should_impute: true
-  output_feature_dtype: float32
 advanced_data_parameters:
   num_splits: 2
   kfold_ID: 0
@@ -48,22 +47,15 @@ feature_space_review:
     - EGB
     - RF
 
-hyperparameter_save:
-  enabled: false
-  models:
-    - KNN
-    - EGB
-    - RF
-
 cross_validation:
   enabled: true
   num_splits: 2
   kfold_ID: 0
   classifiers:
     - KNN
-    - RF
   save_results_folder: Results/CrossValidation
   random_seed: 42
   class_weight: null
   support_deep_learning: false
+  save_median_hyperparameters: true
   impute_handling: {}

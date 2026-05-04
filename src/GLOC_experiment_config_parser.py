@@ -97,6 +97,32 @@ class GLOCExperimentConfigParser:
     def get_models(self) -> List[BaseModel]:
         return self.models.copy()
 
+    def get_models_for_cross_validation(self) -> List[BaseModel]:
+        """Get only the models specified in cross_validation.classifiers.
+        
+        This filters the full models list to only include those specified in the
+        cross_validation section of the config. Falls back to all models if the
+        classifiers list is empty or the CV section is not configured.
+        """
+        try:
+            cv_classifiers = self.get_cross_validation_classifiers()
+        except (KeyError, AttributeError):
+            # CV not configured; return all models
+            return self.models.copy()
+
+        if not cv_classifiers:
+            # Empty classifiers list; return all models
+            return self.models.copy()
+
+        # Filter models: keep only those whose name matches a CV classifier
+        filtered_models = []
+        for model in self.models:
+            model_name = model.get_name() if hasattr(model, "get_name") else str(model)
+            if model_name in cv_classifiers:
+                filtered_models.append(model)
+
+        return filtered_models if filtered_models else self.models.copy()
+
     def get_model_type(self) -> ModelType:
         return self.model_type
 
@@ -181,12 +207,6 @@ class GLOCExperimentConfigParser:
     def get_feature_space_review_models(self) -> Any:
         return copy.deepcopy(self._get_nested("feature_space_review", "models"))
 
-    def get_hyperparameter_save_enabled(self) -> bool:
-        return self._get_enabled("hyperparameter_save", "enabled")
-
-    def get_hyperparameter_save_models(self) -> Any:
-        return copy.deepcopy(self._get_nested("hyperparameter_save", "models"))
-
     def get_cross_validation_enabled(self) -> bool:
         return self._get_enabled("cross_validation", "enabled")
 
@@ -213,3 +233,6 @@ class GLOCExperimentConfigParser:
 
     def get_cross_validation_impute_handling(self) -> dict:
         return copy.deepcopy(self._get_nested("cross_validation", "impute_handling"))
+
+    def get_cross_validation_save_median_hyperparameters(self) -> bool:
+        return self._get_nested("cross_validation", "save_median_hyperparameters")

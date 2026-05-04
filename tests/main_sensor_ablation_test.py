@@ -162,6 +162,30 @@ class DummyConfigParser:
     def get_time_start(self):
         return 0
 
+    def get_cross_validation_enabled(self):
+        return False
+
+    def get_cross_validation_num_splits(self):
+        return 5
+
+    def get_cross_validation_random_seed(self):
+        return 42
+
+    def get_cross_validation_class_weight(self):
+        return "balanced"
+
+    def get_cross_validation_save_results_folder(self):
+        return "CrossValidation"
+
+    def get_cross_validation_support_deep_learning(self):
+        return True
+
+    def get_cross_validation_save_median_hyperparameters(self):
+        return True
+
+    def get_models_for_cross_validation(self):
+        return [self._model]
+
 
 class DummyPipeline:
     def __init__(self, config_parser):

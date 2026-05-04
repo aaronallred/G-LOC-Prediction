@@ -190,20 +190,31 @@ feature_space_review:
 
 This is the YAML-driven equivalent of legacy preference 9.
 
-### `hyperparameter_save` (Legacy preference 10)
+### `hyperparameter_save` (DEPRECATED)
 
-Enable this section to save median-fold hyperparameters and selected features to JSON for configured models.
+⚠️ **This section has been deprecated and removed from the config.**
+
+**Migration**: Hyperparameter saving functionality is now integrated into cross-validation. Use the following instead:
 
 ```yaml
-hyperparameter_save:
+cross_validation:
   enabled: true
-  models:
-    - KNN
+  save_median_hyperparameters: true  # Default: true (automatically extracts median hyperparameters)
 ```
 
-This is the YAML-driven equivalent of legacy preference 10.
+**What changed**:
+- Old workflow: Run CV, then run separate `hyperparameter_save` mode to extract hyperparameters
+- New workflow: Run CV once, automatically gets median hyperparameters alongside metrics
+- Median fold is identified by F1 score during aggregation (no manual configuration needed)
 
-### `cross_validation` (New unified CV runner)
+**Benefits**:
+- Simpler: One mode instead of two
+- Faster: No duplicate model loading
+- Cleaner: All outputs in one Results/CrossValidation/{model}/ directory
+
+Legacy configs with `hyperparameter_save` section are still supported for backward compatibility but will be ignored.
+
+### `cross_validation` (Unified CV with integrated hyperparameter saving)
 
 Enable this section to run cross-validation with automatic model-type detection and results aggregation.
 
@@ -220,6 +231,7 @@ cross_validation:
   random_seed: 42
   class_weight: balanced
   support_deep_learning: false
+  save_median_hyperparameters: true
   impute_handling: {}
 ```
 
@@ -229,6 +241,7 @@ Key features:
 - **Legacy compatibility**: Preserves traditional model metrics filenames (`metrics_fold_<i>.pkl`) and advanced model nested structure (`fold_<i>/metrics.pkl`).
 - **Deep-learning support**: Via an adapter pattern (see `src/models/dl_adapter.py`); users can subclass `DLModelAdapter` to integrate PyTorch, TensorFlow, or other frameworks without heavy core dependencies.
 - **Result aggregation**: Computes mean and std of metrics across folds; saves to `summary.json` and per-fold `metrics.pkl`.
+- **Median hyperparameter extraction**: When `save_median_hyperparameters: true` (default), automatically identifies the fold with median F1 score and extracts its trained model's hyperparameters. Saves to `median_hyperparameters.json` alongside metrics.
 
 Example CV run:
 ```yaml

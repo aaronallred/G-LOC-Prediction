@@ -176,16 +176,6 @@ feature_space_review:
     - EGB
     - RF
 
-hyperparameter_save:
-  enabled: false
-  models:
-    - KNN
-    - EGB
-    - RF
-    - LogReg
-    - SVM
-    - LDA
-
 cross_validation:
   enabled: false
   num_splits: 5
@@ -197,4 +187,5 @@ cross_validation:
   random_seed: 42
   class_weight: null
   support_deep_learning: false
+  save_median_hyperparameters: true
   impute_handling: {}

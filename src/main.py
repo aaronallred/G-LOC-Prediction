@@ -59,6 +59,19 @@ def _try_enable_cuml_acceleration() -> None:
         )
 
 
+def _try_get_hyperparameter_save_enabled(config_parser: GLOCExperimentConfigParser) -> bool:
+    """Try to get hyperparameter_save enabled flag; return False if config section missing.
+    
+    DEPRECATED: hyperparameter_save has been moved to cross_validation.
+    This helper provides backward compatibility for configs that still have the section.
+    """
+    try:
+        return config_parser.get_hyperparameter_save_enabled()
+    except (KeyError, AttributeError):
+        # Config section doesn't exist; return False (disabled by default)
+        return False
+
+
 def configure_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -127,7 +140,9 @@ def run(config_path: str | None = None) -> None:
             )
         ),
         (
-            config_parser.get_hyperparameter_save_enabled(),
+            # DEPRECATED: hyperparameter_save functionality moved to cross_validation
+            # Try to get the enabled flag; if config section doesn't exist, default to False
+            _try_get_hyperparameter_save_enabled(config_parser),
             lambda: run_hyperparameter_save(
                 config_parser = config_parser,
                 project_root = project_root,
@@ -140,11 +155,12 @@ def run(config_path: str | None = None) -> None:
                 config = config_parser,
                 pipeline = DataPipeline(config_parser = config_parser),
                 results_root = project_root / config_parser.get_cross_validation_save_results_folder(),
-                models = config_parser.get_models(),
+                models = config_parser.get_models_for_cross_validation(),
                 num_splits = config_parser.get_cross_validation_num_splits(),
                 random_seed = config_parser.get_cross_validation_random_seed(),
                 class_weight = config_parser.get_cross_validation_class_weight(),
                 support_deep_learning = config_parser.get_cross_validation_support_deep_learning(),
+                model_type = config_parser.get_model_type(),
             ),
         ),
     ]
@@ -158,7 +174,7 @@ def run(config_path: str | None = None) -> None:
         logging.info(
             "No runnable mode enabled. Set sensor_ablation.training.enabled, "
             "sensor_ablation.review.enabled, feature_space_review.enabled, "
-            "hyperparameter_save.enabled, or cross_validation.enabled to true in the config."
+            "or cross_validation.enabled to true in the config."
         )
 
 
