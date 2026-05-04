@@ -104,7 +104,7 @@ def _compute_metrics_from_predictions(
         f1_score,
         precision_score,
         recall_score,
-        specificity_score,
+        confusion_matrix,
     )
 
     metrics = {
@@ -112,8 +112,18 @@ def _compute_metrics_from_predictions(
         "precision": float(precision_score(y_true, y_pred, zero_division=0)),
         "recall": float(recall_score(y_true, y_pred, zero_division=0)),
         "f1": float(f1_score(y_true, y_pred, zero_division=0)),
-        "specificity": float(specificity_score(y_true, y_pred)),
     }
+    
+    # Compute specificity manually (True Negatives / (True Negatives + False Positives))
+    cm = confusion_matrix(y_true, y_pred)
+    if cm.shape == (2, 2):
+        tn = cm[0, 0]
+        fp = cm[0, 1]
+        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+        metrics["specificity"] = float(specificity)
+    else:
+        # For multi-class, use average specificity
+        metrics["specificity"] = 0.0
 
     if y_pred_proba is not None:
         # G-mean as sqrt(sensitivity * specificity)
