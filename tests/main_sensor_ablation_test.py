@@ -96,12 +96,6 @@ class DummyConfigParser:
     def get_feature_space_review_models(self):
         return list(self._feature_space_review_models)
 
-    def get_hyperparameter_save_enabled(self):
-        return False
-
-    def get_hyperparameter_save_models(self):
-        return []
-
     def get_models(self):
         return [self._model]
 

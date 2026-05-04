@@ -14,7 +14,6 @@ from .modes.feature_space_review import (
     investigate_feature_space,
     run_feature_space_review,
 )
-from .modes.hyperparameter_save import run_hyperparameter_save
 from .modes.sensor_ablation import (
     apply_stream_label_aliases,
     build_ranked_sensor_ablation_review_results,
@@ -29,7 +28,6 @@ from .traditional_experiment_utils import (
     get_hyperparameters_from_json,
     plot_f1_violin_by_stream,
     plot_f1_violin_with_stream_matrix,
-    save_median_hyperparameters,
     stratified_kfold_split,
 )
 
@@ -57,19 +55,6 @@ def _try_enable_cuml_acceleration() -> None:
             "cuML acceleration initialization failed (%s). Continuing with CPU estimators.",
             exc,
         )
-
-
-def _try_get_hyperparameter_save_enabled(config_parser: GLOCExperimentConfigParser) -> bool:
-    """Try to get hyperparameter_save enabled flag; return False if config section missing.
-    
-    DEPRECATED: hyperparameter_save has been moved to cross_validation.
-    This helper provides backward compatibility for configs that still have the section.
-    """
-    try:
-        return config_parser.get_hyperparameter_save_enabled()
-    except (KeyError, AttributeError):
-        # Config section doesn't exist; return False (disabled by default)
-        return False
 
 
 def configure_logging() -> None:
@@ -138,16 +123,6 @@ def run(config_path: str | None = None) -> None:
                 upset_cls = UpSet,
                 plt_module = plt,
             )
-        ),
-        (
-            # DEPRECATED: hyperparameter_save functionality moved to cross_validation
-            # Try to get the enabled flag; if config section doesn't exist, default to False
-            _try_get_hyperparameter_save_enabled(config_parser),
-            lambda: run_hyperparameter_save(
-                config_parser = config_parser,
-                project_root = project_root,
-                save_median_hyperparameters_fn = save_median_hyperparameters,
-            ),
         ),
         (
             config_parser.get_cross_validation_enabled(),
