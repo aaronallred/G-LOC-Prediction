@@ -146,9 +146,9 @@ def run_sensor_ablation_training(
     save_model_stream_f1_scores_fn: Callable[..., Path] = save_model_stream_f1_scores,
 ) -> None:
     feature_stream_groups: list[list[str]] = config_parser.get_sensor_ablation_streams()
-    models_to_test: list = config_parser.get_models()
-    num_splits: int = config_parser.get_num_splits()
-    model_type = config_parser.get_model_type()
+    models_to_test: list = config_parser.get_sensor_ablation_training_models()
+    num_splits: int = config_parser.get_sensor_ablation_training_num_splits()
+    model_type = config_parser.get_sensor_ablation_training_model_type()
     f1_results_by_stream: dict[str, dict[str, np.ndarray]] = {
         model.get_name(): {}
         for model in models_to_test
@@ -176,7 +176,7 @@ def run_sensor_ablation_training(
                     X = x,
                     num_splits = num_splits,
                     kfold_ID = kfold_id,
-                    random_state = config_parser.get_random_seed(),
+                    random_state = config_parser.get_sensor_ablation_training_random_seed(),
                 )
 
                 metrics_tuple = model.classify_traditional(
@@ -185,7 +185,7 @@ def run_sensor_ablation_training(
                     y_train,
                     y_test,
                     None,
-                    config_parser.get_random_seed(),
+                    config_parser.get_sensor_ablation_training_random_seed(),
                     save_folder = "",  # TODO: Implement saving and loading of trained models
                     model_name = f"{model_name.lower()}_feature_study.pkl",
                     retrain = False,
@@ -231,7 +231,7 @@ def run_sensor_ablation_review(
     stream_label_aliases: Mapping[str, str],
 ) -> None:
     """Review and re-plot saved sensor ablation F1 results using YAML-defined models and one stream group."""
-    model_type = config_parser.get_model_type()
+    model_type = config_parser.get_sensor_ablation_review_model_type()
     sensor_ablation_results_dir = project_root / "Results" / "Sensor_Ablation" / model_type.get_folder_name()
 
     classifiers_to_load = config_parser.get_sensor_ablation_review_models()

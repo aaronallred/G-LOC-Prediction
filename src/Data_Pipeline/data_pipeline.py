@@ -83,6 +83,7 @@ class DataPipeline:
             self,
             model: BaseModel,
             kfold_id: Optional[int] = None,
+            num_splits: Optional[int] = None,
             feature_streams: Optional[List[str]] = None,
     ) -> Any:
         """Execute the selected backend data pipeline.
@@ -93,6 +94,13 @@ class DataPipeline:
         For traditional pipelines this returns:
         ``x_feature_matrix, y_gloc_labels``
         
+        Args:
+            model: Model instance
+            kfold_id: Fold index for cross-validation (optional)
+            num_splits: Number of folds for k-fold splitting (optional). If not provided, 
+                        modes must handle k-fold splitting themselves.
+            feature_streams: Feature streams to select (optional)
+            
         Returns:
             Tuple or data from the backend pipeline
         """
@@ -114,7 +122,9 @@ class DataPipeline:
         if backend_type == "advanced":
             if kfold_id is None:
                 raise ValueError("kfold_id is required for advanced pipelines.")
-            request_kwargs["num_splits"] = self._config_parser.get_num_splits()
+            # Only add num_splits if explicitly provided by the caller
+            if num_splits is not None:
+                request_kwargs["num_splits"] = num_splits
             request_kwargs["kfold_ID"] = kfold_id
             request_kwargs["n_neighbors"] = self._config_parser.get_n_neighbors()
             request_kwargs["baseline_window"] = self._config_parser.get_baseline_window()

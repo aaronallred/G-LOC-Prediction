@@ -340,11 +340,11 @@ if preference == 7:
     config_parser = GLOCExperimentConfigParser(config_location = "/home/gloc/G-LOC-Prediction/test.yaml")
     pipeline = DataPipeline(config_parser = config_parser)
 
-    models_to_test = config_parser.get_models()
+    models_to_test = config_parser.get_sensor_ablation_training_models()
     stream_groups_to_test = config_parser.get_sensor_ablation_streams()
-    model_type_obj = config_parser.get_model_type()
+    model_type_obj = config_parser.get_sensor_ablation_training_model_type()
     model_type = [model_type_obj.afe_filter.lower(), model_type_obj.feature_set.lower()]
-    num_kfold = config_parser.get_num_splits()
+    num_kfold = config_parser.get_sensor_ablation_training_num_splits()
 
     # Store results for plotting later
     f1_results_by_stream = {model.get_name(): {} for model in models_to_test}

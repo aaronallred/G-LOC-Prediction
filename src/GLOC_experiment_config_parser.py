@@ -56,6 +56,20 @@ class GLOCExperimentConfigParser:
 
     def _build_models(self) -> List[BaseModel]:
         model_names = self.config.get("models")
+        if model_names is None:
+            # No root-level models; this is OK, modes should specify their own
+            # Return empty list - modes will provide their own models
+            import warnings
+            warnings.warn(
+                "No 'models' parameter defined at root level. "
+                "Modes must specify their own models in their config sections. "
+                "For backward compatibility, if a mode doesn't specify models, "
+                "the code may fail or use unexpected defaults.",
+                UserWarning,
+                stacklevel=2
+            )
+            return []
+        
         if not isinstance(model_names, list):
             raise ValueError("models must be a list of model names.")
         
@@ -73,8 +87,12 @@ class GLOCExperimentConfigParser:
 
         return built_models
 
-    def _build_model_type(self) -> ModelType:
+    def _build_model_type(self) -> Optional[ModelType]:
         model_type_config = self.config.get("model_type")
+        if model_type_config is None:
+            # Root-level model_type not defined; modes must provide their own
+            return None
+        
         if not isinstance(model_type_config, list) or len(model_type_config) != 2:
             raise ValueError("model_type must be a two-item list: [afe_filter, feature_set].")
 
@@ -98,36 +116,11 @@ class GLOCExperimentConfigParser:
         return self.models.copy()
 
     def get_models_for_cross_validation(self) -> List[BaseModel]:
-        """Get only the models specified in cross_validation.classifiers.
+        """Get models for cross-validation.
         
-        This filters the full models list to only include those specified in the
-        cross_validation section of the config. Falls back to all models if the
-        classifiers list is empty or the CV section is not configured.
+        Returns models from cross_validation.models section.
         """
-        try:
-            cv_classifiers = self.get_cross_validation_classifiers()
-        except (KeyError, AttributeError):
-            # CV not configured; return all models
-            return self.models.copy()
-
-        if not cv_classifiers:
-            # Empty classifiers list; return all models
-            return self.models.copy()
-
-        # Filter models: keep only those whose name matches a CV classifier
-        filtered_models = []
-        for model in self.models:
-            model_name = model.get_name() if hasattr(model, "get_name") else str(model)
-            if model_name in cv_classifiers:
-                filtered_models.append(model)
-
-        return filtered_models if filtered_models else self.models.copy()
-
-    def get_model_type(self) -> ModelType:
-        return self.model_type
-
-    def get_random_seed(self) -> Any:
-        return self.config.get("random_seed")
+        return self.get_cross_validation_models()
 
     def get_data_path(self) -> Any:
         return self.config.get("data_path")
@@ -160,10 +153,41 @@ class GLOCExperimentConfigParser:
         return self._get_nested("shared_data_parameters", "load_impute")
 
     def get_num_splits(self) -> Any:
-        return self._get_nested("advanced_data_parameters", "num_splits")
+        """DEPRECATED: num_splits is now mode-specific. Use get_sensor_ablation_training_num_splits() or get_cross_validation_num_splits() instead."""
+        import warnings
+        warnings.warn(
+            "get_num_splits() is deprecated. Use mode-specific getters: "
+            "get_sensor_ablation_training_num_splits() for sensor ablation, "
+            "or get_cross_validation_num_splits() for cross-validation.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        # Fallback for backward compatibility: try sensor ablation first, then cross-validation
+        try:
+            return self._get_nested("sensor_ablation", "training", "num_splits")
+        except (KeyError, TypeError):
+            try:
+                return self._get_nested("cross_validation", "num_splits")
+            except (KeyError, TypeError):
+                # Last resort: old location
+                return self._get_nested("advanced_data_parameters", "num_splits")
 
     def get_kfold_ID(self) -> Any:
-        return self._get_nested("advanced_data_parameters", "kfold_ID")
+        """DEPRECATED: kfold_ID is no longer used and should not be in advanced_data_parameters.
+        
+        Use get_cross_validation_kfold_ID() if needed (also deprecated).
+        """
+        import warnings
+        warnings.warn(
+            "get_kfold_ID() from advanced_data_parameters is deprecated. "
+            "kfold_ID should only be in cross_validation section (also deprecated there).",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        try:
+            return self._get_nested("advanced_data_parameters", "kfold_ID")
+        except (KeyError, TypeError):
+            return 0  # Default if not found
 
     def get_n_neighbors(self) -> Any:
         return self._get_nested("advanced_data_parameters", "n_neighbors")
@@ -201,6 +225,14 @@ class GLOCExperimentConfigParser:
     def get_sensor_ablation_review_sort_streams_by_median(self) -> Any:
         return self._get_nested("sensor_ablation", "review", "sort_streams_by_median")
 
+    def get_sensor_ablation_training_num_splits(self) -> int:
+        """Get the number of folds for sensor ablation k-fold cross-validation.
+        
+        Returns:
+            Number of splits for sensor ablation training
+        """
+        return self._get_nested("sensor_ablation", "training", "num_splits")
+
     def get_feature_space_review_enabled(self) -> bool:
         return self._get_enabled("feature_space_review", "enabled")
 
@@ -214,16 +246,33 @@ class GLOCExperimentConfigParser:
         return self._get_nested("cross_validation", "num_splits")
 
     def get_cross_validation_kfold_ID(self) -> int:
-        return self._get_nested("cross_validation", "kfold_ID")
+        """DEPRECATED: kfold_ID is no longer used. All folds are executed by default.
+        
+        This parameter is kept for backward compatibility only. Remove from config.
+        """
+        try:
+            value = self._get_nested("cross_validation", "kfold_ID")
+            import warnings
+            warnings.warn(
+                "cross_validation.kfold_ID is deprecated and ignored. "
+                "All folds are always executed. Remove this parameter from your config. "
+                "In future versions, partial fold execution should be done via external orchestration.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+            return value
+        except KeyError:
+            return 0  # Default for backward compatibility
 
-    def get_cross_validation_classifiers(self) -> list:
-        return copy.deepcopy(self._get_nested("cross_validation", "classifiers"))
+    def get_cross_validation_model_type(self) -> "ModelType":
+        """Get model type for cross-validation mode."""
+        cv_model_type = self._get_nested("cross_validation", "model_type")
+        if cv_model_type and isinstance(cv_model_type, list) and len(cv_model_type) == 2:
+            return ModelType(afe_filter=cv_model_type[0], feature_set=cv_model_type[1])
+        raise ValueError("cross_validation.model_type is required")
 
     def get_cross_validation_save_results_folder(self) -> str:
         return self._get_nested("cross_validation", "save_results_folder")
-
-    def get_cross_validation_random_seed(self) -> int:
-        return self._get_nested("cross_validation", "random_seed")
 
     def get_cross_validation_class_weight(self) -> Any:
         return self._get_nested("cross_validation", "class_weight")
@@ -236,3 +285,112 @@ class GLOCExperimentConfigParser:
 
     def get_cross_validation_save_median_hyperparameters(self) -> bool:
         return self._get_nested("cross_validation", "save_median_hyperparameters")
+
+    def get_sensor_ablation_training_models(self) -> List[BaseModel]:
+        """Get models for sensor ablation training mode.
+        
+        Returns models from sensor_ablation.training.models, falls back to global models.
+        """
+        try:
+            model_names = self._get_nested("sensor_ablation", "training", "models")
+            if model_names and isinstance(model_names, list):
+                return self._build_models_from_names(model_names)
+        except (KeyError, TypeError, ValueError):
+            pass
+        # Fallback to global models
+        return self.models
+
+    def get_sensor_ablation_training_model_type(self) -> ModelType:
+        """Get model type for sensor ablation training mode."""
+        model_type_config = self._get_nested("sensor_ablation", "training", "model_type")
+        if model_type_config and isinstance(model_type_config, list) and len(model_type_config) == 2:
+            return ModelType(afe_filter=model_type_config[0], feature_set=model_type_config[1])
+        raise ValueError("sensor_ablation.training.model_type is required")
+
+    def get_sensor_ablation_training_random_seed(self) -> Any:
+        """Get random seed for sensor ablation training mode."""
+        seed = self._get_nested("sensor_ablation", "training", "random_seed")
+        if seed is not None:
+            return seed
+        raise ValueError("sensor_ablation.training.random_seed is required")
+
+    def get_sensor_ablation_review_models(self) -> List[BaseModel]:
+        """Get models for sensor ablation review mode."""
+        try:
+            model_names = self._get_nested("sensor_ablation", "review", "models")
+            if model_names and isinstance(model_names, list):
+                return self._build_models_from_names(model_names)
+        except (KeyError, TypeError, ValueError):
+            pass
+        return self.models
+
+    def get_sensor_ablation_review_model_type(self) -> ModelType:
+        """Get model type for sensor ablation review mode."""
+        model_type_config = self._get_nested("sensor_ablation", "review", "model_type")
+        if model_type_config and isinstance(model_type_config, list) and len(model_type_config) == 2:
+            return ModelType(afe_filter=model_type_config[0], feature_set=model_type_config[1])
+        raise ValueError("sensor_ablation.review.model_type is required")
+
+    def get_feature_space_review_models(self) -> List[BaseModel]:
+        """Get models for feature space review mode."""
+        try:
+            model_names = self._get_nested("feature_space_review", "models")
+            if model_names and isinstance(model_names, list):
+                return self._build_models_from_names(model_names)
+        except (KeyError, TypeError, ValueError):
+            pass
+        return self.models
+
+    def get_feature_space_review_model_type(self) -> ModelType:
+        """Get model type for feature space review mode."""
+        model_type_config = self._get_nested("feature_space_review", "model_type")
+        if model_type_config and isinstance(model_type_config, list) and len(model_type_config) == 2:
+            return ModelType(afe_filter=model_type_config[0], feature_set=model_type_config[1])
+        raise ValueError("feature_space_review.model_type is required")
+
+    def get_cross_validation_models(self) -> List[BaseModel]:
+        """Get models for cross-validation mode.
+        
+        Returns models from cross_validation.models, falls back to global models.
+        """
+        try:
+            model_names = self._get_nested("cross_validation", "models")
+            if model_names and isinstance(model_names, list):
+                return self._build_models_from_names(model_names)
+        except (KeyError, TypeError, ValueError):
+            pass
+        # Fallback to global models
+        return self.models
+
+    def get_cross_validation_random_seed(self) -> Any:
+        """Get random seed for cross-validation mode."""
+        seed = self._get_nested("cross_validation", "random_seed")
+        if seed is not None:
+            return seed
+        raise ValueError("cross_validation.random_seed is required")
+
+    def _build_models_from_names(self, model_names: List[str]) -> List[BaseModel]:
+        """Build model instances from a list of model names.
+        
+        Args:
+            model_names: List of model name strings
+            
+        Returns:
+            List of instantiated BaseModel objects
+        """
+        if not isinstance(model_names, list):
+            raise ValueError("model_names must be a list.")
+        
+        model_config = self.config.get("model_config", {})
+        built_models: List[BaseModel] = []
+        
+        for model_name in model_names:
+            model_factory = self.MODEL_FACTORIES_BY_NAME.get(model_name)
+            if model_factory is None:
+                raise ValueError(
+                    f"Model '{model_name}' is not recognized. "
+                    f"Available models: {list(self.MODEL_FACTORIES_BY_NAME.keys())}"
+                )
+            built_models.append(model_factory(config=model_config))
+        
+        return built_models

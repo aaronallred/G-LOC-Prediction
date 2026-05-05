@@ -76,7 +76,7 @@ def run_feature_space_review(
     upset_cls,
     plt_module,
 ) -> None:
-    model_type = config_parser.get_model_type()
+    model_type = config_parser.get_feature_space_review_model_type()
     classifiers = config_parser.get_feature_space_review_models()
 
     if len(classifiers) == 0:

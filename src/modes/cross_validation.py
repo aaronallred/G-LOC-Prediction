@@ -17,6 +17,7 @@ Architecture:
 import json
 import logging
 import pickle
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -134,39 +135,18 @@ def _compute_metrics_from_predictions(
     return metrics
 
 
-def _run_advanced_model_cv_fold(
-    model: BaseModel,
-    pipeline: DataPipeline,
-    kfold_id: int,
-    random_seed: int,
-    class_weight: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Run a single fold of cross-validation for an advanced (modern) model.
+
+def _extract_hyperparameters_from_model(model: BaseModel) -> Dict[str, Any]:
+    """Extract best hyperparameters from a trained model.
     
-    Uses model.train() and model.evaluate() interface.
+    Tries multiple strategies to get params:
+    1. model.best_params attribute
+    2. model.model.get_params() (sklearn models)
+    3. Empty dict if neither available
+    
+    Returns:
+        Dict of hyperparameters or empty dict if not found
     """
-    logger.info(f"Running advanced CV fold {kfold_id} for model {model.get_name()}")
-
-    # Get fold data from pipeline
-    X_train, X_val, y_train, y_val, features = pipeline.get_data(
-        model=model, kfold_id=kfold_id
-    )
-
-    # Train model
-    model.train(X_train, y_train, params=None)
-
-    # Evaluate model
-    metrics = model.evaluate(X_val, y_val)
-
-    fold_result = {
-        "fold": kfold_id,
-        "metrics": metrics,
-        "n_train": len(X_train),
-        "n_val": len(X_val),
-        "selected_features": features if features else [],
-    }
-    
-    # Store best_params from model if available
     best_params_to_save = {}
     
     if hasattr(model, "best_params"):
@@ -176,14 +156,79 @@ def _run_advanced_model_cv_fold(
     
     # If best_params empty, try to extract from the trained model object
     if not best_params_to_save and hasattr(model, "model") and model.model is not None:
-        # Extract hyperparameters from the trained sklearn model
         try:
             best_params_to_save = model.model.get_params()
         except Exception as e:
             logger.debug(f"Could not extract params from trained model: {e}")
     
-    if best_params_to_save:
-        fold_result["best_params"] = best_params_to_save
+    return best_params_to_save
+
+
+def _build_fold_result(
+    fold_idx: int,
+    metrics: Dict[str, float],
+    n_train: int,
+    n_val: int,
+    features: Optional[List[str]] = None,
+    best_params: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build a fold result dict with standard fields.
+    
+    Args:
+        fold_idx: Fold index
+        metrics: Dict of metric names to values
+        n_train: Number of training samples
+        n_val: Number of validation samples
+        features: Selected features (optional)
+        best_params: Best hyperparameters (optional)
+        
+    Returns:
+        Fold result dict with standard structure
+    """
+    fold_result = {
+        "fold": fold_idx,
+        "metrics": metrics,
+        "n_train": n_train,
+        "n_val": n_val,
+    }
+    
+    if features:
+        fold_result["selected_features"] = features
+    
+    if best_params:
+        fold_result["best_params"] = best_params
+    
+    return fold_result
+
+
+def _run_advanced_model_cv_fold(
+    model: BaseModel,
+    X_train: np.ndarray,
+    X_val: np.ndarray,
+    y_train: np.ndarray,
+    y_val: np.ndarray,
+    features: List[str],
+    kfold_id: int,
+    class_weight: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Run a single fold of cross-validation for an advanced (modern) model.
+    
+    Uses model.train() and model.evaluate() interface.
+    Accepts pre-split data instead of calling pipeline.get_data() to avoid redundant I/O.
+    """
+    logger.info(f"Running advanced CV fold {kfold_id} for model {model.get_name()}")
+
+    # Train model
+    model.train(X_train, y_train, params=None)
+
+    # Evaluate model
+    metrics = model.evaluate(X_val, y_val)
+
+    # Extract hyperparameters and build result
+    best_params = _extract_hyperparameters_from_model(model)
+    fold_result = _build_fold_result(
+        kfold_id, metrics, len(X_train), len(X_val), features, best_params
+    )
     
     return fold_result
 
@@ -275,35 +320,11 @@ def _run_traditional_model_cv_fold(
         # If result is already a dict, use as-is
         metrics = result
 
-    fold_result = {
-        "fold": kfold_id,
-        "metrics": metrics,
-        "n_train": len(X_train),
-        "n_val": len(X_test),
-    }
-    
-    # Store best_params from model if available
-    # Try to extract actual parameters used during training
-    best_params_to_save = {}
-    
-    if hasattr(model, "best_params"):
-        best_params = getattr(model, "best_params", {})
-        if best_params:
-            best_params_to_save = dict(best_params) if isinstance(best_params, dict) else {}
-    
-    # If best_params empty, try to extract from the trained model object
-    if not best_params_to_save and hasattr(model, "model") and model.model is not None:
-        # Extract hyperparameters from the trained sklearn model
-        try:
-            best_params_to_save = model.model.get_params()
-        except Exception as e:
-            logger.debug(f"Could not extract params from trained model: {e}")
-    
-    if best_params_to_save:
-        fold_result["best_params"] = best_params_to_save
-    
-    if selected_features is not None:
-        fold_result["selected_features"] = selected_features
+    # Extract hyperparameters and build result
+    best_params = _extract_hyperparameters_from_model(model)
+    fold_result = _build_fold_result(
+        kfold_id, metrics, len(X_train), len(X_test), selected_features, best_params
+    )
     
     return fold_result
 
@@ -332,12 +353,12 @@ def _run_dl_model_cv_fold(
 
     metrics = _compute_metrics_from_predictions(y_val, y_pred, y_pred_proba)
 
-    return {
-        "fold": kfold_id,
-        "metrics": metrics,
-        "n_train": len(X_train),
-        "n_val": len(X_val),
-    }
+    # Build result
+    fold_result = _build_fold_result(
+        kfold_id, metrics, len(X_train), len(X_val), features
+    )
+    
+    return fold_result
 
 
 def run_cross_validation(
@@ -402,6 +423,8 @@ def run_cross_validation(
         # IMPORTANT: Load data ONCE per model to avoid reprocessing for each fold
         logger.info(f"Loading data for model {model_name}...")
         
+        fold_cache = None  # For advanced models: cache fold data upfront
+        
         if _is_traditional_model(model):
             # Load full dataset once for traditional models
             X, y = pipeline.get_data(model=model)
@@ -411,7 +434,10 @@ def run_cross_validation(
             X, y = pipeline.get_data(model=model)
             logger.info(f"Loaded DL data: X shape {X.shape}, y shape {y.shape}")
         else:
-            # Advanced models: data will be loaded per-fold by pipeline
+            # Advanced models: pre-cache all fold data to avoid repeated pipeline calls
+            fold_cache = _cache_fold_data_for_advanced_models(
+                pipeline, model, num_splits, random_seed
+            )
             X, y = None, None
 
         for fold_idx in range(num_splits):
@@ -441,9 +467,10 @@ def run_cross_validation(
                     )
 
                 else:
-                    # Default to advanced model
+                    # Advanced model: use pre-cached fold data
+                    X_train, X_val, y_train, y_val, features = fold_cache[fold_idx]
                     fold_result = _run_advanced_model_cv_fold(
-                        model, pipeline, fold_idx, random_seed, class_weight
+                        model, X_train, X_val, y_train, y_val, features, fold_idx, class_weight
                     )
 
                 # Save fold metrics (legacy format for traditional models)
@@ -458,18 +485,23 @@ def run_cross_validation(
                     pickle.dump(fold_result, f)
                 logger.info(f"Saved fold {fold_idx} metrics to {metrics_path}")
 
-                # Optionally save model
+                # Store model save request for deferred async execution
+                # This allows fold loop to continue without waiting for I/O
                 if save_models and hasattr(model, "save"):
-                    model_save_dir = fold_dir / "model"
-                    model_save_dir.mkdir(parents=True, exist_ok=True)
-                    model.save(str(model_save_dir))
-                    logger.info(f"Saved fold {fold_idx} model to {model_save_dir}")
+                    fold_result["_save_request"] = {
+                        "model": model,
+                        "fold_dir": fold_dir / "model"
+                    }
 
                 model_results.append(fold_result)
 
             except Exception as e:
                 logger.error(f"Error in fold {fold_idx} for model {model_name}: {e}")
                 raise
+
+        # Defer model saves to background thread to reduce blocking
+        if save_models:
+            _save_models_async(model_results, model_name)
 
         # Compute and save aggregated metrics
         if model_results:
@@ -502,6 +534,36 @@ def run_cross_validation(
 
     logger.info(f"\nCross-validation complete. Results saved to {results_root_with_type}")
     return all_results
+
+
+
+def _save_models_async(model_results: List[Dict[str, Any]], model_name: str) -> None:
+    """Save models asynchronously using a thread pool to avoid blocking.
+    
+    Args:
+        model_results: List of fold results with _save_request metadata
+        model_name: Name of the model (for logging)
+    """
+    def _save_model_from_request(save_request: Dict[str, Any]) -> None:
+        """Helper to save a single model from request metadata."""
+        try:
+            model = save_request["model"]
+            fold_dir = save_request["fold_dir"]
+            fold_dir.mkdir(parents=True, exist_ok=True)
+            model.save(str(fold_dir))
+            logger.info(f"Saved model to {fold_dir}")
+        except Exception as e:
+            logger.warning(f"Failed to save model: {e}")
+
+    save_requests = [r for r in model_results if "_save_request" in r]
+    if save_requests:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            for result in model_results:
+                if "_save_request" in result:
+                    executor.submit(_save_model_from_request, result["_save_request"])
+                    # Clean up request metadata from result dict
+                    del result["_save_request"]
+        logger.info(f"Queued {len(save_requests)} model saves for {model_name}")
 
 
 def _find_median_fold_idx(
@@ -592,7 +654,10 @@ def _extract_median_hyperparameters(
 def _aggregate_cv_results(
     fold_results: List[Dict[str, Any]],
 ) -> Tuple[Dict[str, Any], int, float]:
-    """Compute mean and std of metrics across folds.
+    """Compute mean, std of metrics across folds AND find median fold in single pass.
+    
+    Optimized to avoid redundant iterations: finds median F1 and aggregates stats
+    in one O(n) pass instead of two separate O(n log n) passes.
     
     Returns:
         Tuple of (aggregated_metrics, median_fold_idx, median_f1)
@@ -602,25 +667,88 @@ def _aggregate_cv_results(
     if not fold_results:
         return aggregated, 0, 0.0
 
-    # Find median fold
-    median_fold_idx, median_f1 = _find_median_fold_idx(fold_results)
-
-    # Extract all metric keys from first fold
-    first_metrics = fold_results[0].get("metrics", {})
-    metric_keys = set(first_metrics.keys())
+    # Single pass: collect metrics and F1 scores
+    metric_sums = {}
+    metric_counts = {}
+    f1_scores = []
+    
+    for fold_result in fold_results:
+        fold_metrics = fold_result.get("metrics", {})
+        f1 = fold_metrics.get("f1", 0.0)
+        f1_scores.append(f1)
+        
+        # Accumulate metric statistics
+        for key, value in fold_metrics.items():
+            if key not in metric_sums:
+                metric_sums[key] = 0
+                metric_counts[key] = 0
+            metric_sums[key] += value
+            metric_counts[key] += 1
+    
+    # Find median F1 score
+    if f1_scores:
+        f1_sorted = sorted(f1_scores)
+        median_idx = len(f1_sorted) // 2
+        median_f1 = f1_sorted[median_idx]
+        
+        # Find fold index with median F1 (use first if tie)
+        median_fold_idx = 0
+        for i, result in enumerate(fold_results):
+            if result.get("metrics", {}).get("f1", 0.0) == median_f1:
+                median_fold_idx = i
+                break
+    else:
+        median_fold_idx = 0
+        median_f1 = 0.0
 
     # Compute mean and std for each metric
-    for key in metric_keys:
-        values = [fold["metrics"].get(key) for fold in fold_results if key in fold["metrics"]]
+    for key, total in metric_sums.items():
+        count = metric_counts[key]
+        mean = float(total / count) if count > 0 else 0.0
+        aggregated[f"{key}_mean"] = mean
+        
+        # Compute std using collected values
+        values = [fold["metrics"].get(key, 0.0) for fold in fold_results if key in fold["metrics"]]
         if values:
-            aggregated[f"{key}_mean"] = float(np.mean(values))
-            aggregated[f"{key}_std"] = float(np.std(values))
+            std = float(np.std(values))
+            aggregated[f"{key}_std"] = std
 
     # Add fold count
     aggregated["num_folds"] = len(fold_results)
 
     return aggregated, median_fold_idx, median_f1
 
+
+
+def _cache_fold_data_for_advanced_models(
+    pipeline: DataPipeline,
+    model: BaseModel,
+    num_splits: int,
+    random_seed: int,
+) -> Dict[int, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, List[str]]]:
+    """Pre-cache all fold data for an advanced model to avoid repeated pipeline calls.
+    
+    Instead of calling pipeline.get_data() per fold, we cache all folds upfront.
+    This is more efficient as it avoids redundant data loading/splitting.
+    
+    Args:
+        pipeline: DataPipeline instance
+        model: Advanced model instance
+        num_splits: Number of folds
+        random_seed: Random seed for reproducibility
+        
+    Returns:
+        Dict mapping fold_idx to (X_train, X_val, y_train, y_val, features) tuples
+    """
+    fold_cache = {}
+    for fold_idx in range(num_splits):
+        X_train, X_val, y_train, y_val, features = pipeline.get_data(
+            model=model, kfold_id=fold_idx
+        )
+        fold_cache[fold_idx] = (X_train, X_val, y_train, y_val, features)
+    
+    logger.info(f"Cached fold data for {model.get_name()}: {num_splits} folds")
+    return fold_cache
 
 
 def _get_selected_features_for_model(

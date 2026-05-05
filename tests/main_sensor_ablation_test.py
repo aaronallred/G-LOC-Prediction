@@ -270,11 +270,11 @@ def test_run_sensor_ablation_training_passes_expected_parameters(tmp_path):
     assert hyperparameter_calls == [("KNN", config_parser.get_model_type().get_folder_name())]
     assert len(pipeline.calls) == 1
     assert pipeline.calls[0] == {"model": model, "feature_streams": ["EEG"]}
-    assert len(split_calls) == config_parser.get_num_splits()
+    assert len(split_calls) == config_parser.get_sensor_ablation_training_num_splits()
     assert [call["kfold_ID"] for call in split_calls] == [0, 1]
-    assert all(call["num_splits"] == config_parser.get_num_splits() for call in split_calls)
+    assert all(call["num_splits"] == config_parser.get_sensor_ablation_training_num_splits() for call in split_calls)
     assert all(call["random_state"] == config_parser.get_random_seed() for call in split_calls)
-    assert len(model.calls) == config_parser.get_num_splits()
+    assert len(model.calls) == config_parser.get_sensor_ablation_training_num_splits()
     assert model.calls[0]["class_weight_imb"] is None
     assert model.calls[0]["random_state"] == config_parser.get_random_seed()
     assert model.calls[0]["save_folder"] == ""
