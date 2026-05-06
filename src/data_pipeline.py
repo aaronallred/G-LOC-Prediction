@@ -60,6 +60,8 @@ class DataPipeline:
         "HR": (r"\bhr\b", r"participant_hr"),
         "BR": (r"\bbr\b",),
         "Temperature": (r"temp", r"temperature"),
+        "Equivital": (r"equivital",),
+        "HRV": (r"hrv",),
         # Other device streams
         "Pupil": (r"pupil",),
         "Centrifuge": (r"centrifuge",),

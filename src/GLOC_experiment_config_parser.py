@@ -404,7 +404,7 @@ class GLOCExperimentConfigParser:
         
         # Validate stream names against a known set of valid streams to catch typos and ensure correctness.
         VALID_STREAMS = {
-            "ECG", "HR", "BR", "Temperature", "Pupil", "Centrifuge", "EEG", "Strain", "Participant", "Demographics",
+            "ECG", "HR", "BR", "Temperature", "Equivital", "HRV", "Pupil", "Centrifuge", "EEG", "Strain", "Participant", "Demographics",
             "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain", "demographics",
         }
         for group_of_streams in streams:
