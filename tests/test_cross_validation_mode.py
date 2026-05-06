@@ -34,6 +34,14 @@ class FakePipelineAdvanced:
         # create deterministic tiny dataset per fold
         pass
 
+    def set_random_seed(self, random_seed):
+        """Mock setter for random seed."""
+        pass
+
+    def set_model_type(self, model_type):
+        """Mock setter for model type."""
+        pass
+
     def get_data(self, model=None, kfold_id=None):
         # Return (x_train,x_test,y_train,y_test,features)
         # For tests we return small arrays; shapes are consistent with expectations
@@ -69,6 +77,14 @@ class FakeModelAdvanced:
 
 
 class FakePipelineTraditional:
+    def set_random_seed(self, random_seed):
+        """Mock setter for random seed."""
+        pass
+
+    def set_model_type(self, model_type):
+        """Mock setter for model type."""
+        pass
+
     def get_data(self, model=None):
         X = np.arange(20).reshape(10, 2)
         y = np.array([0, 1] * 5)
@@ -113,9 +129,9 @@ def test_traditional_model_cv(tmp_path):
     assert "FakeTrad" in results
     # model.called should equal num_splits
     assert model.called == 2
-    # persisted metrics files (now nested by model_type)
-    assert (tmp_path / "Results" / "Complete_Explicit" / "FakeTrad" / "metrics_fold_0.pkl").exists()
-    assert (tmp_path / "Results" / "Complete_Explicit" / "FakeTrad" / "metrics_fold_1.pkl").exists()
+    # persisted metrics files (now in fold subfolders for all model types)
+    assert (tmp_path / "Results" / "Complete_Explicit" / "FakeTrad" / "fold_0" / "metrics.pkl").exists()
+    assert (tmp_path / "Results" / "Complete_Explicit" / "FakeTrad" / "fold_1" / "metrics.pkl").exists()
 
 
 def test_find_median_fold_idx():

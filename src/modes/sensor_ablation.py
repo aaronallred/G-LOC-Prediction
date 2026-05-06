@@ -154,8 +154,12 @@ def run_sensor_ablation_training(
         for model in models_to_test
     }
 
-    sensor_ablation_results_dir = project_root / "Results" / "Sensor_Ablation" / model_type.get_folder_name()
+    sensor_ablation_results_dir = Path(config_parser.get_sensor_ablation_training_save_results_folder()) / model_type.get_folder_name()
     sensor_ablation_results_dir.mkdir(parents = True, exist_ok = True)
+    
+    # Set random seed and model type for pipeline operations
+    pipeline.set_random_seed(config_parser.get_sensor_ablation_training_random_seed())
+    pipeline.set_model_type(model_type)
 
     for group_index, feature_streams in enumerate(feature_stream_groups, start = 1):
         logging.info("Running stream group %d/%d: %s", group_index, len(feature_stream_groups), feature_streams)
@@ -232,7 +236,7 @@ def run_sensor_ablation_review(
 ) -> None:
     """Review and re-plot saved sensor ablation F1 results using YAML-defined models and one stream group."""
     model_type = config_parser.get_sensor_ablation_review_model_type()
-    sensor_ablation_results_dir = project_root / "Results" / "Sensor_Ablation" / model_type.get_folder_name()
+    sensor_ablation_results_dir = Path(config_parser.get_sensor_ablation_review_save_results_folder()) / model_type.get_folder_name()
 
     classifiers_to_load = config_parser.get_sensor_ablation_review_models()
     sort_streams_by_median = config_parser.get_sensor_ablation_review_sort_streams_by_median()

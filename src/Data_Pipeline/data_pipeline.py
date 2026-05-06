@@ -54,6 +54,8 @@ class DataPipeline:
     ) -> None:
         """Initialize the facade with the experiment configuration parser."""
         self._config_parser = config_parser
+        self._random_seed: Optional[int] = None
+        self._model_type: Optional["ModelType"] = None
 
     _SENSOR_STREAM_PATTERNS: dict[str, tuple[str, ...]] = {
         # Equivital streams
@@ -78,6 +80,22 @@ class DataPipeline:
         "gforce": "Centrifuge",
         "g force": "Centrifuge",
     }
+
+    def set_random_seed(self, random_seed: int) -> None:
+        """Set the random seed for data pipeline operations.
+        
+        Args:
+            random_seed: Random seed value for reproducibility
+        """
+        self._random_seed = random_seed
+
+    def set_model_type(self, model_type: "ModelType") -> None:
+        """Set the model type for data pipeline operations.
+        
+        Args:
+            model_type: ModelType instance specifying AFE_filter and feature_set
+        """
+        self._model_type = model_type
 
     def get_data(
             self,
@@ -106,8 +124,16 @@ class DataPipeline:
         """
         backend_type = self._resolve_pipeline_kind(model)
         backend_data_pipeline = self._build_backend(model)
+        
+        # Use stored model_type - must be set before calling get_data()
+        if self._model_type is None:
+            raise ValueError(
+                "model_type must be set on DataPipeline before calling get_data(). "
+                "Call pipeline.set_model_type() first."
+            )
+        
         request_kwargs: dict[str, Any] = {
-            "model_type": self._config_parser.get_model_type(),
+            "model_type": self._model_type,
             "remove_NaN_trials": self._config_parser.get_remove_NaN_trials(),
             "subject_to_analyze": self._config_parser.get_subject_to_analyze(),
             "trial_to_analyze": self._config_parser.get_trial_to_analyze(),
@@ -145,18 +171,21 @@ class DataPipeline:
         """Instantiate the backend pipeline selected by model type."""
         pipeline_kind = self._resolve_pipeline_kind(model)
         
+        # Use stored random_seed or default to 0 if not set
+        random_seed = self._random_seed if self._random_seed is not None else 0
+        
         if pipeline_kind == "traditional":
             logger.info("Selected traditional data pipeline based on model type.")
             return TraditionalDataPipeline(
                 data_path=self._config_parser.get_data_path(),
-                random_seed=self._config_parser.get_random_seed(),
+                random_seed=random_seed,
                 config_parser=self._config_parser
             )
         else:
             logger.info("Selected advanced data pipeline based on model type.")
             return AdvancedDataPipeline(
                 data_path=self._config_parser.get_data_path(),
-                random_seed=self._config_parser.get_random_seed(),
+                random_seed=random_seed,
                 config_parser=self._config_parser
             )
 

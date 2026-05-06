@@ -410,6 +410,10 @@ def run_cross_validation(
     model_type_folder = model_type.get_folder_name()
     results_root_with_type = results_root / model_type_folder
     all_results = {}
+    
+    # Set random seed and model type for pipeline operations
+    pipeline.set_random_seed(random_seed)
+    pipeline.set_model_type(model_type)
 
     for model in models:
         model_name = model.get_name() if hasattr(model, "get_name") else str(model)
@@ -460,7 +464,7 @@ def run_cross_validation(
                 elif _is_traditional_model(model):
                     # Use pre-loaded data for traditional models
                     # Get selected_features from config/cache
-                    selected_features = _get_selected_features_for_model(config, model)
+                    selected_features = _get_selected_features_for_model(config, model, model_type)
                     fold_result = _run_traditional_model_cv_fold(
                         model, X, y, fold_idx, num_splits, random_seed, class_weight,
                         selected_features=selected_features
@@ -473,13 +477,9 @@ def run_cross_validation(
                         model, X_train, X_val, y_train, y_val, features, fold_idx, class_weight
                     )
 
-                # Save fold metrics (legacy format for traditional models)
-                if _is_traditional_model(model):
-                    metrics_path = model_results_dir / f"metrics_fold_{fold_idx}.pkl"
-                else:
-                    # Advanced/DL models use nested folder structure
-                    fold_dir.mkdir(parents=True, exist_ok=True)
-                    metrics_path = fold_dir / "metrics.pkl"
+                # Save fold metrics in fold folder for all model types
+                fold_dir.mkdir(parents=True, exist_ok=True)
+                metrics_path = fold_dir / "metrics.pkl"
                 
                 with open(metrics_path, "wb") as f:
                     pickle.dump(fold_result, f)
@@ -754,21 +754,23 @@ def _cache_fold_data_for_advanced_models(
 def _get_selected_features_for_model(
     config: GLOCExperimentConfigParser,
     model: BaseModel,
+    model_type: "ModelType",
 ) -> List[str]:
     """Try to retrieve selected_features for a model from cached median hyperparameters.
     
     Args:
         config: GLOCExperimentConfigParser instance
         model: The model to get features for
+        model_type: ModelType instance for constructing cache paths
         
     Returns:
         List of selected feature names, or empty list if not available
     """
+    model_name = None
     try:
         from pathlib import Path
-        model_type = config.get_model_type()
-        model_type_folder = model_type.get_folder_name()
         model_name = model.get_name()
+        model_type_folder = model_type.get_folder_name()
         
         # Look for cached median_hyperparameters from previous HPO runs
         # This is an optional optimization; it's OK if they don't exist
@@ -785,7 +787,10 @@ def _get_selected_features_for_model(
                     logger.debug(f"Using cached selected_features for {model_name}")
                     return cached_data["selected_features"]
     except Exception as e:
-        logger.debug(f"Could not retrieve cached selected_features for {model_name}: {e}")
+        if model_name:
+            logger.debug(f"Could not retrieve cached selected_features for {model_name}: {e}")
+        else:
+            logger.debug(f"Could not retrieve cached selected_features: {e}")
     
     # Return empty list if not available - this is OK, we'll use an empty list for this CV run
     return []
