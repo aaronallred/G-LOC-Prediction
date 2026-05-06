@@ -18,6 +18,7 @@ from .temporal_functions_traditional import plotting_offset_models, data_with_pr
     plot_metrics_from_cache
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.data_pipeline import DataPipeline
+from src.scripts.plot_shap import plot_all_shap
 
 import sys
 import pickle
