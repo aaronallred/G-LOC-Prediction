@@ -20,7 +20,7 @@ sensor_ablation:
   training:
     enabled: false
     # Mode-specific parameters
-    models
+    models:
       - EGB
       - KNN
     model_type:
