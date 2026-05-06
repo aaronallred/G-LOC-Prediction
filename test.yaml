@@ -19,13 +19,10 @@ traditional_data_parameters:
 sensor_ablation:
   training:
     enabled: false
+    save_results_folder: Results/Sensor_Ablation
     # Mode-specific parameters
-    models:
-      - EGB
-      - KNN
-    model_type:
-      - Complete
-      - Explicit
+    models: [EGB, KNN]
+    model_type: [Complete, Explicit]
     random_seed: 42
     num_splits: 2 
     streams:
@@ -33,6 +30,7 @@ sensor_ablation:
       - [EEG]
   review:
     enabled: false
+    save_results_folder: Results/Sensor_Ablation
     # Mode-specific parameters for review
     models:
       - KNN
@@ -60,9 +58,7 @@ cross_validation:
   # Mode-specific parameters
   models:
     - KNN
-  model_type:
-    - Complete
-    - Explicit
+  model_type: [Complete, Explicit]
   random_seed: 42
   num_splits: 2
   save_results_folder: Results/CrossValidation

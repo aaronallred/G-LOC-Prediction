@@ -225,6 +225,28 @@ class GLOCExperimentConfigParser:
     def get_sensor_ablation_review_sort_streams_by_median(self) -> Any:
         return self._get_nested("sensor_ablation", "review", "sort_streams_by_median")
 
+    def get_sensor_ablation_training_save_results_folder(self) -> str:
+        """Get save results folder for sensor ablation training mode.
+        
+        Returns:
+            Path where sensor ablation training results should be saved
+        """
+        folder = self._get_nested("sensor_ablation", "training", "save_results_folder")
+        if folder is None:
+            return "Results/Sensor_Ablation"
+        return str(folder)
+
+    def get_sensor_ablation_review_save_results_folder(self) -> str:
+        """Get save results folder for sensor ablation review mode.
+        
+        Returns:
+            Path where sensor ablation review loads results from (must match training path)
+        """
+        folder = self._get_nested("sensor_ablation", "review", "save_results_folder")
+        if folder is None:
+            return "Results/Sensor_Ablation"
+        return str(folder)
+
     def get_sensor_ablation_training_num_splits(self) -> int:
         """Get the number of folds for sensor ablation k-fold cross-validation.
         

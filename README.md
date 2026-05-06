@@ -349,6 +349,21 @@ streams:
 
 **Constraints**: Each stream name is validated against the supported label set. Typos are rejected at runtime.
 
+#### `save_results_folder`
+
+**Purpose**: Directory where sensor ablation F1 scores and plots are saved during training.
+
+**Available inputs**: Relative or absolute path to directory.
+
+**Example**:
+```yaml
+save_results_folder: Results/Sensor_Ablation
+```
+
+**Default**: `Results/Sensor_Ablation` (if not specified)
+
+**Note**: The `model_type` subfolder is automatically appended to this path (e.g., `Results/Sensor_Ablation/Complete_Explicit/`). Stream-specific F1 scores are saved as pickle files organized by model name within this folder.
+
 ### Mode: Sensor Ablation Review
 
 Re-plot previously saved sensor ablation F1 results without retraining.
@@ -429,6 +444,21 @@ sort_streams_by_median: false
   - `ECG-HR-BR-Temperature` → `Equivital`
   - `Participant` → `Demographics`
   - `Centrifuge` → `G Force`
+
+#### `save_results_folder`
+
+**Purpose**: Directory where sensor ablation results are loaded from during review.
+
+**Available inputs**: Relative or absolute path to directory.
+
+**Example**:
+```yaml
+save_results_folder: Results/Sensor_Ablation
+```
+
+**Default**: `Results/Sensor_Ablation` (if not specified)
+
+**Note**: Must point to the same location used by sensor ablation training so that the plots can be found and reloaded. The `model_type` subfolder is automatically appended to this path. Review will fail if the specified directory does not contain results from a prior training run.
 
 ### Mode: Feature Space Review
 
