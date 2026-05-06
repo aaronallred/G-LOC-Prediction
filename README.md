@@ -37,23 +37,244 @@ python -m src.main --config /path/to/your_config.yaml
 
 If `--config` is omitted, the code uses the root-level `GLOC_experiment_config.yaml`.
 
-## YAML config overview
+## YAML Configuration
 
-The config file is a YAML mapping with these top-level sections:
+The GLOC pipeline is controlled entirely by the `GLOC_experiment_config.yaml` configuration file. The config uses a **mode-based architecture** where only sections with `enabled: true` execute.
 
-- `models`: list of model names to instantiate.
-- `model_type`: two-item list describing the AFE filter and feature set.
-- `random_seed`: integer seed used for splitting and model execution.
-- `data_path`: path to the dataset directory.
-- `shared_data_parameters`: settings shared by the advanced and traditional pipelines.
-- `advanced_data_parameters`: settings used by the advanced-classifier path.
-- `traditional_data_parameters`: settings used by the traditional-classifier path.
-- `sensor_ablation`: training and review settings for stream ablation experiments.
+### Configuration Structure
 
-### `models`
+The config file has the following top-level sections:
 
-Use one or more of the supported model aliases below:
+- **Root parameters**: `data_path` (required by all modes)
+- **Shared parameters**: Data preprocessing settings used by all modes
+- **Advanced parameters**: KNN imputation settings for advanced pipeline
+- **Traditional parameters**: Timing and rate settings for traditional pipeline
+- **Mode sections**: Each execution mode has its own enabled/disabled section
 
+### Root Parameters
+
+#### `data_path`
+
+**Purpose**: Path to the directory containing input CSV files and datasets.
+
+**Available inputs**: Any valid file system path.
+
+**Example**:
+```yaml
+data_path: /home/gloc/G-LOC-Prediction/data
+```
+
+**Constraints**: 
+- Required by all modes
+- Directory must exist and contain expected dataset files
+
+### Shared Data Parameters
+
+These parameters control data preprocessing and are used by all modes. Configure under `shared_data_parameters`:
+
+#### `subject_to_analyze`
+
+**Purpose**: Filter data to a specific subject ID.
+
+**Available inputs**: 
+- Subject ID (integer or string) to analyze only that subject
+- `null` to analyze all subjects
+
+**Example**:
+```yaml
+subject_to_analyze: null  # Analyze all subjects
+```
+
+#### `trial_to_analyze`
+
+**Purpose**: Filter data to a specific trial ID.
+
+**Available inputs**:
+- Trial ID to analyze only that trial
+- `null` to analyze all trials
+
+**Example**:
+```yaml
+trial_to_analyze: null  # Analyze all trials
+```
+
+#### `analysis_type`
+
+**Purpose**: Selects the analysis mode used by the data pipeline.
+
+**Available inputs**: Integer analysis mode selector (e.g., `2` for default mode).
+
+**Example**:
+```yaml
+analysis_type: 2
+```
+
+#### `remove_NaN_trials`
+
+**Purpose**: Whether to discard trials containing NaN values before processing.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+remove_NaN_trials: true  # Remove trials with NaNs
+```
+
+#### `impute_file_name`
+
+**Purpose**: Filename for saving/loading imputed data cache.
+
+**Available inputs**: Any valid filename string.
+
+**Example**:
+```yaml
+impute_file_name: imputed_data.pkl
+```
+
+#### `save_impute`
+
+**Purpose**: Whether to save imputed data to disk.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+save_impute: false  # Don't save imputation cache
+```
+
+#### `load_impute`
+
+**Purpose**: Whether to load imputed data from disk if a cache exists.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+load_impute: false  # Don't load imputation cache
+```
+
+#### `should_impute`
+
+**Purpose**: Whether to perform KNN imputation on missing values.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+should_impute: true  # Perform KNN imputation
+```
+
+#### `output_feature_dtype`
+
+**Purpose**: NumPy dtype for output feature arrays.
+
+**Available inputs**: `float32`, `float64`, or other valid NumPy dtype strings.
+
+**Example**:
+```yaml
+output_feature_dtype: float32  # Use 32-bit floating point
+```
+
+### Advanced Data Parameters
+
+These parameters control the advanced (cuML/RAPIDS) pipeline behavior. Configure under `advanced_data_parameters`:
+
+#### `n_neighbors`
+
+**Purpose**: Number of nearest neighbors to use for KNN imputation.
+
+**Available inputs**: Positive integer.
+
+**Example**:
+```yaml
+n_neighbors: 4
+```
+
+#### `baseline_window`
+
+**Purpose**: Baseline window duration in seconds for feature extraction.
+
+**Available inputs**: Positive float (seconds).
+
+**Example**:
+```yaml
+baseline_window: 32.5
+```
+
+### Traditional Data Parameters
+
+These parameters control timing and sampling for the traditional pipeline. Configure under `traditional_data_parameters`:
+
+#### `backstep`
+
+**Purpose**: Look-back window in seconds for traditional feature extraction.
+
+**Available inputs**: Non-negative float (seconds).
+
+**Example**:
+```yaml
+backstep: 0
+```
+
+#### `data_rate`
+
+**Purpose**: Sampling rate in Hz (samples per second).
+
+**Available inputs**: Positive integer.
+
+**Example**:
+```yaml
+data_rate: 25  # 25 Hz sampling
+```
+
+#### `offset`
+
+**Purpose**: Time offset in seconds for data alignment.
+
+**Available inputs**: Non-negative float (seconds).
+
+**Example**:
+```yaml
+offset: 0
+```
+
+#### `time_start`
+
+**Purpose**: Starting time in seconds for analysis window.
+
+**Available inputs**: Non-negative float (seconds).
+
+**Example**:
+```yaml
+time_start: 0
+```
+
+### Mode: Sensor Ablation Training
+
+Enable and configure stream ablation experiments with sensor ablation training mode.
+
+**Purpose**: Train models on different combinations of sensor streams to evaluate stream importance via F1 score changes.
+
+**Section**: `sensor_ablation.training`
+
+#### `enabled`
+
+**Purpose**: Whether to run sensor ablation training.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+sensor_ablation:
+  training:
+    enabled: true
+```
+
+#### `models` (Mode-specific)
+
+**Purpose**: Models to train during sensor ablation.
+
+**Available inputs**: List of model aliases:
 - `EGB` or `Extreme Gradient Boosting`
 - `KNN` or `K Nearest Neighbors`
 - `RF` or `Random Forest`
@@ -62,37 +283,343 @@ Use one or more of the supported model aliases below:
 - `SVM` or `Support Vector Machine`
 - `Trans` or `Transformer`
 
-### `model_type`
+**Example**:
+```yaml
+models:
+  - EGB
+  - KNN
+  - RF
+```
 
-This must be a two-item list:
+#### `model_type` (Mode-specific)
 
+**Purpose**: Feature extraction and selection configuration for this mode.
+
+**Available inputs**: Two-item list `[afe_filter, feature_set]`
+- First item (AFE filter): `Complete` or `noAFE`
+- Second item (Feature set): `Explicit` or `Implicit`
+
+**Example**:
 ```yaml
 model_type:
   - Complete
   - Explicit
 ```
 
-The first item is the AFE filter and must be `Complete` or `noAFE`. The second item is the feature set and must be `Explicit` or `Implicit`.
+This determines the results folder name (e.g., `Results/Sensor_Ablation/Complete_Explicit/`).
 
-The folder name for results is derived from this value. For example, `Complete` + `Explicit` writes to `Results/Sensor_Ablation/Complete_Explicit/`.
+#### `random_seed` (Mode-specific)
 
-### `shared_data_parameters`
+**Purpose**: Random seed for reproducible k-fold splits and model training.
 
-These values are passed into the data pipeline and control how the shared dataset is prepared.
+**Available inputs**: Positive integer.
 
-- `subject_to_analyze`: subject ID or `null` for all subjects.
-- `trial_to_analyze`: trial ID or `null` for all trials.
-- `analysis_type`: analysis mode selector used by the pipeline.
-- `remove_NaN_trials`: whether to discard trials containing NaNs.
-- `impute_file_name`: filename used when saving or loading imputed data.
-- `save_impute`: save imputed data to disk.
-- `load_impute`: load imputed data from disk if present.
-- `should_impute`: run KNN imputation.
-- `output_feature_dtype`: output dtype such as `float32` or `float64`.
+**Example**:
+```yaml
+random_seed: 42
+```
 
-Current defaults in the root config:
+#### `num_splits`
+
+**Purpose**: Number of folds for k-fold cross-validation.
+
+**Available inputs**: Positive integer.
+
+**Example**:
+```yaml
+num_splits: 10  # 10-fold cross-validation
+```
+
+#### `streams`
+
+**Purpose**: List of sensor stream combinations to evaluate.
+
+**Available inputs**: List of lists, where each inner list contains stream names:
+- Single streams: `[ECG]`, `[EEG]`, `[Pupil]`, `[Centrifuge]`, `[Participant]`, `[HR]`, `[BR]`, `[Temperature]`
+- Combined streams: `[ECG, HR, BR, Temperature]`, `[EEG, Pupil]`, etc.
+
+**Example**:
+```yaml
+streams:
+  - [ECG, HR, BR, Temperature]
+  - [EEG]
+  - [Pupil]
+  - [ECG, HR, BR, Temperature, EEG]
+```
+
+**Constraints**: Each stream name is validated against the supported label set. Typos are rejected at runtime.
+
+### Mode: Sensor Ablation Review
+
+Re-plot previously saved sensor ablation F1 results without retraining.
+
+**Purpose**: Visualize and re-analyze cached results from sensor ablation training runs.
+
+**Section**: `sensor_ablation.review`
+
+#### `enabled`
+
+**Purpose**: Whether to reload and replot saved F1 results.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+sensor_ablation:
+  review:
+    enabled: true
+```
+
+#### `models` (Mode-specific)
+
+**Purpose**: Models whose cached results to load and visualize.
+
+**Available inputs**: List of model aliases (same as training).
+
+**Example**:
+```yaml
+models:
+  - KNN
+  - RF
+```
+
+**Constraints**: Must be non-empty when review is enabled. Must match model results saved during training.
+
+#### `model_type` (Mode-specific)
+
+**Purpose**: Feature extraction configuration for locating cached results.
+
+**Available inputs**: Two-item list `[afe_filter, feature_set]` (same format as training).
+
+**Example**:
+```yaml
+model_type:
+  - Complete
+  - Explicit
+```
+
+#### `stream_group`
+
+**Purpose**: Stream combination to filter and display when `sort_streams_by_median: false`.
+
+**Available inputs**: List of stream names to match.
+
+**Example**:
+```yaml
+stream_group:
+  - EEG
+```
+
+**Constraints**: Must be non-empty when `sort_streams_by_median: false`.
+
+#### `sort_streams_by_median`
+
+**Purpose**: Whether to automatically rank streams by combined median F1 score (legacy preference 11 behavior).
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+sort_streams_by_median: false
+```
+
+**Behavior**:
+- When `false`: Displays only the streams matching `stream_group` (set-based matching, order-independent)
+- When `true`: Loads all cached streams for selected models, ranks by median F1, applies label replacements:
+  - `ECG-HR-BR-Temperature` → `Equivital`
+  - `Participant` → `Demographics`
+  - `Centrifuge` → `G Force`
+
+### Mode: Feature Space Review
+
+Inspect overlap of selected features across trained models.
+
+**Purpose**: Analyze which features each model selected and identify shared vs. unique features (legacy preference 9 equivalent).
+
+**Section**: `feature_space_review`
+
+#### `enabled`
+
+**Purpose**: Whether to run feature space overlap analysis.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+feature_space_review:
+  enabled: true
+```
+
+#### `models` (Mode-specific)
+
+**Purpose**: Models whose feature selections to compare.
+
+**Available inputs**: List of model aliases (2-4 models recommended for visualization).
+
+**Example**:
+```yaml
+models:
+  - KNN
+  - EGB
+  - RF
+```
+
+**Constraints**: Must be non-empty when enabled. Visualizations support up to ~4+ models (Venn diagrams for ≤3, UpSet plots for ≥4).
+
+#### `model_type` (Mode-specific)
+
+**Purpose**: Feature extraction configuration for locating saved model hyperparameters.
+
+**Available inputs**: Two-item list `[afe_filter, feature_set]`.
+
+**Example**:
+```yaml
+model_type:
+  - Complete
+  - Explicit
+```
+
+### Mode: Cross-Validation
+
+Run systematic k-fold cross-validation with automatic model-type detection and metric aggregation.
+
+**Purpose**: Evaluate model generalization, aggregate metrics across folds, and extract median-fold hyperparameters.
+
+**Section**: `cross_validation`
+
+#### `enabled`
+
+**Purpose**: Whether to run cross-validation mode.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+cross_validation:
+  enabled: true
+```
+
+#### `models` (Mode-specific)
+
+**Purpose**: Models to cross-validate.
+
+**Available inputs**: List of model aliases.
+
+**Example**:
+```yaml
+models:
+  - KNN
+  - RF
+```
+
+**Constraints**: Must be non-empty when enabled.
+
+#### `model_type` (Mode-specific)
+
+**Purpose**: Feature extraction configuration for this CV run.
+
+**Available inputs**: Two-item list `[afe_filter, feature_set]`.
+
+**Example**:
+```yaml
+model_type: [Complete, Explicit]
+```
+
+#### `random_seed` (Mode-specific)
+
+**Purpose**: Seed for reproducible k-fold splits.
+
+**Available inputs**: Positive integer.
+
+**Example**:
+```yaml
+random_seed: 42
+```
+
+#### `num_splits`
+
+**Purpose**: Number of folds for k-fold cross-validation.
+
+**Available inputs**: Positive integer (typically 5, 10, or higher).
+
+**Example**:
+```yaml
+num_splits: 5
+```
+
+#### `save_results_folder`
+
+**Purpose**: Base directory for saving cross-validation results.
+
+**Available inputs**: Valid file system path.
+
+**Example**:
+```yaml
+save_results_folder: Results/CrossValidation
+```
+
+**Output structure**: Results are saved to `{save_results_folder}/{model_name}/` with metrics and optional hyperparameters.
+
+#### `class_weight`
+
+**Purpose**: How to handle class imbalance in model training.
+
+**Available inputs**:
+- `null` - treat all classes equally
+- `balanced` - adjust weights inversely to class frequency
+- Custom weights (framework-dependent)
+
+**Example**:
+```yaml
+class_weight: null
+```
+
+#### `support_deep_learning`
+
+**Purpose**: Whether to enable deep-learning model support via adapter pattern.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+support_deep_learning: false
+```
+
+**Note**: Requires custom `DLModelAdapter` subclass for non-traditional frameworks (PyTorch, TensorFlow, etc.).
+
+#### `save_median_hyperparameters`
+
+**Purpose**: Whether to extract and save the median-fold model's hyperparameters.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+save_median_hyperparameters: true
+```
+
+**Behavior**:
+- When `true` (default): Automatically identifies the fold with median F1 score and extracts its trained model's hyperparameters to `median_hyperparameters.json`
+- When `false`: Only aggregates metrics
+
+#### `impute_handling`
+
+**Purpose**: Framework-specific imputation configuration (typically empty for standard usage).
+
+**Available inputs**: Dictionary (key-value pairs) or empty object.
+
+**Example**:
+```yaml
+impute_handling: {}  # Use default imputation
+```
+
+### Complete Example
+
+Here is a complete minimal configuration:
 
 ```yaml
+data_path: /home/gloc/G-LOC-Prediction/data
+
 shared_data_parameters:
   subject_to_analyze: null
   trial_to_analyze: null
@@ -103,160 +630,87 @@ shared_data_parameters:
   load_impute: false
   should_impute: true
   output_feature_dtype: float32
-```
 
-### `advanced_data_parameters`
+advanced_data_parameters:
+  n_neighbors: 4
+  baseline_window: 32.5
 
-These affect the advanced-classifier workflow.
+traditional_data_parameters:
+  backstep: 0
+  data_rate: 25
+  offset: 0
+  time_start: 0
 
-- `num_splits`: number of cross-validation folds.
-- `kfold_ID`: fold index used by the pipeline.
-- `n_neighbors`: neighbor count for KNN imputation.
-- `baseline_window`: baseline window in seconds.
-
-### `traditional_data_parameters`
-
-These settings are used by the traditional pipeline.
-
-- `backstep`: look-back window in seconds.
-- `data_rate`: sampling rate in Hz.
-- `offset`: time offset in seconds.
-- `time_start`: starting time in seconds.
-
-### `sensor_ablation.training`
-
-Enable this section to run stream ablation experiments and generate new cached F1 results.
-
-```yaml
 sensor_ablation:
   training:
-    enabled: true
+    enabled: false
+    models:
+      - EGB
+      - KNN
+      - RF
+    model_type:
+      - Complete
+      - Explicit
+    random_seed: 42
+    num_splits: 10
     streams:
+      - [ECG, HR, BR, Temperature]
       - [EEG]
       - [Pupil]
-      - [EEG, Pupil]
-```
 
-Each item in `streams` is a group of stream labels. The code validates stream names against the supported label set, so typos are rejected early.
-
-The current root config enables a larger training sweep over ECG, HR, BR, Temperature, EEG, Pupil, Centrifuge, and Participant combinations.
-
-### `sensor_ablation.review`
-
-Enable this section to reload previously saved F1 arrays and replot them without rerunning model training.
-
-```yaml
-sensor_ablation:
   review:
-    enabled: true
+    enabled: false
     models:
       - KNN
       - RF
+    model_type:
+      - Complete
+      - Explicit
     stream_group:
       - EEG
     sort_streams_by_median: false
-```
 
-Rules enforced by the parser:
-
-- `models` must be a non-empty list when review is enabled.
-- `stream_group` must be a non-empty list when review is enabled and `sort_streams_by_median` is `false`.
-- The stream group is matched as a set, so order does not matter when loading cached results.
-
-When `sort_streams_by_median: true`, the review path mirrors legacy preference 11 behavior:
-
-- Loads all cached streams for the selected models.
-- Ranks streams by combined median F1 score across selected models.
-- Uses the matrix-style violin plot layout.
-- Applies hard-coded label replacements (not configurable in YAML):
-  - `ECG-HR-BR-Temperature` -> `Equivital`
-  - `Participant` -> `Demographics`
-  - `Centrifuge` -> `G Force`
-
-In the current root config, review is disabled.
-
-### `feature_space_review` (Legacy preference 9)
-
-Enable this section to inspect overlap of selected features across classifiers.
-
-```yaml
 feature_space_review:
-  enabled: true
+  enabled: false
   models:
     - KNN
     - EGB
     - RF
-```
+  model_type:
+    - Complete
+    - Explicit
 
-This is the YAML-driven equivalent of legacy preference 9.
-
-### `hyperparameter_save` (DEPRECATED)
-
-⚠️ **This section has been deprecated and removed from the config.**
-
-**Migration**: Hyperparameter saving functionality is now integrated into cross-validation. Use the following instead:
-
-```yaml
 cross_validation:
   enabled: true
-  save_median_hyperparameters: true  # Default: true (automatically extracts median hyperparameters)
-```
-
-**What changed**:
-- Old workflow: Run CV, then run separate `hyperparameter_save` mode to extract hyperparameters
-- New workflow: Run CV once, automatically gets median hyperparameters alongside metrics
-- Median fold is identified by F1 score during aggregation (no manual configuration needed)
-
-**Benefits**:
-- Simpler: One mode instead of two
-- Faster: No duplicate model loading
-- Cleaner: All outputs in one Results/CrossValidation/{model}/ directory
-
-Legacy configs with `hyperparameter_save` section are still supported for backward compatibility but will be ignored.
-
-### `cross_validation` (Unified CV with integrated hyperparameter saving)
-
-Enable this section to run cross-validation with automatic model-type detection and results aggregation.
-
-```yaml
-cross_validation:
-  enabled: true
-  num_splits: 5
-  kfold_ID: 0
-  classifiers:
+  models:
     - KNN
     - RF
-    - EGB
-  save_results_folder: Results/CrossValidation
+  model_type: [Complete, Explicit]
   random_seed: 42
-  class_weight: balanced
+  num_splits: 5
+  save_results_folder: Results/CrossValidation
+  class_weight: null
   support_deep_learning: false
   save_median_hyperparameters: true
   impute_handling: {}
 ```
 
-Key features:
-- **Automatic model detection**: Detects traditional (legacy `classify_traditional` contract), advanced (modern `train/evaluate` interface), or DL-adapted models.
-- **Unified fold management**: Uses `stratified_kfold_split` for deterministic, reproducible cross-validation splits.
-- **Legacy compatibility**: Preserves traditional model metrics filenames (`metrics_fold_<i>.pkl`) and advanced model nested structure (`fold_<i>/metrics.pkl`).
-- **Deep-learning support**: Via an adapter pattern (see `src/models/dl_adapter.py`); users can subclass `DLModelAdapter` to integrate PyTorch, TensorFlow, or other frameworks without heavy core dependencies.
-- **Result aggregation**: Computes mean and std of metrics across folds; saves to `summary.json` and per-fold `metrics.pkl`.
-- **Median hyperparameter extraction**: When `save_median_hyperparameters: true` (default), automatically identifies the fold with median F1 score and extracts its trained model's hyperparameters. Saves to `median_hyperparameters.json` alongside metrics.
+### Mode Execution
 
-Example CV run:
-```yaml
-cross_validation:
-  enabled: true
-  num_splits: 10
-  classifiers: [KNN, RF, EGB, LogReg]
-  random_seed: 42
+Only modes with `enabled: true` will execute. When you run:
+
+```bash
+python -m src.main --config GLOC_experiment_config.yaml
 ```
 
-### Preference mapping summary
+The pipeline checks each mode's `enabled` flag and runs only those with `enabled: true`. This allows you to configure multiple modes but selectively enable/disable them without editing the entire config file.
 
-- Legacy preference 9 -> `feature_space_review.enabled: true`
-- Legacy preference 10 -> `hyperparameter_save.enabled: true`
-- Legacy preference 11 -> `sensor_ablation.review.enabled: true` with `sort_streams_by_median: true`
+### Notes
+
+- The config file must be valid YAML (not JSON).
+- `data_path` is required by all modes.
+- Mode-specific parameters (`models`, `model_type`, `random_seed`) are only used by their corresponding modes and must be configured within each mode's section.
+- The pipeline installs cuML acceleration after config parsing, so RAPIDS dependencies from `environment.yml` are required for GPU acceleration.
 
 ## Testing
 
@@ -267,9 +721,3 @@ Run the test suite with:
 ```bash
 pytest
 ```
-
-## Notes
-
-- `GLOC_experiment_config.yaml` must be valid YAML, not JSON.
-- `models`, `model_type`, `random_seed`, and `data_path` are required.
-- The main entry point installs cuML acceleration after config parsing, so the environment needs the RAPIDS dependencies from `environment.yml`.
