@@ -8,16 +8,18 @@ from matplotlib_venn import venn2, venn3
 from upsetplot import from_contents, UpSet
 
 
-from GLOC_data_processing import *
-from scripts.GLOC_classifier import stratified_kfold_split, classify_logistic_regression, classify_random_forest, \
+from .GLOC_data_processing_traditional import *
+from .GLOC_classifier_traditional import stratified_kfold_split, classify_logistic_regression, classify_random_forest, \
     classify_lda, classify_svm, classify_knn, classify_ensemble_with_gradboost
-from scripts.imbalance_techniques import resample_ros
-from scripts.temporal_functions import plotting_offset_models, data_with_prediction, \
+from .imbalance_techniques_traditional import resample_ros
+from .temporal_functions_traditional import plotting_offset_models, data_with_prediction, \
     plot_f1_scores_across_classifiers, get_model_subfolder, \
      get_median_hyperparameters, get_hyperparameters_from_json, \
     plot_metrics_from_cache
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.data_pipeline import DataPipeline
+
+import sys
 import pickle
 import warnings
 warnings.filterwarnings("ignore", message="Could not find the number of physical cores")
@@ -335,122 +337,56 @@ def restrict_feature_space(select_features, streams):
 
 
 if preference == 7:
-    config_path = "GLOC_experiment_config.json"
-    config_parser = GLOCExperimentConfigParser(config_location=config_path)
-    # Restrict feature space after features have been selected
+    config_parser = GLOCExperimentConfigParser(config_location = "C:/Users/savan/G-LOC-Prediction/GLOC_experiment_config.json")
+    pipeline = DataPipeline(config_parser = config_parser)
 
-    # This defines which model folder to load hyperparameters from
-    model_type = ['complete', 'explicit']
+    models_to_test = config_parser.get_models()
+    stream_groups_to_test = config_parser.get_sensor_ablation_streams()
+    model_type_obj = config_parser.get_model_type()
+    model_type = [model_type_obj.afe_filter.lower(), model_type_obj.feature_set.lower()]
+    num_kfold = config_parser.get_num_splits()
 
-    # Classifiers to evaluate for each stream combination
-    classifiers_to_test = ['KNN']
+    # For manual ablation, find RF model
+    for model in models_to_test:
+        if model.get_name() =='RF':
+            man_abl_model = model
 
-    # Defines which sensor ablation method to use - OPTIONS: 'manual', 'feature_select'
-    # ablation_method = 'manual'
-    #
-    # if ablation_method == 'manual':
-    #     sensor_features = ['RF', 'RF', 'RF'] # Use RF since it includes all features
-    # elif ablation_method == 'feature_select':
-    #     sensor_features = classifiers_to_test # Use features selected in sequential optimization
-    # else:
-    #     raise ValueError(f"Unknown ablation_method: {ablation_method}")
+    # Store results for plotting later
+    f1_results_by_stream = {model.get_name(): {} for model in models_to_test}
 
-    # Load selected features from JSON for each classifier
-    # These represent the *full* feature sets before restriction of data streams
-    _, select_featuresEGB, _, _ = get_hyperparameters_from_json('EGB', get_model_subfolder(model_type))
-    _, select_featuresKNN, _, _ = get_hyperparameters_from_json('KNN', get_model_subfolder(model_type))
-    _, select_featuresRF, _, _ = get_hyperparameters_from_json('RF', get_model_subfolder(model_type))
-
-    # Define stream combinations to iterate through
-    # Each entry is a list of data streams that will be used to restrict the feature space
-    # These represent all combinations of the four source groups
-    stream_combos = [
-        # ['ECG', 'HR', 'BR', 'Temperature'], # Equivital Data Stream
-        # ['EEG'], # EEG Data Stream
-        # ['Pupil'], # Tobii/Eye Tracking Data Stream
-        # ['Centrifuge'], # Centrifuge/G Force Data Stream
-        # ['Participant'], # Demographics Data Stream
-        # ['Centrifuge', 'Participant'],
-        # ['ECG', 'HR', 'BR', 'Temperature', 'EEG'],
-        # ['ECG', 'HR', 'BR', 'Temperature', 'Pupil'],
-        # ['ECG', 'HR', 'BR', 'Temperature', 'Centrifuge'],
-        # ['ECG', 'HR', 'BR', 'Temperature', 'Participant'],
-        # ['ECG', 'HR', 'BR', 'Temperature', 'Centrifuge', 'Participant'],
-        # ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil'],
-        # ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Centrifuge', 'Participant'],
-        # ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Centrifuge'],
-        # ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Participant'],
-        # ['ECG', 'HR', 'BR', 'Temperature', 'Pupil', 'Centrifuge'],
-        # ['ECG', 'HR', 'BR', 'Temperature', 'Pupil', 'Participant'],
-        # ['ECG', 'HR', 'BR', 'Temperature', 'Pupil', 'Centrifuge', 'Participant'],
-        ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil', 'Centrifuge', 'Participant']
-        # ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil', 'Centrifuge'],
-        # ['ECG', 'HR', 'BR', 'Temperature', 'EEG', 'Pupil', 'Participant'],
-        # ['EEG', 'Pupil'],
-        # ['EEG', 'Centrifuge', 'Participant'],
-        # ['EEG', 'Centrifuge'],
-        # ['EEG', 'Participant'],
-        # ['EEG', 'Pupil', 'Centrifuge', 'Participant'],
-        # ['EEG', 'Pupil', 'Centrifuge'],
-        # ['EEG', 'Pupil', 'Participant'],
-        # ['Pupil', 'Centrifuge', 'Participant'],
-        # ['Pupil', 'Centrifuge'],
-        # ['Pupil', 'Participant']
-    ]
-
-    # Nested dict: classifier -> stream -> F1 scores
-    # This will store all results for later plotting
-    f1_results_by_stream = {clf: {} for clf in classifiers_to_test}
-
-    # Loop over every stream combination
-    for streams_of_interest in stream_combos:
-        print(f"\n=== Evaluating streams: {streams_of_interest} ===")
-
-        # Restrict features per classifier based on the current stream subset
-        usable_featuresKNN = restrict_feature_space(select_featuresKNN, streams_of_interest)
-        usable_featuresRF = restrict_feature_space(select_featuresRF, streams_of_interest)
-        usable_featuresEGB = restrict_feature_space(select_featuresEGB, streams_of_interest)
-
-        # Bundle restricted features for easy lookup
-        usable_features_dict = {
-            "KNN": usable_featuresKNN,
-            "RF": usable_featuresRF,
-            "EGB": usable_featuresEGB
-        }
+    for stream_group in stream_groups_to_test:
+        print(f"Running stream group: {stream_group}")
 
         # Convert stream list into a string for filenames and dict keys
-        stream_str = "-".join(streams_of_interest)
+        stream_str = "-".join(stream_group)
 
-        # Evaluate each classifier on the restricted feature set
-        for classifier in classifiers_to_test:
-            config_parser.model = GLOCExperimentConfigParser.MODEL_FACTORIES_BY_NAME[classifier]
-            pipeline = DataPipeline(config_parser = config_parser)
+        for model in models_to_test:
+            classifier = model.get_name()
+            print(f"Running model: {classifier}")
+            
             start_time = time.time()
             num_kfold = 10  # Number of CV folds
 
             # Storage for F1 scores across folds
             f1_model = np.zeros(num_kfold)
 
-            # # Determine model folder
+            # Determine model folder
             subfolder_name = get_model_subfolder(model_type)
-            # feature_subfolder = stream_str
 
-            # Load hyperparameters for this classifier
+            # DataPipeline already loads selected features and applies stream ablation.
+            # Keep only classifier hyperparameters here for model fitting.
             hyperparameters, _, _, _ = get_hyperparameters_from_json(classifier, subfolder_name)
 
-            # Override features with restricted ones
-            # select_features = usable_features_dict[classifier]
-
-            print('Starting eval for ', classifier)
+            print("Starting evaluation for model:", classifier)
 
             # Folder for saving trained models (not the F1 results)
             save_folder = os.path.join("../RestrictedFeatureEval", subfolder_name)
-            # os.makedirs(save_folder, exist_ok=True)
+            os.makedirs(save_folder, exist_ok=True)
 
-            # Always pass offset=0 when generating data
-            # x, y = data_with_prediction(0, data_rate, classifier, model_type, select_features)
-            print('We got to get_data()!')
-            x, y = pipeline.get_data(streams_of_interest)
+            # Pull feature matrix and labels directly from DataPipeline.
+            x, y, select_features = pipeline.get_data(model=model, feature_streams=stream_group if stream_group else None)
+
+            results_folder = os.path.join('./feature_study', subfolder_name, "streamwise")
 
             # Perform stratified k-fold evaluation
             for k in range(num_kfold):
@@ -458,31 +394,90 @@ if preference == 7:
 
                 # Classifier-specific evaluation
                 if classifier == 'RF':
-                    _, _, _, f1, _, _, _ = classify_random_forest(
+                    _, _, _, f1, _, _, _, explanation = classify_random_forest(
                         x_train, x_test, y_train, y_test, class_weight_imb, random_state,
                         save_folder, model_name="rf_feature_study.pkl", retrain=False,
-                        temporal=True, best_params=hyperparameters)
+                        temporal=True, best_params=hyperparameters, select_features=select_features,
+                        feat_imp=True)
                 elif classifier == 'KNN':
                     ros_x_train, ros_y_train = resample_ros(x_train, y_train, random_state)
-                    _, _, _, f1, _, _ = classify_knn(
+                    _, _, _, f1, _, _, explanation = classify_knn(
                         x_train, x_test, y_train, y_test, random_state,
                         save_folder, model_name="knn_feature_study.pkl", retrain=False,
-                        temporal=True, best_params=hyperparameters, selected_features=select_features)
+                        temporal=True, best_params=hyperparameters, select_features=select_features,
+                        feat_imp=True)
                 elif classifier == 'EGB':
-                    _, _, _, f1, _, _ = classify_ensemble_with_gradboost(
+                    _, _, _, f1, _, _, explanation = classify_ensemble_with_gradboost(
                         x_train, x_test, y_train, y_test, random_state,
                         save_folder, model_name="egb_feature_study.pkl", retrain=False,
-                        temporal=True, best_params=hyperparameters)
+                        temporal=True, best_params=hyperparameters, select_features=select_features,
+                        feat_imp=True)
 
                 # Store F1 score for this fold
                 f1_model[k] = f1
+
+                save_path = f"{results_folder}/shap_explanation_{classifier}_fold_{k+1}.pkl"
+
+                plot_all_shap(
+                    subfolder_name=subfolder_name,
+                    fold_num=k,
+                    classifier=classifier,
+                    explanation=explanation
+                )
+
+                with open(save_path, "wb") as f:
+                    pickle.dump(explanation, f)
+
+            # median_f1 = np.median(f1_model)
+            #
+            # median_fold = int(np.argmin(np.abs(f1_model - median_f1)))
+            #
+            # print("F1 scores:", f1_model)
+            # print("Median F1:", median_f1)
+            # print("Selected median fold:", median_fold)
+            #
+            # k = median_fold
+            #
+            # x_train, x_test, y_train, y_test = stratified_kfold_split(
+            #     ravel(y), x, num_kfold, k, random_state)
+            #
+            # if classifier == 'RF':
+            #     _, _, _, f1, _, _, _, explanation = classify_random_forest(
+            #         x_train, x_test, y_train, y_test, class_weight_imb, random_state,
+            #         save_folder, model_name="rf_feature_study.pkl", retrain=False,
+            #         temporal=True, best_params=hyperparameters, select_features=select_features,
+            #         feat_imp=True)
+            # elif classifier == 'KNN':
+            #     ros_x_train, ros_y_train = resample_ros(x_train, y_train, random_state)
+            #     _, _, _, f1, _, _, explanation = classify_knn(
+            #         x_train, x_test, y_train, y_test, random_state,
+            #         save_folder, model_name="knn_feature_study.pkl", retrain=False,
+            #         temporal=True, best_params=hyperparameters, select_features=select_features,
+            #         feat_imp=True)
+            # elif classifier == 'EGB':
+            #     _, _, _, f1, _, _, explanation = classify_ensemble_with_gradboost(
+            #         x_train, x_test, y_train, y_test, random_state,
+            #         save_folder, model_name="egb_feature_study.pkl", retrain=False,
+            #         temporal=True, best_params=hyperparameters, select_features=select_features,
+            #         feat_imp=True)
+            #
+            # save_path = f"{results_folder}/shap_explanation_{classifier}_fold_{k}.pkl"
+            #
+            # plot_all_shap(
+            #     subfolder_name=subfolder_name,
+            #     fold_num=k,
+            #     classifier=classifier,
+            #     explanation=explanation
+            # )
+            #
+            # with open(save_path, "wb") as f:
+            #     pickle.dump(explanation, f)
 
             # Save results in memory for plotting
             f1_results_by_stream[classifier][stream_str] = f1_model.flatten()
 
             # ---------------- SAVE RAW F1 RESULTS ----------------
             # Save each classifier × stream F1 array to disk for preference 8
-            results_folder = os.path.join('./feature_study', subfolder_name, "streamwise")
             os.makedirs(results_folder, exist_ok=True)
 
             filename = f"f1_results_{classifier}_{stream_str}.pkl"
@@ -900,27 +895,8 @@ if preference == 11:
         if combined_scores:
             stream_median_map[stream] = np.median(combined_scores)
 
-    # Convert to DataFrame
-    df = pd.DataFrame(stream_median_map.items(), columns=['Feature_Set', 'Score'])
-
-    # Optional: sort by score descending
-    df = df.sort_values(by='Score', ascending=False)
-
-    # Save to CSV
-    df.to_csv('feature_scores.csv', index=False)
-
     # Sort streams by median
     sorted_streams = sorted(stream_median_map, key=stream_median_map.get, reverse=True)
-
-    # Truncate streams to show top performing combinations
-    # Complete Explicit KNN (Man Abl): 12 to compare to unablated data, 24 to compare before drop-off
-    # Complete Explicit KNN (Feat Select): 9 to compare to unablated data, 24 to compare before drop-off
-    # Complete Explicit RF: 9 to compare to unablated data, 16 to compare before drop-off
-    # Complete Explicit EGB (Man Abl): 8 to compare to unablated data, 24 to compare before drop-off
-    # Complete Explicit EGB (Feat Select): 5 to compare to unablated data, 24 to compare before drop-off
-    # noAFE Explicit KNN:
-    # noAFE Explicit RF:
-    sorted_streams = sorted_streams[:16]
 
     # -----------------------------------------
     # BUILD FILTERED RESULTS AND PLOT
@@ -930,7 +906,7 @@ if preference == 11:
     filtered_results = {
         clf: {
             # stream: f1_results_by_stream[clf][stream]
-            stream.replace('ECG-HR-BR-Temperature', 'Equivital').replace('Equivital-HRV', 'Equivital').replace('Participant', 'Demographics').replace('Centrifuge','G Force').replace('Pupil','Eye Tracking'): f1_results_by_stream[clf][stream]
+            stream.replace('ECG-HR-BR-Temperature', 'Equivital').replace('Participant', 'Demographics').replace('Centrifuge','G Force'): f1_results_by_stream[clf][stream]
             for stream in sorted_streams
             if stream in f1_results_by_stream[clf]
         }
@@ -947,5 +923,3 @@ if preference == 11:
     print("\nPlotting selected results...")
     # plot_f1_violin_by_stream(filtered_results, model_type, subfolder2="filtered")
     test_violin(filtered_results, model_type, subfolder2="filtered")
-
-
