@@ -32,32 +32,21 @@ sensor_ablation:
     enabled: false
     save_results_folder: Results/Sensor_Ablation
     # Mode-specific parameters for review
-    models:
-      - KNN
-      - EGB
-    model_type:
-      - Complete
-      - Explicit
-    stream_group:
-      - EEG
-    sort_streams_by_median: false
+    models: [KNN, EGB]
+    model_type: [Complete, Explicit]
+    stream_group: [EEG]
+    sort_streams_by_median: true
 
 feature_space_review:
-  enabled: false
-  # Mode-specific parameters
-  models:
-    - KNN
-    - EGB
-    - RF
-  model_type:
-    - Complete
-    - Explicit
-
-cross_validation:
   enabled: true
   # Mode-specific parameters
-  models:
-    - KNN
+  models: [KNN, EGB, RF]
+  model_type: [Complete, Explicit]
+
+cross_validation:
+  enabled: false
+  # Mode-specific parameters
+  models: [KNN]
   model_type: [Complete, Explicit]
   random_seed: 42
   num_splits: 2
