@@ -6,6 +6,8 @@ from typing import Callable, Mapping
 import numpy as np
 from numpy import ravel
 
+from src.models.base import ModelInitStrategy
+
 
 def extract_f1_score(metrics_tuple: tuple) -> float:
     """Extract F1 score from legacy metric tuple returned by classify_traditional."""
@@ -192,8 +194,7 @@ def run_sensor_ablation_training(
                     config_parser.get_sensor_ablation_training_random_seed(),
                     save_folder = "",  # TODO: Implement saving and loading of trained models
                     model_name = f"{model_name.lower()}_feature_study.pkl",
-                    retrain = False,
-                    temporal = True,
+                    strategy = ModelInitStrategy.RETRAIN_WITH_CONFIG_PARAMS,
                     best_params = hyperparameters,
                 )
 

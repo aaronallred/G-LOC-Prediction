@@ -6,7 +6,7 @@ import numpy as np
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from sklearn.neighbors import KNeighborsClassifier
 
-from src.models.base import BaseModel
+from src.models.base import BaseModel, ModelInitStrategy
 
 
 class KNearestNeighborsModel(BaseModel):
@@ -90,6 +90,19 @@ class KNearestNeighborsModel(BaseModel):
         """Return classifier key for hyperparameter lookup."""
         return "KNN"
 
+    def _build_sklearn_estimator(
+        self,
+        class_weight: str = None,
+        random_state: int = None,
+        params: Dict[str, Any] = None,
+    ):
+        """Build an unfitted KNeighborsClassifier with the given parameters."""
+        if params is not None:
+            params_copy = dict(params)
+            params_copy.setdefault("n_jobs", -1)
+            return KNeighborsClassifier(**params_copy)
+        return KNeighborsClassifier(n_jobs=-1)
+
     def classify_traditional(
         self,
         x_train,
@@ -100,26 +113,25 @@ class KNearestNeighborsModel(BaseModel):
         random_state,
         save_folder,
         model_name,
-        retrain,
-        temporal=False,
+        strategy: ModelInitStrategy = ModelInitStrategy.RETRAIN_WITH_DEFAULTS,
         best_params=None,
     ):
-        """Return legacy-compatible metric tuple for KNN traditional evaluation."""
-        del class_weight_imb, random_state
-
-        if retrain:
-            estimator = KNeighborsClassifier(n_jobs=-1).fit(x_train, np.ravel(y_train))
-        else:
-            if temporal:
-                runtime_params = dict(best_params or {})
-                runtime_params.setdefault("n_jobs", -1)
-                estimator = KNeighborsClassifier(**runtime_params).fit(
-                    x_train,
-                    np.ravel(y_train),
-                )
-            else:
-                model_path = os.path.join(save_folder, model_name)
-                estimator = joblib.load(model_path)
+        """Return legacy-compatible metric tuple for KNN traditional evaluation.
+        
+        Args:
+            strategy: ModelInitStrategy enum specifying initialization behavior.
+            best_params: Hyperparameters dict (required for RETRAIN_WITH_CONFIG_PARAMS).
+        """
+        estimator = self._initialize_model_for_classification(
+            strategy=strategy,
+            x_train=x_train,
+            y_train=y_train,
+            class_weight_imb=class_weight_imb,
+            random_state=random_state,
+            save_folder=save_folder,
+            model_name=model_name,
+            best_params=best_params,
+        )
 
         self.model = estimator
         predictions = estimator.predict(x_test)

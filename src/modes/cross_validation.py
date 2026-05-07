@@ -27,7 +27,7 @@ from sklearn.preprocessing import StandardScaler
 from src.Data_Pipeline.data_pipeline import DataPipeline
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
-from src.models.base import BaseModel
+from src.models.base import BaseModel, ModelInitStrategy
 from src.models.dl_adapter import DLModelAdapter
 from src.traditional_experiment_utils import stratified_kfold_split
 
@@ -273,8 +273,8 @@ def _run_traditional_model_cv_fold(
     # Call legacy classify_traditional interface
     # Legacy contract: returns (accuracy, precision, recall, f1, specificity, g_mean)
     # Signature: classify_traditional(x_train, x_test, y_train, y_test, class_weight_imb, 
-    #                                  random_state, save_folder, model_name, retrain,
-    #                                  temporal=False, best_params=None)
+    #                                  random_state, save_folder, model_name, strategy,
+    #                                  best_params=None)
     result = model.classify_traditional(
         x_train=X_train,
         x_test=X_test,
@@ -284,8 +284,7 @@ def _run_traditional_model_cv_fold(
         random_state=random_seed,
         save_folder=None,
         model_name=None,
-        retrain=True,
-        temporal=False,
+        strategy=ModelInitStrategy.RETRAIN_WITH_DEFAULTS,
         best_params=None,
     )
 

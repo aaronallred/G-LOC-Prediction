@@ -3,6 +3,7 @@ import pytest
 from sklearn.datasets import make_classification
 from sklearn.model_selection import train_test_split
 
+from src.models.base import ModelInitStrategy
 from src.models.extreme_gradient_boosting import ExtremeGradientBoostingModel
 from src.models.k_nearest_neighbors import KNearestNeighborsModel
 from src.models.linear_discriminant_analysis import LinearDiscriminantAnalysisModel
@@ -124,7 +125,12 @@ def test_traditional_models_expose_legacy_hyperparameters(model_cls, expected_hy
     assert model.get_traditional_hyperparameters() == expected_hyperparameters
 
 
-def _call_legacy_classifier(model_cls, legacy_fn, x_train, x_test, y_train, y_test, legacy_model_name, best_params, retrain):
+def _call_legacy_classifier(model_cls, legacy_fn, x_train, x_test, y_train, y_test, legacy_model_name, best_params, strategy):
+    """Call legacy classifier with appropriate parameters based on strategy."""
+    # Convert strategy enum to the old retrain/temporal flags for legacy comparison
+    retrain = strategy == ModelInitStrategy.RETRAIN_WITH_DEFAULTS
+    temporal = strategy == ModelInitStrategy.RETRAIN_WITH_CONFIG_PARAMS
+
     if model_cls in {LogisticRegression, SupportVectorMachineModel}:
         return legacy_fn(
             x_train,
@@ -136,7 +142,7 @@ def _call_legacy_classifier(model_cls, legacy_fn, x_train, x_test, y_train, y_te
             ".",
             legacy_model_name,
             retrain,
-            not retrain,
+            temporal,
             best_params,
         )
 
@@ -149,7 +155,7 @@ def _call_legacy_classifier(model_cls, legacy_fn, x_train, x_test, y_train, y_te
         ".",
         legacy_model_name,
         retrain,
-        not retrain,
+        temporal,
         best_params,
     )
 
@@ -208,8 +214,7 @@ def test_traditional_model_temporal_eval_matches_legacy(
         random_state=42,
         save_folder=".",
         model_name=legacy_model_name,
-        retrain=False,
-        temporal=True,
+        strategy=ModelInitStrategy.RETRAIN_WITH_CONFIG_PARAMS,
         best_params=best_params,
     )
 
@@ -222,7 +227,7 @@ def test_traditional_model_temporal_eval_matches_legacy(
         y_test,
         legacy_model_name,
         best_params,
-        retrain=False,
+        strategy=ModelInitStrategy.RETRAIN_WITH_CONFIG_PARAMS,
     )
 
     _assert_float_tuple_close(model_output, legacy_output)

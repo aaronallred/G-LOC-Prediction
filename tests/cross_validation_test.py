@@ -7,6 +7,7 @@ import yaml
 
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
+from src.models.base import ModelInitStrategy
 from src.models.dl_adapter import DLModelAdapter
 from src.modes.cross_validation import (
     _aggregate_cv_results,
@@ -77,11 +78,10 @@ class TinyTraditionalModel:
         random_state,
         save_folder,
         model_name,
-        retrain,
-        temporal=False,
+        strategy=ModelInitStrategy.RETRAIN_WITH_DEFAULTS,
         best_params=None,
     ):
-        self.calls.append({"x_train": x_train, "x_test": x_test, "best_params": best_params})
+        self.calls.append({"x_train": x_train, "x_test": x_test, "best_params": best_params, "strategy": strategy})
         return (0.9, 0.8, 0.7, 0.6, 0.5, 0.4)
 
     def save(self, path: str):

@@ -6,7 +6,7 @@ from sklearn.linear_model import LogisticRegression as SklearnLogisticRegression
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.model_selection import cross_validate
 
-from src.models.base import BaseModel
+from src.models.base import BaseModel, ModelInitStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +237,31 @@ class LogisticRegression(BaseModel):
         """
         return "LogReg"
 
+    def _build_sklearn_estimator(
+        self,
+        class_weight: str = None,
+        random_state: int = None,
+        params: Dict[str, Any] = None,
+    ):
+        """Build an unfitted LogisticRegression with the given parameters."""
+        if params is not None:
+            params_copy = dict(params)
+            # Ensure n_jobs is set for parallel processing
+            params_copy.setdefault("n_jobs", -1)
+            # Ensure max_iter is set
+            params_copy.setdefault("max_iter", 1000)
+            if random_state is not None and "random_state" not in params_copy:
+                params_copy["random_state"] = random_state
+            if class_weight is not None and "class_weight" not in params_copy:
+                params_copy["class_weight"] = class_weight
+            return SklearnLogisticRegression(**params_copy)
+        return SklearnLogisticRegression(
+            class_weight=class_weight,
+            random_state=random_state,
+            max_iter=1000,
+            n_jobs=-1,
+        )
+
     def classify_traditional(
         self,
         x_train,
@@ -247,29 +272,25 @@ class LogisticRegression(BaseModel):
         random_state,
         save_folder,
         model_name,
-        retrain,
-        temporal=False,
+        strategy: ModelInitStrategy = ModelInitStrategy.RETRAIN_WITH_DEFAULTS,
         best_params=None,
     ):
-        """Return legacy-compatible metric tuple for traditional evaluation."""
-        if retrain:
-            estimator = SklearnLogisticRegression(
-                class_weight=class_weight_imb,
-                random_state=random_state,
-                max_iter=1000,
-                n_jobs=-1,
-            ).fit(x_train, np.ravel(y_train))
-        else:
-            if temporal:
-                runtime_params = dict(best_params or {})
-                runtime_params.setdefault("n_jobs", -1)
-                estimator = SklearnLogisticRegression(
-                    **runtime_params,
-                    class_weight=class_weight_imb,
-                    random_state=random_state,
-                ).fit(x_train, np.ravel(y_train))
-            else:
-                estimator = joblib.load(f"{save_folder}/{model_name}")
+        """Return legacy-compatible metric tuple for traditional evaluation.
+        
+        Args:
+            strategy: ModelInitStrategy enum specifying initialization behavior.
+            best_params: Hyperparameters dict (required for RETRAIN_WITH_CONFIG_PARAMS).
+        """
+        estimator = self._initialize_model_for_classification(
+            strategy=strategy,
+            x_train=x_train,
+            y_train=y_train,
+            class_weight_imb=class_weight_imb,
+            random_state=random_state,
+            save_folder=save_folder,
+            model_name=model_name,
+            best_params=best_params,
+        )
 
         self.model = estimator
         predictions = estimator.predict(x_test)

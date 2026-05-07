@@ -7,6 +7,7 @@ import yaml
 
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
+from src.models.base import ModelInitStrategy
 from src.modes.sensor_ablation import (
     apply_stream_label_aliases,
     build_ranked_sensor_ablation_review_results,
@@ -37,8 +38,7 @@ class TinyTraditionalModel:
         random_state,
         save_folder,
         model_name,
-        retrain,
-        temporal=False,
+        strategy=ModelInitStrategy.RETRAIN_WITH_DEFAULTS,
         best_params=None,
     ):
         self.calls.append(
@@ -51,8 +51,7 @@ class TinyTraditionalModel:
                 "random_state": random_state,
                 "save_folder": save_folder,
                 "model_name": model_name,
-                "retrain": retrain,
-                "temporal": temporal,
+                "strategy": strategy,
                 "best_params": best_params,
             }
         )
