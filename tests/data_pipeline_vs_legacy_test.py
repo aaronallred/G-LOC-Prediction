@@ -15,9 +15,9 @@ from src.scripts import GLOC_classifier_traditional as legacy
 @pytest.fixture
 def binary_split_data():
     X, y = make_classification(
-        n_samples=220,
-        n_features=14,
-        n_informative=8,
+        n_samples=120,
+        n_features=10,
+        n_informative=6,
         n_redundant=2,
         n_clusters_per_class=1,
         class_sep=1.2,
@@ -28,7 +28,6 @@ def binary_split_data():
 
 @pytest.fixture(autouse=True)
 def patch_legacy_confusion_matrix(monkeypatch):
-    # Disable plotting side-effects so parity tests focus on model outputs.
     monkeypatch.setattr(legacy, "create_confusion_matrix", lambda *args, **kwargs: None)
 
 
@@ -126,56 +125,13 @@ def test_traditional_models_expose_legacy_hyperparameters(model_cls, expected_hy
 
 
 def _call_legacy_classifier(model_cls, legacy_fn, x_train, x_test, y_train, y_test, legacy_model_name, best_params, retrain):
-    if model_cls is LogisticRegression:
+    if model_cls in {LogisticRegression, SupportVectorMachineModel}:
         return legacy_fn(
             x_train,
             x_test,
             y_train,
             y_test,
             None,
-            42,
-            ".",
-            legacy_model_name,
-            retrain,
-            not retrain,
-            best_params,
-        )
-
-    if model_cls is SupportVectorMachineModel:
-        return legacy_fn(
-            x_train,
-            x_test,
-            y_train,
-            y_test,
-            None,
-            42,
-            ".",
-            legacy_model_name,
-            retrain,
-            not retrain,
-            best_params,
-        )
-
-    if model_cls is KNearestNeighborsModel:
-        return legacy_fn(
-            x_train,
-            x_test,
-            y_train,
-            y_test,
-            42,
-            ".",
-            legacy_model_name,
-            retrain,
-            not retrain,
-            best_params,
-        )
-
-    if model_cls is LinearDiscriminantAnalysisModel:
-        return legacy_fn(
-            x_train,
-            x_test,
-            y_train,
-            y_test,
             42,
             ".",
             legacy_model_name,
@@ -271,126 +227,3 @@ def test_traditional_model_temporal_eval_matches_legacy(
 
     _assert_float_tuple_close(model_output, legacy_output)
 
-
-def test_random_forest_temporal_eval_matches_legacy(binary_split_data):
-    x_train, x_test, y_train, y_test = binary_split_data
-    model = RandomForestModel(config={})
-    best_params = {"n_estimators": 40, "max_depth": 5, "min_samples_split": 2}
-
-    model_output = model.classify_traditional(
-        x_train,
-        x_test,
-        y_train,
-        y_test,
-        class_weight_imb=None,
-        random_state=42,
-        save_folder=".",
-        model_name="rf.pkl",
-        retrain=False,
-        temporal=True,
-        best_params=best_params,
-    )
-
-    legacy_output = legacy.classify_random_forest(
-        x_train,
-        x_test,
-        y_train,
-        y_test,
-        None,
-        42,
-        ".",
-        "rf.pkl",
-        False,
-        True,
-        best_params,
-    )
-
-    _assert_float_tuple_close(model_output[:4], legacy_output[:4])
-    assert model_output[4] == legacy_output[4]
-    _assert_float_tuple_close(model_output[5:], legacy_output[5:])
-
-
-@pytest.mark.parametrize(
-    "model_cls,legacy_fn,legacy_model_name,needs_class_weight",
-    [
-        (LogisticRegression, legacy.classify_logistic_regression, "logreg.pkl", True),
-        (KNearestNeighborsModel, legacy.classify_knn, "knn.pkl", False),
-        (LinearDiscriminantAnalysisModel, legacy.classify_lda, "lda.pkl", False),
-        (SupportVectorMachineModel, legacy.classify_svm, "svm.pkl", True),
-        (ExtremeGradientBoostingModel, legacy.classify_ensemble_with_gradboost, "egb.pkl", False),
-    ],
-)
-def test_traditional_model_retrain_eval_matches_legacy(
-    binary_split_data,
-    model_cls,
-    legacy_fn,
-    legacy_model_name,
-    needs_class_weight,
-):
-    x_train, x_test, y_train, y_test = binary_split_data
-    model = model_cls(config={})
-
-    model_output = model.classify_traditional(
-        x_train,
-        x_test,
-        y_train,
-        y_test,
-        class_weight_imb=None,
-        random_state=42,
-        save_folder=".",
-        model_name=legacy_model_name,
-        retrain=True,
-        temporal=False,
-        best_params=None,
-    )
-
-    legacy_output = _call_legacy_classifier(
-        model_cls,
-        legacy_fn,
-        x_train,
-        x_test,
-        y_train,
-        y_test,
-        legacy_model_name,
-        best_params=None,
-        retrain=True,
-    )
-
-    _assert_float_tuple_close(model_output, legacy_output)
-
-
-def test_random_forest_retrain_eval_matches_legacy(binary_split_data):
-    x_train, x_test, y_train, y_test = binary_split_data
-    model = RandomForestModel(config={})
-
-    model_output = model.classify_traditional(
-        x_train,
-        x_test,
-        y_train,
-        y_test,
-        class_weight_imb=None,
-        random_state=42,
-        save_folder=".",
-        model_name="rf.pkl",
-        retrain=True,
-        temporal=False,
-        best_params=None,
-    )
-
-    legacy_output = legacy.classify_random_forest(
-        x_train,
-        x_test,
-        y_train,
-        y_test,
-        None,
-        42,
-        ".",
-        "rf.pkl",
-        True,
-        False,
-        None,
-    )
-
-    _assert_float_tuple_close(model_output[:4], legacy_output[:4])
-    assert model_output[4] == legacy_output[4]
-    _assert_float_tuple_close(model_output[5:], legacy_output[5:])

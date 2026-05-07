@@ -77,7 +77,8 @@ def run_feature_space_review(
     plt_module,
 ) -> None:
     model_type = config_parser.get_feature_space_review_model_type()
-    classifiers = config_parser.get_feature_space_review_models()
+    models = config_parser.get_feature_space_review_models()
+    classifiers = [model.get_name() for model in models]
 
     if len(classifiers) == 0:
         raise ValueError("feature_space_review.models must be a non-empty list when enabled.")

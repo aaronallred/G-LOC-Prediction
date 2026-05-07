@@ -238,7 +238,8 @@ def run_sensor_ablation_review(
     model_type = config_parser.get_sensor_ablation_review_model_type()
     sensor_ablation_results_dir = Path(config_parser.get_sensor_ablation_review_save_results_folder()) / model_type.get_folder_name()
 
-    classifiers_to_load = config_parser.get_sensor_ablation_review_models()
+    models = config_parser.get_sensor_ablation_review_models()
+    classifiers_to_load = [model.get_name() for model in models]
     sort_streams_by_median = config_parser.get_sensor_ablation_review_sort_streams_by_median()
     review_stream_group = config_parser.get_sensor_ablation_review_stream_group()
 
