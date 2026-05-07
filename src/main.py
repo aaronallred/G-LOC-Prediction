@@ -91,7 +91,9 @@ def run(config_path: str | None = None) -> None:
                 config_parser = config_parser,
                 pipeline = DataPipeline(config_parser = config_parser),
                 project_root = project_root,
-                get_hyperparameters_from_json_fn = get_hyperparameters_from_json,
+                # Use the configured median_hyperparameters_folder via the config parser by
+                # passing None here; run_sensor_ablation_training will build a resolver.
+                get_hyperparameters_from_json_fn = None,
                 stratified_kfold_split_fn = stratified_kfold_split,
                 plot_f1_violin_by_stream_fn = plot_f1_violin_by_stream,
                 extract_f1_score_fn = extract_f1_score,

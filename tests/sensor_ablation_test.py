@@ -135,7 +135,8 @@ def _write_config(tmp_path: Path, review: bool = False, sort_streams_by_median: 
                 "models": ["KNN"],
                 "model_type": ["Complete", "Explicit"],
                 "random_seed": 13,
-                "num_splits": 2,
+                        "num_splits": 2,
+                "median_hyperparameters_folder": "ModelSave/CV",
                 "streams": [["ECG"], ["EEG"]],
             },
             "review": {
@@ -291,3 +292,80 @@ def test_run_sensor_ablation_review_uses_ranked_branch(tmp_path):
     )
 
     assert plot_calls and plot_calls[0][0] == "matrix"
+
+
+def test_parser_requires_median_hyperparameters_folder(tmp_path):
+    # Create a config YAML explicitly WITHOUT the required median_hyperparameters_folder key
+    config = {
+        "data_path": str(tmp_path / "data"),
+        "sensor_ablation": {
+            "training": {
+                "enabled": True,
+                "save_results_folder": str(tmp_path / "Results" / "Sensor_Ablation"),
+                "models": ["KNN"],
+                "model_type": ["Complete", "Explicit"],
+                "random_seed": 13,
+                "num_splits": 2,
+                "streams": [["ECG"], ["EEG"]],
+            }
+        }
+    }
+    cfg_path = tmp_path / "no_median_config.yaml"
+    cfg_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    parser = GLOCExperimentConfigParser(config_location=str(cfg_path))
+
+    # Expect accessor to raise since key is required for sensor ablation median hyperparameters
+    import pytest
+    with pytest.raises(ValueError):
+        parser.get_sensor_ablation_median_hyperparameters_folder()
+
+
+def test_run_sensor_ablation_training_uses_parser_median_folder(tmp_path):
+    # Prepare a temporary median hyperparameters folder and JSON for TinyKNN
+    model_type_folder = "Complete_Explicit"
+    median_base = tmp_path / "ModelSave" / "CV"
+    target_folder = median_base / model_type_folder
+    target_folder.mkdir(parents=True, exist_ok=True)
+
+    median_file = target_folder / "median_hyperparameters_TinyKNN.json"
+    median_file.write_text(
+        '{"best_params": {"k": 5}, "selected_features": [], "fold_id": 0, "f1_score": 0.5}',
+        encoding="utf-8",
+    )
+
+    # Create a fake config that exposes the required getter and other methods used by the runner
+    class FakeConfigWithMedian(FakeSensorAblationConfig):
+        def get_sensor_ablation_median_hyperparameters_folder(self):
+            return str(median_base)
+
+    config = FakeConfigWithMedian(tmp_path / "Results" / "Sensor_Ablation")
+    pipeline = FakePipeline()
+    plot_calls = []
+    split_calls = []
+
+    def stratified_kfold_split_fn(**kwargs):
+        split_calls.append(kwargs)
+        x = np.asarray(kwargs["X"])
+        y = np.asarray(kwargs["Y"])
+        midpoint = len(y) // 2
+        return x[:midpoint], x[midpoint:], y[:midpoint], y[midpoint:]
+
+    def plot_f1_violin_by_stream_fn(**kwargs):
+        plot_calls.append(kwargs)
+
+    # Call with get_hyperparameters_from_json_fn=None so default resolver is used
+    run_sensor_ablation_training(
+        config_parser=config,
+        pipeline=pipeline,
+        project_root=tmp_path,
+        get_hyperparameters_from_json_fn=None,
+        stratified_kfold_split_fn=stratified_kfold_split_fn,
+        plot_f1_violin_by_stream_fn=plot_f1_violin_by_stream_fn,
+        save_model_stream_f1_scores_fn=save_model_stream_f1_scores,
+    )
+
+    # Verify that splits were run and outputs created
+    assert len(split_calls) == 4
+    assert (tmp_path / "Results" / "Sensor_Ablation" / "Complete_Explicit" / "TinyKNN" / "ECG.pkl").exists()
+    assert (tmp_path / "Results" / "Sensor_Ablation" / "Complete_Explicit" / "TinyKNN" / "EEG.pkl").exists()

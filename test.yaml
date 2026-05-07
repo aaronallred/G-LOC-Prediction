@@ -18,8 +18,9 @@ traditional_data_parameters:
   time_start: 0
 sensor_ablation:
   training:
-    enabled: false
+    enabled: true
     save_results_folder: Results/Sensor_Ablation
+    median_hyperparameters_folder: ModelSave/CV
     # Mode-specific parameters
     models: [EGB, KNN]
     model_type: [Complete, Explicit]
@@ -29,7 +30,7 @@ sensor_ablation:
       - [ECG, HR, BR, Temperature]
       - [EEG]
   review:
-    enabled: false
+    enabled: true
     save_results_folder: Results/Sensor_Ablation
     # Mode-specific parameters for review
     models: [KNN, EGB]
@@ -44,7 +45,7 @@ feature_space_review:
   model_type: [Complete, Explicit]
 
 cross_validation:
-  enabled: false
+  enabled: true
   # Mode-specific parameters
   models: [KNN]
   model_type: [Complete, Explicit]

@@ -255,6 +255,26 @@ class GLOCExperimentConfigParser:
         """
         return self._get_nested("sensor_ablation", "training", "num_splits")
 
+    def get_sensor_ablation_median_hyperparameters_folder(self) -> str:
+        """Get required folder path for median hyperparameter JSON files for sensor ablation training.
+
+        Raises
+        ------
+        ValueError
+            If the configuration key is missing or empty. This parameter is required for sensor ablation training.
+        """
+        folder = self._get_nested("sensor_ablation", "training", "median_hyperparameters_folder")
+        if not folder:
+            raise ValueError(
+                "sensor_ablation.training.median_hyperparameters_folder is required for sensor ablation training. "
+                "Please add it to your YAML config, for example:\n\n"
+                "sensor_ablation:\n"
+                "  training:\n"
+                "    median_hyperparameters_folder: 'ModelSave/CV'\n"
+            )
+        return str(folder)
+
+
     def get_feature_space_review_enabled(self) -> bool:
         return self._get_enabled("feature_space_review", "enabled")
 
