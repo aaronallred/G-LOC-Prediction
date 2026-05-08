@@ -6,8 +6,10 @@ import matplotlib.pyplot as plt
 
 
 ### SETTINGS
-classifier = "RF"
+# Choose classifier
+classifier = "EGB"
 
+# Choose filepath
 file_folder = os.path.join(
     "../..",
     "feature_study",
@@ -16,20 +18,26 @@ file_folder = os.path.join(
     "shap_rfegb_redo_7may"
 )
 
+### CREATE DICTIONARIES FOR CUSTOM PLOTS
+# All Raw EEG Channels
 channels_dict = {"F1": "F1", "Fz": "Fz", "F3": "F3", "FC3": "FC3", "FT9": "FT9", "FC5": "FC5", "FC1": "FC1", "C3": "C3",
     "C5": "C5", "TP9": "TP9", "CP5": "CP5", "CP1": "CP1", "Pz": "Pz", "P3": "P3", "P7": "P7", "P5": "P5", "P1": "P1",
     "P6": "P6", "P4": "P4", "P8": "P8", "TP10": "TP10", "CP6": "CP6", "CP2": "CP2", "Cz": "Cz", "C4": "C4", "T8": "T8",
     "FT10": "FT10", "FC6": "FC6", "FC2": "FC2", "AF4": "AF4", "FC4": "FC4", "AFz": "AFz", "O2": "O2", "F4": "F4",
     "O1": "O1", "T7": "T7"}
 
+# EEG Bands
 bands_dict = {"delta": "delta", "theta": "theta", "alpha": "alpha", "beta": "beta"}
 
+# Baseline Methods
 baseline_dict = {"v0": "v0", "v1": "v1", "v2": "v2", "v3": "v3", "v4": "v4", "v5": "v5", "v6": "v6", "v7": "v7",
     "v8": "v8"}
 
+# Data Modalities
 modalities_dict = {"Equivital": "Equivital", "HRV": "Equivital", "EEG": "EEG", "Centrifuge": "G-Force",
     "Pupil": "Eye Tracking", "Participant": "Demographics"}
 
+# EEG Channels with Bands
 channels_bands_dict = {}
 
 for electrode in channels_dict.values():
@@ -42,8 +50,17 @@ for electrode in channels_dict.values():
         channels_bands_dict[f"{electrode}_{band}"] = combined_name
         channels_dict[f"{electrode}"] = raw_channel
 
+# EEG raw data and channels with bands
 raw_processed_dict = channels_bands_dict | channels_dict
 
+# EEG Raw vs PSD
+raw_vs_psd_dict = {}
+
+for electrode in channels_dict.keys():
+    raw_vs_psd_dict[f"{electrode} "] = f"{electrode}_Raw"
+
+    for band in bands_dict.keys():
+        raw_vs_psd_dict[f"{electrode}_{band} "] = f"{electrode}_PSD"
 
 def load_explanations(classifier, file_folder, num_folds=10):
 
@@ -58,8 +75,11 @@ def load_explanations(classifier, file_folder, num_folds=10):
 
         with open(filename, "rb") as f:
             exp = pickle.load(f)
+            print(f"Loading {filename}")
 
         explanations.append(exp)
+
+    print("Loading Complete")
 
     combined_explanation = shap.Explanation(
         values=np.concatenate([e.values for e in explanations], axis=0),
@@ -147,7 +167,7 @@ def plot_keyword_violin_dict(explanation, keyword_map, match_prefix=False):
         feature_names=unique_display_names
     )
 
-    print("\n--- Group Debug Info ---")
+    print("\n--- Feature Matching Info ---")
     for i, name in enumerate(unique_display_names):
         vals = grouped_values[:, i]
         print(
@@ -159,36 +179,50 @@ def plot_keyword_violin_dict(explanation, keyword_map, match_prefix=False):
             "unique:", len(np.unique(vals))
         )
 
-    # 4. Plotting
-    plt.figure(figsize=(10, 8))
-    shap.plots.violin(
-        grouped_explanation,
-        plot_type="violin",
-        show=False
-    )
+    if sum(match_counts.values()) == 0:
+        print("No matches for keywords\n")
+        return
 
-    # Move title and formatting here
-    plt.title(f"Feature Importance - {classifier} Explicit Complete")
-    plt.subplots_adjust(left=0.3)
-    plt.show()
+    # 4. Plotting
+    try:
+        plt.figure(figsize=(10, 8))
+        shap.plots.violin(
+            grouped_explanation,
+            plot_type="violin",
+            show=False
+        )
+
+        # Move title and formatting here
+        plt.title(f"Feature Importance - {classifier} Explicit Complete")
+        plt.subplots_adjust(left=0.3)
+        plt.show()
+
+    except ValueError:
+        print("Unable to Create Violin Plot\n")
+        plt.close()
 
 def main():
 
     explanation = load_explanations(classifier, file_folder)
 
-    # plot_original_violin(explanation, classifier)
-    #
-    # plot_keyword_violin_dict(explanation, modalities_dict)
-    #
+    # Plot all features
+    plot_original_violin(explanation, classifier)
+    # Plot modalities
+    plot_keyword_violin_dict(explanation, modalities_dict)
+    # Plot baseline methods
+    plot_keyword_violin_dict(explanation, baseline_dict)
+
+    # EEG Plots
+    # Plot EEG Channels
     plot_keyword_violin_dict(explanation, channels_dict, True)
-
-    # plot_keyword_violin_dict(explanation, bands_dict)
-    #
-    # plot_keyword_violin_dict(explanation, baseline_dict)
-
+    # Plot EEG Bands No Channels
+    plot_keyword_violin_dict(explanation, bands_dict)
+    # Plot EEG Channels and Bands
     plot_keyword_violin_dict(explanation, channels_bands_dict, True)
-
+    Plot EEG Raw Data And Processed
     plot_keyword_violin_dict(explanation, raw_processed_dict, True)
+    # Plot Raw Vs PSD
+    plot_keyword_violin_dict(explanation, raw_vs_psd_dict, True)
 
 
 if __name__ == "__main__":
