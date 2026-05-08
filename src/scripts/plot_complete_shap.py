@@ -13,7 +13,7 @@ file_folder = os.path.join(
     "feature_study",
     "Explicit Complete",
     "feature_importance",
-    "shap_rf_noeeg_6may"
+    "shap_rfegb_redo_7may"
 )
 
 channels_dict = {"F1": "F1", "Fz": "Fz", "F3": "F3", "FC3": "FC3", "FT9": "FT9", "FC5": "FC5", "FC1": "FC1", "C3": "C3",
@@ -35,10 +35,14 @@ channels_bands_dict = {}
 for electrode in channels_dict.values():
     for band in bands_dict.values():
 
-        combined_name = f"{electrode}_{band}"
+        combined_name = f"{electrode}_{band} "
+        raw_channel = f"{electrode} "
 
         # search term : displayed name
         channels_bands_dict[f"{electrode}_{band}"] = combined_name
+        channels_dict[f"{electrode}"] = raw_channel
+
+raw_processed_dict = channels_bands_dict | channels_dict
 
 
 def load_explanations(classifier, file_folder, num_folds=10):
@@ -90,139 +94,9 @@ def plot_original_violin(explanation, classifier):
 
     plt.show()
 
-
-def plot_keyword_violin(explanation, keywords):
-
-    grouped_values = []
-    grouped_data = []
-    grouped_names = []
-
-    for keyword in keywords:
-
-        idx = [
-            i for i, name in enumerate(explanation.feature_names)
-            if keyword.lower() in name.lower()
-        ]
-
-        if len(idx) == 0:
-            continue
-
-        shap_concat = explanation.values[:, idx].flatten()
-
-        data_concat = explanation.data[:, idx].flatten()
-
-        grouped_values.append(shap_concat)
-        grouped_data.append(data_concat)
-        grouped_names.append(keyword)
-
-    min_len = min(len(x) for x in grouped_values)
-
-    grouped_values = np.column_stack([
-        x[:min_len] for x in grouped_values
-    ])
-
-    grouped_data = np.column_stack([
-        x[:min_len] for x in grouped_data
-    ])
-
-    grouped_explanation = shap.Explanation(
-        values=grouped_values,
-        data=grouped_data,
-        feature_names=grouped_names
-    )
-
-    plt.figure(figsize=(10, 8))
-
-    shap.plots.violin(
-        grouped_explanation,
-        plot_type="violin",
-        show=False
-    )
-
-    plt.title(f"Feature Importance - {classifier} Explicit Complete")
-
-    plt.subplots_adjust(left=0.3)
-
-    plt.show()
-
-def plot_keyword_violin_dict(explanation, keyword_map):
-
-    grouped_dict = {}
-
-    for keyword, display_name in keyword_map.items():
-
-        idx = [
-            i for i, name in enumerate(explanation.feature_names)
-            if keyword.lower() in name.lower()
-        ]
-
-        if len(idx) == 0:
-            continue
-
-        shap_concat = explanation.values[:, idx].flatten()
-
-        data_concat = explanation.data[:, idx].flatten()
-
-        if display_name not in grouped_dict:
-
-            grouped_dict[display_name] = {
-                "values": [],
-                "data": []
-            }
-
-        grouped_dict[display_name]["values"].append(shap_concat)
-
-        grouped_dict[display_name]["data"].append(data_concat)
-
-    grouped_values = []
-    grouped_data = []
-    grouped_names = []
-
-    for display_name, content in grouped_dict.items():
-
-        combined_values = np.concatenate(content["values"])
-
-        combined_data = np.concatenate(content["data"])
-
-        grouped_values.append(combined_values)
-
-        grouped_data.append(combined_data)
-
-        grouped_names.append(display_name)
-
-    min_len = min(len(x) for x in grouped_values)
-
-    grouped_values = np.column_stack([
-        x[:min_len] for x in grouped_values
-    ])
-
-    grouped_data = np.column_stack([
-        x[:min_len] for x in grouped_data
-    ])
-
-    grouped_explanation = shap.Explanation(
-        values=grouped_values,
-        data=grouped_data,
-        feature_names=grouped_names
-    )
-
-    plt.figure(figsize=(10, 8))
-
-    shap.plots.violin(
-        grouped_explanation,
-        plot_type="violin",
-        show=False
-    )
-
-    plt.title(f"Feature Importance - {classifier} Explicit Complete")
-
-    plt.subplots_adjust(left=0.3)
-
-    plt.show()
-
-
-def plot_keyword_violin_dict_new(explanation, keyword_map):
+def plot_keyword_violin_dict(explanation, keyword_map, match_prefix=False):
     n_samples = explanation.values.shape[0]
+    match_counts = {}
 
     # 1. Get unique display names in the order they appear in the map
     # We use dict.fromkeys to keep order while getting unique values
@@ -240,19 +114,28 @@ def plot_keyword_violin_dict_new(explanation, keyword_map):
         # We use a set to prevent double-counting if a feature matches two keywords
         matching_indices = set()
         for kw in associated_keywords:
-            indices = [
-                j for j, name in enumerate(explanation.feature_names)
-                if kw.lower() in name.lower()
-            ]
+            if match_prefix:
+                indices = [
+                    j for j, name in enumerate(explanation.feature_names)
+                    if name.lower().startswith(f"{kw.lower()}")
+                ]
+            else:
+                indices = [
+                    j for j, name in enumerate(explanation.feature_names)
+                    if kw.lower() in name.lower()
+                ]
             matching_indices.update(indices)
 
         idx_list = list(matching_indices)
+
+        match_counts[display_name] = len(idx_list)
 
         if not idx_list:
             continue
 
         # Sum the SHAP values
         grouped_values[:, i] = np.sum(explanation.values[:, idx_list], axis=1)
+        print(display_name, len(idx_list), np.std(grouped_values[:, i]))
 
         # Take mean of the feature data
         grouped_data[:, i] = np.mean(explanation.data[:, idx_list], axis=1)
@@ -263,6 +146,18 @@ def plot_keyword_violin_dict_new(explanation, keyword_map):
         data=grouped_data,
         feature_names=unique_display_names
     )
+
+    print("\n--- Group Debug Info ---")
+    for i, name in enumerate(unique_display_names):
+        vals = grouped_values[:, i]
+        print(
+            name,
+            "matches:", match_counts.get(name, 0),
+            "min:", np.min(vals),
+            "max:", np.max(vals),
+            "std:", np.std(vals),
+            "unique:", len(np.unique(vals))
+        )
 
     # 4. Plotting
     plt.figure(figsize=(10, 8))
@@ -281,18 +176,19 @@ def main():
 
     explanation = load_explanations(classifier, file_folder)
 
-    plot_original_violin(explanation, classifier)
+    # plot_original_violin(explanation, classifier)
+    #
+    # plot_keyword_violin_dict(explanation, modalities_dict)
+    #
+    plot_keyword_violin_dict(explanation, channels_dict, True)
 
-    plot_keyword_violin_dict_new(explanation, modalities_dict)
-    exit()
+    # plot_keyword_violin_dict(explanation, bands_dict)
+    #
+    # plot_keyword_violin_dict(explanation, baseline_dict)
 
-    plot_keyword_violin_dict_new(explanation, channels_dict)
+    plot_keyword_violin_dict(explanation, channels_bands_dict, True)
 
-    plot_keyword_violin_dict_new(explanation, bands_dict)
-
-    plot_keyword_violin_dict_new(explanation, baseline_dict)
-
-    plot_keyword_violin_dict_new(explanation, channels_bands_dict)
+    plot_keyword_violin_dict(explanation, raw_processed_dict, True)
 
 
 if __name__ == "__main__":
