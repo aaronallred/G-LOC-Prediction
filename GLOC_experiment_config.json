@@ -1,8 +1,8 @@
 {
-    "models": ["EGB", "KNN", "RF"],
+    "models": ["KNN"],
     "model_type": ["Complete", "Explicit"],
     "random_seed": 42,
-    "data_path": "C:/Users/hankr/PyCharmMiscProject/G-LOC-Prediction/data",
+    "data_path": "C:/Users/savan/G-LOC-Prediction/data",
     "shared_data_parameters": {
         "subject_to_analyze": null,
         "trial_to_analyze": null,
@@ -30,37 +30,7 @@
     "sensor_ablation_parameters": {
         "enabled": true,
         "streams": [
-            ["ECG", "HR", "BR", "Temperature"],
-            ["EEG"], 
-            ["Pupil"], 
-            ["Centrifuge"], 
-            ["Participant"],
-            ["Centrifuge", "Participant"],
-            ["ECG", "HR", "BR", "Temperature", "EEG"],
-            ["ECG", "HR", "BR", "Temperature", "Pupil"],
-            ["ECG", "HR", "BR", "Temperature", "Centrifuge"],
-            ["ECG", "HR", "BR", "Temperature", "Participant"],
-            ["ECG", "HR", "BR", "Temperature", "Centrifuge", "Participant"],
-            ["ECG", "HR", "BR", "Temperature", "EEG", "Pupil"],
-            ["ECG", "HR", "BR", "Temperature", "EEG", "Centrifuge", "Participant"],
-            ["ECG", "HR", "BR", "Temperature", "EEG", "Centrifuge"],
-            ["ECG", "HR", "BR", "Temperature", "EEG", "Participant"],
-            ["ECG", "HR", "BR", "Temperature", "Pupil", "Centrifuge"],
-            ["ECG", "HR", "BR", "Temperature", "Pupil", "Participant"],
-            ["ECG", "HR", "BR", "Temperature", "Pupil", "Centrifuge", "Participant"],
-            ["ECG", "HR", "BR", "Temperature", "EEG", "Pupil", "Centrifuge", "Participant"],
-            ["ECG", "HR", "BR", "Temperature", "EEG", "Pupil", "Centrifuge"],
-            ["ECG", "HR", "BR", "Temperature", "EEG", "Pupil", "Participant"],
-            ["EEG", "Pupil"],
-            ["EEG", "Centrifuge", "Participant"],
-            ["EEG", "Centrifuge"],
-            ["EEG", "Participant"],
-            ["EEG", "Pupil", "Centrifuge", "Participant"],
-            ["EEG", "Pupil", "Centrifuge"],
-            ["EEG", "Pupil", "Participant"],
-            ["Pupil", "Centrifuge", "Participant"],
-            ["Pupil", "Centrifuge"],
-            ["Pupil", "Participant"]
+            ["Equivital", "HRV", "EEG", "Pupil", "Centrifuge", "Participant"]
         ]
     }
 }

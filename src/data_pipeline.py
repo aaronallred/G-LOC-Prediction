@@ -1307,7 +1307,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             "window_size": 15,
             "stride": 0.25,
             "feature_reduction_type": "performance",
-            "baseline_methods_to_use": ["v0", "v1", "v2"],
+            "baseline_methods_to_use": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
             "imbalance_type": "ros",
             "impute_type": 1,
             "n_neighbors": 5,
@@ -1480,7 +1480,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         logger.info("Finalizing outputs and ensuring legacy compatibility in dtypes and shapes.")
         gloc_data_all_features_numpy, gloc_labels_numpy = self._ready_outputs(gloc_data_all_features_numpy, gloc_labels_numpy)
 
-        return gloc_data_all_features_numpy, gloc_labels_numpy
+        return gloc_data_all_features_numpy, gloc_labels_numpy, select_features
     
     def _get_hyperparameters_by_classifier(
             self,
