@@ -1,4 +1,5 @@
 import numpy as np
+import shap
 import os
 import joblib  # For saving the model
 from sklearn.linear_model import LogisticRegression
@@ -1084,34 +1085,32 @@ def classify_ensemble_with_gradboost_hpo(x_train, x_test, y_train, y_test, rando
     return accuracy, precision, recall, f1, specificity, g_mean
 
 def run_shap(model, x_train, x_test, select_features, random_state):
-    import shap
-    import pandas as pd
 
     print("\nStarting SHAP Analysis...\n")
 
-    feature_names = list(select_features)
-
-    # # Convert arrays to DataFrames so SHAP preserves names
-    # x_train_df = pd.DataFrame(x_train, columns=feature_names)
-    # x_test_df = pd.DataFrame(x_test, columns=feature_names)
-
-    background = shap.sample(x_train, 100, random_state=random_state)
-    x_test_subset = shap.sample(x_test, 200, random_state=random_state)
+    nsamples_train = 100
+    nsamples_test = 200
 
     try:
         print("Trying SHAP with model...")
-        explainer = shap.Explainer(model, background, feature_names=select_features)
+        explainer = shap.Explainer(model, x_train, feature_names=select_features)
+
+        explanation = explainer(x_test)
 
     except Exception as e:
         print(f"Model-based explainer failed: {e}")
         print("Falling back to predict_proba...")
+        print(f"Using {nsamples_train} samples from training dataset ({nsamples_train}/{x_train.shape[0]})")
+        print(f"Using {nsamples_test} samples from testing dataset ({nsamples_test}/{x_test.shape[0]})")
+
+        background = shap.sample(x_train, nsamples_train, random_state=random_state)
+        x_test_subset = shap.sample(x_test, nsamples_test, random_state=random_state)
 
         explainer = shap.Explainer(model.predict_proba, background, feature_names=select_features)
 
-    explanation = explainer(x_test_subset)
+        explanation = explainer(x_test_subset)
 
-    # Force names onto explanation object
-    # explanation.feature_names = feature_names
-    # print(explanation.feature_names)
+    print(f"\nTraining dataset shape is {x_train.shape}")
+    print(f"Testing dataset shape is {x_test.shape}")
 
     return explanation

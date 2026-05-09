@@ -15,6 +15,7 @@ dependencies:
   - contourpy 
   - pip
   - pip:
+    - shap==0.46.0
     - feature-engine
     - faiss-cpu==1.11.0
     - scikit-optimize
