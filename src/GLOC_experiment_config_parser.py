@@ -13,6 +13,11 @@ from src.models.logistic_regression import LogisticRegression
 from src.models.random_forest import RandomForestModel
 from src.models.support_vector_machine import SupportVectorMachineModel
 from src.models.transformer import TransformerModel
+# Advanced PyTorch-based logistic regression (time-series friendly)
+from src.models.logistic_regression_ts import LogRegTS
+from src.models.lstm_model import LSTMModel
+from src.models.nam_model import NAMModel
+from src.models.tcn_model import TCNModel
 
 
 class GLOCExperimentConfigParser:
@@ -31,6 +36,11 @@ class GLOCExperimentConfigParser:
         "KNN": KNearestNeighborsModel,
         "Transformer": TransformerModel,
         "Trans": TransformerModel,
+        "LogRegTS": LogRegTS,
+        "Logistic Regression TS": LogRegTS,
+        "LSTM": LSTMModel,
+        "NAM": NAMModel,
+        "TCN": TCNModel,
     }
 
     def __init__(self, config_location: Optional[str] = None) -> None:

@@ -84,11 +84,12 @@ class SyntheticDLAdapter(DLModelAdapter):
 
 
 def _is_traditional_model(model: Any) -> bool:
-    """Detect if a model follows the legacy 'classify_traditional' contract."""
-    return (
-        getattr(model, "is_traditional", False)
-        or hasattr(model, "classify_traditional")
-    )
+    """Detect if a model follows the legacy 'classify_traditional' contract.
+
+    Prefer the explicit is_traditional flag on the instance. Relying on hasattr
+   ('classify_traditional') is unreliable because BaseModel exposes that method.
+    """
+    return bool(getattr(model, "is_traditional", False))
 
 
 def _is_dl_adapter(model: Any) -> bool:

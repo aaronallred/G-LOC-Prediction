@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader, TensorDataset
 
 from src.models.base import BaseModel
 
@@ -84,7 +85,7 @@ class TransformerModel(BaseModel):
         Train the final Transformer model.
 
         Args:
-            X: Input features.
+            X: Input features. Expected shape (N, D) or (N, seq_len, D) — flatten to seq_len=1 when needed.
             y: Labels.
             params: Optional hyperparameters; falls back to best/default params.
         """
@@ -93,45 +94,90 @@ class TransformerModel(BaseModel):
 
         logger.info("Training TransformerModel with params: %s", params)
 
-        # TODO: Add data windowing, DataLoader creation, loss, optimizer, and training loop.
-        # Build a network skeleton so downstream code can inspect model structure.
         input_dim = params.get("input_dim")
         if input_dim is None:
-            raise ValueError("TransformerModel.train requires 'input_dim' in params or config.")
+            # try to infer from X
+            if hasattr(X, 'shape'):
+                if X.ndim == 2:
+                    input_dim = X.shape[1]
+                elif X.ndim == 3:
+                    input_dim = X.shape[2]
+        if input_dim is None:
+            raise ValueError("TransformerModel.train requires 'input_dim' in params or X with known shape.")
+
+        d_model = params.get("d_model", 64)
+        nhead = params.get("nhead", 4)
+        num_layers = params.get("num_layers", 2)
+        dim_feedforward = params.get("dim_feedforward", 128)
+        dropout = params.get("dropout", 0.1)
+        lr = float(params.get("learning_rate", 1e-3))
+        epochs = int(params.get("num_epochs", 5))
+        batch_size = int(params.get("batch_size", 32))
+        random_seed = int(params.get("random_seed", 42))
+
+        torch.manual_seed(random_seed)
+        np.random.seed(random_seed)
 
         self.model = TransformerNetwork(
             input_dim=input_dim,
-            d_model=params.get("d_model", 64),
-            nhead=params.get("nhead", 4),
-            num_layers=params.get("num_layers", 2),
-            dim_feedforward=params.get("dim_feedforward", 128),
-            dropout=params.get("dropout", 0.1),
+            d_model=d_model,
+            nhead=nhead,
+            num_layers=num_layers,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
             output_dim=params.get("output_dim", 1),
         ).to(self.device)
 
+        # Prepare data
+        if X.ndim == 2:
+            X_proc = X.reshape(X.shape[0], 1, X.shape[1])
+        else:
+            X_proc = X
+
+        X_tensor = torch.from_numpy(X_proc.astype(np.float32)).to(self.device)
+        y_tensor = torch.from_numpy(y.reshape(-1, 1).astype(np.float32)).to(self.device)
+
+        loader = DataLoader(TensorDataset(X_tensor, y_tensor), batch_size=batch_size, shuffle=True)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+        criterion = nn.BCEWithLogitsLoss()
+
+        self.model.train()
+        for epoch in range(epochs):
+            for xb, yb in loader:
+                optimizer.zero_grad()
+                logits = self.model(xb)
+                loss = criterion(logits, yb)
+                loss.backward()
+                optimizer.step()
+
+        self.best_params = {"input_dim": input_dim, "d_model": d_model, "nhead": nhead, "num_layers": num_layers, "learning_rate": lr, "num_epochs": epochs, "batch_size": batch_size}
+
     def evaluate(self, X, y) -> Dict[str, float]:
-        """
-        Evaluate the trained model.
-
-        Args:
-            X: Input features.
-            y: Labels.
-
-        Returns:
-            Dict of evaluation metrics.
-        """
         if self.model is None:
             logger.error("Model not trained. Call train() first.")
             return {}
 
-        # TODO: Add batched inference and full metrics set.
-        logger.info("TransformerModel.evaluate is a skeleton implementation")
-        return {
-            "accuracy": 0.0,
-            "precision": 0.0,
-            "recall": 0.0,
-            "f1": 0.0,
+        # Prepare data similar to train
+        if X.ndim == 2:
+            X_proc = X.reshape(X.shape[0], 1, X.shape[1])
+        else:
+            X_proc = X
+
+        self.model.eval()
+        X_tensor = torch.from_numpy(X_proc.astype(np.float32)).to(self.device)
+        with torch.no_grad():
+            logits = self.model(X_tensor).cpu().numpy()
+        probs = 1.0 / (1.0 + np.exp(-logits))
+        preds = (probs >= 0.5).astype(int).reshape(-1)
+
+        from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+        metrics = {
+            "accuracy": float(accuracy_score(y, preds)),
+            "precision": float(precision_score(y, preds, zero_division=0)),
+            "recall": float(recall_score(y, preds, zero_division=0)),
+            "f1": float(f1_score(y, preds, zero_division=0)),
         }
+        return metrics
 
     def save(self, path: str) -> None:
         """
