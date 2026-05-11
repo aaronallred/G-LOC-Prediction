@@ -1,17 +1,8 @@
-"""
-Cross-validation mode for G-LOC Prediction.
+"""Cross-validation and advanced-model hyperparameter optimization mode for G-LOC.
 
-Supports both traditional (legacy `classify_traditional` contract) and advanced (modern
-train/evaluate contract) models, as well as deep-learning models via an adapter pattern.
-Does not depend on src/scripts/; instead uses DataPipeline and config-driven workflows.
-
-Architecture:
-- CrossValidator: main orchestrator that handles fold generation, model detection, and
-  per-fold training/evaluation loops.
-- Model type detection: at runtime, determines if a model is traditional, advanced, or
-  DL-adapted based on attributes and methods.
-- Result storage: saves per-fold metrics to Results/CrossValidation/<model_name>/fold_<i>/
-  and aggregated summaries.
+This module keeps the existing traditional cross-validation contract while adding Optuna
+HPO for advanced models (LogRegTS, LSTM, NAM, TCN, Trans), aligned with the legacy
+`src/scripts/cross_validation_enhanced.py` orchestration pattern.
 """
 
 import json
@@ -22,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
@@ -29,9 +21,113 @@ from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
 from src.models.base import BaseModel, ModelInitStrategy
 from src.models.dl_adapter import DLModelAdapter
+from src.models.sequence_window_utils import max_trial_sequence_length
 from src.traditional_experiment_utils import stratified_kfold_split
 
 logger = logging.getLogger(__name__)
+
+
+# Per-model HPO handled via model.hpo_defaults() and model.build_hpo_search_space()
+
+
+def _is_hpo_supported_advanced_model(model: BaseModel) -> bool:
+    """Return True if model exposes the new per-model HPO API.
+
+    The refactor removes the old global search-space mapping and requires models to
+    implement build_hpo_search_space(trial, X_train, random_seed).
+    """
+    return (
+        not _is_traditional_model(model)
+        and not _is_dl_adapter(model)
+        and hasattr(model, "train")
+        and hasattr(model, "evaluate")
+        and hasattr(model, "build_hpo_search_space")
+        and callable(getattr(model, "build_hpo_search_space"))
+    )
+
+
+def _split_train_for_hpo(
+    X_train: np.ndarray, y_train: np.ndarray, train_fraction: float, random_seed: int
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    stratify = y_train if len(np.unique(y_train)) > 1 else None
+    try:
+        X_subtrain, X_holdout, y_subtrain, y_holdout = train_test_split(
+            X_train,
+            y_train,
+            train_size=train_fraction,
+            random_state=random_seed,
+            stratify=stratify,
+        )
+    except ValueError:
+        X_subtrain, X_holdout, y_subtrain, y_holdout = X_train, X_train, y_train, y_train
+    return X_subtrain, X_holdout, y_subtrain, y_holdout
+
+
+def _run_advanced_model_hpo(
+    model: BaseModel,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    hpo_config: Dict[str, Any],
+    random_seed: int,
+) -> Dict[str, Any]:
+    import optuna
+
+    # Require the model to provide a search-space builder
+    if not hasattr(model, "build_hpo_search_space") or not callable(getattr(model, "build_hpo_search_space")):
+        raise RuntimeError(f"Model {model.get_name()} does not implement build_hpo_search_space(trial, X_train, random_seed)")
+    search_space_builder = getattr(model, "build_hpo_search_space")
+    X_subtrain, X_holdout, y_subtrain, y_holdout = _split_train_for_hpo(
+        X_train, y_train, hpo_config["train_fraction"], random_seed
+    )
+    metric_name = hpo_config["metric"]
+
+    sampler_seed = (
+        random_seed if hpo_config.get("sampler_seed") is None else int(hpo_config["sampler_seed"])
+    )
+    sampler = optuna.samplers.TPESampler(seed=sampler_seed)
+    pruner = optuna.pruners.MedianPruner(
+        n_startup_trials=int(hpo_config.get("pruner_startup_trials", 3)),
+        n_warmup_steps=int(hpo_config.get("pruner_warmup_steps", 0)),
+    )
+    study = optuna.create_study(direction="maximize", sampler=sampler, pruner=pruner)
+
+    def objective(trial: Any) -> float:
+        params = search_space_builder(trial, X_subtrain, random_seed)
+        model.train(X_subtrain, y_subtrain, params=params)
+        metrics = model.evaluate(X_holdout, y_holdout)
+        if metric_name in metrics:
+            return float(metrics[metric_name])
+        if "f1" in metrics:
+            return float(metrics["f1"])
+        return float(metrics.get("accuracy", 0.0))
+
+    study.optimize(
+        objective,
+        n_trials=int(hpo_config["n_trials"]),
+        timeout=hpo_config["timeout"],
+        catch=(RuntimeError, ValueError),
+        show_progress_bar=False,
+    )
+
+    if not study.trials:
+        return {"best_params": {}, "summary": {"best_trial": -1, "best_value": 0.0, "metric": metric_name, "n_trials": 0, "best_params": {}}}
+
+    try:
+        best_params = dict(study.best_params) if study.best_params else {}
+        best_trial_number = int(study.best_trial.number)
+        best_value = float(study.best_value)
+    except Exception:
+        best_params = {}
+        best_trial_number = -1
+        best_value = 0.0
+    summary = {
+        "best_trial": best_trial_number,
+        "best_value": best_value,
+        "metric": metric_name,
+        "n_trials": int(hpo_config["n_trials"]),
+        "best_params": best_params,
+    }
+    return {"best_params": best_params, "summary": summary}
 
 
 class SyntheticDLAdapter(DLModelAdapter):
@@ -211,6 +307,9 @@ def _run_advanced_model_cv_fold(
     features: List[str],
     kfold_id: int,
     class_weight: Optional[str] = None,
+    hpo_config: Optional[Dict[str, Any]] = None,
+    random_seed: int = 42,
+    fold_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Run a single fold of cross-validation for an advanced (modern) model.
     
@@ -219,14 +318,36 @@ def _run_advanced_model_cv_fold(
     """
     logger.info(f"Running advanced CV fold {kfold_id} for model {model.get_name()}")
 
-    # Train model
-    model.train(X_train, y_train, params=None)
+    best_params: Dict[str, Any] = {}
+    if (
+        hpo_config
+        and hpo_config.get("enabled", False)
+        and int(hpo_config.get("n_trials", 0)) > 0
+        and _is_hpo_supported_advanced_model(model)
+    ):
+        hpo_result = _run_advanced_model_hpo(
+            model=model,
+            X_train=X_train,
+            y_train=y_train,
+            hpo_config=hpo_config,
+            random_seed=random_seed,
+        )
+        best_params = hpo_result["best_params"]
+        if fold_dir is not None:
+            hpo_summary_path = fold_dir / "hpo_summary.json"
+            with open(hpo_summary_path, "w", encoding="utf-8") as f:
+                json.dump(hpo_result["summary"], f, indent=2)
+            logger.info(f"Saved fold {kfold_id} HPO summary to {hpo_summary_path}")
+
+    # Train model with tuned params when available
+    model.train(X_train, y_train, params=best_params or None)
 
     # Evaluate model
     metrics = model.evaluate(X_val, y_val)
 
     # Extract hyperparameters and build result
-    best_params = _extract_hyperparameters_from_model(model)
+    if not best_params:
+        best_params = _extract_hyperparameters_from_model(model)
     fold_result = _build_fold_result(
         kfold_id, metrics, len(X_train), len(X_val), features, best_params
     )
@@ -403,7 +524,9 @@ def run_cross_validation(
         model_type = config.get_model_type()
     
     logger.info(
-        f"Starting cross-validation with {num_splits} folds and {len(models)} model(s)"
+        "Starting cross-validation with %s folds and %s model(s)",
+        num_splits,
+        len(models),
     )
 
     results_root = Path(results_root)
@@ -472,9 +595,21 @@ def run_cross_validation(
 
                 else:
                     # Advanced model: use pre-cached fold data
+                    # Obtain model-local HPO defaults and merge with any config-provided override
+                    model_hpo_config = model.hpo_defaults() if hasattr(model, "hpo_defaults") else {}
                     X_train, X_val, y_train, y_val, features = fold_cache[fold_idx]
                     fold_result = _run_advanced_model_cv_fold(
-                        model, X_train, X_val, y_train, y_val, features, fold_idx, class_weight
+                        model,
+                        X_train,
+                        X_val,
+                        y_train,
+                        y_val,
+                        features,
+                        fold_idx,
+                        class_weight,
+                        hpo_config=model_hpo_config,
+                        random_seed=random_seed,
+                        fold_dir=fold_dir,
                     )
 
                 # Save fold metrics in fold folder for all model types
