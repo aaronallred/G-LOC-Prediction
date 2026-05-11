@@ -51,7 +51,7 @@ class FlexiblePipeline:
     def set_model_type(self, model_type):
         self.model_type = model_type
 
-    def get_data(self, model=None, kfold_id=None):
+    def get_data(self, model=None, kfold_id=None, **kwargs):
         self.calls.append({"model": getattr(model, "get_name", lambda: None)(), "kfold_id": kfold_id})
         if kfold_id is None:
             X = np.asarray([[0.0, 1.0], [1.0, 0.0], [0.5, 0.5], [1.0, 1.0]])
@@ -429,7 +429,7 @@ class TrialAwareAdvancedPipeline:
     def set_model_type(self, model_type):
         self.model_type = model_type
 
-    def get_data(self, model=None, kfold_id=None):
+    def get_data(self, model=None, kfold_id=None, **kwargs):
         if kfold_id is None:
             return self.X, self.y
         trial_ids = self.X[:, -1].astype(int)

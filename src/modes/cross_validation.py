@@ -487,7 +487,7 @@ def run_cross_validation(
     pipeline: DataPipeline,
     unused_path: Optional[Path] = None,
     models: Optional[List[BaseModel]] = None,
-    num_splits: int = 5,
+    num_splits: int = 10,
     random_seed: int = 42,
     class_weight: Optional[str] = None,
     support_deep_learning: bool = False,
@@ -878,7 +878,7 @@ def _cache_fold_data_for_advanced_models(
     fold_cache = {}
     for fold_idx in range(num_splits):
         X_train, X_val, y_train, y_val, features = pipeline.get_data(
-            model=model, kfold_id=fold_idx
+            model=model, kfold_id=fold_idx, num_splits=num_splits
         )
         fold_cache[fold_idx] = (X_train, X_val, y_train, y_val, features)
     
