@@ -11,17 +11,29 @@ from src.models.base import BaseModel
 
 
 class _SimpleLSTM(nn.Module):
-    def __init__(self, input_dim: int, hidden_dim: int = 32, num_layers: int = 1):
-        super().__init__()
-        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers, batch_first=True)
-        self.head = nn.Linear(hidden_dim, 1)
+    def __init__(self, input_dim, hidden_dim, output_dim = 1, num_layers = 2, dropout = 0.3, bidirectional = False):
+        super(_SimpleLSTM, self).__init__()
+        self.bidirectional = bidirectional
+        self.num_directions = 2 if bidirectional else 1
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (batch, seq_len, input_dim)
-        out, _ = self.lstm(x)
-        # take last timestep
-        last = out[:, -1, :]
-        return self.head(last).squeeze(-1)
+        # LSTM layer
+        self.lstm = nn.LSTM(
+            input_dim, 
+            hidden_dim, 
+            num_layers, 
+            batch_first = True, 
+            dropout = dropout,
+            bidirectional = bidirectional
+        )
+        # Fully connected layer
+        self.fc = nn.Linear(hidden_dim * self.num_directions, output_dim)
+
+    def forward(self, x):
+        lstm_out, _ = self.lstm(x)
+        last_out = lstm_out[:, -1, :] # If we were predicting a single output label e.g., traditional learners
+        out = self.fc(last_out)  # (batch, seq_len, 1)
+
+        return out
 
 
 class LSTMModel(BaseModel):
@@ -60,7 +72,8 @@ class LSTMModel(BaseModel):
         criterion = nn.BCEWithLogitsLoss()
 
         X_tensor = torch.from_numpy(X_proc.astype(np.float32)).to(self.device)
-        y_tensor = torch.from_numpy(y.reshape(-1,).astype(np.float32)).to(self.device)
+        # Ensure targets match logits shape (N, 1)
+        y_tensor = torch.from_numpy(y.reshape(-1, 1).astype(np.float32)).to(self.device)
 
         loader = DataLoader(TensorDataset(X_tensor, y_tensor), batch_size=batch_size, shuffle=True)
 
@@ -84,7 +97,7 @@ class LSTMModel(BaseModel):
         with torch.no_grad():
             logits = self.model(X_tensor).cpu().numpy()
         probs = 1.0 / (1.0 + np.exp(-logits))
-        preds = (probs >= 0.5).astype(int)
+        preds = (probs >= 0.5).astype(int).ravel()
 
         from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
         metrics = {
@@ -130,7 +143,7 @@ class LSTMModel(BaseModel):
         with torch.no_grad():
             logits = self.model(X_tensor).cpu().numpy()
         probs = 1.0 / (1.0 + np.exp(-logits))
-        return (probs >= 0.5).astype(int)
+        return (probs >= 0.5).astype(int).ravel()
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         if self.model is None:
@@ -141,4 +154,5 @@ class LSTMModel(BaseModel):
         with torch.no_grad():
             logits = self.model(X_tensor).cpu().numpy()
         probs = 1.0 / (1.0 + np.exp(-logits))
-        return np.vstack([1 - probs, probs]).T
+        probs_flat = probs.ravel()
+        return np.vstack([1 - probs_flat, probs_flat]).T

@@ -13,40 +13,37 @@ logger = logging.getLogger(__name__)
 
 
 class TransformerNetwork(nn.Module):
-    """
-    Minimal Transformer backbone used by TransformerModel.
-
-    This class is intentionally lightweight and serves as a starting point
-    for later task-specific architecture updates.
-    """
-
-    def __init__(
-        self,
-        input_dim: int,
-        d_model: int = 64,
-        nhead: int = 4,
-        num_layers: int = 2,
-        dim_feedforward: int = 128,
-        dropout: float = 0.1,
-        output_dim: int = 1,
-    ):
-        super().__init__()
+    def __init__(self, input_dim, d_model = 64, nhead = 4, num_layers = 2, dim_feedforward = 128, dropout = 0.3, output_dim = 1):
+        super(TransformerNetwork, self).__init__()
+        # Input linear projection to d_model (embedding dimension)
         self.input_proj = nn.Linear(input_dim, d_model)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model,
-            nhead=nhead,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            batch_first=True,
-        )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        self.head = nn.Linear(d_model, output_dim)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.input_proj(x)
-        x = self.encoder(x)
-        x = x[:, -1, :]
-        return self.head(x)
+        # Transformer encoder layer and stack
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model = d_model,
+            nhead = nhead,
+            dim_feedforward = dim_feedforward,
+            dropout = dropout,
+            batch_first = True # batch_first=True matches LSTM's batch, seq, feature
+        )  
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers = num_layers)
+
+        # Final linear layer to output dimension (binary classification)
+        self.fc = nn.Linear(d_model, output_dim)
+
+    def forward(self, x):
+        # x shape: (batch_size, seq_len, input_dim)
+        x = self.input_proj(x)  # -> (batch_size, seq_len, d_model)
+
+        # Transformer Encoder expects input shape (batch_size, seq_len, d_model) with batch_first=True
+        x = self.transformer_encoder(x)  # (batch_size, seq_len, d_model)
+
+        x = x[:,-1,:]
+
+        # You can do per-timestep output (sequence output) to match your LSTM output shape (batch, seq_len, 1)
+        out = self.fc(x)  # (batch_size, seq_len, output_dim)
+
+        return out
 
 
 class TransformerModel(BaseModel):

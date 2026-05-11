@@ -11,12 +11,15 @@ from src.models.base import BaseModel
 
 
 class _SimpleLogistic(nn.Module):
-    def __init__(self, input_dim: int):
-        super().__init__()
-        self.linear = nn.Linear(input_dim, 1)
+    def __init__(self, input_dim, output_dim = 1):
+        super(_SimpleLogistic, self).__init__()
+        self.linear = nn.Linear(input_dim, output_dim)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.linear(x).squeeze(-1)
+    def forward(self, x):
+        # Flatten the time series window for logistic regression
+        batch_size, feature_dim = x.shape
+        x_flat = x.view(batch_size, -1)  # Shape: (batch_size, seq_len * feature_dim)
+        return self.linear(x_flat)
 
 
 class LogRegTS(BaseModel):
@@ -56,7 +59,8 @@ class LogRegTS(BaseModel):
         criterion = nn.BCEWithLogitsLoss()
 
         X_tensor = torch.from_numpy(X.astype(np.float32)).to(self.device)
-        y_tensor = torch.from_numpy(y.reshape(-1,).astype(np.float32)).to(self.device)
+        # Ensure targets have shape (N, 1) to match logits shape (N, 1)
+        y_tensor = torch.from_numpy(y.reshape(-1, 1).astype(np.float32)).to(self.device)
 
         dataset = TensorDataset(X_tensor, y_tensor)
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -81,7 +85,7 @@ class LogRegTS(BaseModel):
         with torch.no_grad():
             logits = self.model(X_tensor).cpu().numpy()
         probs = 1.0 / (1.0 + np.exp(-logits))
-        preds = (probs >= 0.5).astype(int)
+        preds = (probs >= 0.5).astype(int).ravel()
 
         # Compute metrics using sklearn-like behavior without importing heavy libs repeatedly
         from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
@@ -179,7 +183,7 @@ class LogRegTS(BaseModel):
         with torch.no_grad():
             logits = self.model(X_tensor).cpu().numpy()
         probs = 1.0 / (1.0 + np.exp(-logits))
-        return (probs >= 0.5).astype(int)
+        return (probs >= 0.5).astype(int).ravel()
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         if self.model is None:
@@ -189,5 +193,6 @@ class LogRegTS(BaseModel):
         with torch.no_grad():
             logits = self.model(X_tensor).cpu().numpy()
         probs = 1.0 / (1.0 + np.exp(-logits))
-        # return two-column proba like sklearn
-        return np.vstack([1 - probs, probs]).T
+        # return two-column proba like sklearn (ensure shape (N,2))
+        probs_flat = probs.ravel()
+        return np.vstack([1 - probs_flat, probs_flat]).T

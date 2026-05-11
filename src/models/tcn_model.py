@@ -11,35 +11,83 @@ from src.models.base import BaseModel
 
 
 class _SimpleTCNBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, dilation, padding, dropout):
         super().__init__()
-        padding = kernel_size // 2
-        self.conv = nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding)
-        self.relu = nn.ReLU()
+        self.conv1 = nn.Conv1d(
+            in_channels, 
+            out_channels, 
+            kernel_size, 
+            stride = stride,
+            padding = padding,
+            dilation = dilation
+        )
+        self.relu1 = nn.ReLU()
+        self.dropout1 = nn.Dropout(dropout)
+        self.conv2 = nn.Conv1d(
+            out_channels, 
+            out_channels, 
+            kernel_size, 
+            stride = stride,
+            padding = padding, 
+            dilation = dilation
+        ) 
+        self.relu2 = nn.ReLU()
+        self.dropout2 = nn.Dropout(dropout)
+
+        self.downsample = nn.Conv1d(in_channels, out_channels, 1) if in_channels != out_channels else None
+        self.init_weights()
+
+    def init_weights(self):
+        for layer in [self.conv1, self.conv2, self.downsample] if self.downsample else [self.conv1, self.conv2]:
+            nn.init.kaiming_normal_(layer.weight)
 
     def forward(self, x):
-        # x: (batch, channels, seq_len)
-        return self.relu(self.conv(x))
+        out = self.conv1(x)
+        out = self.relu1(out)
+        out = self.dropout1(out)
+        out = self.conv2(out)
+        out = self.relu2(out)
+        out = self.dropout2(out)
+
+        res = x if self.downsample is None else self.downsample(x)
+        # Match sequence lengths before addition
+        if res.size(-1) != out.size(-1):
+            min_len = min(res.size(-1), out.size(-1))
+            res = res[:, :, -min_len:]
+            out = out[:, :, -min_len:]
+
+        return out + res
 
 
 class _SimpleTCN(nn.Module):
-    def __init__(self, input_dim: int, num_filters: int = 32, kernel_size: int = 3):
+    def __init__(self, input_dim, hidden_dim, output_dim = 1, num_layers = 2, kernel_size = 3, dropout = 0.3):
         super().__init__()
-        # We'll treat features as channels and seq_len=1 by default
-        # So we create a conv1d that operates across a fake seq dimension
-        self.net = nn.Sequential(
-            _SimpleTCNBlock(input_dim, num_filters, kernel_size=kernel_size),
-            nn.AdaptiveAvgPool1d(1),
-            nn.Flatten(),
-            nn.Linear(num_filters, 1),
-        )
+        layers = []
+        for i in range(num_layers):
+            dilation_size = 2 ** i
+            in_channels = input_dim if i == 0 else hidden_dim
+            layers.append(
+                _SimpleTCNBlock(
+                    in_channels, 
+                    hidden_dim, 
+                    kernel_size, 
+                    stride = 1,
+                    dilation = dilation_size, 
+                    padding = (kernel_size - 1) * dilation_size, 
+                    dropout = dropout
+                )
+            )
+        self.network = nn.Sequential(*layers)
+        self.fc = nn.Linear(hidden_dim, output_dim)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # expect x shape: (batch, seq_len, features)
-        if x.ndim == 3:
-            # convert to (batch, channels, seq_len)
-            x = x.permute(0, 2, 1)
-        return self.net(x).squeeze(-1)
+    def forward(self, x):
+        # Input shape: (batch, seq_len, features) → (batch, features, seq_len)
+        x = x.permute(0, 2, 1)
+        out = self.network(x)
+        # Take last time step (assumes full sequence processed)
+        out = out.permute(0, 2, 1)  # (batch, features, seq_len) → (batch, seq_len, features)
+        out = out[:,-1,:]
+        return self.fc(out)  # (batch, seq_len, 1)
 
 
 class TCNModel(BaseModel):
@@ -76,7 +124,8 @@ class TCNModel(BaseModel):
         criterion = nn.BCEWithLogitsLoss()
 
         X_tensor = torch.from_numpy(X_proc.astype(np.float32)).to(self.device)
-        y_tensor = torch.from_numpy(y.reshape(-1,).astype(np.float32)).to(self.device)
+        # Ensure targets shape (N,1) to match logits (N,1)
+        y_tensor = torch.from_numpy(y.reshape(-1, 1).astype(np.float32)).to(self.device)
 
         loader = DataLoader(TensorDataset(X_tensor, y_tensor), batch_size=batch_size, shuffle=True)
 
@@ -100,7 +149,7 @@ class TCNModel(BaseModel):
         with torch.no_grad():
             logits = self.model(X_tensor).cpu().numpy()
         probs = 1.0 / (1.0 + np.exp(-logits))
-        preds = (probs >= 0.5).astype(int)
+        preds = (probs >= 0.5).astype(int).ravel()
 
         from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
         metrics = {
@@ -145,7 +194,7 @@ class TCNModel(BaseModel):
         with torch.no_grad():
             logits = self.model(X_tensor).cpu().numpy()
         probs = 1.0 / (1.0 + np.exp(-logits))
-        return (probs >= 0.5).astype(int)
+        return (probs >= 0.5).astype(int).ravel()
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         if self.model is None:
@@ -156,4 +205,5 @@ class TCNModel(BaseModel):
         with torch.no_grad():
             logits = self.model(X_tensor).cpu().numpy()
         probs = 1.0 / (1.0 + np.exp(-logits))
-        return np.vstack([1 - probs, probs]).T
+        probs_flat = probs.ravel()
+        return np.vstack([1 - probs_flat, probs_flat]).T
