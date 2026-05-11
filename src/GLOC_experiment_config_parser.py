@@ -18,6 +18,8 @@ from src.models.logistic_regression_ts import LogRegTS
 from src.models.lstm_model import LSTMModel
 from src.models.nam_model import NAMModel
 from src.models.tcn_model import TCNModel
+from src.models.dglm_model import DGLMModel
+from src.models.gam_model import GAMModel
 
 
 class GLOCExperimentConfigParser:
@@ -41,6 +43,10 @@ class GLOCExperimentConfigParser:
         "LSTM": LSTMModel,
         "NAM": NAMModel,
         "TCN": TCNModel,
+        "DGLM": DGLMModel,
+        "Dynamic GLM": DGLMModel,
+        "GAM": GAMModel,
+        "Logistic GAM": GAMModel,
     }
 
     def __init__(self, config_location: Optional[str] = None) -> None:
@@ -337,6 +343,31 @@ class GLOCExperimentConfigParser:
 
     def get_cross_validation_save_median_hyperparameters(self) -> bool:
         return self._get_nested("cross_validation", "save_median_hyperparameters")
+
+    def get_cross_validation_hpo(self) -> dict:
+        """Get Optuna hyperparameter-optimization settings for cross-validation.
+
+        Returns a normalized dict with defaults when cross_validation.hpo is omitted.
+        """
+        defaults = {
+            "enabled": True,
+            "n_trials": 10,
+            "timeout": None,
+            "metric": "f1",
+            "train_fraction": 0.8,
+            "sampler_seed": None,
+            "pruner_startup_trials": 3,
+            "pruner_warmup_steps": 0,
+        }
+        try:
+            raw = self._get_nested("cross_validation", "hpo")
+        except KeyError:
+            raw = {}
+        if not isinstance(raw, dict):
+            raise ValueError("cross_validation.hpo must be a mapping if provided")
+        normalized = copy.deepcopy(defaults)
+        normalized.update(copy.deepcopy(raw))
+        return normalized
 
     def get_sensor_ablation_training_models(self) -> List[BaseModel]:
         """Get models for sensor ablation training mode.
