@@ -8,7 +8,7 @@ from imblearn.metrics import geometric_mean_score
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
 from src.models.base import BaseModel
-from src.models.sequence_window_utils import create_trial_windows, summarize_windows_mean
+from src.models.sequence_window_utils import create_trial_windows, summarize_windows_mean, max_trial_sequence_length
 
 try:
     from pygam import LogisticGAM, s
@@ -148,6 +148,28 @@ class GAMModel(BaseModel):
         X_flat = summarize_windows_mean(X_windows)
         probs = np.asarray(self.model.predict_proba(X_flat), dtype=np.float32).reshape(-1)
         return np.vstack([1.0 - probs, probs]).T
+
+    def hpo_defaults(self) -> Dict[str, Any]:
+        return {
+            "enabled": True,
+            "n_trials": 5,
+            "timeout": None,
+            "metric": "f1",
+            "train_fraction": 0.8,
+            "sampler_seed": None,
+            "pruner_startup_trials": 3,
+            "pruner_warmup_steps": 0,
+        }
+
+    def build_hpo_search_space(self, trial, X_train: np.ndarray, random_seed: int) -> Dict[str, Any]:
+        max_seq = max_trial_sequence_length(X_train)
+        window_size = int(trial.suggest_int("window_size", 1, max(1, max_seq)))
+        stride = int(trial.suggest_int("stride", 1, max(1, window_size)))
+        return {
+            "window_size": window_size,
+            "stride": stride,
+            "random_seed": int(random_seed),
+        }
 
     def get_name(self) -> str:
         return "GAM"

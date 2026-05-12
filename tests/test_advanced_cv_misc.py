@@ -11,6 +11,20 @@ class FakeConfig:
     def get_cross_validation_save_median_hyperparameters(self):
         return False
 
+    def get_advanced_hpo_settings(self):
+        """Return mock advanced HPO settings for testing advanced models."""
+        return {
+            "use_sampler": True,
+            "final_early_stop": False,
+            "metric": "f1",
+            "n_trials": 3,
+            "train_fraction": 0.8,
+            "timeout": None,
+            "sampler_seed": 42,
+            "pruner_startup_trials": 3,
+            "pruner_warmup_steps": 0,
+        }
+
 class FakePipeline:
     def __init__(self, n_samples=120, n_features=8, num_splits=3, seed=7):
         self.n_samples = n_samples
@@ -30,7 +44,7 @@ class FakePipeline:
     def set_model_type(self, model_type):
         self.model_type = model_type
 
-    def get_data(self, model=None, kfold_id: int = 0):
+    def get_data(self, model=None, kfold_id: int = 0, num_splits: int = None):
         idx = np.arange(self.n_samples)
         val_mask = (idx % self.num_splits) == kfold_id
         train_mask = ~val_mask

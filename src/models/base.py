@@ -7,6 +7,7 @@ from typing import Dict, Any
 
 from imblearn.metrics import geometric_mean_score
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+import numpy as np
 
 
 class ModelInitStrategy(Enum):
@@ -68,6 +69,38 @@ class BaseModel(ABC):
         if isinstance(overrides, dict):
             traditional_hyperparameters.update(copy.deepcopy(overrides))
         return traditional_hyperparameters
+
+    def hpo_defaults(self) -> Dict[str, Any]:
+        """Return model-local HPO defaults.
+
+        This is intentionally simple and model implementations should override
+        to exactly match legacy search defaults (n_trials, metric, timeout,
+        sampler_seed, etc.). The returned dict will be used by the
+        cross-validation driver and must contain at least the following keys:
+        - enabled: bool
+        - n_trials: int
+        - timeout: Optional[int]
+        - metric: str
+        - train_fraction: float
+        """
+        return {
+            "enabled": True,
+            "n_trials": 10,
+            "timeout": None,
+            "metric": "f1",
+            "train_fraction": 0.8,
+            "sampler_seed": None,
+            "pruner_startup_trials": 3,
+            "pruner_warmup_steps": 0,
+        }
+
+    def build_hpo_search_space(self, trial, X_train: np.ndarray, random_seed: int) -> Dict[str, Any]:
+        """Build model-specific Optuna search space.
+
+        Subclasses should implement this method and return a dictionary of
+        hyperparameters suitable for passing into the model.train(...) method.
+        """
+        raise NotImplementedError("Model must implement build_hpo_search_space(trial, X_train, random_seed)")
 
     def _initialize_model_for_classification(
         self,

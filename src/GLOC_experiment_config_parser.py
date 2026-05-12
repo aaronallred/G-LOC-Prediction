@@ -344,30 +344,84 @@ class GLOCExperimentConfigParser:
     def get_cross_validation_save_median_hyperparameters(self) -> bool:
         return self._get_nested("cross_validation", "save_median_hyperparameters")
 
-    def get_cross_validation_hpo(self) -> dict:
-        """Get Optuna hyperparameter-optimization settings for cross-validation.
+    def get_advanced_hpo_settings(self) -> dict:
+        """Get global advanced HPO settings required when running advanced classifiers.
 
-        Returns a normalized dict with defaults when cross_validation.hpo is omitted.
+        This method enforces that the user provided an `advanced_hpo` section at the
+        top level of the YAML config. It validates required keys and types and
+        returns a normalized dict used by the cross-validation HPO runner.
         """
-        defaults = {
-            "enabled": True,
-            "n_trials": 10,
-            "timeout": None,
-            "metric": "f1",
-            "train_fraction": 0.8,
-            "sampler_seed": None,
-            "pruner_startup_trials": 3,
-            "pruner_warmup_steps": 0,
+        # advanced_hpo is now expected under the `cross_validation` section
+        cfg = self._get_nested("cross_validation", "advanced_hpo")
+        if not isinstance(cfg, dict):
+            raise ValueError(
+                "cross_validation.advanced_hpo configuration is required when using advanced classifiers.\n"
+                "Example:\ncross_validation:\n  advanced_hpo:\n    use_sampler: true\n    final_early_stop: false\n    objective_var: F1\n    trials: 100\n    train_fraction: 0.8"
+            )
+
+        # Required keys
+        required = ["use_sampler", "final_early_stop", "objective_var", "trials", "train_fraction"]
+        for key in required:
+            if key not in cfg:
+                raise ValueError(f"advanced_hpo.{key} is required in the YAML config for advanced models")
+
+        # Type checks
+        if not isinstance(cfg["use_sampler"], bool):
+            raise ValueError("advanced_hpo.use_sampler must be a boolean")
+        if not isinstance(cfg["final_early_stop"], bool):
+            raise ValueError("advanced_hpo.final_early_stop must be a boolean")
+        if not isinstance(cfg["objective_var"], str):
+            raise ValueError("advanced_hpo.objective_var must be a string (e.g. 'F1' or 'Acc')")
+        if not isinstance(cfg["trials"], int):
+            raise ValueError("advanced_hpo.trials must be an integer")
+        if not isinstance(cfg["train_fraction"], (int, float)):
+            raise ValueError("advanced_hpo.train_fraction must be a number between 0 and 1")
+
+        # Normalize metric name
+        obj = cfg["objective_var"].lower()
+        if obj in ("f1", "fscore"):
+            metric = "f1"
+        elif obj in ("acc", "accuracy"):
+            metric = "accuracy"
+        else:
+            metric = obj
+
+        result = {
+            "use_sampler": cfg["use_sampler"],
+            "final_early_stop": cfg["final_early_stop"],
+            "metric": metric,
+            "n_trials": int(cfg["trials"]),
+            "train_fraction": float(cfg["train_fraction"]),
+            "timeout": cfg.get("timeout"),
+            "sampler_seed": cfg.get("sampler_seed"),
+            "pruner_startup_trials": int(cfg.get("pruner_startup_trials", 3)),
+            "pruner_warmup_steps": int(cfg.get("pruner_warmup_steps", 0)),
         }
-        try:
-            raw = self._get_nested("cross_validation", "hpo")
-        except KeyError:
-            raw = {}
-        if not isinstance(raw, dict):
-            raise ValueError("cross_validation.hpo must be a mapping if provided")
-        normalized = copy.deepcopy(defaults)
-        normalized.update(copy.deepcopy(raw))
-        return normalized
+
+        return result
+
+    def get_advanced_hpo_config(self) -> Dict[str, Any]:
+        """
+        Get global advanced HPO configuration required for advanced classifiers.
+
+        Raises
+        ------
+        ValueError
+            If the `advanced_hpo` mapping is missing or required keys are absent.
+        """
+        cfg = self._get_nested("cross_validation", "advanced_hpo")
+        if not isinstance(cfg, dict):
+            raise ValueError(
+                "cross_validation.advanced_hpo configuration is required for advanced classifiers. "
+                "Please add a `cross_validation.advanced_hpo` mapping to your YAML config with keys: "
+                "`use_sampler`, `final_early_stop`, `objective_var`, `trials`, `train_fraction`."
+            )
+        required = ["use_sampler", "final_early_stop", "objective_var", "trials", "train_fraction"]
+        missing = [k for k in required if k not in cfg]
+        if missing:
+            raise ValueError(f"advanced_hpo missing required keys: {missing}")
+        return copy.deepcopy(cfg)
+
 
     def get_sensor_ablation_training_models(self) -> List[BaseModel]:
         """Get models for sensor ablation training mode.

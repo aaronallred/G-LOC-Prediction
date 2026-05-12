@@ -268,5 +268,39 @@ class TransformerModel(BaseModel):
             "num_epochs": self.config.get("num_epochs", 20),
         }
 
+    def hpo_defaults(self) -> Dict[str, Any]:
+        """Return default HPO configuration for Optuna."""
+        return {
+            "enabled": True,
+            "n_trials": 10,
+            "timeout": None,
+            "metric": "f1",
+            "train_fraction": 0.8,
+            "sampler_seed": None,
+            "pruner_startup_trials": 3,
+            "pruner_warmup_steps": 0,
+        }
+
+    def build_hpo_search_space(self, trial, X_train: np.ndarray, random_seed: int) -> Dict[str, Any]:
+        """Define the hyperparameter search space for Optuna tuning."""
+
+        input_dim = int(X_train.shape[2] if X_train.ndim == 3 else (X_train.shape[1] if X_train.ndim == 2 else 1))
+        d_model = int(trial.suggest_categorical("d_model", [32, 64, 128]))
+        nhead = int(trial.suggest_categorical("nhead", [2, 4, 8]))
+        if d_model % nhead != 0:
+            nhead = 2
+        return {
+            "input_dim": input_dim,
+            "d_model": d_model,
+            "nhead": nhead,
+            "num_layers": int(trial.suggest_int("num_layers", 1, 3)),
+            "dim_feedforward": int(trial.suggest_categorical("dim_feedforward", [64, 128, 256, 512])),
+            "dropout": float(trial.suggest_float("dropout", 0.1, 0.5)),
+            "learning_rate": float(trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True)),
+            "num_epochs": int(trial.suggest_int("num_epochs", 3, 20)),
+            "batch_size": int(trial.suggest_categorical("batch_size", [16, 32, 64, 128])),
+            "random_seed": int(random_seed),
+        }
+
     def get_name(self) -> str:
         return "Trans"

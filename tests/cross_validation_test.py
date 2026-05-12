@@ -20,13 +20,24 @@ from src.modes.cross_validation import (
 
 
 class FakeCVConfig:
-    def __init__(self, save_median_hyperparameters=True, hpo_config=None):
+    def __init__(self, save_median_hyperparameters=True, hpo_config=None, advanced_hpo_settings=None):
         self.save_median_hyperparameters = save_median_hyperparameters
         self.hpo_config = hpo_config or {
             "enabled": True,
             "n_trials": 3,
             "timeout": None,
             "metric": "f1",
+        }
+        self.advanced_hpo_settings = advanced_hpo_settings or {
+            "use_sampler": True,
+            "final_early_stop": False,
+            "metric": "f1",
+            "n_trials": 3,
+            "train_fraction": 0.8,
+            "timeout": None,
+            "sampler_seed": 42,
+            "pruner_startup_trials": 3,
+            "pruner_warmup_steps": 0,
         }
 
     def get_cross_validation_save_median_hyperparameters(self):
@@ -37,6 +48,10 @@ class FakeCVConfig:
 
     def get_model_type(self):
         return ModelType("Complete", "Explicit")
+
+    def get_advanced_hpo_settings(self):
+        """Return mock advanced HPO settings for testing advanced models."""
+        return dict(self.advanced_hpo_settings)
 
 
 class FlexiblePipeline:
@@ -369,11 +384,20 @@ def test_advanced_cross_validation_runs_hpo_and_persists_artifacts(tmp_path, mod
 def test_advanced_cross_validation_can_disable_hpo(tmp_path):
     pipeline = FlexiblePipeline()
     model = TinyAdvancedModel(name="LSTM")
-    # Per-model HPO: disable HPO for this model in the test
-    model.hpo_defaults = lambda: {"enabled": False, "n_trials": 3, "timeout": None, "metric": "f1", "train_fraction": 0.8}
     results = run_cross_validation(
         FakeCVConfig(
             save_median_hyperparameters=True,
+            advanced_hpo_settings={
+                "use_sampler": True,
+                "final_early_stop": False,
+                "metric": "f1",
+                "n_trials": 0,
+                "train_fraction": 0.8,
+                "timeout": None,
+                "sampler_seed": 42,
+                "pruner_startup_trials": 3,
+                "pruner_warmup_steps": 0,
+            },
         ),
         pipeline,
         tmp_path,

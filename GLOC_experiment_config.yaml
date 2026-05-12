@@ -199,3 +199,15 @@ cross_validation:
   support_deep_learning: false
   save_median_hyperparameters: true
   impute_handling: {}
+  advanced_hpo:
+    # Advanced classifiers only: REQUIRED when using any advanced model (LSTM, TCN, Trans, NAM, LogRegTS)
+    # These control Optuna tuning and final training behavior. Provide all fields exactly.
+    use_sampler: true            # bool: whether to use a sampler for class imbalance during training
+    final_early_stop: false      # bool: whether final training should use early stopping
+    objective_var: F1            # string: 'F1' or 'Acc' (case-insensitive)
+    trials: 100                  # int: number of Optuna trials (maps to n_trials)
+    train_fraction: 0.8          # float: fraction of training data used for subtrain in HPO
+    timeout: null                # int|null: Optuna timeout in seconds (null to disable)
+    sampler_seed: 42             # int|null: seed for HPO sampler
+    pruner_startup_trials: 3     # int: MedianPruner n_startup_trials
+    pruner_warmup_steps: 0       # int: MedianPruner n_warmup_steps

@@ -182,6 +182,29 @@ class TCNModel(BaseModel):
             self.model.load_state_dict(torch.load(state_path, map_location=self.device))
             self.model.eval()
 
+    def hpo_defaults(self) -> Dict[str, Any]:
+        return {
+            "enabled": True,
+            "n_trials": 10,
+            "timeout": None,
+            "metric": "f1",
+            "train_fraction": 0.8,
+            "sampler_seed": None,
+            "pruner_startup_trials": 3,
+            "pruner_warmup_steps": 0,
+        }
+
+    def build_hpo_search_space(self, trial, X_train: np.ndarray, random_seed: int) -> Dict[str, Any]:
+        input_dim = int(X_train.shape[2] if X_train.ndim == 3 else (X_train.shape[1] if X_train.ndim == 2 else 1))
+        return {
+            "input_dim": input_dim,
+            "num_filters": int(trial.suggest_categorical("num_filters", [32, 64, 128, 256])),
+            "lr": float(trial.suggest_float("lr", 1e-4, 1e-1, log=True)),
+            "epochs": int(trial.suggest_int("epochs", 3, 20)),
+            "batch_size": int(trial.suggest_categorical("batch_size", [16, 32, 64, 128])),
+            "random_seed": int(random_seed),
+        }
+
     def get_name(self) -> str:
         return "TCN"
 

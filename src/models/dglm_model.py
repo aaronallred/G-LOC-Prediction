@@ -9,7 +9,7 @@ from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_sc
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.models.base import BaseModel
-from src.models.sequence_window_utils import create_trial_windows
+from src.models.sequence_window_utils import create_trial_windows, max_trial_sequence_length
 
 try:
     import pyro
@@ -250,6 +250,29 @@ class DGLMModel(BaseModel):
         x_tensor = torch.tensor(X_windows, dtype=torch.float32, device=self.device)
         probs = self.model.predict(x_tensor).detach().cpu().numpy().reshape(-1)
         return np.vstack([1.0 - probs, probs]).T
+
+    def hpo_defaults(self) -> Dict[str, Any]:
+        return {
+            "enabled": True,
+            "n_trials": 10,
+            "timeout": None,
+            "metric": "f1",
+            "train_fraction": 0.8,
+            "sampler_seed": None,
+            "pruner_startup_trials": 3,
+            "pruner_warmup_steps": 0,
+        }
+
+    def build_hpo_search_space(self, trial, X_train: np.ndarray, random_seed: int) -> Dict[str, Any]:
+        # Legacy DGLM search bounds rely on trial sequence length
+        max_seq = max_trial_sequence_length(X_train)
+        seq_len = int(trial.suggest_int("sequence_length", max(1, min(64, max_seq // 2)), max(1, max_seq)))
+        return {
+            "sequence_length": seq_len,
+            "coeff_scale": float(trial.suggest_float("coeff_scale", 0.1, 10.0, log=True)),
+            "learning_rate": float(trial.suggest_float("learning_rate", 1e-4, 1e-1, log=True)),
+            "random_seed": int(random_seed),
+        }
 
     def get_name(self) -> str:
         return "DGLM"

@@ -93,6 +93,12 @@ def _run_advanced_model_hpo(
 
     def objective(trial: Any) -> float:
         params = search_space_builder(trial, X_subtrain, random_seed)
+        params = dict(params) if isinstance(params, dict) else {}
+        # Inject flags from provided hpo_config
+        params["use_sampler"] = bool(hpo_config["use_sampler"])
+        params["final_early_stop"] = bool(hpo_config["final_early_stop"])
+        params["objective_var"] = hpo_config.get("metric")
+
         model.train(X_subtrain, y_subtrain, params=params)
         metrics = model.evaluate(X_holdout, y_holdout)
         if metric_name in metrics:
@@ -561,7 +567,23 @@ def run_cross_validation(
             X, y = pipeline.get_data(model=model)
             logger.info(f"Loaded DL data: X shape {X.shape}, y shape {y.shape}")
         else:
-            # Advanced models: pre-cache all fold data to avoid repeated pipeline calls
+            # Advanced models: require advanced_hpo config and pre-cache fold data
+            # This will raise ValueError if advanced_hpo is missing or invalid
+            advanced_hpo_cfg = config.get_advanced_hpo_settings()
+            # Convert normalized advanced_hpo into model-level hpo_config expected by _run_advanced_model_hpo
+            model_hpo_config = {
+                "enabled": True,
+                "n_trials": int(advanced_hpo_cfg["n_trials"]),
+                "timeout": advanced_hpo_cfg.get("timeout"),
+                "metric": advanced_hpo_cfg["metric"],
+                "train_fraction": float(advanced_hpo_cfg["train_fraction"]),
+                "sampler_seed": advanced_hpo_cfg.get("sampler_seed"),
+                "pruner_startup_trials": advanced_hpo_cfg.get("pruner_startup_trials"),
+                "pruner_warmup_steps": advanced_hpo_cfg.get("pruner_warmup_steps"),
+                "use_sampler": bool(advanced_hpo_cfg["use_sampler"]),
+                "final_early_stop": bool(advanced_hpo_cfg["final_early_stop"]),
+            }
+
             fold_cache = _cache_fold_data_for_advanced_models(
                 pipeline, model, num_splits, random_seed
             )
@@ -594,9 +616,7 @@ def run_cross_validation(
                     )
 
                 else:
-                    # Advanced model: use pre-cached fold data
-                    # Obtain model-local HPO defaults and merge with any config-provided override
-                    model_hpo_config = model.hpo_defaults() if hasattr(model, "hpo_defaults") else {}
+                    # Advanced model: use pre-cached fold data and required advanced_hpo config
                     X_train, X_val, y_train, y_val, features = fold_cache[fold_idx]
                     fold_result = _run_advanced_model_cv_fold(
                         model,
