@@ -21,6 +21,14 @@ from src.models.tcn_model import TCNModel
 from src.models.dglm_model import DGLMModel
 from src.models.gam_model import GAMModel
 
+# Advanced HPO hardcoded defaults (Optuna-level parameters)
+# These are not user-configurable to keep the YAML simple and focus on essential knobs:
+# use_sampler, final_early_stop, objective_var, and trials
+_DEFAULT_TRAIN_FRACTION = 0.8
+_DEFAULT_HPO_TIMEOUT = None  # None = no timeout limit
+_DEFAULT_PRUNER_STARTUP_TRIALS = 3
+_DEFAULT_PRUNER_WARMUP_STEPS = 0
+
 
 class GLOCExperimentConfigParser:
     MODEL_FACTORIES_BY_NAME: Dict[str, Type[BaseModel]] = {
@@ -348,24 +356,32 @@ class GLOCExperimentConfigParser:
         """Get global advanced HPO settings required when running advanced classifiers.
 
         This method enforces that the user provided an `advanced_hpo` section at the
-        top level of the YAML config. It validates required keys and types and
-        returns a normalized dict used by the cross-validation HPO runner.
+        cross_validation level of the YAML config. It validates only the 4 user-facing
+        parameters (use_sampler, final_early_stop, objective_var, trials) and returns
+        a normalized dict with all HPO configuration including hardcoded Optuna defaults.
+
+        Returns
+        -------
+        dict
+            A dictionary with keys: use_sampler, final_early_stop, metric, n_trials,
+            train_fraction, timeout, sampler_seed, pruner_startup_trials, pruner_warmup_steps.
+            The last 5 are computed from module-level defaults.
         """
-        # advanced_hpo is now expected under the `cross_validation` section
+        # advanced_hpo is expected under the `cross_validation` section
         cfg = self._get_nested("cross_validation", "advanced_hpo")
         if not isinstance(cfg, dict):
             raise ValueError(
                 "cross_validation.advanced_hpo configuration is required when using advanced classifiers.\n"
-                "Example:\ncross_validation:\n  advanced_hpo:\n    use_sampler: true\n    final_early_stop: false\n    objective_var: F1\n    trials: 100\n    train_fraction: 0.8"
+                "Example:\ncross_validation:\n  advanced_hpo:\n    use_sampler: true\n    final_early_stop: false\n    objective_var: F1\n    trials: 100"
             )
 
-        # Required keys
-        required = ["use_sampler", "final_early_stop", "objective_var", "trials", "train_fraction"]
+        # Required user-facing keys (only 4)
+        required = ["use_sampler", "final_early_stop", "objective_var", "trials"]
         for key in required:
             if key not in cfg:
                 raise ValueError(f"advanced_hpo.{key} is required in the YAML config for advanced models")
 
-        # Type checks
+        # Type checks for user-facing parameters
         if not isinstance(cfg["use_sampler"], bool):
             raise ValueError("advanced_hpo.use_sampler must be a boolean")
         if not isinstance(cfg["final_early_stop"], bool):
@@ -374,8 +390,6 @@ class GLOCExperimentConfigParser:
             raise ValueError("advanced_hpo.objective_var must be a string (e.g. 'F1' or 'Acc')")
         if not isinstance(cfg["trials"], int):
             raise ValueError("advanced_hpo.trials must be an integer")
-        if not isinstance(cfg["train_fraction"], (int, float)):
-            raise ValueError("advanced_hpo.train_fraction must be a number between 0 and 1")
 
         # Normalize metric name
         obj = cfg["objective_var"].lower()
@@ -386,16 +400,19 @@ class GLOCExperimentConfigParser:
         else:
             metric = obj
 
+        # Build result dict with user-provided and hardcoded parameters
+        # This maintains backward compatibility with CV driver expectations
         result = {
             "use_sampler": cfg["use_sampler"],
             "final_early_stop": cfg["final_early_stop"],
             "metric": metric,
             "n_trials": int(cfg["trials"]),
-            "train_fraction": float(cfg["train_fraction"]),
-            "timeout": cfg.get("timeout"),
-            "sampler_seed": cfg.get("sampler_seed"),
-            "pruner_startup_trials": int(cfg.get("pruner_startup_trials", 3)),
-            "pruner_warmup_steps": int(cfg.get("pruner_warmup_steps", 0)),
+            # Hardcoded Optuna-level parameters (not exposed to YAML for simplicity)
+            "train_fraction": _DEFAULT_TRAIN_FRACTION,
+            "timeout": _DEFAULT_HPO_TIMEOUT,
+            "sampler_seed": None,  # Will be set to random_seed in CV driver
+            "pruner_startup_trials": _DEFAULT_PRUNER_STARTUP_TRIALS,
+            "pruner_warmup_steps": _DEFAULT_PRUNER_WARMUP_STEPS,
         }
 
         return result

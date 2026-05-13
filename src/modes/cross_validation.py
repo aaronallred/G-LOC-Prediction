@@ -571,6 +571,8 @@ def run_cross_validation(
             # This will raise ValueError if advanced_hpo is missing or invalid
             advanced_hpo_cfg = config.get_advanced_hpo_settings()
             # Convert normalized advanced_hpo into model-level hpo_config expected by _run_advanced_model_hpo
+            # Note: Parser provides both user-facing parameters (use_sampler, final_early_stop, objective_var, trials)
+            # and hardcoded Optuna-level defaults (train_fraction, timeout, sampler_seed, pruner_startup_trials, pruner_warmup_steps)
             model_hpo_config = {
                 "enabled": True,
                 "n_trials": int(advanced_hpo_cfg["n_trials"]),

@@ -81,16 +81,19 @@ class MockConfig:
 
     @staticmethod
     def _default_settings():
+        # Mock output from parser: user-facing params + hardcoded Optuna defaults
+        # User-provided: use_sampler, final_early_stop, metric, n_trials
+        # Hardcoded (from module constants): train_fraction, timeout, sampler_seed, pruner_startup_trials, pruner_warmup_steps
         return {
             "use_sampler": True,
             "final_early_stop": False,
             "metric": "f1",
             "n_trials": 5,
-            "train_fraction": 0.8,
-            "timeout": None,
-            "sampler_seed": 42,
-            "pruner_startup_trials": 2,
-            "pruner_warmup_steps": 0,
+            "train_fraction": 0.8,  # Hardcoded: _DEFAULT_TRAIN_FRACTION
+            "timeout": None,  # Hardcoded: _DEFAULT_HPO_TIMEOUT
+            "sampler_seed": None,  # Hardcoded: set to random_seed in CV driver
+            "pruner_startup_trials": 3,  # Hardcoded: _DEFAULT_PRUNER_STARTUP_TRIALS
+            "pruner_warmup_steps": 0,  # Hardcoded: _DEFAULT_PRUNER_WARMUP_STEPS
         }
 
     def get_advanced_hpo_settings(self):
