@@ -225,9 +225,7 @@ def test_cross_validation_parser_reads_mode_specific_models_and_hpo_config(tmp_p
                     "num_splits": 2,
                     "save_results_folder": "Results/CrossValidation",
                     "class_weight": None,
-                    "support_deep_learning": False,
                     "save_median_hyperparameters": True,
-                    "impute_handling": {},
                     "hpo": {
                         "enabled": True,
                         "n_trials": 4,
@@ -285,9 +283,7 @@ def test_cross_validation_parser_supports_dglm_and_gam_models(tmp_path):
                     "num_splits": 2,
                     "save_results_folder": "Results/CrossValidation",
                     "class_weight": None,
-                    "support_deep_learning": True,
                     "save_median_hyperparameters": False,
-                    "impute_handling": {},
                     "hpo": {"enabled": False, "n_trials": 1, "metric": "f1"},
                 },
             }
@@ -415,7 +411,7 @@ def test_advanced_cross_validation_can_disable_hpo(tmp_path):
     assert (fold_dir / "hpo_summary.json").exists() is False
 
 
-def test_dl_adapter_cross_validation_runs_with_support_flag(tmp_path):
+def test_dl_adapter_cross_validation_runs(tmp_path):
     pipeline = FlexiblePipeline()
     model = TinyDLAdapter()
     results = run_cross_validation(
@@ -424,7 +420,6 @@ def test_dl_adapter_cross_validation_runs_with_support_flag(tmp_path):
         tmp_path,
         [model],
         num_splits=2,
-        support_deep_learning=True,
         results_root=tmp_path / "Results",
         model_type=ModelType("Complete", "Explicit"),
     )
@@ -492,7 +487,6 @@ def test_dglm_gam_cross_validation_runs_end_to_end(tmp_path, model_name):
         tmp_path,
         [model],
         num_splits=2,
-        support_deep_learning=True,
         results_root=tmp_path / "Results",
         model_type=ModelType("Complete", "Explicit"),
     )

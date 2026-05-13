@@ -53,9 +53,7 @@ cross_validation:
   num_splits: 10
   save_results_folder: Results/CrossValidation
   class_weight: null
-  support_deep_learning: false
   save_median_hyperparameters: true
-  impute_handling: {}
 
   advanced_hpo:
     # Advanced classifiers only: REQUIRED when using any advanced model (LSTM, TCN, Trans, NAM, LogRegTS)

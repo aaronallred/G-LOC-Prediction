@@ -196,9 +196,7 @@ cross_validation:
   num_splits: 5
   save_results_folder: Results/CrossValidation
   class_weight: null
-  support_deep_learning: false
   save_median_hyperparameters: true
-  impute_handling: {}
   advanced_hpo:
     # Advanced classifiers only: REQUIRED when using any advanced model (LSTM, TCN, Trans, NAM, LogRegTS)
     # These 4 parameters control advanced model training behavior. All other Optuna-level parameters are hardcoded.

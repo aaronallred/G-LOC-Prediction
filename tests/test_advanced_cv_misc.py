@@ -65,7 +65,6 @@ def _run_model_cv(model, tmp_path: Path):
         num_splits=3,
         random_seed=42,
         class_weight=None,
-        support_deep_learning=True,
         save_models=True,
         results_root=tmp_path / "Results",
         model_type=ModelType("noAFE", "Implicit"),

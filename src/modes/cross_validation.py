@@ -496,7 +496,6 @@ def run_cross_validation(
     num_splits: int = 10,
     random_seed: int = 42,
     class_weight: Optional[str] = None,
-    support_deep_learning: bool = False,
     save_models: bool = True,
     results_root: Optional[Path] = None,
     model_type: Optional[ModelType] = None,
@@ -514,7 +513,6 @@ def run_cross_validation(
         num_splits: Number of cross-validation folds
         random_seed: Random seed for deterministic splits
         class_weight: Class weighting strategy (e.g., 'balanced')
-        support_deep_learning: Whether to support DL models
         save_models: Whether to save model artifacts per fold
         results_root: Root directory for CV results (keyword argument)
         model_type: ModelType instance for nesting results by model type (keyword argument)
@@ -598,12 +596,6 @@ def run_cross_validation(
             try:
                 # Route based on model type
                 if _is_dl_adapter(model):
-                    if not support_deep_learning:
-                        logger.warning(
-                            f"DL model {model_name} requires support_deep_learning=True; skipping"
-                        )
-                        continue
-
                     fold_result = _run_dl_model_cv_fold(
                         model, pipeline, fold_idx, random_seed, {}
                     )

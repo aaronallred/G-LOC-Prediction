@@ -343,12 +343,6 @@ class GLOCExperimentConfigParser:
     def get_cross_validation_class_weight(self) -> Any:
         return self._get_nested("cross_validation", "class_weight")
 
-    def get_cross_validation_support_deep_learning(self) -> bool:
-        return self._get_nested("cross_validation", "support_deep_learning")
-
-    def get_cross_validation_impute_handling(self) -> dict:
-        return copy.deepcopy(self._get_nested("cross_validation", "impute_handling"))
-
     def get_cross_validation_save_median_hyperparameters(self) -> bool:
         return self._get_nested("cross_validation", "save_median_hyperparameters")
 

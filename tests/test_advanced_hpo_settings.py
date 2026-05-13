@@ -380,7 +380,6 @@ class TestAdvancedHPOWithRealModels:
             random_seed=42,
             results_root=tmp_path / "Results",
             model_type=ModelType("Complete", "Explicit"),
-            support_deep_learning=True,
         )
         
         assert model.get_name() in results
@@ -401,7 +400,6 @@ class TestAdvancedHPOWithRealModels:
             random_seed=42,
             results_root=tmp_path / "Results",
             model_type=ModelType("Complete", "Explicit"),
-            support_deep_learning=True,
         )
         
         assert model.get_name() in results

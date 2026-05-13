@@ -136,7 +136,6 @@ def run(config_path: str | None = None) -> None:
                 num_splits = config_parser.get_cross_validation_num_splits(),
                 random_seed = config_parser.get_cross_validation_random_seed(),
                 class_weight = config_parser.get_cross_validation_class_weight(),
-                support_deep_learning = config_parser.get_cross_validation_support_deep_learning(),
                 model_type = config_parser.get_cross_validation_model_type(),
             ),
         ),
