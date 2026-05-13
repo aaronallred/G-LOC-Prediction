@@ -604,19 +604,6 @@ save_results_folder: Results/CrossValidation
 class_weight: null
 ```
 
-#### `support_deep_learning`
-
-**Purpose**: Whether to enable deep-learning model support via adapter pattern.
-
-**Available inputs**: `true` or `false`
-
-**Example**:
-```yaml
-support_deep_learning: false
-```
-
-**Note**: Requires custom `DLModelAdapter` subclass for non-traditional frameworks (PyTorch, TensorFlow, etc.).
-
 #### `save_median_hyperparameters`
 
 **Purpose**: Whether to extract and save the median-fold model's hyperparameters.
@@ -631,17 +618,6 @@ save_median_hyperparameters: true
 **Behavior**:
 - When `true` (default): Automatically identifies the fold with median F1 score and extracts its trained model's hyperparameters to `median_hyperparameters.json`
 - When `false`: Only aggregates metrics
-
-#### `impute_handling`
-
-**Purpose**: Framework-specific imputation configuration (typically empty for standard usage).
-
-**Available inputs**: Dictionary (key-value pairs) or empty object.
-
-**Example**:
-```yaml
-impute_handling: {}  # Use default imputation
-```
 
 ### Complete Example
 

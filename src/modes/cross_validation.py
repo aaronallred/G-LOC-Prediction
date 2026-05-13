@@ -14,13 +14,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
 from src.models.base import BaseModel, ModelInitStrategy
-from src.models.dl_adapter import DLModelAdapter
 from src.models.sequence_window_utils import max_trial_sequence_length
 from src.traditional_experiment_utils import stratified_kfold_split
 
@@ -38,7 +36,6 @@ def _is_hpo_supported_advanced_model(model: BaseModel) -> bool:
     """
     return (
         not _is_traditional_model(model)
-        and not _is_dl_adapter(model)
         and hasattr(model, "train")
         and hasattr(model, "evaluate")
         and hasattr(model, "build_hpo_search_space")
@@ -74,7 +71,9 @@ def _run_advanced_model_hpo(
 
     # Require the model to provide a search-space builder
     if not hasattr(model, "build_hpo_search_space") or not callable(getattr(model, "build_hpo_search_space")):
-        raise RuntimeError(f"Model {model.get_name()} does not implement build_hpo_search_space(trial, X_train, random_seed)")
+        raise RuntimeError(
+            f"Model {model.get_name()} does not implement build_hpo_search_space(trial, X_train, random_seed)"
+        )
     search_space_builder = getattr(model, "build_hpo_search_space")
     X_subtrain, X_holdout, y_subtrain, y_holdout = _split_train_for_hpo(
         X_train, y_train, hpo_config["train_fraction"], random_seed
@@ -116,7 +115,16 @@ def _run_advanced_model_hpo(
     )
 
     if not study.trials:
-        return {"best_params": {}, "summary": {"best_trial": -1, "best_value": 0.0, "metric": metric_name, "n_trials": 0, "best_params": {}}}
+        return {
+            "best_params": {},
+            "summary": {
+                "best_trial": -1,
+                "best_value": 0.0,
+                "metric": metric_name,
+                "n_trials": 0,
+                "best_params": {},
+            },
+        }
 
     try:
         best_params = dict(study.best_params) if study.best_params else {}
@@ -136,55 +144,6 @@ def _run_advanced_model_hpo(
     return {"best_params": best_params, "summary": summary}
 
 
-class SyntheticDLAdapter(DLModelAdapter):
-    """Synthetic DL adapter for testing (no heavy framework dependency).
-    
-    Trains a simple logistic regression model to simulate DL training.
-    Used for testing and demonstration purposes only.
-    """
-
-    def __init__(self):
-        self.model = None
-        self.scaler = StandardScaler()
-
-    def fit(
-        self,
-        X_train: np.ndarray,
-        y_train: np.ndarray,
-        X_val: np.ndarray,
-        y_val: np.ndarray,
-        config: Dict[str, Any],
-    ) -> None:
-        from sklearn.linear_model import LogisticRegression
-
-        X_train_scaled = self.scaler.fit_transform(X_train)
-        self.model = LogisticRegression(
-            max_iter=config.get("max_iter", 1000),
-            random_state=config.get("random_seed", 42),
-        )
-        self.model.fit(X_train_scaled, y_train)
-        logger.info(
-            f"SyntheticDLAdapter trained on {len(X_train)} samples; val accuracy: "
-            f"{self.model.score(self.scaler.transform(X_val), y_val):.3f}"
-        )
-
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        if self.model is None:
-            raise RuntimeError("Model not trained; call fit() first.")
-        X_scaled = self.scaler.transform(X)
-        return self.model.predict_proba(X_scaled)
-
-    def save(self, path: str) -> None:
-        Path(path).mkdir(parents=True, exist_ok=True)
-        model_path = Path(path) / "synthetic_dl_adapter.pkl"
-        with open(model_path, "wb") as f:
-            pickle.dump(self, f)
-        logger.info(f"SyntheticDLAdapter saved to {path}")
-
-    def get_name(self) -> str:
-        return "SyntheticDL"
-
-
 def _is_traditional_model(model: Any) -> bool:
     """Detect if a model follows the legacy 'classify_traditional' contract.
 
@@ -192,11 +151,6 @@ def _is_traditional_model(model: Any) -> bool:
    ('classify_traditional') is unreliable because BaseModel exposes that method.
     """
     return bool(getattr(model, "is_traditional", False))
-
-
-def _is_dl_adapter(model: Any) -> bool:
-    """Detect if a model is a DL adapter."""
-    return isinstance(model, DLModelAdapter)
 
 
 def _compute_metrics_from_predictions(
@@ -456,38 +410,6 @@ def _run_traditional_model_cv_fold(
     return fold_result
 
 
-def _run_dl_model_cv_fold(
-    model: DLModelAdapter,
-    pipeline: DataPipeline,
-    kfold_id: int,
-    random_seed: int,
-    model_config: Dict[str, Any],
-) -> Dict[str, Any]:
-    """Run a single fold of cross-validation for a DL-adapted model."""
-    logger.info(f"Running DL CV fold {kfold_id} for model {model.get_name()}")
-
-    # Get fold data from pipeline
-    X_train, X_val, y_train, y_val, features = pipeline.get_data(
-        model=None, kfold_id=kfold_id
-    )
-
-    # Train DL model
-    model.fit(X_train, y_train, X_val, y_val, model_config)
-
-    # Get predictions and compute metrics
-    y_pred_proba = model.predict_proba(X_val)
-    y_pred = np.argmax(y_pred_proba, axis=1)
-
-    metrics = _compute_metrics_from_predictions(y_val, y_pred, y_pred_proba)
-
-    # Build result
-    fold_result = _build_fold_result(
-        kfold_id, metrics, len(X_train), len(X_val), features
-    )
-    
-    return fold_result
-
-
 def run_cross_validation(
     config: GLOCExperimentConfigParser,
     pipeline: DataPipeline,
@@ -502,14 +424,14 @@ def run_cross_validation(
 ) -> Dict[str, List[Dict[str, Any]]]:
     """Run cross-validation for a list of models.
     
-    Detects model type (traditional, advanced, or DL-adapted) and routes to appropriate
+    Detects model type (traditional or advanced) and routes to the appropriate
     training loop. Saves per-fold metrics and aggregated summaries.
     
     Args:
         config: GLOCExperimentConfigParser instance
         pipeline: DataPipeline instance for data loading
         unused_path: Deprecated parameter, kept for backward compatibility
-        models: List of BaseModel instances or DLModelAdapter instances
+        models: List of BaseModel instances
         num_splits: Number of cross-validation folds
         random_seed: Random seed for deterministic splits
         class_weight: Class weighting strategy (e.g., 'balanced')
@@ -553,17 +475,13 @@ def run_cross_validation(
 
         # IMPORTANT: Load data ONCE per model to avoid reprocessing for each fold
         logger.info(f"Loading data for model {model_name}...")
-        
+
         fold_cache = None  # For advanced models: cache fold data upfront
         
         if _is_traditional_model(model):
             # Load full dataset once for traditional models
             X, y = pipeline.get_data(model=model)
             logger.info(f"Loaded traditional data: X shape {X.shape}, y shape {y.shape}")
-        elif _is_dl_adapter(model):
-            # For DL models, load data appropriately (may need adaptation based on DL framework)
-            X, y = pipeline.get_data(model=model)
-            logger.info(f"Loaded DL data: X shape {X.shape}, y shape {y.shape}")
         else:
             # Advanced models: require advanced_hpo config and pre-cache fold data
             # This will raise ValueError if advanced_hpo is missing or invalid
@@ -595,12 +513,7 @@ def run_cross_validation(
 
             try:
                 # Route based on model type
-                if _is_dl_adapter(model):
-                    fold_result = _run_dl_model_cv_fold(
-                        model, pipeline, fold_idx, random_seed, {}
-                    )
-
-                elif _is_traditional_model(model):
+                if _is_traditional_model(model):
                     # Use pre-loaded data for traditional models
                     # Get selected_features from config/cache
                     selected_features = _get_selected_features_for_model(config, model, model_type)

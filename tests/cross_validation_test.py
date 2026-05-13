@@ -8,12 +8,10 @@ import yaml
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
 from src.models.base import ModelInitStrategy
-from src.models.dl_adapter import DLModelAdapter
 from src.modes.cross_validation import (
     _aggregate_cv_results,
     _compute_metrics_from_predictions,
     _find_median_fold_idx,
-    _is_dl_adapter,
     _is_traditional_model,
     run_cross_validation,
 )
@@ -178,26 +176,6 @@ class TinyAdvancedModel:
         (Path(path) / "model.txt").write_text("saved", encoding="utf-8")
 
 
-class TinyDLAdapter(DLModelAdapter):
-    def __init__(self):
-        self._name = "TinyDL"
-        self._bias = 0.7
-
-    def fit(self, X_train, y_train, X_val, y_val, config):
-        self._bias = float(np.mean(y_train))
-
-    def predict_proba(self, X):
-        p1 = np.full((len(X), 1), self._bias)
-        return np.hstack([1.0 - p1, p1])
-
-    def save(self, path: str):
-        Path(path).mkdir(parents=True, exist_ok=True)
-        (Path(path) / "model.txt").write_text("saved", encoding="utf-8")
-
-    def get_name(self):
-        return self._name
-
-
 def test_cross_validation_parser_reads_mode_specific_models_and_hpo_config(tmp_path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -297,11 +275,9 @@ def test_cross_validation_parser_supports_dglm_and_gam_models(tmp_path):
 def test_cross_validation_helper_branches():
     traditional = TinyTraditionalModel()
     advanced = TinyAdvancedModel(name="LSTM")
-    dl = TinyDLAdapter()
 
     assert _is_traditional_model(traditional) is True
     assert _is_traditional_model(advanced) is False
-    assert _is_dl_adapter(dl) is True
 
     metrics = _compute_metrics_from_predictions(np.asarray([0, 1, 0, 1]), np.asarray([0, 1, 1, 1]))
     assert metrics["accuracy"] == pytest.approx(0.75)
@@ -409,24 +385,6 @@ def test_advanced_cross_validation_can_disable_hpo(tmp_path):
     assert len(model.train_calls) == 2
     fold_dir = tmp_path / "Results" / "Complete_Explicit" / "LSTM" / "fold_0"
     assert (fold_dir / "hpo_summary.json").exists() is False
-
-
-def test_dl_adapter_cross_validation_runs(tmp_path):
-    pipeline = FlexiblePipeline()
-    model = TinyDLAdapter()
-    results = run_cross_validation(
-        FakeCVConfig(save_median_hyperparameters=False),
-        pipeline,
-        tmp_path,
-        [model],
-        num_splits=2,
-        results_root=tmp_path / "Results",
-        model_type=ModelType("Complete", "Explicit"),
-    )
-
-    assert len(results["TinyDL"]) == 2
-    assert (tmp_path / "Results" / "Complete_Explicit" / "TinyDL" / "fold_0" / "metrics.pkl").exists()
-    assert (tmp_path / "Results" / "Complete_Explicit" / "TinyDL" / "fold_0" / "model" / "model.txt").exists()
 
 
 class TrialAwareAdvancedPipeline:
