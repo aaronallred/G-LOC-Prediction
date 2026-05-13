@@ -34,9 +34,6 @@ class LogRegTS(BaseModel):
         self.model: Optional[nn.Module] = None
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def tune(self, X, y, groups=None) -> None:
-        # Placeholder for HPO (Optuna) in future
-        return None
 
     def train(self, X: np.ndarray, y: np.ndarray, params: Dict[str, Any] | None = None) -> None:
         # X: (N, D) numpy, y: (N,) numpy

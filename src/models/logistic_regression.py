@@ -42,24 +42,6 @@ class LogisticRegression(BaseModel):
         self.is_traditional = True
         self.feature_importance = None
 
-    def tune(self, X, y, groups=None) -> None:
-        """
-        Perform hyperparameter tuning using BayesSearchCV.
-        
-        Args:
-            X: Feature matrix (n_samples, n_features)
-            y: Target labels (n_samples,)
-            groups: Group labels for cross-validation (optional)
-        """
-        # TODO: Implement BayesSearchCV or Optuna-based hyperparameter tuning
-        # Search spaces to consider:
-        # - C: float (regularization strength)
-        # - penalty: str ('l2', 'l1', 'elasticnet')
-        # - solver: str ('lbfgs', 'liblinear', 'saga', 'newton-cg')
-        # - max_iter: int (max iterations)
-        # - tol: float (tolerance for convergence)
-        logger.info("Starting hyperparameter tuning for LogisticRegression")
-        pass
 
     def train(self, X, y, params: Dict = None) -> None:
         """

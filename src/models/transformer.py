@@ -60,22 +60,6 @@ class TransformerModel(BaseModel):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.is_traditional = False
 
-    def tune(self, X, y, groups=None) -> None:
-        """
-        Run hyperparameter tuning (Optuna/Bayesian search placeholder).
-
-        Args:
-            X: Input features.
-            y: Labels.
-            groups: Optional group labels for grouped CV.
-        """
-        logger.info("Starting hyperparameter tuning for TransformerModel")
-        # TODO: Add Optuna objective and search space for transformer hyperparameters.
-        # Suggested search dimensions:
-        # - d_model, nhead, num_layers, dim_feedforward, dropout
-        # - learning_rate, weight_decay, batch_size
-        # - sequence_length, step_size, threshold
-        pass
 
     def train(self, X, y, params: Dict = None) -> None:
         """

@@ -31,10 +31,6 @@ class RandomForestModel(BaseModel):
         self.model = None
         self.is_traditional = True
 
-    def tune(self, X: np.ndarray, y: np.ndarray, groups: np.ndarray | None = None) -> None:
-        """Placeholder for future hyperparameter search."""
-        logger.info("Starting hyperparameter tuning for RandomForestModel")
-
     def train(self, X: np.ndarray, y: np.ndarray, params: Dict[str, Any] | None = None) -> None:
         """Train a random forest model with provided or default parameters."""
         if params is None:

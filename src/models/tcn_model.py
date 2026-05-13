@@ -97,8 +97,6 @@ class TCNModel(BaseModel):
         self.model: Optional[nn.Module] = None
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def tune(self, X, y, groups=None) -> None:
-        return None
 
     def _ensure_3d(self, X: np.ndarray) -> np.ndarray:
         if X.ndim == 2:

@@ -31,8 +31,6 @@ class GAMModel(BaseModel):
         self.is_traditional = False
         self.model: Optional[LogisticGAM] = None
 
-    def tune(self, X, y, groups=None) -> None:
-        return None
 
     def train(self, X: np.ndarray, y: np.ndarray, params: Dict[str, Any] | None = None) -> None:
         _require_pygam()

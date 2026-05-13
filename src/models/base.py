@@ -34,11 +34,6 @@ class BaseModel(ABC):
         self.is_traditional = False
 
     @abstractmethod
-    def tune(self, X, y, groups=None) -> None:
-        """Run Optuna or BayesSearchCV"""
-        pass
-
-    @abstractmethod
     def train(self, X, y, params: Dict = None) -> None:
         """Train final model with specific params"""
         pass

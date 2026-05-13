@@ -47,10 +47,10 @@ feature_space_review:
 cross_validation:
   enabled: true
   # Mode-specific parameters
-  models: [Trans]
+  models: [KNN, Trans, LSTM]
   model_type: [Complete, Explicit]
   random_seed: 42
-  num_splits: 10
+  num_splits: 2
   save_results_folder: Results/CrossValidation
   class_weight: null
   save_median_hyperparameters: true

@@ -28,8 +28,6 @@ class LinearDiscriminantAnalysisModel(BaseModel):
         self.model = None
         self.is_traditional = True
 
-    def tune(self, X: np.ndarray, y: np.ndarray, groups: np.ndarray | None = None) -> None:
-        """Placeholder for future hyperparameter tuning."""
 
     def train(self, X: np.ndarray, y: np.ndarray, params: Dict[str, Any] | None = None) -> None:
         """Train LDA using provided or default parameters."""
