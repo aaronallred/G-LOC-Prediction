@@ -684,20 +684,24 @@ def _extract_median_hyperparameters(
         "fold_id": median_fold_idx,
         "f1_score": float(median_f1),
         "best_params": {},
-        "selected_features": [],
     }
-    
-    # Extract best_params and selected_features from fold results if available
+
+    # Extract best_params and, only for traditional models, selected_features
     if fold_results and len(fold_results) > median_fold_idx:
         median_fold = fold_results[median_fold_idx]
-        
+
         # Extract best_params from fold results
         if "best_params" in median_fold:
             result["best_params"] = median_fold["best_params"]
-        
-        # Extract selected_features from fold results
-        if "selected_features" in median_fold:
-            result["selected_features"] = median_fold["selected_features"]
+
+        # Include selected_features only for traditional (legacy) models
+        try:
+            if _is_traditional_model(model):
+                # Ensure the key exists for traditional models; default to empty list if missing
+                result["selected_features"] = median_fold.get("selected_features", [])
+        except Exception:
+            # If helper not available or fails, fall back to empty list
+            result["selected_features"] = []
     
     # Fallback: try to extract best_params from model if not in fold results
     if not result["best_params"]:
