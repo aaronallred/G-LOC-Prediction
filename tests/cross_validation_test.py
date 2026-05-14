@@ -228,50 +228,6 @@ def test_legacy_advanced_classifier_names_are_supported_by_hpo():
         assert f'"{model_name}"' in legacy_source
 
 
-def test_dglm_and_gam_have_model_implementations():
-    # Ensure modern codebase contains DGLM and GAM model files
-    assert Path("src/models/dglm_model.py").exists()
-    assert Path("src/models/gam_model.py").exists()
-
-
-def test_cross_validation_parser_supports_dglm_and_gam_models(tmp_path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        yaml.safe_dump(
-            {
-                "data_path": "/tmp/data",
-                "shared_data_parameters": {
-                    "subject_to_analyze": None,
-                    "trial_to_analyze": None,
-                    "analysis_type": 2,
-                    "remove_NaN_trials": True,
-                    "impute_file_name": "imputed.pkl",
-                    "save_impute": False,
-                    "load_impute": False,
-                    "should_impute": True,
-                    "output_feature_dtype": "float32",
-                },
-                "advanced_data_parameters": {"n_neighbors": 4, "baseline_window": 32.5},
-                "traditional_data_parameters": {"backstep": 0, "data_rate": 25, "offset": 0, "time_start": 0},
-                "cross_validation": {
-                    "enabled": True,
-                    "models": ["DGLM", "GAM"],
-                    "model_type": ["Complete", "Explicit"],
-                    "random_seed": 42,
-                    "num_splits": 2,
-                    "save_results_folder": "Results/CrossValidation",
-                    "class_weight": None,
-                    "save_median_hyperparameters": False,
-                    "hpo": {"enabled": False, "n_trials": 1, "metric": "f1"},
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    parser = GLOCExperimentConfigParser(config_location=str(config_path))
-    assert [model.get_name() for model in parser.get_cross_validation_models()] == ["DGLM", "GAM"]
-
-
 def test_cross_validation_helper_branches():
     traditional = TinyTraditionalModel()
     advanced = TinyAdvancedModel(name="LSTM")
@@ -420,37 +376,3 @@ class TrialAwareAdvancedPipeline:
         y_val = self.y[val_mask]
         features = [f"f{i}" for i in range(self.n_features)] + ["trial_id"]
         return X_train, X_val, y_train, y_val, features
-
-
-@pytest.mark.parametrize("model_name", ["DGLM", "GAM"])
-def test_dglm_gam_cross_validation_runs_end_to_end(tmp_path, model_name):
-    if model_name == "DGLM":
-        pytest.importorskip("pyro")
-        from src.models.dglm_model import DGLMModel
-
-        model = DGLMModel(config={})
-    else:
-        pytest.importorskip("pygam")
-        from src.models.gam_model import GAMModel
-
-        model = GAMModel(config={})
-
-    pipeline = TrialAwareAdvancedPipeline()
-    results = run_cross_validation(
-        FakeCVConfig(
-            save_median_hyperparameters=False,
-            hpo_config={"enabled": False, "n_trials": 1, "timeout": None, "metric": "f1"},
-        ),
-        pipeline,
-        tmp_path,
-        [model],
-        num_splits=2,
-        results_root=tmp_path / "Results",
-        model_type=ModelType("Complete", "Explicit"),
-    )
-
-    assert model.get_name() in results
-    assert len(results[model.get_name()]) == 2
-    fold_dir = tmp_path / "Results" / "Complete_Explicit" / model.get_name() / "fold_0"
-    assert (fold_dir / "metrics.pkl").exists()
-    assert (fold_dir / "model").exists()

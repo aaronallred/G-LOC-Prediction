@@ -18,8 +18,6 @@ from src.models.logistic_regression_ts import LogRegTS
 from src.models.lstm_model import LSTMModel
 from src.models.nam_model import NAMModel
 from src.models.tcn_model import TCNModel
-from src.models.dglm_model import DGLMModel
-from src.models.gam_model import GAMModel
 
 # Advanced HPO hardcoded defaults (Optuna-level parameters)
 # These are not user-configurable to keep the YAML simple and focus on essential knobs:
@@ -51,10 +49,6 @@ class GLOCExperimentConfigParser:
         "LSTM": LSTMModel,
         "NAM": NAMModel,
         "TCN": TCNModel,
-        "DGLM": DGLMModel,
-        "Dynamic GLM": DGLMModel,
-        "GAM": GAMModel,
-        "Logistic GAM": GAMModel,
     }
 
     def __init__(self, config_location: Optional[str] = None) -> None:
