@@ -340,6 +340,18 @@ class GLOCExperimentConfigParser:
     def get_cross_validation_save_median_hyperparameters(self) -> bool:
         return self._get_nested("cross_validation", "save_median_hyperparameters")
 
+    def get_active_mode(self) -> Optional[str]:
+        """Return the highest-priority enabled mode from the current config."""
+        if self.get_cross_validation_enabled():
+            return "cross_validation"
+        if self.get_sensor_ablation_enabled():
+            return "sensor_ablation"
+        if self.get_sensor_ablation_review_enabled():
+            return "sensor_ablation_review"
+        if self.get_feature_space_review_enabled():
+            return "feature_space_review"
+        return None
+
     def get_advanced_hpo_settings(self) -> dict:
         """Get global advanced HPO settings required when running advanced classifiers.
 

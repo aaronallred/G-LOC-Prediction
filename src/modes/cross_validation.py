@@ -463,6 +463,8 @@ def run_cross_validation(
     # Set random seed and model type for pipeline operations
     pipeline.set_random_seed(random_seed)
     pipeline.set_model_type(model_type)
+    if hasattr(pipeline, "set_mode"):
+        pipeline.set_mode("cross_validation")
 
     for model in models:
         model_name = model.get_name() if hasattr(model, "get_name") else str(model)
