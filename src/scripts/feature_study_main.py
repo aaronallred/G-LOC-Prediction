@@ -338,7 +338,7 @@ def restrict_feature_space(select_features, streams):
 
 
 if preference == 7:
-    config_parser = GLOCExperimentConfigParser(config_location = "C:/Users/hankr/PyCharmMiscProject/G-LOC-Prediction/GLOC_experiment_config.json")
+    config_parser = GLOCExperimentConfigParser(config_location = "C:/Users/savan/G-LOC-Prediction/GLOC_experiment_config.json")
     pipeline = DataPipeline(config_parser = config_parser)
 
     models_to_test = config_parser.get_models()
@@ -385,15 +385,14 @@ if preference == 7:
             os.makedirs(save_folder, exist_ok=True)
 
             # Pull feature matrix and labels directly from DataPipeline.
-            x, y, select_features = pipeline.get_data(model=model, feature_streams=stream_group if stream_group else None)
+            x, y, select_features = pipeline.get_data(model=man_abl_model, feature_streams=stream_group if stream_group else None)
+            print(f"Number of features for {classifier}: {len(select_features)}")
 
             results_folder = os.path.join('./feature_study', subfolder_name, "streamwise")
 
             # Perform stratified k-fold evaluation
             for k in range(num_kfold):
                 x_train, x_test, y_train, y_test = stratified_kfold_split(ravel(y), x, num_kfold, k, random_state)
-                print(x_train.shape())
-                print(x_test.shape())
 
                 # Classifier-specific evaluation
                 if classifier == 'RF':

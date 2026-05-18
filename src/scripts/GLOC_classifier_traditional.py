@@ -1089,11 +1089,13 @@ def run_shap(model, x_train, x_test, select_features, random_state):
     print("\nStarting SHAP Analysis...\n")
 
     nsamples_train = 100
-    nsamples_test = 200
+    nsamples_test = 50
 
     try:
         print("Trying SHAP with model...")
         explainer = shap.Explainer(model, x_train, feature_names=select_features)
+        print("\nSHAP explainer type:", type(explainer))
+        print("SHAP explainer class:", explainer.__class__.__name__)
 
         explanation = explainer(x_test)
 
@@ -1107,8 +1109,11 @@ def run_shap(model, x_train, x_test, select_features, random_state):
         x_test_subset = shap.sample(x_test, nsamples_test, random_state=random_state)
 
         explainer = shap.Explainer(model.predict_proba, background, feature_names=select_features)
+        print("\nSHAP explainer type:", type(explainer))
+        print("SHAP explainer class:", explainer.__class__.__name__)
 
-        explanation = explainer(x_test_subset)
+        num_features = x_train.shape[1]
+        explanation = explainer(x_test_subset, max_evals=2*num_features+1)
 
     print(f"\nTraining dataset shape is {x_train.shape}")
     print(f"Testing dataset shape is {x_test.shape}")
