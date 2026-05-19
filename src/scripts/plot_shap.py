@@ -12,14 +12,14 @@ import shap
 # SETTINGS
 # =============================================================================
 
-CLASSIFIER = "EGB"
+CLASSIFIER = "KNN"
 
 FILE_FOLDER = (
     Path("../..")
     / "feature_study"
     / "Explicit Complete"
     / "feature_importance"
-    / "shap_all_10CV_3may"
+    / "shap_all_9may"
 )
 
 
@@ -301,17 +301,10 @@ def build_grouped_explanation(explanation, keyword_map, match_prefix=False):
         if not indices:
             continue
 
-        grouped_values[:, group_idx] = np.sum(explanation.values[:, indices], axis=1)
-        grouped_norm_mean_values[:, group_idx] = np.mean(
-            np.abs(explanation.values[:, indices]),
-            axis=1,
-        )
-        grouped_sum_values[:, group_idx] = np.sum(
-            np.sum(np.abs(explanation.values[:, indices]), axis=1)
-        )
-        grouped_mean_values[:, group_idx] = np.mean(
-            np.sum(np.abs(explanation.values[:, indices]), axis=1)
-        )
+        grouped_values[:, group_idx] = np.sum(np.abs(explanation.values[:, indices]), axis=1)
+        grouped_norm_mean_values[:, group_idx] = np.mean(np.abs(explanation.values[:, indices]), axis=1)
+        grouped_sum_values[:, group_idx] = np.sum(np.sum(np.abs(explanation.values[:, indices]), axis=1))
+        grouped_mean_values[:, group_idx] = np.mean(np.sum(np.abs(explanation.values[:, indices]), axis=1))
         grouped_data[:, group_idx] = np.mean(explanation.data[:, indices], axis=1)
 
     log_feature_matching_info(
@@ -399,6 +392,14 @@ def plot_keyword_violin_dict(explanation, keyword_map, classifier, match_prefix=
             grouped_explanation,
             show=False,
         )
+
+        ax = plt.gca()
+
+        bar_values = np.mean(np.abs(grouped_explanation.values), axis=0)
+        order = np.argsort(bar_values)[::-1]
+
+        for text, idx in zip(ax.texts, order):
+            text.set_text(f"{bar_values[idx]:+.4f}")
 
         plt.title(f"Feature Importance - {classifier} Explicit Complete")
         plt.tight_layout()
