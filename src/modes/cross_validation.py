@@ -13,15 +13,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-from imblearn.over_sampling import SMOTE
-from sklearn.linear_model import LassoCV
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
 from src.models.base import BaseModel, ModelInitStrategy
+from src.models.sequence_window_utils import max_trial_sequence_length
 from src.traditional_experiment_utils import stratified_kfold_split
 
 logger = logging.getLogger(__name__)
@@ -251,111 +249,13 @@ def _build_fold_result(
         "n_val": n_val,
     }
     
-    if features is not None:
+    if features:
         fold_result["selected_features"] = features
     
     if best_params:
         fold_result["best_params"] = best_params
     
     return fold_result
-
-
-def _resolve_traditional_feature_names(
-    pipeline: DataPipeline,
-    X: np.ndarray,
-) -> List[str]:
-    """Resolve feature names for traditional fold preprocessing."""
-    feature_names = getattr(pipeline, "feature_names", None)
-    if feature_names is None and hasattr(pipeline, "get_feature_names"):
-        getter = getattr(pipeline, "get_feature_names")
-        if callable(getter):
-            try:
-                feature_names = getter()
-            except Exception:
-                feature_names = None
-
-    if feature_names is None and hasattr(pipeline, "features"):
-        feature_names = getattr(pipeline, "features")
-
-    if feature_names is not None:
-        feature_list = list(feature_names)
-        if len(feature_list) == X.shape[1]:
-            return feature_list
-
-    return [f"feature_{index}" for index in range(X.shape[1])]
-
-
-def _prepare_traditional_fold_data(
-    X_train: np.ndarray,
-    X_test: np.ndarray,
-    y_train: np.ndarray,
-    features: List[str],
-    random_seed: int,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[str]]:
-    """Apply fold-local LASSO feature selection and SMOTE balancing."""
-    X_train_array = np.asarray(X_train)
-    X_test_array = np.asarray(X_test)
-    y_train_array = np.asarray(y_train).ravel()
-    feature_names = list(features)
-
-    if X_train_array.ndim != 2:
-        raise ValueError("X_train must be a 2D array for traditional fold preprocessing.")
-    if X_test_array.ndim != 2:
-        raise ValueError("X_test must be a 2D array for traditional fold preprocessing.")
-    if X_train_array.shape[1] != len(feature_names):
-        raise ValueError("Feature names must align with X_train columns.")
-
-    variable_mask = np.std(X_train_array, axis=0) > 0
-    if not np.any(variable_mask):
-        variable_mask = np.ones(X_train_array.shape[1], dtype=bool)
-
-    candidate_indices = np.flatnonzero(variable_mask)
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train_array[:, candidate_indices])
-
-    max_cv_folds = min(5, X_train_scaled.shape[0])
-    if max_cv_folds < 2 or len(np.unique(y_train_array)) < 2:
-        selected_indices = candidate_indices
-    else:
-        class_counts = np.bincount(y_train_array.astype(int))
-        max_class_count = int(np.min(class_counts)) if class_counts.size > 0 else 0
-        if max_class_count < 2:
-            selected_indices = candidate_indices
-        else:
-            cv_folds = max(2, min(max_cv_folds, max_class_count))
-            lasso = LassoCV(
-                alphas=np.logspace(-4, 0, 50),
-                cv=cv_folds,
-                random_state=random_seed,
-                max_iter=10000,
-                n_jobs=None,
-            )
-            lasso.fit(X_train_scaled, y_train_array)
-            coefficients = np.abs(lasso.coef_)
-            selected_mask = coefficients > 1e-8
-            if not np.any(selected_mask):
-                selected_mask[int(np.argmax(coefficients))] = True
-            selected_indices = candidate_indices[selected_mask]
-
-    if selected_indices.size == 0:
-        selected_indices = np.asarray([0], dtype=int)
-
-    selected_features = [feature_names[index] for index in selected_indices]
-    X_train_selected = X_train_array[:, selected_indices]
-    X_test_selected = X_test_array[:, selected_indices]
-
-    class_labels, class_counts = np.unique(y_train_array, return_counts=True)
-    if class_labels.size < 2 or np.min(class_counts) < 2:
-        return X_train_selected, X_test_selected, y_train_array, selected_features
-
-    minority_count = int(np.min(class_counts))
-    smote_k_neighbors = min(7, minority_count - 1)
-    if smote_k_neighbors < 1:
-        return X_train_selected, X_test_selected, y_train_array, selected_features
-
-    smote = SMOTE(random_state=random_seed, k_neighbors=smote_k_neighbors)
-    X_train_resampled, y_train_resampled = smote.fit_resample(X_train_selected, y_train_array)
-    return X_train_resampled, X_test_selected, y_train_resampled, selected_features
 
 
 def _run_advanced_model_cv_fold(
@@ -452,26 +352,15 @@ def _run_traditional_model_cv_fold(
         y, X, num_splits, kfold_id, random_state=random_seed
     )
 
-    if selected_features is None:
-        raise ValueError("selected_features must be provided for traditional fold preprocessing.")
-
-    X_train_processed, X_test_processed, y_train_processed, selected_features = _prepare_traditional_fold_data(
-        X_train,
-        X_test,
-        y_train,
-        selected_features,
-        random_seed,
-    )
-
     # Call legacy classify_traditional interface
     # Legacy contract: returns (accuracy, precision, recall, f1, specificity, g_mean)
     # Signature: classify_traditional(x_train, x_test, y_train, y_test, class_weight_imb, 
     #                                  random_state, save_folder, model_name, strategy,
     #                                  best_params=None)
     result = model.classify_traditional(
-        x_train=X_train_processed,
-        x_test=X_test_processed,
-        y_train=y_train_processed,
+        x_train=X_train,
+        x_test=X_test,
+        y_train=y_train,
         y_test=y_test,
         class_weight_imb=class_weight,
         random_state=random_seed,
@@ -515,12 +404,7 @@ def _run_traditional_model_cv_fold(
     # Extract hyperparameters and build result
     best_params = _extract_hyperparameters_from_model(model)
     fold_result = _build_fold_result(
-        kfold_id,
-        metrics,
-        len(X_train_processed),
-        len(X_test_processed),
-        selected_features,
-        best_params,
+        kfold_id, metrics, len(X_train), len(X_test), selected_features, best_params
     )
     
     return fold_result
@@ -599,7 +483,6 @@ def run_cross_validation(
         if _is_traditional_model(model):
             # Load full dataset once for traditional models
             X, y = pipeline.get_data(model=model)
-            selected_features = _resolve_traditional_feature_names(pipeline, X)
             logger.info(f"Loaded traditional data: X shape {X.shape}, y shape {y.shape}")
         else:
             # Advanced models: require advanced_hpo config and pre-cache fold data
@@ -633,15 +516,12 @@ def run_cross_validation(
             try:
                 # Route based on model type
                 if _is_traditional_model(model):
+                    # Use pre-loaded data for traditional models
+                    # Get selected_features from config/cache
+                    selected_features = _get_selected_features_for_model(config, model, model_type)
                     fold_result = _run_traditional_model_cv_fold(
-                        model,
-                        X,
-                        y,
-                        fold_idx,
-                        num_splits,
-                        random_seed,
-                        class_weight,
-                        selected_features=selected_features,
+                        model, X, y, fold_idx, num_splits, random_seed, class_weight,
+                        selected_features=selected_features
                     )
 
                 else:
@@ -937,3 +817,48 @@ def _cache_fold_data_for_advanced_models(
     
     logger.info(f"Cached fold data for {model.get_name()}: {num_splits} folds")
     return fold_cache
+
+
+def _get_selected_features_for_model(
+    config: GLOCExperimentConfigParser,
+    model: BaseModel,
+    model_type: "ModelType",
+) -> List[str]:
+    """Try to retrieve selected_features for a model from cached median hyperparameters.
+    
+    Args:
+        config: GLOCExperimentConfigParser instance
+        model: The model to get features for
+        model_type: ModelType instance for constructing cache paths
+        
+    Returns:
+        List of selected feature names, or empty list if not available
+    """
+    model_name = None
+    try:
+        from pathlib import Path
+        model_name = model.get_name()
+        model_type_folder = model_type.get_folder_name()
+        
+        # Look for cached median_hyperparameters from previous HPO runs
+        # This is an optional optimization; it's OK if they don't exist
+        project_root = Path(__file__).resolve().parent.parent.parent
+        cache_path = (
+            project_root / "ModelSave" / "CV" / model_type_folder / 
+            f"median_hyperparameters_{model_name}.json"
+        )
+        
+        if cache_path.exists():
+            with open(cache_path, "r") as f:
+                cached_data = json.load(f)
+                if "selected_features" in cached_data:
+                    logger.debug(f"Using cached selected_features for {model_name}")
+                    return cached_data["selected_features"]
+    except Exception as e:
+        if model_name:
+            logger.debug(f"Could not retrieve cached selected_features for {model_name}: {e}")
+        else:
+            logger.debug(f"Could not retrieve cached selected_features: {e}")
+    
+    # Return empty list if not available - this is OK, we'll use an empty list for this CV run
+    return []
