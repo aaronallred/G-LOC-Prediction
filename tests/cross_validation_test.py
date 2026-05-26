@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import yaml
+from sklearn.datasets import make_classification
 
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
@@ -13,6 +14,8 @@ from src.modes.cross_validation import (
     _compute_metrics_from_predictions,
     _find_median_fold_idx,
     _is_traditional_model,
+    _prepare_traditional_fold_data,
+    _resolve_traditional_feature_names,
     run_cross_validation,
 )
 
@@ -53,36 +56,6 @@ class FakeCVConfig:
         return dict(self.advanced_hpo_settings)
 
 
-class FlexiblePipeline:
-    def __init__(self):
-        self.calls = []
-        self.model_type = None
-        self.random_seed = None
-
-    def set_random_seed(self, random_seed):
-        self.random_seed = random_seed
-
-    def set_model_type(self, model_type):
-        self.model_type = model_type
-
-    def get_data(self, model=None, kfold_id=None, **kwargs):
-        self.calls.append({"model": getattr(model, "get_name", lambda: None)(), "kfold_id": kfold_id})
-        if kfold_id is None:
-            X = np.asarray([[0.0, 1.0], [1.0, 0.0], [0.5, 0.5], [1.0, 1.0]])
-            y = np.asarray([0, 1, 0, 1])
-            return X, y
-
-        X_train = np.asarray(
-            [[0.0, 1.0], [1.0, 0.0], [0.2, 0.8], [0.8, 0.2], [0.9, 0.1], [0.1, 0.9]],
-            dtype=float,
-        )
-        X_val = np.asarray([[0.5, 0.5], [0.9, 0.1], [0.1, 0.9]], dtype=float)
-        y_train = np.asarray([0, 1, 0, 1, 1, 0])
-        y_val = np.asarray([0, 1, 0])
-        features = ["f1", "f2"]
-        return X_train, X_val, y_train, y_val, features
-
-
 class TinyTraditionalModel:
     def __init__(self, name="TinyTrad"):
         self._name = name
@@ -106,12 +79,250 @@ class TinyTraditionalModel:
         strategy=ModelInitStrategy.RETRAIN_WITH_DEFAULTS,
         best_params=None,
     ):
-        self.calls.append({"x_train": x_train, "x_test": x_test, "best_params": best_params, "strategy": strategy})
+        self.calls.append({"x_train": np.asarray(x_train), "x_test": np.asarray(x_test), "y_train": np.asarray(y_train).ravel(), "strategy": strategy})
         return (0.9, 0.8, 0.7, 0.6, 0.5, 0.4)
 
     def save(self, path: str):
         Path(path).mkdir(parents=True, exist_ok=True)
         (Path(path) / "model.txt").write_text("saved", encoding="utf-8")
+
+
+class RecordingTraditionalModel(TinyTraditionalModel):
+    def __init__(self, name="RecordingTrad"):
+        super().__init__(name=name)
+        self.calls = []
+
+    def classify_traditional(
+        self,
+        x_train,
+        x_test,
+        y_train,
+        y_test,
+        class_weight_imb,
+        random_state,
+        save_folder,
+        model_name,
+        strategy=ModelInitStrategy.RETRAIN_WITH_DEFAULTS,
+        best_params=None,
+    ):
+        return super().classify_traditional(
+            x_train,
+            x_test,
+            y_train,
+            y_test,
+            class_weight_imb,
+            random_state,
+            save_folder,
+            model_name,
+            strategy=strategy,
+            best_params=best_params,
+        )
+
+
+class FlexiblePipeline:
+    def __init__(self):
+        self.calls = []
+        self.model_type = None
+        self.random_seed = None
+        self.feature_names = ["signal_a", "signal_b"]
+
+    def set_random_seed(self, random_seed):
+        self.random_seed = random_seed
+
+    def set_model_type(self, model_type):
+        self.model_type = model_type
+
+    def get_feature_names(self):
+        return list(self.feature_names)
+
+    def get_data(self, model=None, kfold_id=None, **kwargs):
+        self.calls.append({"model": getattr(model, "get_name", lambda: None)(), "kfold_id": kfold_id})
+        if kfold_id is None:
+            X = np.asarray([[0.0, 1.0], [1.0, 0.0], [0.5, 0.5], [1.0, 1.0]])
+            y = np.asarray([0, 1, 0, 1])
+            return X, y
+
+        X_train = np.asarray(
+            [[0.0, 1.0], [1.0, 0.0], [0.2, 0.8], [0.8, 0.2], [0.9, 0.1], [0.1, 0.9]],
+            dtype=float,
+        )
+        X_val = np.asarray([[0.5, 0.5], [0.9, 0.1], [0.1, 0.9]], dtype=float)
+        y_train = np.asarray([0, 1, 0, 1, 1, 0])
+        y_val = np.asarray([0, 1, 0])
+        return X_train, X_val, y_train, y_val, list(self.feature_names)
+
+
+class TraditionalFoldPipeline:
+    def __init__(self, x, y, features):
+        self.x = np.asarray(x, dtype=float)
+        self.y = np.asarray(y, dtype=int)
+        self.features = list(features)
+        self.model_type = None
+        self.random_seed = None
+        self.calls = []
+
+    def set_random_seed(self, random_seed):
+        self.random_seed = random_seed
+
+    def set_model_type(self, model_type):
+        self.model_type = model_type
+
+    def get_data(self, model=None, kfold_id=None, **kwargs):
+        self.calls.append({"model": getattr(model, "get_name", lambda: None)(), "kfold_id": kfold_id})
+        if kfold_id is None:
+            return self.x, self.y
+
+        n_samples = len(self.y)
+        fold_size = n_samples // 2
+        if kfold_id == 0:
+            test_idx = np.arange(0, fold_size)
+            train_idx = np.arange(fold_size, n_samples)
+        else:
+            test_idx = np.arange(fold_size, n_samples)
+            train_idx = np.arange(0, fold_size)
+
+        return self.x[train_idx], self.x[test_idx], self.y[train_idx], self.y[test_idx], self.features
+        features = ["f1", "f2"]
+        return X_train, X_val, y_train, y_val, features
+
+
+class TraditionalNoFeatureNamesPipeline:
+    def __init__(self, x, y):
+        self.x = np.asarray(x, dtype=float)
+        self.y = np.asarray(y, dtype=int)
+        self.calls = []
+        self.model_type = None
+        self.random_seed = None
+
+    def set_random_seed(self, random_seed):
+        self.random_seed = random_seed
+
+    def set_model_type(self, model_type):
+        self.model_type = model_type
+
+    def get_data(self, model=None, kfold_id=None, **kwargs):
+        self.calls.append({"model": getattr(model, "get_name", lambda: None)(), "kfold_id": kfold_id})
+        return self.x, self.y
+
+
+def test_prepare_traditional_fold_data_selects_features_and_balances_classes():
+    X_train, y_train = make_classification(
+        n_samples=80,
+        n_features=6,
+        n_informative=2,
+        n_redundant=0,
+        n_clusters_per_class=1,
+        weights=[0.8, 0.2],
+        class_sep=1.5,
+        random_state=7,
+    )
+    X_test, y_test = make_classification(
+        n_samples=24,
+        n_features=6,
+        n_informative=2,
+        n_redundant=0,
+        n_clusters_per_class=1,
+        weights=[0.5, 0.5],
+        class_sep=1.5,
+        random_state=11,
+    )
+    features = [f"f{i}" for i in range(X_train.shape[1])]
+
+    X_train_selected, X_test_selected, y_train_resampled, selected_features = _prepare_traditional_fold_data(
+        X_train,
+        X_test,
+        y_train,
+        features,
+        random_seed=42,
+    )
+
+    assert X_train_selected.shape[1] == X_test_selected.shape[1] == len(selected_features)
+    assert len(selected_features) >= 1
+    assert set(selected_features).issubset(set(features))
+    assert np.unique(y_train_resampled).size == 2
+    class_counts = np.bincount(y_train_resampled.astype(int))
+    assert class_counts[0] == class_counts[1]
+
+
+def test_resolve_traditional_feature_names_prefers_real_names_and_falls_back_to_indices():
+    named_pipeline = FlexiblePipeline()
+    unnamed_pipeline = TraditionalNoFeatureNamesPipeline(np.asarray([[1.0, 2.0], [3.0, 4.0]]), np.asarray([0, 1]))
+
+    assert _resolve_traditional_feature_names(named_pipeline, np.asarray([[1.0, 2.0], [3.0, 4.0]])) == ["signal_a", "signal_b"]
+    assert _resolve_traditional_feature_names(unnamed_pipeline, unnamed_pipeline.x) == ["feature_0", "feature_1"]
+
+
+def test_traditional_cross_validation_runs_fold_local_feature_selection_and_smote(tmp_path):
+    x = np.asarray(
+        [
+            [0.1, 1.0, 0.0, 0.2],
+            [0.2, 0.9, 0.0, 0.1],
+            [0.3, 0.8, 0.0, 0.2],
+            [0.4, 0.7, 0.0, 0.1],
+            [1.0, 0.1, 0.0, 0.8],
+            [0.9, 0.2, 0.0, 0.7],
+            [0.8, 0.3, 0.0, 0.9],
+            [0.7, 0.4, 0.0, 0.8],
+        ],
+        dtype=float,
+    )
+    y = np.asarray([0, 0, 0, 0, 1, 1, 1, 1], dtype=int)
+    features = ["signal_a", "signal_b", "constant", "signal_c"]
+    pipeline = TraditionalFoldPipeline(x, y, features)
+    model = RecordingTraditionalModel()
+
+    results = run_cross_validation(
+        FakeCVConfig(save_median_hyperparameters=True),
+        pipeline,
+        tmp_path,
+        [model],
+        num_splits=2,
+        results_root=tmp_path / "Results",
+        model_type=ModelType("Complete", "Explicit"),
+    )
+
+    assert len(results[model.get_name()]) == 2
+    assert len(model.calls) == 2
+    for call in model.calls:
+        assert call["x_train"].shape[0] == call["y_train"].shape[0]
+        assert call["x_train"].shape[1] == call["x_test"].shape[1]
+        balanced = np.bincount(call["y_train"].astype(int))
+        assert balanced[0] == balanced[1]
+    assert all("selected_features" in fold for fold in results[model.get_name()])
+    assert all(set(fold["selected_features"]).issubset(set(features)) for fold in results[model.get_name()])
+
+
+def test_traditional_cross_validation_does_not_read_cached_median_hyperparameters(tmp_path, monkeypatch):
+    pipeline = TraditionalFoldPipeline(
+        x=np.asarray([[0.0, 1.0], [1.0, 0.0], [0.2, 0.8], [0.8, 0.2]], dtype=float),
+        y=np.asarray([0, 0, 1, 1], dtype=int),
+        features=["f0", "f1"],
+    )
+    model = RecordingTraditionalModel(name="TinyTradCacheGuard")
+
+    real_open = open
+
+    def guarded_open(file, mode="r", *args, **kwargs):
+        if "median_hyperparameters" in str(file) and "r" in mode:
+            raise AssertionError("traditional CV must not read median_hyperparameters cache files")
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", guarded_open)
+
+    results = run_cross_validation(
+        FakeCVConfig(save_median_hyperparameters=True),
+        pipeline,
+        tmp_path,
+        [model],
+        num_splits=2,
+        results_root=tmp_path / "Results",
+        model_type=ModelType("Complete", "Explicit"),
+    )
+
+    assert len(results[model.get_name()]) == 2
+    assert len(model.calls) == 2
+    assert all("selected_features" in fold for fold in results[model.get_name()])
+    assert all(set(fold["selected_features"]).issubset({"f0", "f1"}) for fold in results[model.get_name()])
 
 
 class TinyAdvancedModel:
@@ -273,7 +484,8 @@ def test_traditional_cross_validation_saves_metrics_and_hyperparameters(tmp_path
     with open(hyperparams_path, "r", encoding="utf-8") as handle:
         hyperparams = json.load(handle)
     assert hyperparams["best_params"] == {"C": 1.0}
-    assert hyperparams["selected_features"] == []
+    assert hyperparams["selected_features"]
+    assert set(hyperparams["selected_features"]).issubset({"signal_a", "signal_b"})
 
 
 @pytest.mark.parametrize("model_name", ["LogRegTS", "LSTM", "NAM", "TCN", "Trans"])
