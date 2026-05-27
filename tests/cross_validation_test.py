@@ -21,10 +21,7 @@ class FakeCVConfig:
     def __init__(self, save_median_hyperparameters=True, hpo_config=None, advanced_hpo_settings=None):
         self.save_median_hyperparameters = save_median_hyperparameters
         self.hpo_config = hpo_config or {
-            "enabled": True,
-            "n_trials": 3,
-            "timeout": None,
-            "metric": "f1",
+            "enabled": False,
         }
         # Mock output from parser: user-facing params + hardcoded Optuna defaults
         self.advanced_hpo_settings = advanced_hpo_settings or {
@@ -93,6 +90,9 @@ class TinyTraditionalModel:
     def get_name(self):
         return self._name
 
+    def _build_sklearn_estimator(self, class_weight=None, random_state=None, params=None):
+        return _TinyEstimator(**(params or {}))
+
     def classify_traditional(
         self,
         x_train,
@@ -112,6 +112,69 @@ class TinyTraditionalModel:
     def save(self, path: str):
         Path(path).mkdir(parents=True, exist_ok=True)
         (Path(path) / "model.txt").write_text("saved", encoding="utf-8")
+
+
+class _TinyEstimator:
+    def __init__(self, **params):
+        self.params = dict(params)
+
+    def get_params(self, deep=True):
+        return dict(self.params)
+
+    def set_params(self, **params):
+        self.params.update(params)
+        return self
+
+    def fit(self, X, y):
+        self.classes_ = np.unique(y)
+        return self
+
+    def predict(self, X):
+        return np.zeros(len(X), dtype=int)
+
+
+class _FakeBayesSearchCV:
+    instances = []
+
+    def __init__(
+        self,
+        estimator,
+        search_spaces,
+        n_iter,
+        cv,
+        scoring,
+        random_state,
+        n_jobs,
+        verbose,
+        error_score,
+    ):
+        self.estimator = estimator
+        self.search_spaces = search_spaces
+        self.n_iter = n_iter
+        self.cv = cv
+        self.scoring = scoring
+        self.random_state = random_state
+        self.n_jobs = n_jobs
+        self.verbose = verbose
+        self.error_score = error_score
+        self.best_params_ = {}
+        self.best_score_ = 0.0
+        self.best_index_ = 0
+        self.best_estimator_ = estimator
+        self.fit_args = None
+        _FakeBayesSearchCV.instances.append(self)
+
+    def fit(self, X, y):
+        self.fit_args = (np.asarray(X).shape, np.asarray(y).shape)
+        self.best_params_ = {
+            "penalty": "elasticnet",
+            "C": 1.5,
+            "solver": "saga",
+            "l1_ratio": 0.4,
+        }
+        self.best_score_ = 0.91
+        self.best_index_ = 2
+        return self
 
 
 class TinyAdvancedModel:
@@ -252,9 +315,11 @@ def test_cross_validation_helper_branches():
     assert aggregated["num_folds"] == 2
 
 
-def test_traditional_cross_validation_saves_metrics_and_hyperparameters(tmp_path):
+def test_traditional_cross_validation_saves_metrics_and_hyperparameters(tmp_path, monkeypatch):
     pipeline = FlexiblePipeline()
-    model = TinyTraditionalModel()
+    model = TinyTraditionalModel(name="LogReg")
+    _FakeBayesSearchCV.instances = []
+    monkeypatch.setattr("src.modes.cross_validation.BayesSearchCV", _FakeBayesSearchCV)
     results = run_cross_validation(
         FakeCVConfig(save_median_hyperparameters=True),
         pipeline,
@@ -265,15 +330,68 @@ def test_traditional_cross_validation_saves_metrics_and_hyperparameters(tmp_path
         model_type=ModelType("Complete", "Explicit"),
     )
 
-    assert len(results["TinyTrad"]) == 2
+    assert len(results["LogReg"]) == 2
+    assert len(_FakeBayesSearchCV.instances) == 2
     assert len(model.calls) == 2
-    assert (tmp_path / "Results" / "Complete_Explicit" / "TinyTrad" / "fold_0" / "metrics.pkl").exists()
-    hyperparams_path = tmp_path / "Results" / "Complete_Explicit" / "TinyTrad" / "median_hyperparameters.json"
+    assert (tmp_path / "Results" / "Complete_Explicit" / "LogReg" / "fold_0" / "metrics.pkl").exists()
+    hyperparams_path = tmp_path / "Results" / "Complete_Explicit" / "LogReg" / "median_hyperparameters.json"
     assert hyperparams_path.exists()
     with open(hyperparams_path, "r", encoding="utf-8") as handle:
         hyperparams = json.load(handle)
-    assert hyperparams["best_params"] == {"C": 1.0}
-    assert hyperparams["selected_features"] == []
+    assert hyperparams["best_params"] == {
+        "penalty": "elasticnet",
+        "C": 1.5,
+        "solver": "saga",
+        "l1_ratio": 0.4,
+    }
+    assert isinstance(hyperparams["selected_features"], list)
+
+
+def test_traditional_cross_validation_runs_bayessearchcv_hpo(tmp_path, monkeypatch):
+    pipeline = FlexiblePipeline()
+    model = TinyTraditionalModel(name="LogReg")
+    _FakeBayesSearchCV.instances = []
+    monkeypatch.setattr("src.modes.cross_validation.BayesSearchCV", _FakeBayesSearchCV)
+
+    results = run_cross_validation(
+        FakeCVConfig(save_median_hyperparameters=True, hpo_config={"enabled": False}),
+        pipeline,
+        tmp_path,
+        [model],
+        num_splits=2,
+        results_root=tmp_path / "Results",
+        model_type=ModelType("Complete", "Explicit"),
+    )
+
+    assert len(results["LogReg"]) == 2
+    assert len(_FakeBayesSearchCV.instances) == 2
+    for instance in _FakeBayesSearchCV.instances:
+        assert instance.n_iter == 30
+        assert instance.cv == 3
+        assert instance.scoring == "f1"
+        assert instance.best_params_ == {
+            "penalty": "elasticnet",
+            "C": 1.5,
+            "solver": "saga",
+            "l1_ratio": 0.4,
+        }
+        if isinstance(instance.search_spaces, dict):
+            assert set(instance.search_spaces.keys()) == {"penalty", "C", "solver", "l1_ratio"}
+
+    assert len(model.calls) == 2
+    assert model.calls[0]["strategy"] == ModelInitStrategy.RETRAIN_WITH_CONFIG_PARAMS
+    assert model.calls[0]["best_params"] == {
+        "penalty": "elasticnet",
+        "C": 1.5,
+        "solver": "saga",
+        "l1_ratio": 0.4,
+    }
+    assert results["LogReg"][0]["best_params"] == {
+        "penalty": "elasticnet",
+        "C": 1.5,
+        "solver": "saga",
+        "l1_ratio": 0.4,
+    }
 
 
 @pytest.mark.parametrize("model_name", ["LogRegTS", "LSTM", "NAM", "TCN", "Trans"])

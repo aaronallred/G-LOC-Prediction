@@ -15,6 +15,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from sklearn.model_selection import train_test_split
 
+from skopt import BayesSearchCV
+from skopt.space import Categorical, Integer, Real
+
 from src.Data_Pipeline.data_pipeline import DataPipeline
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
@@ -26,6 +29,147 @@ logger = logging.getLogger(__name__)
 
 
 # Per-model HPO handled via model.hpo_defaults() and model.build_hpo_search_space()
+
+
+def _build_traditional_hpo_search_space(model_name: str) -> Any:
+    """Return the legacy BayesSearchCV search space for a traditional classifier."""
+    if Categorical is None or Integer is None or Real is None:
+        raise ImportError(
+            "BayesSearchCV support requires scikit-optimize (skopt) to be installed."
+        )
+
+    if model_name == "LogReg":
+        return {
+            "penalty": Categorical(["elasticnet"]),
+            "C": Real(0.01, 100, prior="log-uniform"),
+            "solver": Categorical(["saga"]),
+            "l1_ratio": Real(0.0, 1.0),
+        }
+
+    if model_name == "RF":
+        return {
+            "n_estimators": Integer(10, 1000),
+            "criterion": Categorical(["gini", "entropy", "log_loss"]),
+            "max_depth": Integer(3, 100),
+            "max_features": Categorical(["sqrt", "log2"]),
+            "min_samples_leaf": Integer(1, 4),
+            "min_samples_split": Integer(2, 10),
+            "min_weight_fraction_leaf": Real(0.0, 0.5),
+        }
+
+    if model_name == "LDA":
+        return [
+            {
+                "solver": Categorical(["svd"]),
+                "tol": Real(1e-10, 1e-2, prior="log-uniform"),
+            },
+            {
+                "solver": Categorical(["lsqr", "eigen"]),
+                "shrinkage": Categorical([0.1, 0.2, 0.4, 0.6, 0.8, 1, "auto"]),
+                "tol": Real(1e-10, 1e-2, prior="log-uniform"),
+            },
+        ]
+
+    if model_name == "KNN":
+        return {
+            "n_neighbors": Integer(3, 30),
+            "weights": Categorical(["uniform", "distance"]),
+            "algorithm": Categorical(["auto", "brute"]),
+            "metric": Categorical(["minkowski"]),
+            "p": Integer(1, 2),
+        }
+
+    if model_name == "SVM":
+        return [
+            {
+                "kernel": Categorical(["linear", "rbf", "sigmoid"]),
+                "C": Real(0.1, 1000, prior="log-uniform"),
+                "gamma": Categorical(["scale", 0.1, 0.01, 0.001, 0.0001]),
+                "tol": Real(1e-6, 1e-2, prior="log-uniform"),
+            },
+            {
+                "kernel": Categorical(["poly"]),
+                "C": Real(0.1, 1000, prior="log-uniform"),
+                "gamma": Categorical(["scale", 0.1, 0.01, 0.001]),
+                "degree": Integer(2, 5),
+                "tol": Real(1e-6, 1e-2, prior="log-uniform"),
+            },
+        ]
+
+    if model_name == "EGB":
+        return {
+            "n_estimators": Integer(50, 1000),
+            "learning_rate": Real(0.01, 1.0, prior="log-uniform"),
+            "max_depth": Integer(3, 20),
+            "max_features": Categorical(["sqrt", "log2", None]),
+            "min_samples_leaf": Integer(1, 4),
+            "min_samples_split": Integer(2, 4),
+            "loss": Categorical(["log_loss"]),
+            "min_weight_fraction_leaf": Real(0.0, 0.5),
+        }
+
+    raise ValueError(f"Unsupported traditional HPO classifier '{model_name}'.")
+
+
+def _build_traditional_hpo_estimator(
+    model: BaseModel,
+    random_seed: int,
+    class_weight: Optional[str],
+) -> Any:
+    """Build the unfitted estimator used by BayesSearchCV for traditional HPO."""
+    if not hasattr(model, "_build_sklearn_estimator"):
+        raise RuntimeError(
+            f"Model {model.get_name()} does not implement _build_sklearn_estimator()."
+        )
+
+    estimator_builder = getattr(model, "_build_sklearn_estimator")
+    return estimator_builder(
+        class_weight=class_weight,
+        random_state=random_seed,
+        params=None,
+    )
+
+
+def _run_traditional_model_hpo(
+    model: BaseModel,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    random_seed: int,
+    class_weight: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Run the legacy BayesSearchCV-based HPO flow for a traditional model."""
+    if BayesSearchCV is None:
+        raise ImportError(
+            "Traditional HPO requires scikit-optimize (skopt) to be installed."
+        )
+
+    model_name = model.get_name() if hasattr(model, "get_name") else str(model)
+    estimator = _build_traditional_hpo_estimator(model, random_seed, class_weight)
+    search_spaces = _build_traditional_hpo_search_space(model_name)
+
+    search = BayesSearchCV(
+        estimator=estimator,
+        search_spaces=search_spaces,
+        n_iter=30,
+        cv=3,
+        scoring="f1",
+        random_state=random_seed,
+        n_jobs=-1,
+        verbose=1,
+        error_score=np.nan,
+    )
+    search.fit(X_train, np.ravel(y_train))
+
+    best_params = dict(search.best_params_)
+    summary = {
+        "best_params": best_params,
+        "best_score": float(getattr(search, "best_score_", 0.0)),
+        "best_index": int(getattr(search, "best_index_", -1)),
+        "n_iter": 30,
+        "cv": 3,
+        "scoring": "f1",
+    }
+    return {"best_params": best_params, "summary": summary}
 
 
 def _is_hpo_supported_advanced_model(model: BaseModel) -> bool:
@@ -47,16 +191,13 @@ def _split_train_for_hpo(
     X_train: np.ndarray, y_train: np.ndarray, train_fraction: float, random_seed: int
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     stratify = y_train if len(np.unique(y_train)) > 1 else None
-    try:
-        X_subtrain, X_holdout, y_subtrain, y_holdout = train_test_split(
-            X_train,
-            y_train,
-            train_size=train_fraction,
-            random_state=random_seed,
-            stratify=stratify,
-        )
-    except ValueError:
-        X_subtrain, X_holdout, y_subtrain, y_holdout = X_train, X_train, y_train, y_train
+    X_subtrain, X_holdout, y_subtrain, y_holdout = train_test_split(
+        X_train,
+        y_train,
+        train_size=train_fraction,
+        random_state=random_seed,
+        stratify=stratify,
+    )
     return X_subtrain, X_holdout, y_subtrain, y_holdout
 
 
@@ -126,14 +267,9 @@ def _run_advanced_model_hpo(
             },
         }
 
-    try:
-        best_params = dict(study.best_params) if study.best_params else {}
-        best_trial_number = int(study.best_trial.number)
-        best_value = float(study.best_value)
-    except Exception:
-        best_params = {}
-        best_trial_number = -1
-        best_value = 0.0
+    best_params = dict(study.best_params) if study.best_params else {}
+    best_trial_number = int(study.best_trial.number)
+    best_value = float(study.best_value)
     summary = {
         "best_trial": best_trial_number,
         "best_value": best_value,
@@ -352,6 +488,16 @@ def _run_traditional_model_cv_fold(
         y, X, num_splits, kfold_id, random_state=random_seed
     )
 
+    hpo_result = _run_traditional_model_hpo(
+        model=model,
+        X_train=X_train,
+        y_train=y_train,
+        random_seed=random_seed,
+        class_weight=class_weight,
+    )
+    best_params = hpo_result["best_params"]
+    model.best_params = dict(best_params)
+
     # Call legacy classify_traditional interface
     # Legacy contract: returns (accuracy, precision, recall, f1, specificity, g_mean)
     # Signature: classify_traditional(x_train, x_test, y_train, y_test, class_weight_imb, 
@@ -366,8 +512,12 @@ def _run_traditional_model_cv_fold(
         random_state=random_seed,
         save_folder=None,
         model_name=None,
-        strategy=ModelInitStrategy.RETRAIN_WITH_DEFAULTS,
-        best_params=None,
+        strategy=(
+            ModelInitStrategy.RETRAIN_WITH_CONFIG_PARAMS
+            if best_params
+            else ModelInitStrategy.RETRAIN_WITH_DEFAULTS
+        ),
+        best_params=best_params or None,
     )
 
     # Parse legacy tuple - handle variable-length returns
@@ -402,7 +552,8 @@ def _run_traditional_model_cv_fold(
         metrics = result
 
     # Extract hyperparameters and build result
-    best_params = _extract_hyperparameters_from_model(model)
+    if not best_params:
+        best_params = _extract_hyperparameters_from_model(model)
     fold_result = _build_fold_result(
         kfold_id, metrics, len(X_train), len(X_test), selected_features, best_params
     )
@@ -518,8 +669,14 @@ def run_cross_validation(
                     # Get selected_features from config/cache
                     selected_features = _get_selected_features_for_model(config, model, model_type)
                     fold_result = _run_traditional_model_cv_fold(
-                        model, X, y, fold_idx, num_splits, random_seed, class_weight,
-                        selected_features=selected_features
+                        model,
+                        X,
+                        y,
+                        fold_idx,
+                        num_splits,
+                        random_seed,
+                        class_weight,
+                        selected_features=selected_features,
                     )
 
                 else:
