@@ -56,7 +56,6 @@ class DataPipeline:
         self._config_parser = config_parser
         self._random_seed: Optional[int] = None
         self._model_type: Optional["ModelType"] = None
-        self._mode: Optional[str] = None
 
     _SENSOR_STREAM_PATTERNS: dict[str, tuple[str, ...]] = {
         # Equivital streams
@@ -97,10 +96,6 @@ class DataPipeline:
             model_type: ModelType instance specifying AFE_filter and feature_set
         """
         self._model_type = model_type
-
-    def set_mode(self, mode: Optional[str]) -> None:
-        """Set the active experiment mode for pipeline routing."""
-        self._mode = mode
 
     def get_data(
             self,
@@ -159,9 +154,6 @@ class DataPipeline:
             request_kwargs["kfold_ID"] = kfold_id
             request_kwargs["n_neighbors"] = self._config_parser.get_n_neighbors()
             request_kwargs["baseline_window"] = self._config_parser.get_baseline_window()
-        elif self._mode == "cross_validation":
-            request_kwargs["model"] = model
-            request_kwargs["classifier_type"] = self._resolve_classifier_name(model)
         else:
             request_kwargs["classifier_type"] = self._resolve_classifier_name(model)
             request_kwargs["model"] = model
@@ -183,16 +175,8 @@ class DataPipeline:
         random_seed = self._random_seed if self._random_seed is not None else 0
         
         if pipeline_kind == "traditional":
-            if self._mode == "cross_validation":
-                logger.info("Selected traditional cross-validation data pipeline.")
-                return TraditionalDataPipelineCV(
-                    data_path=self._config_parser.get_data_path(),
-                    random_seed=random_seed,
-                    config_parser=self._config_parser,
-                )
-
-            logger.info("Selected traditional evaluation data pipeline.")
-            return TraditionalDataPipelineEvaluation(
+            logger.info("Selected traditional data pipeline based on model type.")
+            return TraditionalDataPipeline(
                 data_path=self._config_parser.get_data_path(),
                 random_seed=random_seed,
                 config_parser=self._config_parser
@@ -624,8 +608,9 @@ class BaseGLOCDataPipeline(ABC):
         processed_eeg_feature_names = ProcessedEEGGroup.get_separated_feature_names()
         all_afe_only_cols = raw_eeg_feature_names["AFE Only"] + processed_eeg_feature_names["AFE Only"]
         all_nonafe_only_cols = raw_eeg_feature_names["Non-AFE Only"] + processed_eeg_feature_names["Non-AFE Only"]
-        afe_only_cols = [col for col in all_afe_only_cols if col in gloc_data.columns]
-        nonafe_only_cols = [col for col in all_nonafe_only_cols if col in gloc_data.columns]
+        eeg_feature_set = set(features["EEG"])
+        afe_only_cols = [col for col in all_afe_only_cols if col in eeg_feature_set]
+        nonafe_only_cols = [col for col in all_nonafe_only_cols if col in eeg_feature_set]
 
         # Mean imputation processing
         if afe_only_cols:
@@ -1245,170 +1230,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
     
 
 
-class TraditionalDataPipelineCV(BaseGLOCDataPipeline):
-    """Legacy-compatible data pipeline for traditional cross-validation runs."""
-
-    def _resolve_traditional_cv_feature_groups_and_baselines(
-            self,
-            model_type: ModelType,
-    ) -> Tuple[List[str], List[str]]:
-        afe_filter = model_type.afe_filter.lower()
-        feature_set = model_type.feature_set.lower()
-
-        if afe_filter == "complete" and feature_set == "implicit":
-            feature_groups_to_analyze = ["ECG", "BR", "temp", "eyetracking", "rawEEG", "processedEEG"]
-            baseline_methods_to_use = ["v0", "v1", "v2", "v5", "v6"]
-        elif afe_filter == "complete" and feature_set == "explicit":
-            feature_groups_to_analyze = ["ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"]
-            baseline_methods_to_use = ["v0", "v1", "v2", "v5", "v6", "v7", "v8"]
-        elif afe_filter == "noafe" and feature_set == "implicit":
-            feature_groups_to_analyze = ["ECG", "BR", "temp", "eyetracking", "rawEEG", "processedEEG"]
-            baseline_methods_to_use = ["v0", "v1", "v2", "v5", "v6", "v7", "v8"]
-        else:
-            feature_groups_to_analyze = ["ECG", "BR", "temp", "eyetracking", "AFE", "G", "rawEEG", "processedEEG", "strain", "demographics"]
-            baseline_methods_to_use = ["v0", "v1", "v2", "v5", "v6", "v7", "v8"]
-
-        return feature_groups_to_analyze, baseline_methods_to_use
-
-    def get_data(
-            self,
-            model: BaseModel,
-            model_type: ModelType,
-            remove_NaN_trials: bool,
-            subject_to_analyze: Optional[str],
-            trial_to_analyze: Optional[str],
-            analysis_type: int,
-            output_feature_dtype: np.dtype = np.dtype(np.float32),
-            impute_file_name: Optional[str] = None,
-            should_impute: bool = True,
-            save_impute: bool = False,
-            load_impute: bool = False,
-            **_: Any,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Return the traditional CV x/y matrices using only native helpers."""
-        if model is None:
-            raise ValueError("model is required for traditional cross-validation data loading.")
-
-        hyperparameters = model.get_traditional_hyperparameters()
-        baseline_window = hyperparameters["baseline_window"]
-        window_size = hyperparameters["window_size"]
-        stride = hyperparameters["stride"]
-        impute_type = hyperparameters["impute_type"]
-        n_neighbors = hyperparameters["n_neighbors"]
-
-        feature_groups_to_analyze, baseline_methods_to_use = self._resolve_traditional_cv_feature_groups_and_baselines(model_type)
-        offset = float(self.config_parser.get_offset() or 0.0) if self.config_parser is not None else 0.0
-        time_start = float(self.config_parser.get_time_start() or 0.0) if self.config_parser is not None else 0.0
-
-        file_paths = self._get_data_locations()
-
-        gloc_data = self._load_data(file_paths, output_feature_dtype)
-        gloc_data = self._filter_data_by_analysis_type(analysis_type, gloc_data, subject_to_analyze, trial_to_analyze)
-        gloc_data, features = self._process_and_get_feature_names(
-            gloc_data,
-            feature_groups_to_analyze,
-            model_type,
-            file_paths,
-            output_feature_dtype,
-        )
-        gloc_labels = self._label_gloc_events(gloc_data)
-
-        if model_type.afe_filter == "noAFE":
-            gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
-
-        if model_type.afe_filter == "Complete":
-            gloc_data = self._eeg_specific_imputation(gloc_data, features)
-
-        if remove_NaN_trials:
-            gloc_data, gloc_labels, _nan_proportion_df = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
-        elif impute_type == 1:
-            gloc_data[features["All"]] = TraditionalDataPipelineEvaluation._faster_knn_impute(
-                self,
-                gloc_data[features["All"]].to_numpy(dtype=output_feature_dtype),
-                k=n_neighbors,
-            )
-
-        raw_gloc_labels = gloc_labels.copy()
-
-        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(
-            gloc_data,
-            gloc_labels,
-            features,
-            output_feature_dtype,
-        )
-
-        combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0 = self._get_combined_baseline_data(
-            gloc_data_all_features_numpy,
-            experiment_metadata,
-            baseline_window,
-            baseline_methods_to_use,
-            features,
-            file_paths,
-            model_type,
-        )
-
-        gloc_labels_numpy, x_feature_matrix, features["All"] = TraditionalDataPipelineEvaluation._feature_generation(
-            self,
-            time_start,
-            offset,
-            stride,
-            window_size,
-            combined_baseline,
-            gloc_labels_numpy,
-            experiment_metadata["trial_id"],
-            experiment_metadata["Time (s)"],
-            combined_baseline_names,
-            baseline_names_v0,
-            baseline_v0,
-            feature_groups_to_analyze,
-            output_feature_dtype,
-        )
-
-        x_feature_matrix, features["All"] = self._remove_constant_columns(x_feature_matrix, features["All"])
-
-        _, _, window_trials = TraditionalDataPipelineEvaluation._sliding_window_max(
-            self,
-            experiment_metadata["AFE_indicator"],
-            experiment_metadata["trial_id"],
-            experiment_metadata["Time (s)"],
-            raw_gloc_labels,
-            offset,
-            stride,
-            window_size,
-            time_start,
-        )
-
-        if model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit":
-            afe_indicator_column_windowed, _, _ = TraditionalDataPipelineEvaluation._sliding_window_max(
-                self,
-                experiment_metadata["AFE_indicator"],
-                experiment_metadata["trial_id"],
-                experiment_metadata["Time (s)"],
-                raw_gloc_labels,
-                offset,
-                stride,
-                window_size,
-                time_start,
-            )
-            x_feature_matrix = np.hstack([x_feature_matrix, afe_indicator_column_windowed])
-
-        if impute_type in (1, 2):
-            y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features, _removed_rows = self._process_NaN(
-                x_feature_matrix,
-                gloc_labels_numpy,
-                features["All"],
-                window_trials,
-            )
-        elif impute_type == 3:
-            y_gloc_labels_noNaN = gloc_labels_numpy
-            x_feature_matrix_noNaN = self._faster_knn_impute(x_feature_matrix, k=n_neighbors)
-        else:
-            y_gloc_labels_noNaN, x_feature_matrix_noNaN = gloc_labels_numpy, x_feature_matrix
-
-        return x_feature_matrix_noNaN, y_gloc_labels_noNaN
-
-
-class TraditionalDataPipelineEvaluation(BaseGLOCDataPipeline):
+class TraditionalDataPipeline(BaseGLOCDataPipeline):
     """Legacy-compatible data pipeline for temporal/traditional GLOC modeling."""
 
     def get_data(
@@ -2796,6 +2618,3 @@ class TraditionalDataPipelineEvaluation(BaseGLOCDataPipeline):
         )
 
         return x_feature_matrix, y_gloc_labels
-
-
-TraditionalDataPipeline = TraditionalDataPipelineEvaluation

@@ -84,17 +84,12 @@ def run(config_path: str | None = None) -> None:
     project_root = Path(__file__).resolve().parent.parent
     did_run_any_mode = False
 
-    def _build_pipeline(mode: str | None) -> DataPipeline:
-        pipeline = DataPipeline(config_parser = config_parser)
-        pipeline.set_mode(mode)
-        return pipeline
-
     mode_runners: list[tuple[bool, Callable[[], None]]] = [
         (
             config_parser.get_sensor_ablation_enabled(),
             lambda: run_sensor_ablation_training(
                 config_parser = config_parser,
-                pipeline = _build_pipeline("sensor_ablation"),
+                pipeline = DataPipeline(config_parser = config_parser),
                 project_root = project_root,
                 # Use the configured median_hyperparameters_folder via the config parser by
                 # passing None here; run_sensor_ablation_training will build a resolver.
@@ -135,7 +130,7 @@ def run(config_path: str | None = None) -> None:
             config_parser.get_cross_validation_enabled(),
             lambda: run_cross_validation(
                 config = config_parser,
-                pipeline = _build_pipeline("cross_validation"),
+                pipeline = DataPipeline(config_parser = config_parser),
                 results_root = project_root / config_parser.get_cross_validation_save_results_folder(),
                 models = config_parser.get_cross_validation_models(),
                 num_splits = config_parser.get_cross_validation_num_splits(),
