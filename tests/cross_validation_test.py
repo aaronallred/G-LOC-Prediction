@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import yaml
+from sklearn.datasets import make_classification
 
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
@@ -13,8 +14,10 @@ from src.modes.cross_validation import (
     _compute_metrics_from_predictions,
     _find_median_fold_idx,
     _is_traditional_model,
+    _run_traditional_smote_resampling,
     run_cross_validation,
 )
+from src.scripts import imbalance_techniques_traditional as legacy_imbalance
 
 
 class FakeCVConfig:
@@ -195,6 +198,106 @@ class _FakeBayesSearchCV:
             self.best_score_ = 0.91
             self.best_index_ = 2
         return self
+
+
+class _TrackingSMOTE:
+    calls = []
+
+    def __init__(self, random_state=None, k_neighbors=None):
+        self.random_state = random_state
+        self.k_neighbors = k_neighbors
+
+    def fit_resample(self, X, y):
+        X = np.asarray(X)
+        y = np.asarray(y)
+        _OrderTrackingBayesSearchCV.events.append("SMOTE.fit_resample")
+        _TrackingSMOTE.calls.append(
+            {
+                "random_state": self.random_state,
+                "k_neighbors": self.k_neighbors,
+                "x_shape": X.shape,
+                "y_shape": y.shape,
+            }
+        )
+        return np.vstack([X, X[:1]]), np.concatenate([y, y[:1]])
+
+
+class _OrderTrackingBayesSearchCV:
+    events = []
+
+    def __init__(self, estimator, search_spaces, n_iter, cv, scoring=None, random_state=None, n_jobs=None, verbose=0, error_score=None):
+        self.estimator = estimator
+        self.search_spaces = search_spaces
+        self.n_iter = n_iter
+        self.cv = cv
+        self.scoring = scoring
+        self.random_state = random_state
+        self.n_jobs = n_jobs
+        self.verbose = verbose
+        self.error_score = error_score
+        self.best_params_ = {}
+        self.best_score_ = 0.0
+        self.best_index_ = 0
+        self.best_estimator_ = estimator
+        self.fit_args = None
+        self.estimator_name = estimator.__class__.__name__
+
+    def fit(self, X, y):
+        self.fit_args = (np.asarray(X).shape, np.asarray(y).shape)
+        _OrderTrackingBayesSearchCV.events.append(f"{self.estimator_name}.fit")
+        if self.estimator_name == "Lasso":
+            self.best_params_ = {"alpha": 0.1}
+
+            class _BestLasso:
+                def __init__(self):
+                    self.coef_ = np.asarray([1.0, 0.0])
+
+            self.best_estimator_ = _BestLasso()
+            self.best_score_ = 0.83
+            self.best_index_ = 1
+        else:
+            self.best_params_ = {
+                "penalty": "elasticnet",
+                "C": 1.5,
+                "solver": "saga",
+                "l1_ratio": 0.4,
+            }
+            self.best_score_ = 0.91
+            self.best_index_ = 2
+        return self
+
+
+class _TraditionalSMOTEPipeline:
+    def __init__(self):
+        self.calls = []
+        X, y = make_classification(
+            n_samples=40,
+            n_features=6,
+            n_informative=4,
+            n_redundant=0,
+            n_clusters_per_class=1,
+            weights=[0.5, 0.5],
+            class_sep=1.25,
+            random_state=7,
+        )
+        self.X = X.astype(np.float32)
+        self.y = y.astype(int)
+
+    def set_random_seed(self, random_seed):
+        self.random_seed = random_seed
+
+    def set_model_type(self, model_type):
+        self.model_type = model_type
+
+    def get_data(self, model=None, kfold_id=None, **kwargs):
+        self.calls.append(
+            {
+                "model": getattr(model, "get_name", lambda: None)(),
+                "kfold_id": kfold_id,
+                "kwargs": dict(kwargs),
+            }
+        )
+        return self.X, self.y, [f"f{i}" for i in range(self.X.shape[1])]
 
 
 class TinyAdvancedModel:
@@ -433,6 +536,67 @@ def test_traditional_cross_validation_runs_fold_local_lasso_and_bayessearchcv_hp
         "l1_ratio": 0.4,
     }
     assert results["LogReg"][0]["selected_features"] == ["f1"]
+
+
+def test_traditional_smote_helper_matches_legacy_simple_smote():
+    X, y = make_classification(
+        n_samples=40,
+        n_features=6,
+        n_informative=4,
+        n_redundant=0,
+        n_clusters_per_class=1,
+        weights=[0.5, 0.5],
+        class_sep=1.25,
+        random_state=11,
+    )
+    X = X.astype(np.float32)
+    y = y.astype(int)
+
+    modern_x, modern_y = _run_traditional_smote_resampling(X, y, random_seed=42)
+    legacy_x, legacy_y = legacy_imbalance.simple_smote(X, y, random_state=42)
+
+    np.testing.assert_allclose(modern_x, legacy_x)
+    np.testing.assert_array_equal(modern_y, legacy_y)
+
+
+def test_traditional_cross_validation_applies_smote_before_classifier_fit(tmp_path, monkeypatch):
+    pipeline = _TraditionalSMOTEPipeline()
+    model = TinyTraditionalModel(name="LogReg")
+
+    _TrackingSMOTE.calls = []
+    _OrderTrackingBayesSearchCV.events = []
+
+    monkeypatch.setattr("src.modes.cross_validation.SMOTE", _TrackingSMOTE)
+    monkeypatch.setattr("src.modes.cross_validation.BayesSearchCV", _OrderTrackingBayesSearchCV)
+
+    results = run_cross_validation(
+        FakeCVConfig(save_median_hyperparameters=True, hpo_config={"enabled": False}),
+        pipeline,
+        tmp_path,
+        [model],
+        num_splits=2,
+        results_root=tmp_path / "Results",
+        model_type=ModelType("Complete", "Explicit"),
+        save_models=False,
+    )
+
+    assert len(results["LogReg"]) == 2
+    assert _TrackingSMOTE.calls == [
+        {"random_state": 42, "k_neighbors": 7, "x_shape": (20, 1), "y_shape": (20,)},
+        {"random_state": 42, "k_neighbors": 7, "x_shape": (20, 1), "y_shape": (20,)},
+    ]
+    assert _OrderTrackingBayesSearchCV.events == [
+        "Lasso.fit",
+        "SMOTE.fit_resample",
+        "_TinyEstimator.fit",
+        "Lasso.fit",
+        "SMOTE.fit_resample",
+        "_TinyEstimator.fit",
+    ]
+    assert len(model.calls) == 2
+    for call in model.calls:
+        assert call["x_train"].shape[0] == 21
+        assert call["x_test"].shape[1] == 1
 
 
 @pytest.mark.parametrize("model_name", ["LogRegTS", "LSTM", "NAM", "TCN", "Trans"])

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+from imblearn.over_sampling import SMOTE
 from sklearn.linear_model import Lasso
 from sklearn.model_selection import train_test_split
 
@@ -155,7 +156,7 @@ def _run_traditional_model_hpo(
     search = BayesSearchCV(
         estimator=estimator,
         search_spaces=search_spaces,
-        n_iter=30,
+        n_iter=3,
         cv=3,
         scoring="f1",
         random_state=random_seed,
@@ -199,7 +200,7 @@ def _run_traditional_lasso_feature_selection(
         estimator=Lasso(),
         search_spaces={"alpha": Real(1e-5, 100, prior="log-uniform")},
         cv=3,
-        n_iter=50,
+        n_iter=3,
         random_state=random_seed,
         # Run LASSO search serially in traditional folds to avoid extra process
         # memory that can lead to OOM when arrays are large.
@@ -216,6 +217,16 @@ def _run_traditional_lasso_feature_selection(
 
     selected_features = [feature_names[index] for index in selected_indices.tolist()]
     return X_train[:, selected_indices], X_test[:, selected_indices], selected_features
+
+
+def _run_traditional_smote_resampling(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    random_seed: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Run the legacy traditional SMOTE resampling step before model fitting."""
+    smote_model = SMOTE(random_state=random_seed, k_neighbors=7)
+    return smote_model.fit_resample(X_train, y_train)
 
 
 def _is_hpo_supported_advanced_model(model: BaseModel) -> bool:
@@ -545,11 +556,27 @@ def _run_traditional_model_cv_fold(
     if feature_names is None:
         feature_names = [f"feature_{index}" for index in range(X_train.shape[1])]
 
+    logger.info(
+        "Running traditional fold-local LASSO feature selection for fold %s on %s features",
+        kfold_id,
+        X_train.shape[1],
+    )
     X_train, X_test, selected_features = _run_traditional_lasso_feature_selection(
         X_train=X_train,
         X_test=X_test,
         y_train=y_train,
         feature_names=feature_names,
+        random_seed=random_seed,
+    )
+
+    logger.info(
+        "Running traditional SMOTE resampling for fold %s after LASSO reduced features to %s",
+        kfold_id,
+        len(selected_features),
+    )
+    X_train, y_train = _run_traditional_smote_resampling(
+        X_train=X_train,
+        y_train=y_train,
         random_seed=random_seed,
     )
 
