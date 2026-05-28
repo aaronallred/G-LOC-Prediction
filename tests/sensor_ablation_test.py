@@ -123,7 +123,7 @@ def _write_config(tmp_path: Path, review: bool = False, sort_streams_by_median: 
             "impute_file_name": "imputed.pkl",
             "save_impute": False,
             "load_impute": False,
-            "should_impute": True,
+            "impute_phase": "pre_feature",
             "output_feature_dtype": "float32",
         },
         "advanced_data_parameters": {"n_neighbors": 4, "baseline_window": 32.5},

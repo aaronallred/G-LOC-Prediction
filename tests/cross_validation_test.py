@@ -376,7 +376,7 @@ def test_cross_validation_parser_reads_mode_specific_models_and_hpo_config(tmp_p
                     "impute_file_name": "imputed.pkl",
                     "save_impute": False,
                     "load_impute": False,
-                    "should_impute": True,
+                    "impute_phase": "pre_feature",
                     "output_feature_dtype": "float32",
                 },
                 "advanced_data_parameters": {"n_neighbors": 4, "baseline_window": 32.5},

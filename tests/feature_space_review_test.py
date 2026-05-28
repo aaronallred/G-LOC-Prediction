@@ -110,7 +110,7 @@ def test_run_feature_space_review_delegates_configured_model_names(tmp_path):
                     "impute_file_name": "imputed.pkl",
                     "save_impute": False,
                     "load_impute": False,
-                    "should_impute": True,
+                    "impute_phase": "pre_feature",
                     "output_feature_dtype": "float32",
                 },
                 "advanced_data_parameters": {"n_neighbors": 4, "baseline_window": 32.5},

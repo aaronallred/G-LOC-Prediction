@@ -1,6 +1,7 @@
 import pytest
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
+from src.Data_Pipeline.imputation_config import ImputePhase
 from src.model_type import ModelType
 
 
@@ -38,8 +39,8 @@ class DummyConfigParser:
     def get_impute_file_name(self):
         return "imputed.pkl"
 
-    def get_should_impute(self):
-        return True
+    def get_impute_phase(self):
+        return ImputePhase.PRE_FEATURE
 
     def get_save_impute(self):
         return False
@@ -108,7 +109,7 @@ def test_get_data_for_advanced_model_forwards_fold_arguments(monkeypatch):
             "analysis_type": 2,
             "output_feature_dtype": "float32",
             "impute_file_name": "imputed.pkl",
-            "should_impute": True,
+            "impute_phase": ImputePhase.PRE_FEATURE,
             "save_impute": False,
             "load_impute": False,
             "kfold_ID": 3,
