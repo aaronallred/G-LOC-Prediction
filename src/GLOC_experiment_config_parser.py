@@ -5,6 +5,7 @@ import copy
 import yaml
 
 from src.model_type import ModelType
+from src.Data_Pipeline.imputation_config import ImputePhase
 from src.models.base import BaseModel
 from src.models.extreme_gradient_boosting import ExtremeGradientBoostingModel
 from src.models.k_nearest_neighbors import KNearestNeighborsModel
@@ -158,8 +159,18 @@ class GLOCExperimentConfigParser:
     def get_impute_file_name(self) -> Any:
         return self._get_nested("shared_data_parameters", "impute_file_name")
 
-    def get_should_impute(self) -> Any:
-        return self._get_nested("shared_data_parameters", "should_impute")
+    def get_impute_phase(self) -> ImputePhase:
+        """Get the imputation phase for data processing.
+
+        Returns an `ImputePhase` enum. Default: `pre_feature` when not set.
+        """
+        raw = self._get_nested("shared_data_parameters", "impute_phase")
+        if raw is None:
+            return ImputePhase.PRE_FEATURE
+        try:
+            return ImputePhase.parse(raw)
+        except Exception:
+            raise ValueError(f"Invalid shared_data_parameters.impute_phase: {raw}")
 
     def get_output_feature_dtype(self) -> Any:
         return self._get_nested("shared_data_parameters", "output_feature_dtype")

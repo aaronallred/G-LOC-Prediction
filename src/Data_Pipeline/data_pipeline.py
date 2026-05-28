@@ -9,7 +9,12 @@ import os
 import pickle
 import re
 
-import faiss
+try:
+    import faiss
+    FAISS_AVAILABLE = True
+except Exception:  # pragma: no cover - environment may not have faiss installed
+    faiss = None
+    FAISS_AVAILABLE = False
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
@@ -20,6 +25,7 @@ from src.Data_Pipeline.features import FEATURE_REGISTRY, RawEEGGroup, ProcessedE
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
 from src.models.base import BaseModel
+from src.Data_Pipeline.imputation_config import ImputePhase
 
 logger = logging.getLogger(__name__)
 # Keep path resolution behavior consistent with the original module location under src/.
@@ -142,7 +148,8 @@ class DataPipeline:
             "analysis_type": self._config_parser.get_analysis_type(),
             "output_feature_dtype": self._config_parser.get_output_feature_dtype(),
             "impute_file_name": self._config_parser.get_impute_file_name(),
-            "should_impute": self._config_parser.get_should_impute(),
+            # New preferred configuration: ImputePhase enum
+            "impute_phase": self._config_parser.get_impute_phase(),
             "save_impute": self._config_parser.get_save_impute(),
             "load_impute": self._config_parser.get_load_impute(),
         }
@@ -809,7 +816,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             output_feature_dtype: np.dtype = np.dtype(np.float32),
             subject_to_analyze: Optional[str] = None,
             trial_to_analyze: Optional[str] = None,
-            should_impute: bool = True,
+            impute_phase: Any = None,
             n_neighbors: int = 4,
             baseline_window: float = 32.5,
             analysis_type: int = 2,
@@ -828,7 +835,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             output_feature_dtype: Numpy dtype for output feature matrix (e.g., 'float32', 'float64')
             subject_to_analyze: Participant number for single-subject analysis
             trial_to_analyze: Trial number for single-trial analysis
-            should_impute: Whether to perform KNN imputation (True = KNN on raw data, False = no imputation)
+            impute_phase: Which phase to perform imputation in (enum: none, pre_feature, post_feature_remove_rows, post_feature_knn)
             n_neighbors: Number of KNN imputation neighbors
             baseline_window: Baseline window duration in seconds
             analysis_type: 2=all data, 1=one participant, 0=one trial
@@ -864,8 +871,29 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         #     gloc_data = self._eeg_specific_imputation(gloc_data, features)
 
         ############################################### MISSING DATA HANDLING ###############################################
-        logger.info("Handling missing data with should_impute=%s, n_neighbors=%d, remove_NaN_trials=%s", should_impute, n_neighbors, remove_NaN_trials)
-        # Optional handling of raw NaN data, depending on remove_NaN_trials and should_impute
+        # Normalize impute_phase and derive behavior flags (preserve backward compatibility where needed).
+        try:
+            if impute_phase is None:
+                impute_phase = self.config_parser.get_impute_phase()
+            else:
+                impute_phase = ImputePhase.parse(impute_phase)
+        except Exception:
+            impute_phase = ImputePhase.PRE_FEATURE
+
+        do_pre_feature_impute = impute_phase == ImputePhase.PRE_FEATURE
+        do_post_feature_remove_rows = impute_phase == ImputePhase.POST_FEATURE_REMOVE_ROWS
+        do_post_feature_knn = impute_phase == ImputePhase.POST_FEATURE_KNN
+
+        logger.info(
+            "Handling missing data with impute_phase=%s, pre_feature=%s, post_remove=%s, post_knn=%s, n_neighbors=%d, remove_NaN_trials=%s",
+            impute_phase.value,
+            do_pre_feature_impute,
+            do_post_feature_remove_rows,
+            do_post_feature_knn,
+            n_neighbors,
+            remove_NaN_trials,
+        )
+        # Optional handling of raw NaN data, depending on remove_NaN_trials and impute_phase
         if remove_NaN_trials:
             # This also returns a DataFrame with proportion of NaN values for each feature for each trial
             # Also modifies gloc_data and gloc_labels to remove trials with all NaNs in at least one feature
@@ -879,14 +907,31 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         )
 
         ################################################## Impute Missing ##################################################
-        logger.info("Imputing missing data with should_impute=%s, n_neighbors=%d, impute_file_name=%s, save_impute=%s, load_impute=%s", should_impute, n_neighbors, impute_file_name, save_impute, load_impute)
-        if should_impute:
+        logger.info(
+            "Imputing missing data (pre-feature) with pre_feature=%s, n_neighbors=%d, impute_file_name=%s, save_impute=%s, load_impute=%s",
+            do_pre_feature_impute,
+            n_neighbors,
+            impute_file_name,
+            save_impute,
+            load_impute,
+        )
+
+        if do_pre_feature_impute:
+            if not FAISS_AVAILABLE:
+                raise ImportError("FAISS is required for KNN imputation (impute_phase=pre_feature) but is not available in the environment.")
             gloc_data_all_features_imputed_numpy = self._impute_missing_data(
-                gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata,
-                impute_file_name, save_impute, load_impute, num_splits, kfold_ID, n_neighbors
+                gloc_data_all_features_numpy,
+                gloc_labels_numpy,
+                experiment_metadata,
+                impute_file_name,
+                save_impute,
+                load_impute,
+                num_splits,
+                kfold_ID,
+                n_neighbors,
             )
         else:
-            logger.info("Skipping KNN imputation as should_impute=False.")
+            logger.info("Skipping pre-feature KNN imputation.")
             gloc_data_all_features_imputed_numpy = gloc_data_all_features_numpy
 
         ################################################## BASELINE DATA ##################################################
@@ -905,7 +950,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         ############################################# FEATURE CLEAN AND PREP ##############################################
         logger.info("Cleaning and preparing features for model_type=%s", model_type)
         x_feature_matrix, y_gloc_labels, features["All"], experiment_metadata["trial_ints"] = self._feature_clean_and_prep(
-            x_feature_matrix, gloc_labels_numpy, features, experiment_metadata, model_type, should_impute
+            x_feature_matrix, gloc_labels_numpy, features, experiment_metadata, model_type, impute_phase
         )
 
         ################################################ TRAIN/TEST SPLIT  ################################################
@@ -913,6 +958,21 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         x_train, y_train, x_test, y_test = self._get_train_test_split(
             x_feature_matrix, y_gloc_labels, experiment_metadata, num_splits, kfold_ID
         )
+
+        # Post-feature KNN imputation (on the feature matrix) if requested
+        if do_post_feature_knn:
+            if not FAISS_AVAILABLE:
+                raise ImportError("FAISS is required for post-feature KNN imputation (impute_phase=post_feature_knn) but is not available in the environment.")
+            logger.info("Performing post-feature KNN imputation on feature matrix with n_neighbors=%d", n_neighbors)
+            # Preserve trial column while imputing features only
+            trial_col = x_feature_matrix[:, -1].copy()
+            X_feats = x_feature_matrix[:, :-1]
+            # Compute train/test indices for the fold
+            _, _, _, _, train_indices, test_indices = self._groupedtrial_kfold_split(
+                X_feats, y_gloc_labels, num_splits, kfold_ID, experiment_metadata
+            )
+            X_imputed = self._faster_knn_impute_train_test(X_feats, train_indices, test_indices, n_neighbors)
+            x_feature_matrix = np.hstack([X_imputed, trial_col.reshape(-1, 1)])
 
         return x_train, x_test, y_train, y_test, features["All"]
 
@@ -1129,9 +1189,14 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             features: Dict[str, List[str]],
             experiment_metadata: Dict[str, Any],
             model_type: ModelType,
-            should_impute: bool,
+            impute_phase: Any,
     ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
-        """Remove constant columns, optionally add AFE indicator, and remove NaN rows."""
+        """Remove constant columns, optionally add AFE indicator, and handle NaN rows according to `impute_phase`.
+
+        `impute_phase` controls whether to remove rows with NaNs after feature generation
+        (`POST_FEATURE_REMOVE_ROWS`) or leave them for post-feature imputation
+        (`POST_FEATURE_KNN`). When `PRE_FEATURE`, features should already be imputed.
+        """
         # CRITICAL: Extract trial_ints BEFORE removing constant columns,
         # otherwise the last column might be removed and we'll extract the wrong column
         trial_ints = x_feature_matrix[:, -1].copy()
@@ -1158,16 +1223,17 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         x_feature_matrix = np.hstack([x_features_without_trials, trial_ints.reshape(-1, 1)])
         all_features = feature_names_without_trials  # Don't include trial_ints in feature names
 
-        # List-wise deletion or clean any residual NaNs
-        if should_impute:
-            # Remove rows with NaN
+        # Handle residual NaNs according to impute_phase
+        if impute_phase == ImputePhase.POST_FEATURE_REMOVE_ROWS:
+            # Remove rows with NaN values (list-wise deletion)
             x_feature_matrix_noNaN, y_gloc_labels_noNaN, all_features, trials_noNaN = self._process_NaN(
                 x_feature_matrix,
                 gloc_labels_numpy,
                 all_features,
-                trial_ints
+                trial_ints,
             )
         else:
+            # For PRE_FEATURE (already imputed) or POST_FEATURE_KNN (impute later), retain rows
             x_feature_matrix_noNaN = x_feature_matrix
             y_gloc_labels_noNaN = gloc_labels_numpy
             trials_noNaN = trial_ints
@@ -1255,7 +1321,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             traditional_feature_selection: Literal["cache", "raw"] = "cache",
             return_feature_names: bool = False,
             impute_file_name: Optional[str] = None,
-            should_impute: bool = True,
+            impute_phase: Any = None,
             output_feature_dtype: np.dtype = np.dtype(np.float32),
             save_impute: bool = False,
             load_impute: bool = False,
@@ -1295,11 +1361,24 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
 
         ############################################### DATA CLEAN AND Some Imputation ###############################################
-        logger.info("Cleaning data and performing imputation with should_impute=%s, n_neighbors=%d", should_impute, n_neighbors)
+        # Normalize impute_phase and derive behavior flags (preserve backward compatibility where needed).
+        try:
+            if impute_phase is None:
+                impute_phase = self.config_parser.get_impute_phase()
+            else:
+                impute_phase = ImputePhase.parse(impute_phase)
+        except Exception:
+            impute_phase = ImputePhase.PRE_FEATURE
+
+        do_pre_feature_impute = impute_phase == ImputePhase.PRE_FEATURE
+        do_post_feature_remove_rows = impute_phase == ImputePhase.POST_FEATURE_REMOVE_ROWS
+        do_post_feature_knn = impute_phase == ImputePhase.POST_FEATURE_KNN
+
+        logger.info("Cleaning data and performing imputation with impute_phase=%s, pre_feature=%s, post_remove=%s, post_knn=%s, n_neighbors=%d", impute_phase.value, do_pre_feature_impute, do_post_feature_remove_rows, do_post_feature_knn, n_neighbors)
         if remove_NaN_trials:
             gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
 
-        if should_impute:
+        if do_pre_feature_impute:
             if impute_file_name is not None:
                 traditional_impute_path = self._resolve_traditional_impute_path(impute_file_name, classifier_type)
             else:
@@ -1310,6 +1389,8 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     imputed_features = pickle.load(f)
                 logger.info("Loaded traditional imputed data from %s.", traditional_impute_path)
             else:
+                if not FAISS_AVAILABLE:
+                    raise ImportError("FAISS is required for KNN imputation (impute_phase=pre_feature) but is not available in the environment.")
                 imputed_features = self._faster_knn_impute(
                     gloc_data[features["All"]].to_numpy(dtype=output_feature_dtype),
                     k=n_neighbors,
@@ -1405,6 +1486,14 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             )
 
         ################################################ NaN Processing ################################################
+        # Optionally perform post-feature KNN imputation on the reduced numpy matrix
+        if do_post_feature_knn:
+            if not FAISS_AVAILABLE:
+                raise ImportError("FAISS is required for post-feature KNN imputation (impute_phase=post_feature_knn) but is not available in the environment.")
+            logger.info("Performing post-feature KNN imputation on traditional feature matrix with n_neighbors=%d", n_neighbors)
+            # gloc_data_all_features_numpy is already a numpy array; impute missing values across entire dataset
+            gloc_data_all_features_numpy = self._faster_knn_impute(gloc_data_all_features_numpy, k=n_neighbors)
+
         logger.info("Processing NaN values temporally")
         gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], _removed_ind = self._process_NaN_temporal(
             gloc_labels_numpy,
