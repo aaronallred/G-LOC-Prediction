@@ -152,6 +152,29 @@ def test_get_data_for_traditional_model_applies_sensor_ablation(monkeypatch):
     ]
 
 
+def test_get_data_for_traditional_model_can_return_raw_features_without_cache_lookup(monkeypatch):
+    pipeline = DataPipeline(DummyConfigParser())
+    pipeline.set_model_type(ModelType("Complete", "Explicit"))
+
+    backend = CapturingBackend(("raw-ok", ["f1", "f2", "f3"]))
+    monkeypatch.setattr(pipeline, "_build_backend", lambda _model: backend)
+    monkeypatch.setattr(
+        pipeline,
+        "_resolve_select_features",
+        lambda _kwargs: pytest.fail("traditional CV should not read cached median hyperparameters"),
+    )
+
+    result = pipeline.get_data(
+        model=DummyModel(is_traditional=True, name="RF"),
+        traditional_feature_selection="raw",
+        return_feature_names=True,
+    )
+
+    assert result == ("raw-ok", ["f1", "f2", "f3"])
+    assert backend.calls[0]["classifier_type"] == "RF"
+    assert "select_features" not in backend.calls[0]
+
+
 def test_apply_sensor_ablation_rejects_unknown_stream():
     pipeline = DataPipeline(DummyConfigParser())
     with pytest.raises(ValueError, match="Unknown stream\\(s\\)"):

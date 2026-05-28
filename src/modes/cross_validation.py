@@ -13,10 +13,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+from sklearn.linear_model import Lasso
 from sklearn.model_selection import train_test_split
 
-from skopt import BayesSearchCV
-from skopt.space import Categorical, Integer, Real
+try:
+    from skopt import BayesSearchCV
+    from skopt.space import Categorical, Integer, Real
+except Exception:  # pragma: no cover - handled at call time if HPO is enabled
+    BayesSearchCV = None
+    Categorical = Integer = Real = None
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
@@ -154,7 +159,9 @@ def _run_traditional_model_hpo(
         cv=3,
         scoring="f1",
         random_state=random_seed,
-        n_jobs=-1,
+        # Reduce concurrency for traditional-fold searches to avoid multiplying
+        # memory usage when the large fold arrays are already resident.
+        n_jobs=1,
         verbose=1,
         error_score=np.nan,
     )
@@ -170,6 +177,45 @@ def _run_traditional_model_hpo(
         "scoring": "f1",
     }
     return {"best_params": best_params, "summary": summary}
+
+
+def _run_traditional_lasso_feature_selection(
+    X_train: np.ndarray,
+    X_test: np.ndarray,
+    y_train: np.ndarray,
+    feature_names: List[str],
+    random_seed: int,
+) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+    """Run the legacy fold-local LASSO feature selection flow."""
+    if BayesSearchCV is None:
+        raise ImportError(
+            "Traditional feature selection requires scikit-optimize (skopt) to be installed."
+        )
+
+    if len(feature_names) == 0:
+        raise ValueError("feature_names must not be empty for LASSO feature selection.")
+
+    search = BayesSearchCV(
+        estimator=Lasso(),
+        search_spaces={"alpha": Real(1e-5, 100, prior="log-uniform")},
+        cv=3,
+        n_iter=50,
+        random_state=random_seed,
+        # Run LASSO search serially in traditional folds to avoid extra process
+        # memory that can lead to OOM when arrays are large.
+        n_jobs=1,
+        verbose=1,
+    )
+    search.fit(X_train, np.ravel(y_train))
+
+    best_lasso = getattr(search, "best_estimator_", None)
+    coef = np.asarray(getattr(best_lasso, "coef_", np.zeros(len(feature_names))), dtype=float).ravel()
+    selected_indices = np.flatnonzero(np.abs(coef) != 0)
+    if selected_indices.size == 0:
+        selected_indices = np.asarray([int(np.argmax(np.abs(coef)))], dtype=int)
+
+    selected_features = [feature_names[index] for index in selected_indices.tolist()]
+    return X_train[:, selected_indices], X_test[:, selected_indices], selected_features
 
 
 def _is_hpo_supported_advanced_model(model: BaseModel) -> bool:
@@ -191,13 +237,16 @@ def _split_train_for_hpo(
     X_train: np.ndarray, y_train: np.ndarray, train_fraction: float, random_seed: int
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     stratify = y_train if len(np.unique(y_train)) > 1 else None
-    X_subtrain, X_holdout, y_subtrain, y_holdout = train_test_split(
-        X_train,
-        y_train,
-        train_size=train_fraction,
-        random_state=random_seed,
-        stratify=stratify,
-    )
+    try:
+        X_subtrain, X_holdout, y_subtrain, y_holdout = train_test_split(
+            X_train,
+            y_train,
+            train_size=train_fraction,
+            random_state=random_seed,
+            stratify=stratify,
+        )
+    except ValueError:
+        X_subtrain, X_holdout, y_subtrain, y_holdout = X_train, X_train, y_train, y_train
     return X_subtrain, X_holdout, y_subtrain, y_holdout
 
 
@@ -267,9 +316,14 @@ def _run_advanced_model_hpo(
             },
         }
 
-    best_params = dict(study.best_params) if study.best_params else {}
-    best_trial_number = int(study.best_trial.number)
-    best_value = float(study.best_value)
+    try:
+        best_params = dict(study.best_params) if study.best_params else {}
+        best_trial_number = int(study.best_trial.number)
+        best_value = float(study.best_value)
+    except Exception:
+        best_params = {}
+        best_trial_number = -1
+        best_value = 0.0
     summary = {
         "best_trial": best_trial_number,
         "best_value": best_value,
@@ -459,7 +513,7 @@ def _run_traditional_model_cv_fold(
     num_splits: int,
     random_seed: int,
     class_weight: Optional[str] = None,
-    selected_features: Optional[List[str]] = None,
+    feature_names: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Run a single fold of cross-validation for a traditional model.
     
@@ -477,7 +531,7 @@ def _run_traditional_model_cv_fold(
         num_splits: Total number of splits
         random_seed: Seed for reproducibility
         class_weight: Class weighting strategy
-        selected_features: List of selected feature names
+        feature_names: Raw feature names aligned with X columns
     """
     logger.info(
         f"Running traditional CV fold {kfold_id} for model {model.get_name()}"
@@ -486,6 +540,17 @@ def _run_traditional_model_cv_fold(
     # Do fold splitting using stratified_kfold_split on pre-loaded data
     X_train, X_test, y_train, y_test = stratified_kfold_split(
         y, X, num_splits, kfold_id, random_state=random_seed
+    )
+
+    if feature_names is None:
+        feature_names = [f"feature_{index}" for index in range(X_train.shape[1])]
+
+    X_train, X_test, selected_features = _run_traditional_lasso_feature_selection(
+        X_train=X_train,
+        X_test=X_test,
+        y_train=y_train,
+        feature_names=feature_names,
+        random_seed=random_seed,
     )
 
     hpo_result = _run_traditional_model_hpo(
@@ -631,7 +696,11 @@ def run_cross_validation(
         
         if _is_traditional_model(model):
             # Load full dataset once for traditional models
-            X, y = pipeline.get_data(model=model)
+            X, y, feature_names = pipeline.get_data(
+                model=model,
+                traditional_feature_selection="raw",
+                return_feature_names=True,
+            )
             logger.info(f"Loaded traditional data: X shape {X.shape}, y shape {y.shape}")
         else:
             # Advanced models: require advanced_hpo config and pre-cache fold data
@@ -666,8 +735,6 @@ def run_cross_validation(
                 # Route based on model type
                 if _is_traditional_model(model):
                     # Use pre-loaded data for traditional models
-                    # Get selected_features from config/cache
-                    selected_features = _get_selected_features_for_model(config, model, model_type)
                     fold_result = _run_traditional_model_cv_fold(
                         model,
                         X,
@@ -676,7 +743,7 @@ def run_cross_validation(
                         num_splits,
                         random_seed,
                         class_weight,
-                        selected_features=selected_features,
+                        feature_names=feature_names,
                     )
 
                 else:

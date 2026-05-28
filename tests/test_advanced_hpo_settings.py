@@ -127,10 +127,16 @@ class MockPipeline:
     def set_model_type(self, model_type):
         pass
 
-    def get_data(self, model=None, kfold_id: int = 0, num_splits: int = None):
+    def get_data(self, model=None, kfold_id: int = 0, num_splits: int = None, **kwargs):
         idx = np.arange(self.n_samples)
         val_mask = (idx % self.num_splits) == kfold_id
         train_mask = ~val_mask
+        if kwargs.get("traditional_feature_selection") == "raw" or kwargs.get("return_feature_names"):
+            return (
+                self.X[train_mask],
+                self.y[train_mask],
+                [f"f{i}" for i in range(self.n_features)],
+            )
         return (
             self.X[train_mask],
             self.X[val_mask],
@@ -161,11 +167,10 @@ class TestAdvancedHPOSettingsRequired:
             )
 
     def test_advanced_hpo_not_required_for_traditional_models(self):
-        """Verify that traditional models don't require advanced_hpo."""
+        """Verify that traditional models do not consult advanced_hpo settings."""
         config = MockConfig(has_advanced_hpo=False)
         pipeline = MockPipeline()
-        
-        # Create a traditional model using the mock
+
         class TraditionalModel:
             def __init__(self, name="KNN"):
                 self._name = name
@@ -196,21 +201,45 @@ class TestAdvancedHPOSettingsRequired:
 
         traditional_model = TraditionalModel("KNN")
 
-        # Should not raise even though has_advanced_hpo=False
-        try:
+        config.get_advanced_hpo_settings = Mock(
+            side_effect=AssertionError(
+                "traditional CV should not request advanced_hpo settings"
+            )
+        )
+
+        fake_fold_result = {
+            "fold": 0,
+            "metrics": {
+                "accuracy": 0.9,
+                "precision": 0.8,
+                "recall": 0.7,
+                "f1": 0.6,
+                "specificity": 0.5,
+                "g_mean": 0.4,
+            },
+            "n_train": 80,
+            "n_val": 40,
+            "best_params": {"C": 1.0},
+        }
+
+        with patch(
+            "src.modes.cross_validation._run_traditional_model_cv_fold",
+            return_value=fake_fold_result,
+        ) as fold_runner:
             result = run_cross_validation(
                 config=config,
                 pipeline=pipeline,
                 models=[traditional_model],
                 num_splits=2,
                 random_seed=42,
+                save_models=False,
                 results_root=Path("/tmp/test"),
                 model_type=ModelType("Complete", "Explicit"),
             )
-            # Should complete without error (though may not produce results)
-        except ValueError as e:
-            if "advanced_hpo" in str(e):
-                pytest.fail("Traditional models should not require advanced_hpo")
+
+        assert not config.get_advanced_hpo_settings.called
+        assert fold_runner.call_count == 2
+        assert "KNN" in result
 
 
 class TestAdvancedHPOParameterInjection:

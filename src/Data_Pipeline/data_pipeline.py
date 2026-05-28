@@ -103,6 +103,8 @@ class DataPipeline:
             kfold_id: Optional[int] = None,
             num_splits: Optional[int] = None,
             feature_streams: Optional[List[str]] = None,
+            traditional_feature_selection: Literal["cache", "raw"] = "cache",
+            return_feature_names: bool = False,
     ) -> Any:
         """Execute the selected backend data pipeline.
 
@@ -157,9 +159,12 @@ class DataPipeline:
         else:
             request_kwargs["classifier_type"] = self._resolve_classifier_name(model)
             request_kwargs["model"] = model
-            selected_features = self._resolve_select_features(request_kwargs)
-            selected_features = self._apply_sensor_ablation(selected_features, feature_streams)
-            request_kwargs["select_features"] = selected_features
+            request_kwargs["traditional_feature_selection"] = traditional_feature_selection
+            request_kwargs["return_feature_names"] = return_feature_names
+            if traditional_feature_selection == "cache":
+                selected_features = self._resolve_select_features(request_kwargs)
+                selected_features = self._apply_sensor_ablation(selected_features, feature_streams)
+                request_kwargs["select_features"] = selected_features
             request_kwargs["backstep"] = self._config_parser.get_backstep()
             request_kwargs["data_rate"] = self._config_parser.get_data_rate()
             request_kwargs["offset"] = self._config_parser.get_offset()
@@ -1239,13 +1244,16 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             data_rate: int,
             classifier_type: str,
             model_type: ModelType,
-            select_features: List[str],
             remove_NaN_trials: bool,
             offset: float,
             time_start: float,
             subject_to_analyze: Optional[str],
             trial_to_analyze: Optional[str],
             analysis_type: int,
+            *,
+            select_features: Optional[List[str]] = None,
+            traditional_feature_selection: Literal["cache", "raw"] = "cache",
+            return_feature_names: bool = False,
             impute_file_name: Optional[str] = None,
             should_impute: bool = True,
             output_feature_dtype: np.dtype = np.dtype(np.float32),
@@ -1375,17 +1383,23 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             gloc_data_all_features_numpy = np.hstack([gloc_data_all_features_numpy, experiment_metadata["AFE_indicator_windowed"]])
             features["All"].append("AFE_indicator_windowed")
 
-        # Backward compatibility: legacy feature lists may still reference "condition".
-        translated_select_features = [
-            feature_name.replace("condition", "AFE_indicator") for feature_name in select_features
-        ]
+        if traditional_feature_selection == "cache":
+            if select_features is None:
+                raise ValueError("select_features is required when traditional_feature_selection='cache'.")
 
-        # Select columns by index to avoid an expensive full DataFrame materialization.
-        feature_index = {feature_name: i for i, feature_name in enumerate(features["All"])}
-        selected_indices = [feature_index[feature_name] for feature_name in translated_select_features]
-        gloc_data_all_features_numpy = gloc_data_all_features_numpy[:, selected_indices]
+            # Backward compatibility: legacy feature lists may still reference "condition".
+            translated_select_features = [
+                feature_name.replace("condition", "AFE_indicator") for feature_name in select_features
+            ]
 
-        gloc_data_all_features_numpy, select_features = self._remove_constant_columns(gloc_data_all_features_numpy, translated_select_features)
+            # Select columns by index to avoid an expensive full DataFrame materialization.
+            feature_index = {feature_name: i for i, feature_name in enumerate(features["All"])}
+            selected_indices = [feature_index[feature_name] for feature_name in translated_select_features]
+            gloc_data_all_features_numpy = gloc_data_all_features_numpy[:, selected_indices]
+
+            gloc_data_all_features_numpy, select_features = self._remove_constant_columns(gloc_data_all_features_numpy, translated_select_features)
+        else:
+            select_features = list(features["All"])
 
         ################################################ NaN Processing ################################################
         logger.info("Processing NaN values temporally")
@@ -1398,6 +1412,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         ################################################ Get Outputs Ready ############################################
         logger.info("Finalizing outputs and ensuring legacy compatibility in dtypes and shapes.")
         gloc_data_all_features_numpy, gloc_labels_numpy = self._ready_outputs(gloc_data_all_features_numpy, gloc_labels_numpy)
+
+        if return_feature_names:
+            return gloc_data_all_features_numpy, gloc_labels_numpy, select_features
 
         return gloc_data_all_features_numpy, gloc_labels_numpy
     

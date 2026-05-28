@@ -63,10 +63,18 @@ class FlexiblePipeline:
         self.model_type = model_type
 
     def get_data(self, model=None, kfold_id=None, **kwargs):
-        self.calls.append({"model": getattr(model, "get_name", lambda: None)(), "kfold_id": kfold_id})
+        self.calls.append(
+            {
+                "model": getattr(model, "get_name", lambda: None)(),
+                "kfold_id": kfold_id,
+                "kwargs": dict(kwargs),
+            }
+        )
         if kfold_id is None:
             X = np.asarray([[0.0, 1.0], [1.0, 0.0], [0.5, 0.5], [1.0, 1.0]])
             y = np.asarray([0, 1, 0, 1])
+            if kwargs.get("return_feature_names"):
+                return X, y, ["f1", "f2"]
             return X, y
 
         X_train = np.asarray(
@@ -142,11 +150,11 @@ class _FakeBayesSearchCV:
         search_spaces,
         n_iter,
         cv,
-        scoring,
-        random_state,
-        n_jobs,
-        verbose,
-        error_score,
+        scoring=None,
+        random_state=None,
+        n_jobs=None,
+        verbose=0,
+        error_score=None,
     ):
         self.estimator = estimator
         self.search_spaces = search_spaces
@@ -162,18 +170,30 @@ class _FakeBayesSearchCV:
         self.best_index_ = 0
         self.best_estimator_ = estimator
         self.fit_args = None
+        self.estimator_name = estimator.__class__.__name__
         _FakeBayesSearchCV.instances.append(self)
 
     def fit(self, X, y):
         self.fit_args = (np.asarray(X).shape, np.asarray(y).shape)
-        self.best_params_ = {
-            "penalty": "elasticnet",
-            "C": 1.5,
-            "solver": "saga",
-            "l1_ratio": 0.4,
-        }
-        self.best_score_ = 0.91
-        self.best_index_ = 2
+        if self.estimator_name == "Lasso":
+            self.best_params_ = {"alpha": 0.1}
+
+            class _BestLasso:
+                def __init__(self):
+                    self.coef_ = np.asarray([1.0, 0.0])
+
+            self.best_estimator_ = _BestLasso()
+            self.best_score_ = 0.83
+            self.best_index_ = 1
+        else:
+            self.best_params_ = {
+                "penalty": "elasticnet",
+                "C": 1.5,
+                "solver": "saga",
+                "l1_ratio": 0.4,
+            }
+            self.best_score_ = 0.91
+            self.best_index_ = 2
         return self
 
 
@@ -331,7 +351,7 @@ def test_traditional_cross_validation_saves_metrics_and_hyperparameters(tmp_path
     )
 
     assert len(results["LogReg"]) == 2
-    assert len(_FakeBayesSearchCV.instances) == 2
+    assert len(_FakeBayesSearchCV.instances) == 4
     assert len(model.calls) == 2
     assert (tmp_path / "Results" / "Complete_Explicit" / "LogReg" / "fold_0" / "metrics.pkl").exists()
     hyperparams_path = tmp_path / "Results" / "Complete_Explicit" / "LogReg" / "median_hyperparameters.json"
@@ -344,10 +364,12 @@ def test_traditional_cross_validation_saves_metrics_and_hyperparameters(tmp_path
         "solver": "saga",
         "l1_ratio": 0.4,
     }
-    assert isinstance(hyperparams["selected_features"], list)
+    assert hyperparams["selected_features"] == ["f1"]
+    assert pipeline.calls[0]["kwargs"]["traditional_feature_selection"] == "raw"
+    assert pipeline.calls[0]["kwargs"]["return_feature_names"] is True
 
 
-def test_traditional_cross_validation_runs_bayessearchcv_hpo(tmp_path, monkeypatch):
+def test_traditional_cross_validation_runs_fold_local_lasso_and_bayessearchcv_hpo(tmp_path, monkeypatch):
     pipeline = FlexiblePipeline()
     model = TinyTraditionalModel(name="LogReg")
     _FakeBayesSearchCV.instances = []
@@ -364,8 +386,22 @@ def test_traditional_cross_validation_runs_bayessearchcv_hpo(tmp_path, monkeypat
     )
 
     assert len(results["LogReg"]) == 2
-    assert len(_FakeBayesSearchCV.instances) == 2
-    for instance in _FakeBayesSearchCV.instances:
+    assert len(_FakeBayesSearchCV.instances) == 4
+    lasso_instances = [instance for instance in _FakeBayesSearchCV.instances if instance.estimator_name == "Lasso"]
+    classifier_instances = [instance for instance in _FakeBayesSearchCV.instances if instance.estimator_name != "Lasso"]
+
+    assert len(lasso_instances) == 2
+    assert len(classifier_instances) == 2
+
+    for instance in lasso_instances:
+        assert instance.n_iter == 50
+        assert instance.cv == 3
+        assert instance.scoring is None
+        assert instance.fit_args == ((2, 2), (2,))
+        # Ensure we limited parallelism for memory safety in traditional folds
+        assert instance.n_jobs == 1
+
+    for instance in classifier_instances:
         assert instance.n_iter == 30
         assert instance.cv == 3
         assert instance.scoring == "f1"
@@ -375,6 +411,8 @@ def test_traditional_cross_validation_runs_bayessearchcv_hpo(tmp_path, monkeypat
             "solver": "saga",
             "l1_ratio": 0.4,
         }
+        # Traditional classifier HPO should also run with constrained workers
+        assert instance.n_jobs == 1
         if isinstance(instance.search_spaces, dict):
             assert set(instance.search_spaces.keys()) == {"penalty", "C", "solver", "l1_ratio"}
 
@@ -386,12 +424,15 @@ def test_traditional_cross_validation_runs_bayessearchcv_hpo(tmp_path, monkeypat
         "solver": "saga",
         "l1_ratio": 0.4,
     }
+    assert model.calls[0]["x_train"].shape[1] == 1
+    assert model.calls[0]["x_test"].shape[1] == 1
     assert results["LogReg"][0]["best_params"] == {
         "penalty": "elasticnet",
         "C": 1.5,
         "solver": "saga",
         "l1_ratio": 0.4,
     }
+    assert results["LogReg"][0]["selected_features"] == ["f1"]
 
 
 @pytest.mark.parametrize("model_name", ["LogRegTS", "LSTM", "NAM", "TCN", "Trans"])
