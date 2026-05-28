@@ -1399,7 +1399,10 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
             gloc_data_all_features_numpy, select_features = self._remove_constant_columns(gloc_data_all_features_numpy, translated_select_features)
         else:
-            select_features = list(features["All"])
+            gloc_data_all_features_numpy, select_features = self._remove_constant_columns(
+                gloc_data_all_features_numpy,
+                list(features["All"]),
+            )
 
         ################################################ NaN Processing ################################################
         logger.info("Processing NaN values temporally")
