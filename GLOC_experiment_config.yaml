@@ -7,7 +7,7 @@ shared_data_parameters:
   impute_file_name: imputed_data.pkl
   save_impute: false
   load_impute: false
-  should_impute: true
+  impute_phase: pre_feature
   output_feature_dtype: float32
 advanced_data_parameters:
   n_neighbors: 4

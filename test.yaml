@@ -7,7 +7,7 @@ shared_data_parameters:
   impute_file_name: imputed_data.pkl
   save_impute: false
   load_impute: false
-  should_impute: true
+  impute_phase: pre_feature
 advanced_data_parameters:
   n_neighbors: 4
   baseline_window: 32.5
@@ -47,7 +47,7 @@ feature_space_review:
 cross_validation:
   enabled: true
   # Mode-specific parameters
-  models: [KNN, Trans, LSTM]
+  models: [KNN]
   model_type: [Complete, Explicit]
   random_seed: 42
   num_splits: 2
@@ -61,4 +61,4 @@ cross_validation:
     use_sampler: true            # bool: whether to use a sampler for class imbalance during training
     final_early_stop: false      # bool: whether final training should use early stopping
     objective_var: F1            # string: 'F1' or 'Acc' (case-insensitive)
-    trials: 100                  # int: number of Optuna trials
+    trials: 10                  # int: number of Optuna trials

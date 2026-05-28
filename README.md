@@ -153,15 +153,15 @@ save_impute: false  # Don't save imputation cache
 load_impute: false  # Don't load imputation cache
 ```
 
-#### `should_impute`
+#### `impute_phase`
 
-**Purpose**: Whether to perform KNN imputation on missing values.
+**Purpose**: Control when imputation is performed. This replaces the legacy boolean flag with an explicit phase selector.
 
-**Available inputs**: `true` or `false`
+**Available inputs**: `none`, `pre_feature`, `post_feature_remove_rows`, `post_feature_knn`
 
 **Example**:
 ```yaml
-should_impute: true  # Perform KNN imputation
+impute_phase: pre_feature  # Perform KNN imputation on raw data before feature extraction
 ```
 
 #### `output_feature_dtype`
@@ -634,7 +634,7 @@ shared_data_parameters:
   impute_file_name: imputed_data.pkl
   save_impute: false
   load_impute: false
-  should_impute: true
+  impute_phase: pre_feature
   output_feature_dtype: float32
 
 advanced_data_parameters:
