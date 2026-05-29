@@ -161,7 +161,12 @@ def run_sensor_ablation_training(
         def _default_hyperparameter_loader(model_name: str, model_type_name: str):
             import json
 
-            json_path = Path(median_folder) / model_type_name / f"median_hyperparameters_{model_name}.json"
+            json_path = (
+                Path(median_folder)
+                / model_type_name
+                / model_name
+                / "median_hyperparameters.json"
+            )
             if not json_path.exists():
                 raise FileNotFoundError(
                     f"Median hyperparameters file not found for model '{model_name}' at {json_path}"

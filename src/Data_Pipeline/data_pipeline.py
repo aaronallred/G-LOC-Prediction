@@ -219,10 +219,14 @@ class DataPipeline:
     def _resolve_select_features(self, current_kwargs: dict[str, Any]) -> list[str]:
         """Load selected feature names from the median-hyperparameter cache."""
 
-        # Function to load in median hyperparameters from a simple JSON
-        BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+        median_hyperparameters_root = self._config_parser.get_sensor_ablation_median_hyperparameters_folder()
         model_type_string = f"{current_kwargs['model_type'].afe_filter}_{current_kwargs['model_type'].feature_set}"
-        json_path = os.path.join(BASE_DIR, 'ModelSave', 'CV', model_type_string, f'median_hyperparameters_{current_kwargs["classifier_type"]}.json')
+        json_path = os.path.join(
+            median_hyperparameters_root,
+            model_type_string,
+            current_kwargs["classifier_type"],
+            "median_hyperparameters.json",
+        )
 
         with open(json_path, 'r') as f:
             data = json.load(f)

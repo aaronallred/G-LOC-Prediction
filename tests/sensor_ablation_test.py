@@ -325,10 +325,10 @@ def test_run_sensor_ablation_training_uses_parser_median_folder(tmp_path):
     # Prepare a temporary median hyperparameters folder and JSON for TinyKNN
     model_type_folder = "Complete_Explicit"
     median_base = tmp_path / "ModelSave" / "CV"
-    target_folder = median_base / model_type_folder
+    target_folder = median_base / model_type_folder / "TinyKNN"
     target_folder.mkdir(parents=True, exist_ok=True)
 
-    median_file = target_folder / "median_hyperparameters_TinyKNN.json"
+    median_file = target_folder / "median_hyperparameters.json"
     median_file.write_text(
         '{"best_params": {"k": 5}, "selected_features": [], "fold_id": 0, "f1_score": 0.5}',
         encoding="utf-8",

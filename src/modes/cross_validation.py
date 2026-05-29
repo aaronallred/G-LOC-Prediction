@@ -156,7 +156,7 @@ def _run_traditional_model_hpo(
     search = BayesSearchCV(
         estimator=estimator,
         search_spaces=search_spaces,
-        n_iter=30,
+        n_iter=3,
         cv=3,
         scoring="f1",
         random_state=random_seed,
@@ -200,7 +200,7 @@ def _run_traditional_lasso_feature_selection(
         estimator=Lasso(),
         search_spaces={"alpha": Real(1e-5, 100, prior="log-uniform")},
         cv=3,
-        n_iter=50,
+        n_iter=3,
         random_state=random_seed,
         # Run LASSO search serially in traditional folds to avoid extra process
         # memory that can lead to OOM when arrays are large.
