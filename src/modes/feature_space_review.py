@@ -1,4 +1,30 @@
+import json
 from typing import Callable
+
+from pathlib import Path
+
+
+def _build_default_hyperparameter_loader(config_parser) -> Callable[[str, str], tuple]:
+    """Create a loader that reads median hyperparameters from the configured results root."""
+    median_hyperparameters_root = Path(config_parser.get_sensor_ablation_median_hyperparameters_folder())
+
+    def _load_hyperparameters(classifier: str, model_type_name: str):
+        json_path = median_hyperparameters_root / model_type_name / classifier / "median_hyperparameters.json"
+        if not json_path.exists():
+            raise FileNotFoundError(
+                f"Median hyperparameters file not found for classifier '{classifier}' at {json_path}"
+            )
+
+        with open(json_path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+
+        best_params = data.get("best_params", {})
+        selected_features = data.get("selected_features", [])
+        fold_id = data.get("fold_id", None)
+        score = data.get("f1_score", None)
+        return best_params, selected_features, fold_id, score
+
+    return _load_hyperparameters
 
 
 def investigate_feature_space(
@@ -69,7 +95,7 @@ def investigate_feature_space(
 def run_feature_space_review(
     config_parser,
     investigate_feature_space_fn: Callable,
-    get_hyperparameters_from_json_fn: Callable,
+    get_hyperparameters_from_json_fn: Callable | None,
     venn2_fn,
     venn3_fn,
     from_contents_fn,
@@ -79,6 +105,9 @@ def run_feature_space_review(
     model_type = config_parser.get_feature_space_review_model_type()
     models = config_parser.get_feature_space_review_models()
     classifiers = [model.get_name() for model in models]
+
+    if get_hyperparameters_from_json_fn is None:
+        get_hyperparameters_from_json_fn = _build_default_hyperparameter_loader(config_parser)
 
     if len(classifiers) == 0:
         raise ValueError("feature_space_review.models must be a non-empty list when enabled.")

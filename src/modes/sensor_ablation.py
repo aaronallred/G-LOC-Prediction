@@ -1,4 +1,5 @@
 import logging
+import json
 import pickle
 from pathlib import Path
 from typing import Callable, Mapping
@@ -7,6 +8,29 @@ import numpy as np
 from numpy import ravel
 
 from src.models.base import ModelInitStrategy
+
+
+def _build_default_hyperparameter_loader(config_parser) -> Callable[[str, str], tuple]:
+    """Create a loader that reads median hyperparameters from the sensor ablation config."""
+    median_hyperparameters_root = Path(config_parser.get_sensor_ablation_median_hyperparameters_folder())
+
+    def _load_hyperparameters(model_name: str, model_type_name: str):
+        json_path = median_hyperparameters_root / model_type_name / model_name / "median_hyperparameters.json"
+        if not json_path.exists():
+            raise FileNotFoundError(
+                f"Median hyperparameters file not found for model '{model_name}' at {json_path}"
+            )
+
+        with open(json_path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+
+        best_params = data.get("best_params", {})
+        selected_features = data.get("selected_features", [])
+        fold_id = data.get("fold_id", None)
+        score = data.get("f1_score", None)
+        return best_params, selected_features, fold_id, score
+
+    return _load_hyperparameters
 
 
 def extract_f1_score(metrics_tuple: tuple) -> float:
@@ -147,40 +171,9 @@ def run_sensor_ablation_training(
     extract_f1_score_fn: Callable[[tuple], float] = extract_f1_score,
     save_model_stream_f1_scores_fn: Callable[..., Path] = save_model_stream_f1_scores,
 ) -> None:
-    """Run sensor ablation training across configured stream groups.
-
-    If get_hyperparameters_from_json_fn is provided it will be used as-is. If it is None,
-    the function requires the configuration key sensor_ablation.training.median_hyperparameters_folder
-    to be present and will build a default resolver that reads median JSON files from that folder.
-    """
-    # If caller provided a hyperparameter resolver, use it; otherwise require config key and build one
+    """Run sensor ablation training across configured stream groups."""
     if get_hyperparameters_from_json_fn is None:
-        # This will raise ValueError if the key is missing per parser contract
-        median_folder = config_parser.get_sensor_ablation_median_hyperparameters_folder()
-
-        def _default_hyperparameter_loader(model_name: str, model_type_name: str):
-            import json
-
-            json_path = (
-                Path(median_folder)
-                / model_type_name
-                / model_name
-                / "median_hyperparameters.json"
-            )
-            if not json_path.exists():
-                raise FileNotFoundError(
-                    f"Median hyperparameters file not found for model '{model_name}' at {json_path}"
-                )
-            with open(json_path, "r", encoding="utf-8") as handle:
-                data = json.load(handle)
-
-            best_params = data.get("best_params", {})
-            selected_features = data.get("selected_features", [])
-            fold_id = data.get("fold_id", None)
-            score = data.get("f1_score", None)
-            return best_params, selected_features, fold_id, score
-
-        get_hyperparameters_from_json_fn = _default_hyperparameter_loader
+        get_hyperparameters_from_json_fn = _build_default_hyperparameter_loader(config_parser)
 
     feature_stream_groups: list[list[str]] = config_parser.get_sensor_ablation_streams()
     models_to_test: list = config_parser.get_sensor_ablation_training_models()

@@ -25,7 +25,6 @@ from .modes.sensor_ablation import (
     save_model_stream_f1_scores,
 )
 from .traditional_experiment_utils import (
-    get_hyperparameters_from_json,
     plot_f1_violin_by_stream,
     plot_f1_violin_with_stream_matrix,
     stratified_kfold_split,
@@ -81,14 +80,6 @@ def run(config_path: str | None = None) -> None:
     config_parser = GLOCExperimentConfigParser(config_location=config_path)
     _try_enable_cuml_acceleration()
 
-    def _load_median_hyperparameters(classifier: str, model_type_name: str):
-        median_hyperparameters_root = config_parser.get_sensor_ablation_median_hyperparameters_folder()
-        return get_hyperparameters_from_json(
-            classifier=classifier,
-            model_type=model_type_name,
-            median_hyperparameters_root=median_hyperparameters_root,
-        )
-
     project_root = Path(__file__).resolve().parent.parent
     did_run_any_mode = False
 
@@ -126,7 +117,7 @@ def run(config_path: str | None = None) -> None:
             lambda: run_feature_space_review(
                 config_parser = config_parser,
                 investigate_feature_space_fn = investigate_feature_space,
-                get_hyperparameters_from_json_fn = _load_median_hyperparameters,
+                get_hyperparameters_from_json_fn = None,
                 venn2_fn = venn2,
                 venn3_fn = venn3,
                 from_contents_fn = from_contents,
