@@ -85,6 +85,19 @@ def run(config_path: str | None = None) -> None:
 
     mode_runners: list[tuple[bool, Callable[[], None]]] = [
         (
+            config_parser.get_cross_validation_enabled(),
+            lambda: run_cross_validation(
+                config = config_parser,
+                pipeline = DataPipeline(config_parser = config_parser),
+                results_root = project_root / config_parser.get_cross_validation_save_results_folder(),
+                models = config_parser.get_cross_validation_models(),
+                num_splits = config_parser.get_cross_validation_num_splits(),
+                random_seed = config_parser.get_cross_validation_random_seed(),
+                class_weight = config_parser.get_cross_validation_class_weight(),
+                model_type = config_parser.get_cross_validation_model_type(),
+            ),
+        ),
+        (
             config_parser.get_sensor_ablation_enabled(),
             lambda: run_sensor_ablation_training(
                 config_parser = config_parser,
@@ -124,19 +137,6 @@ def run(config_path: str | None = None) -> None:
                 upset_cls = UpSet,
                 plt_module = plt,
             )
-        ),
-        (
-            config_parser.get_cross_validation_enabled(),
-            lambda: run_cross_validation(
-                config = config_parser,
-                pipeline = DataPipeline(config_parser = config_parser),
-                results_root = project_root / config_parser.get_cross_validation_save_results_folder(),
-                models = config_parser.get_cross_validation_models(),
-                num_splits = config_parser.get_cross_validation_num_splits(),
-                random_seed = config_parser.get_cross_validation_random_seed(),
-                class_weight = config_parser.get_cross_validation_class_weight(),
-                model_type = config_parser.get_cross_validation_model_type(),
-            ),
         ),
     ]
 
