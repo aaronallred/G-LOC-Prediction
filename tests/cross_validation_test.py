@@ -809,6 +809,62 @@ def test_cross_validation_summary_uses_same_canonical_metric_keys(tmp_path, monk
         assert set(summary.keys()) == expected_keys
 
 
+def test_cross_validation_saves_matching_shared_artifact_names(tmp_path, monkeypatch):
+    pytest.importorskip("optuna")
+
+    pipeline = FlexiblePipeline()
+    traditional_model = TinyTraditionalModel(name="LogReg")
+    advanced_model = TinyAdvancedModel(name="LSTM")
+
+    _FakeBayesSearchCV.instances = []
+    monkeypatch.setattr("src.modes.cross_validation.BayesSearchCV", _FakeBayesSearchCV)
+
+    run_cross_validation(
+        FakeCVConfig(
+            save_median_hyperparameters=True,
+            advanced_hpo_settings={
+                "use_sampler": True,
+                "final_early_stop": False,
+                "metric": "f1",
+                "n_trials": 0,
+                "train_fraction": 0.8,
+                "timeout": None,
+                "sampler_seed": 42,
+                "pruner_startup_trials": 3,
+                "pruner_warmup_steps": 0,
+            },
+        ),
+        pipeline,
+        tmp_path,
+        [traditional_model, advanced_model],
+        num_splits=2,
+        results_root=tmp_path / "Results",
+        model_type=ModelType("Complete", "Explicit"),
+    )
+
+    expected_shared_paths = {
+        Path("summary.json"),
+        Path("median_hyperparameters.json"),
+        Path("fold_0/metrics.pkl"),
+        Path("fold_0/model/model.txt"),
+        Path("fold_1/metrics.pkl"),
+        Path("fold_1/model/model.txt"),
+    }
+    for model_name in ("LogReg", "LSTM"):
+        model_root = tmp_path / "Results" / "Complete_Explicit" / model_name
+        actual_paths = {
+            path.relative_to(model_root)
+            for path in model_root.rglob("*")
+            if path.is_file()
+        }
+        assert expected_shared_paths.issubset(actual_paths)
+
+        for fold_idx in (0, 1):
+            fold_dir = model_root / f"fold_{fold_idx}"
+            assert (fold_dir / "metrics.pkl").exists()
+            assert (fold_dir / "model" / "model.txt").exists()
+
+
 class TrialAwareAdvancedPipeline:
     def __init__(self, n_trials=8, rows_per_trial=12, n_features=4):
         self.n_trials = n_trials
