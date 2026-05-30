@@ -1,8 +1,23 @@
 from abc import ABC, abstractmethod
+from enum import Enum
 import joblib
 import numpy as np
 from sklearn.base import clone
 from typing import Any, Dict
+
+class ModelInitStrategy(Enum):
+    """Enum for specifying how to initialize a model during traditional classification.
+    
+    Replaces the confusing (retrain, temporal) boolean pair with a single semantic strategy.
+    """
+    RETRAIN_WITH_DEFAULTS = "retrain_with_defaults"
+    """Train model using default hyperparameters (no best_params needed)."""
+    
+    RETRAIN_WITH_CONFIG_PARAMS = "retrain_with_config_params"
+    """Train model using hyperparameters from best_params dict (e.g., from JSON config)."""
+    
+    LOAD_SAVED_MODEL = "load_saved_model"
+    """Load a pre-trained model from disk (save_folder and model_name required)."""
 
 class BaseModel(ABC):
     def __init__(self, model_hyperparameters: Dict[str, Any] = None):
