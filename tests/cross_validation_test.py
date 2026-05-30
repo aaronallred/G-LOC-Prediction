@@ -456,10 +456,47 @@ def test_cross_validation_helper_branches():
     assert median_f1 == 0.5
 
     aggregated, _, _ = _aggregate_cv_results(
-        [{"metrics": {"f1": 0.5, "accuracy": 0.9}}, {"metrics": {"f1": 0.7, "accuracy": 0.8}}]
+        [
+            {
+                "metrics": {
+                    "accuracy": 0.9,
+                    "precision": 0.8,
+                    "recall": 0.7,
+                    "f1": 0.5,
+                    "specificity": 0.6,
+                    "g_mean": 0.65,
+                }
+            },
+            {
+                "metrics": {
+                    "accuracy": 0.8,
+                    "precision": 0.7,
+                    "recall": 0.6,
+                    "f1": 0.7,
+                    "specificity": 0.5,
+                    "g_mean": 0.55,
+                }
+            },
+        ]
     )
     assert aggregated["f1_mean"] == pytest.approx(0.6)
     assert aggregated["num_folds"] == 2
+
+
+def test_aggregate_cv_results_requires_canonical_metrics():
+    with pytest.raises(RuntimeError, match="missing required keys"):
+        _aggregate_cv_results(
+            [
+                {
+                    "metrics": {
+                        "accuracy": 0.9,
+                        "precision": 0.8,
+                        "recall": 0.7,
+                        "f1": 0.6,
+                    }
+                }
+            ]
+        )
 
 
 def test_traditional_cross_validation_saves_metrics_and_hyperparameters(tmp_path, monkeypatch):
@@ -710,6 +747,66 @@ def test_advanced_cross_validation_adds_specificity_and_g_mean(tmp_path):
         assert "g_mean" in metrics
         assert 0.0 <= metrics["specificity"] <= 1.0
         assert 0.0 <= metrics["g_mean"] <= 1.0
+
+
+def test_cross_validation_summary_uses_same_canonical_metric_keys(tmp_path, monkeypatch):
+    pipeline = FlexiblePipeline()
+    traditional_model = TinyTraditionalModel(name="LogReg")
+    advanced_model = TinyAdvancedModel(name="LSTM")
+
+    _FakeBayesSearchCV.instances = []
+    monkeypatch.setattr("src.modes.cross_validation.BayesSearchCV", _FakeBayesSearchCV)
+
+    run_cross_validation(
+        FakeCVConfig(
+            save_median_hyperparameters=False,
+            advanced_hpo_settings={
+                "use_sampler": True,
+                "final_early_stop": False,
+                "metric": "f1",
+                "n_trials": 0,
+                "train_fraction": 0.8,
+                "timeout": None,
+                "sampler_seed": 42,
+                "pruner_startup_trials": 3,
+                "pruner_warmup_steps": 0,
+            },
+        ),
+        pipeline,
+        tmp_path,
+        [traditional_model, advanced_model],
+        num_splits=2,
+        results_root=tmp_path / "Results",
+        model_type=ModelType("Complete", "Explicit"),
+    )
+
+    expected_keys = {
+        "accuracy_mean",
+        "accuracy_std",
+        "precision_mean",
+        "precision_std",
+        "recall_mean",
+        "recall_std",
+        "f1_mean",
+        "f1_std",
+        "specificity_mean",
+        "specificity_std",
+        "g_mean_mean",
+        "g_mean_std",
+        "num_folds",
+    }
+
+    for model_name in ("LogReg", "LSTM"):
+        summary_path = (
+            tmp_path
+            / "Results"
+            / "Complete_Explicit"
+            / model_name
+            / "summary.json"
+        )
+        with open(summary_path, "r", encoding="utf-8") as handle:
+            summary = json.load(handle)
+        assert set(summary.keys()) == expected_keys
 
 
 class TrialAwareAdvancedPipeline:
