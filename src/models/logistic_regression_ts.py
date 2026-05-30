@@ -93,6 +93,17 @@ class LogRegTS(BaseModel):
             "recall": float(recall_score(y, preds, zero_division=0)),
             "f1": float(f1_score(y, preds, zero_division=0)),
         }
+        # Add specificity and g_mean to satisfy advanced evaluate() contract
+        from sklearn.metrics import confusion_matrix
+        cm = confusion_matrix(y, preds)
+        if cm.shape == (2, 2):
+            tn = cm[0, 0]
+            fp = cm[0, 1]
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+        else:
+            specificity = 0.0
+        metrics["specificity"] = float(specificity)
+        metrics["g_mean"] = float(np.sqrt(max(0.0, metrics["recall"] * metrics["specificity"])))
         return metrics
 
     def classify_traditional(

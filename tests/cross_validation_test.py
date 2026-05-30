@@ -11,7 +11,6 @@ from src.model_type import ModelType
 from src.models.base import ModelInitStrategy
 from src.modes.cross_validation import (
     _aggregate_cv_results,
-    _compute_metrics_from_predictions,
     _find_median_fold_idx,
     _is_traditional_model,
     _run_traditional_smote_resampling,
@@ -355,7 +354,27 @@ class TinyAdvancedModel:
         if "learning_rate" in p:
             score += max(0.0, 0.02 - abs(float(p["learning_rate"]) - 0.01))
         score = float(min(score, 0.99))
-        return {"accuracy": score, "precision": score, "recall": score, "f1": score}
+        # Provide specificity and g_mean to satisfy advanced evaluate() contract
+        from sklearn.metrics import confusion_matrix
+        # Create deterministic preds from last params influence to keep tests stable
+        preds = np.zeros(len(y), dtype=int)
+        if "hidden_dim" in p:
+            preds = (np.arange(len(y)) % 2).astype(int)
+        metrics = {"accuracy": score, "precision": score, "recall": score, "f1": score}
+        cm = confusion_matrix(y, preds)
+        if cm.shape == (2, 2):
+            tn = cm[0, 0]
+            fp = cm[0, 1]
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+        else:
+            specificity = 0.0
+        metrics["specificity"] = float(specificity)
+        metrics["g_mean"] = float(np.sqrt(max(0.0, metrics["recall"] * metrics["specificity"])))
+        return metrics
+
+    def predict(self, X):
+        X = np.asarray(X)
+        return (X[:, 0] > np.median(X[:, 0])).astype(int)
 
     def save(self, path: str):
         Path(path).mkdir(parents=True, exist_ok=True)
@@ -421,9 +440,14 @@ def test_cross_validation_helper_branches():
     assert _is_traditional_model(traditional) is True
     assert _is_traditional_model(advanced) is False
 
-    metrics = _compute_metrics_from_predictions(np.asarray([0, 1, 0, 1]), np.asarray([0, 1, 1, 1]))
-    assert metrics["accuracy"] == pytest.approx(0.75)
-    assert 0 <= metrics["f1"] <= 1
+    from sklearn.metrics import accuracy_score, f1_score
+
+    y_true = np.asarray([0, 1, 0, 1])
+    y_pred = np.asarray([0, 1, 1, 1])
+    accuracy = accuracy_score(y_true, y_pred)
+    f1 = f1_score(y_true, y_pred, zero_division=0)
+    assert accuracy == pytest.approx(0.75)
+    assert 0 <= f1 <= 1
 
     fold_idx, median_f1 = _find_median_fold_idx(
         [{"metrics": {"f1": 0.2}}, {"metrics": {"f1": 0.8}}, {"metrics": {"f1": 0.5}}]
@@ -664,6 +688,28 @@ def test_advanced_cross_validation_can_disable_hpo(tmp_path):
     assert len(model.train_calls) == 2
     fold_dir = tmp_path / "Results" / "Complete_Explicit" / "LSTM" / "fold_0"
     assert (fold_dir / "hpo_summary.json").exists() is False
+
+
+def test_advanced_cross_validation_adds_specificity_and_g_mean(tmp_path):
+    pipeline = FlexiblePipeline()
+    model = TinyAdvancedModel(name="LSTM")
+    results = run_cross_validation(
+        FakeCVConfig(save_median_hyperparameters=False),
+        pipeline,
+        tmp_path,
+        [model],
+        num_splits=2,
+        results_root=tmp_path / "Results",
+        model_type=ModelType("Complete", "Explicit"),
+    )
+
+    assert len(results["LSTM"]) == 2
+    for fold in results["LSTM"]:
+        metrics = fold["metrics"]
+        assert "specificity" in metrics
+        assert "g_mean" in metrics
+        assert 0.0 <= metrics["specificity"] <= 1.0
+        assert 0.0 <= metrics["g_mean"] <= 1.0
 
 
 class TrialAwareAdvancedPipeline:

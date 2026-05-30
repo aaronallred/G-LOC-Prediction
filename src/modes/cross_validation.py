@@ -156,7 +156,7 @@ def _run_traditional_model_hpo(
     search = BayesSearchCV(
         estimator=estimator,
         search_spaces=search_spaces,
-        n_iter=50,
+        n_iter=30,
         cv=3,
         scoring="f1",
         random_state=random_seed,
@@ -200,7 +200,7 @@ def _run_traditional_lasso_feature_selection(
         estimator=Lasso(),
         search_spaces={"alpha": Real(1e-5, 100, prior="log-uniform")},
         cv=3,
-        n_iter=30,
+        n_iter=50,
         random_state=random_seed,
         # Run LASSO search serially in traditional folds to avoid extra process
         # memory that can lead to OOM when arrays are large.
@@ -354,46 +354,6 @@ def _is_traditional_model(model: Any) -> bool:
     return bool(getattr(model, "is_traditional", False))
 
 
-def _compute_metrics_from_predictions(
-    y_true: np.ndarray, y_pred: np.ndarray, y_pred_proba: Optional[np.ndarray] = None
-) -> Dict[str, float]:
-    """Compute standard metrics (accuracy, precision, recall, F1, etc.)."""
-    from sklearn.metrics import (
-        accuracy_score,
-        f1_score,
-        precision_score,
-        recall_score,
-        confusion_matrix,
-    )
-
-    metrics = {
-        "accuracy": float(accuracy_score(y_true, y_pred)),
-        "precision": float(precision_score(y_true, y_pred, zero_division=0)),
-        "recall": float(recall_score(y_true, y_pred, zero_division=0)),
-        "f1": float(f1_score(y_true, y_pred, zero_division=0)),
-    }
-    
-    # Compute specificity manually (True Negatives / (True Negatives + False Positives))
-    cm = confusion_matrix(y_true, y_pred)
-    if cm.shape == (2, 2):
-        tn = cm[0, 0]
-        fp = cm[0, 1]
-        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
-        metrics["specificity"] = float(specificity)
-    else:
-        # For multi-class, use average specificity
-        metrics["specificity"] = 0.0
-
-    if y_pred_proba is not None:
-        # G-mean as sqrt(sensitivity * specificity)
-        sensitivity = metrics["recall"]
-        specificity = metrics["specificity"]
-        metrics["g_mean"] = float(np.sqrt(max(0, sensitivity * specificity)))
-
-    return metrics
-
-
-
 def _extract_hyperparameters_from_model(model: BaseModel) -> Dict[str, Any]:
     """Extract best hyperparameters from a trained model.
     
@@ -503,8 +463,19 @@ def _run_advanced_model_cv_fold(
     # Train model with tuned params when available
     model.train(X_train, y_train, params=best_params or None)
 
-    # Evaluate model
-    metrics = model.evaluate(X_val, y_val)
+    # Evaluate model - REQUIRE that advanced models return specificity and g_mean
+    raw_metrics = model.evaluate(X_val, y_val)
+    if not isinstance(raw_metrics, dict):
+        raise RuntimeError(
+            f"Advanced model {model.get_name()} must return a dict from evaluate() (fold {kfold_id})."
+        )
+    metrics = dict(raw_metrics)
+
+    # Strict contract: advanced models must include specificity and g_mean
+    if "specificity" not in metrics or "g_mean" not in metrics:
+        raise RuntimeError(
+            f"Advanced model {model.get_name()} must include 'specificity' and 'g_mean' in evaluate() result (fold {kfold_id})."
+        )
 
     # Extract hyperparameters and build result
     if not best_params:
