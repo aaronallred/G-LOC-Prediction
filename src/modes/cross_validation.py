@@ -8,7 +8,6 @@ HPO for advanced models (LogRegTS, LSTM, NAM, TCN, Trans), aligned with the lega
 import json
 import logging
 import pickle
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -156,7 +155,7 @@ def _run_traditional_model_hpo(
     search = BayesSearchCV(
         estimator=estimator,
         search_spaces=search_spaces,
-        n_iter=30,
+        n_iter=3,
         cv=3,
         scoring="f1",
         random_state=random_seed,
@@ -200,7 +199,7 @@ def _run_traditional_lasso_feature_selection(
         estimator=Lasso(),
         search_spaces={"alpha": Real(1e-5, 100, prior="log-uniform")},
         cv=3,
-        n_iter=50,
+        n_iter=3,
         random_state=random_seed,
         # Run LASSO search serially in traditional folds to avoid extra process
         # memory that can lead to OOM when arrays are large.
@@ -769,13 +768,14 @@ def run_cross_validation(
                     pickle.dump(fold_result, f)
                 logger.info(f"Saved fold {fold_idx} metrics to {metrics_path}")
 
-                # Store model save request for deferred async execution
-                # This allows fold loop to continue without waiting for I/O
+                # Save model artifact immediately for this fold (fail loudly on errors)
+                # This ensures each fold's trained snapshot is persisted right away.
                 if save_models and hasattr(model, "save"):
-                    fold_result["_save_request"] = {
-                        "model": model,
-                        "fold_dir": fold_dir / "model"
-                    }
+                    fold_model_dir = fold_dir / "model"
+                    fold_model_dir.mkdir(parents=True, exist_ok=True)
+                    # Let exceptions from model.save propagate so failures are visible
+                    model.save(str(fold_model_dir))
+                    logger.info(f"Saved model to {fold_model_dir}")
 
                 model_results.append(fold_result)
 
@@ -783,9 +783,7 @@ def run_cross_validation(
                 logger.error(f"Error in fold {fold_idx} for model {model_name}: {e}")
                 raise
 
-        # Defer model saves to background thread to reduce blocking
-        if save_models:
-            _save_models_async(model_results, model_name)
+        # Model saves were performed per-fold synchronously above.
 
         # Compute and save aggregated metrics
         if model_results:
@@ -821,33 +819,7 @@ def run_cross_validation(
 
 
 
-def _save_models_async(model_results: List[Dict[str, Any]], model_name: str) -> None:
-    """Save models asynchronously using a thread pool to avoid blocking.
-    
-    Args:
-        model_results: List of fold results with _save_request metadata
-        model_name: Name of the model (for logging)
-    """
-    def _save_model_from_request(save_request: Dict[str, Any]) -> None:
-        """Helper to save a single model from request metadata."""
-        try:
-            model = save_request["model"]
-            fold_dir = save_request["fold_dir"]
-            fold_dir.mkdir(parents=True, exist_ok=True)
-            model.save(str(fold_dir))
-            logger.info(f"Saved model to {fold_dir}")
-        except Exception as e:
-            logger.warning(f"Failed to save model: {e}")
 
-    save_requests = [r for r in model_results if "_save_request" in r]
-    if save_requests:
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            for result in model_results:
-                if "_save_request" in result:
-                    executor.submit(_save_model_from_request, result["_save_request"])
-                    # Clean up request metadata from result dict
-                    del result["_save_request"]
-        logger.info(f"Queued {len(save_requests)} model saves for {model_name}")
 
 
 def _find_median_fold_idx(
