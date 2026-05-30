@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -9,11 +10,24 @@ from sklearn.datasets import make_classification
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
 from src.models.base import ModelInitStrategy
+from src.models.logistic_regression_ts import LogRegTS
+from src.models.lstm_model import LSTMModel
+from src.models.nam_model import NAMModel
+from src.models.tcn_model import TCNModel
+from src.models.transformer import TransformerModel
 from src.modes.cross_validation import (
     _aggregate_cv_results,
+    _build_fold_result,
+    _build_traditional_hpo_search_space,
+    _cache_fold_data_for_advanced_models,
+    _extract_hyperparameters_from_model,
+    _extract_median_hyperparameters,
     _find_median_fold_idx,
+    _is_hpo_supported_advanced_model,
     _is_traditional_model,
+    _run_advanced_model_hpo,
     _run_traditional_smote_resampling,
+    _split_train_for_hpo,
     run_cross_validation,
 )
 from src.scripts import imbalance_techniques_traditional as legacy_imbalance
@@ -898,3 +912,357 @@ class TrialAwareAdvancedPipeline:
         y_val = self.y[val_mask]
         features = [f"f{i}" for i in range(self.n_features)] + ["trial_id"]
         return X_train, X_val, y_train, y_val, features
+
+
+class MissingAdvancedHPOConfig:
+    def get_cross_validation_save_median_hyperparameters(self):
+        return False
+
+    def get_advanced_hpo_settings(self):
+        raise ValueError(
+            "cross_validation.advanced_hpo configuration is required when using advanced classifiers."
+        )
+
+    def get_model_type(self):
+        return ModelType("Complete", "Explicit")
+
+
+class NoAdvancedHPOConfig:
+    def get_cross_validation_save_median_hyperparameters(self):
+        return False
+
+    def get_advanced_hpo_settings(self):
+        raise AssertionError("traditional CV should not request advanced_hpo settings")
+
+    def get_model_type(self):
+        return ModelType("Complete", "Explicit")
+
+
+@pytest.mark.parametrize(
+    "model_name, expected_keys",
+    [
+        ("LogReg", {"penalty", "C", "solver", "l1_ratio"}),
+        ("RF", {"n_estimators", "criterion", "max_depth", "max_features"}),
+        ("LDA", {"solver", "tol"}),
+        ("KNN", {"n_neighbors", "weights", "algorithm", "metric", "p"}),
+        ("SVM", {"kernel", "C", "gamma", "tol"}),
+        ("EGB", {"n_estimators", "learning_rate", "max_depth", "max_features"}),
+    ],
+)
+def test_traditional_hpo_search_space_covers_supported_models(model_name, expected_keys):
+    search_space = _build_traditional_hpo_search_space(model_name)
+    if isinstance(search_space, list):
+        keys = set()
+        for space in search_space:
+            keys.update(space.keys())
+    else:
+        keys = set(search_space.keys())
+
+    assert expected_keys.issubset(keys)
+
+
+def test_traditional_hpo_search_space_rejects_unknown_model():
+    with pytest.raises(ValueError, match="Unsupported traditional HPO classifier"):
+        _build_traditional_hpo_search_space("Unknown")
+
+
+def test_is_hpo_supported_advanced_model_only_accepts_modern_models():
+    assert _is_hpo_supported_advanced_model(TinyAdvancedModel(name="LSTM")) is True
+    assert _is_hpo_supported_advanced_model(TinyTraditionalModel(name="LogReg")) is False
+
+    class MissingSearchSpace:
+        is_traditional = False
+
+        def get_name(self):
+            return "Missing"
+
+        def train(self, X, y, params=None):
+            return None
+
+        def evaluate(self, X, y):
+            return {
+                "accuracy": 0.0,
+                "precision": 0.0,
+                "recall": 0.0,
+                "f1": 0.0,
+                "specificity": 0.0,
+                "g_mean": 0.0,
+            }
+
+    assert _is_hpo_supported_advanced_model(MissingSearchSpace()) is False
+
+
+def test_split_train_for_hpo_respects_fraction_and_falls_back_on_invalid_split():
+    X = np.arange(20, dtype=float).reshape(10, 2)
+    y = np.asarray([0, 1] * 5)
+    X_subtrain, X_holdout, y_subtrain, y_holdout = _split_train_for_hpo(X, y, 0.6, 7)
+
+    assert X_subtrain.shape[0] == 6
+    assert X_holdout.shape[0] == 4
+    assert y_subtrain.shape[0] == 6
+    assert y_holdout.shape[0] == 4
+
+    fallback_subtrain, fallback_holdout, fallback_y_subtrain, fallback_y_holdout = _split_train_for_hpo(
+        X,
+        y,
+        1.5,
+        7,
+    )
+    np.testing.assert_array_equal(fallback_subtrain, X)
+    np.testing.assert_array_equal(fallback_holdout, X)
+    np.testing.assert_array_equal(fallback_y_subtrain, y)
+    np.testing.assert_array_equal(fallback_y_holdout, y)
+
+
+def test_build_fold_result_includes_optional_fields_only_when_present():
+    result = _build_fold_result(
+        3,
+        {"accuracy": 0.9, "precision": 0.8, "recall": 0.7, "f1": 0.6, "specificity": 0.5, "g_mean": 0.4},
+        12,
+        4,
+        features=["f1", "f2"],
+        best_params={"alpha": 0.1},
+    )
+    assert result["fold"] == 3
+    assert result["selected_features"] == ["f1", "f2"]
+    assert result["best_params"] == {"alpha": 0.1}
+
+    minimal = _build_fold_result(
+        4,
+        {"accuracy": 0.9, "precision": 0.8, "recall": 0.7, "f1": 0.6, "specificity": 0.5, "g_mean": 0.4},
+        12,
+        4,
+    )
+    assert "selected_features" not in minimal
+    assert "best_params" not in minimal
+
+
+def test_extract_hyperparameters_from_model_prefers_best_params_then_model_params():
+    class WithBestParams:
+        best_params = {"alpha": 0.5}
+
+    assert _extract_hyperparameters_from_model(WithBestParams()) == {"alpha": 0.5}
+
+    class FallbackModel:
+        def __init__(self):
+            self.best_params = {}
+
+            class Inner:
+                def get_params(self):
+                    return {"beta": 2}
+
+            self.model = Inner()
+
+    assert _extract_hyperparameters_from_model(FallbackModel()) == {"beta": 2}
+
+
+def test_cache_fold_data_for_advanced_models_builds_all_requested_folds():
+    pipeline = TrialAwareAdvancedPipeline(n_trials=6, rows_per_trial=6, n_features=3)
+    model = TinyAdvancedModel(name="LSTM")
+    cache = _cache_fold_data_for_advanced_models(pipeline, model, num_splits=3, random_seed=42)
+
+    assert set(cache.keys()) == {0, 1, 2}
+    for fold_idx, (X_train, X_val, y_train, y_val, features) in cache.items():
+        assert X_train.shape[1] == 4
+        assert X_val.shape[1] == 4
+        assert y_train.ndim == 1
+        assert y_val.ndim == 1
+        assert features[-1] == "trial_id"
+        assert pipeline.random_seed is None or pipeline.random_seed == 42
+
+
+def test_extract_median_hyperparameters_prefers_fold_result_fields():
+    model = TinyTraditionalModel(name="LogReg")
+    fold_results = [
+        {
+            "metrics": {"f1": 0.2},
+            "best_params": {"alpha": 0.1},
+            "selected_features": ["f1"],
+        },
+        {
+            "metrics": {"f1": 0.8},
+            "best_params": {"alpha": 0.2},
+            "selected_features": ["f2"],
+        },
+        {
+            "metrics": {"f1": 0.5},
+            "best_params": {"alpha": 0.3},
+            "selected_features": ["f3"],
+        },
+    ]
+
+    result = _extract_median_hyperparameters(model, 2, 0.5, model.get_name(), fold_results)
+    assert result["fold_id"] == 2
+    assert result["best_params"] == {"alpha": 0.3}
+    assert result["selected_features"] == ["f3"]
+
+
+def test_extract_median_hyperparameters_uses_model_fallbacks_when_needed():
+    class FallbackModel:
+        pass
+
+    model = FallbackModel()
+    model.best_params_ = {"gamma": 2}
+
+    result = _extract_median_hyperparameters(model, 0, 0.0, "Fallback")
+    assert result["best_params"] == {"gamma": 2}
+
+
+def test_advanced_hpo_required_for_advanced_models(tmp_path):
+    config = MissingAdvancedHPOConfig()
+    pipeline = FlexiblePipeline()
+    model = TinyAdvancedModel(name="LSTM")
+
+    with pytest.raises(ValueError, match="advanced_hpo configuration is required"):
+        run_cross_validation(
+            config=config,
+            pipeline=pipeline,
+            models=[model],
+            num_splits=2,
+            random_seed=42,
+            results_root=tmp_path / "Results",
+            model_type=ModelType("Complete", "Explicit"),
+        )
+
+
+def test_advanced_hpo_not_required_for_traditional_models(tmp_path):
+    config = NoAdvancedHPOConfig()
+    pipeline = FlexiblePipeline()
+    traditional_model = TinyTraditionalModel(name="KNN")
+
+    with patch("src.modes.cross_validation._run_traditional_model_cv_fold") as fold_runner:
+        fold_runner.return_value = {
+            "fold": 0,
+            "metrics": {
+                "accuracy": 0.9,
+                "precision": 0.8,
+                "recall": 0.7,
+                "f1": 0.6,
+                "specificity": 0.5,
+                "g_mean": 0.4,
+            },
+            "n_train": 80,
+            "n_val": 40,
+            "best_params": {"C": 1.0},
+        }
+
+        result = run_cross_validation(
+            config=config,
+            pipeline=pipeline,
+            models=[traditional_model],
+            num_splits=2,
+            random_seed=42,
+            save_models=False,
+            results_root=tmp_path / "Results",
+            model_type=ModelType("Complete", "Explicit"),
+        )
+
+    assert fold_runner.call_count == 2
+    assert "KNN" in result
+
+
+def test_run_advanced_model_hpo_injects_hpo_flags_and_metric(tmp_path):
+    pytest.importorskip("optuna")
+
+    model = TinyAdvancedModel(name="LSTM")
+    X = np.random.RandomState(1).randn(40, 4).astype(np.float32)
+    y = np.asarray([0, 1] * 20)
+    hpo_config = {
+        "enabled": True,
+        "n_trials": 2,
+        "timeout": None,
+        "metric": "accuracy",
+        "train_fraction": 0.5,
+        "use_sampler": True,
+        "final_early_stop": True,
+        "sampler_seed": 123,
+        "pruner_startup_trials": 1,
+        "pruner_warmup_steps": 0,
+    }
+
+    result = _run_advanced_model_hpo(model, X, y, hpo_config, random_seed=42)
+
+    assert result["summary"]["metric"] == "accuracy"
+    assert result["summary"]["n_trials"] == 2
+    assert isinstance(result["best_params"], dict)
+    assert len(model.train_calls) >= 1
+    for call in model.train_calls:
+        assert call["params"]["use_sampler"] is True
+        assert call["params"]["final_early_stop"] is True
+        assert call["params"]["objective_var"] == "accuracy"
+
+
+def test_run_advanced_model_hpo_handles_disabled_trials(tmp_path):
+    pytest.importorskip("optuna")
+
+    model = TinyAdvancedModel(name="LSTM")
+    X = np.random.RandomState(2).randn(20, 4).astype(np.float32)
+    y = np.asarray([0, 1] * 10)
+    result = _run_advanced_model_hpo(
+        model,
+        X,
+        y,
+        {
+            "enabled": True,
+            "n_trials": 0,
+            "timeout": None,
+            "metric": "f1",
+            "train_fraction": 0.8,
+            "use_sampler": True,
+            "final_early_stop": False,
+            "sampler_seed": 42,
+            "pruner_startup_trials": 1,
+            "pruner_warmup_steps": 0,
+        },
+        random_seed=42,
+    )
+
+    assert result["best_params"] == {}
+    assert result["summary"]["best_trial"] == -1
+    assert result["summary"]["n_trials"] == 0
+
+
+@pytest.mark.parametrize(
+    "model_cls, expected_name",
+    [
+        (LogRegTS, "LogRegTS"),
+        (LSTMModel, "LSTM"),
+        (NAMModel, "NAM"),
+        (TCNModel, "TCN"),
+        (TransformerModel, "Trans"),
+    ],
+)
+def test_real_advanced_models_run_cross_validation_with_shared_contract(tmp_path, model_cls, expected_name):
+    pytest.importorskip("optuna")
+
+    model = model_cls(config={})
+    pipeline = FlexiblePipeline()
+    results = run_cross_validation(
+        FakeCVConfig(
+            save_median_hyperparameters=True,
+            hpo_config={"enabled": False},
+            advanced_hpo_settings={
+                "use_sampler": True,
+                "final_early_stop": False,
+                "metric": "f1",
+                "n_trials": 3,
+                "train_fraction": 0.8,
+                "timeout": None,
+                "sampler_seed": 42,
+                "pruner_startup_trials": 3,
+                "pruner_warmup_steps": 0,
+            },
+        ),
+        pipeline,
+        tmp_path,
+        [model],
+        num_splits=3,
+        results_root=tmp_path / "Results",
+        model_type=ModelType("noAFE", "Implicit"),
+    )
+
+    assert expected_name in results
+    assert len(results[expected_name]) == 3
+    for fold in results[expected_name]:
+        assert "metrics" in fold
+        assert "f1" in fold["metrics"]
