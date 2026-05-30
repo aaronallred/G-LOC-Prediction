@@ -1,0 +1,16 @@
+{
+  "best_trial": 3,
+  "best_value": 0.9430803571428571,
+  "metric": "f1",
+  "n_trials": 10,
+  "best_params": {
+    "d_model": 64,
+    "nhead": 8,
+    "num_layers": 2,
+    "dim_feedforward": 128,
+    "dropout": 0.31707843326329943,
+    "learning_rate": 0.00019135880487692312,
+    "num_epochs": 17,
+    "batch_size": 32
+  }
+}

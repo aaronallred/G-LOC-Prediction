@@ -20,12 +20,12 @@ sensor_ablation:
   training:
     enabled: false
     save_results_folder: Results/Sensor_Ablation
-    median_hyperparameters_folder: ModelSave/CV
+    median_hyperparameters_folder: Results/CrossValidation
     # Mode-specific parameters
-    models: [EGB, KNN]
+    models: [KNN]
     model_type: [Complete, Explicit]
     random_seed: 42
-    num_splits: 10
+    num_splits: 2
     streams:
       - [ECG, HR, BR, Temperature]
       - [EEG]
@@ -33,7 +33,7 @@ sensor_ablation:
     enabled: false
     save_results_folder: Results/Sensor_Ablation
     # Mode-specific parameters for review
-    models: [KNN, EGB]
+    models: [KNN]
     model_type: [Complete, Explicit]
     stream_group: [EEG]
     sort_streams_by_median: true
@@ -41,7 +41,7 @@ sensor_ablation:
 feature_space_review:
   enabled: false
   # Mode-specific parameters
-  models: [KNN, EGB, RF]
+  models: [KNN]
   model_type: [Complete, Explicit]
 
 cross_validation:

@@ -1,0 +1,12 @@
+{
+  "best_trial": 7,
+  "best_value": 0.9799029799029799,
+  "metric": "f1",
+  "n_trials": 10,
+  "best_params": {
+    "hidden_dim": 64,
+    "lr": 0.00026471141828218194,
+    "epochs": 17,
+    "batch_size": 32
+  }
+}
