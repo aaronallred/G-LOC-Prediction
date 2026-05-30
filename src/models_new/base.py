@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import joblib
 import numpy as np
+from sklearn.base import clone
 from typing import Any, Dict
 
 class BaseModel(ABC):
@@ -31,6 +32,18 @@ class BaseModel(ABC):
         """Returns the model hyperparameters."""
         pass
 
+    @property
+    @abstractmethod
+    def model_object(self) -> Any:
+        """Returns the underlying model object (e.g. sklearn estimator or PyTorch nn.Module)."""
+        pass
+
+    @property
+    @abstractmethod
+    def hpo_search_space(self) -> Dict[str, Any]:
+        """Returns the hyperparameter search space for this model."""
+        pass
+
 
 
     @abstractmethod
@@ -57,6 +70,11 @@ class BaseModel(ABC):
         """Loads the underlying model artifacts into self.model."""
         pass
 
+    @abstractmethod
+    def set_model_parameters(self, model_hyperparameters: Dict[str, Any]):
+        """Updates the underlying model's hyperparameters after initialization."""
+        pass
+
 
 
 class TraditionalModel(BaseModel):
@@ -68,7 +86,11 @@ class TraditionalModel(BaseModel):
     def model_parameters(self) -> Dict[str, Any]:
         """Returns the model hyperparameters."""
         return self.model.get_params()
-    
+
+    @property
+    def model_object(self) -> Any:
+        """Returns the underlying model object (e.g. sklearn estimator or PyTorch nn.Module)."""
+        return clone(self.model)
 
 
     def train(self, X: np.ndarray, y: np.ndarray):
@@ -86,6 +108,10 @@ class TraditionalModel(BaseModel):
     def load_model(self, path: str) -> None:
         """Loads the sklearn model using joblib."""
         self.model = joblib.load(path)
+
+    def set_model_parameters(self, model_hyperparameters: Dict[str, Any]) -> None:
+        """Updates the sklearn model's hyperparameters after initialization."""
+        self.model.set_params(**model_hyperparameters)
     
 
 

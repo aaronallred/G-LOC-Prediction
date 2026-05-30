@@ -1,5 +1,6 @@
 from typing import Any, Dict
 from sklearn.svm import SVC
+from skopt.space import Categorical, Integer, Real
 
 from .base import TraditionalModel
 
@@ -25,6 +26,24 @@ class SupportVectorMachineModel(TraditionalModel):
     @property
     def name(self) -> str:
         return "SVM"
+
+    @property
+    def hpo_search_space(self) -> Any:
+        return [
+            {
+                "kernel": Categorical(["linear", "rbf", "sigmoid"]),
+                "C": Real(0.1, 1000, prior="log-uniform"),
+                "gamma": Categorical(["scale", 0.1, 0.01, 0.001, 0.0001]),
+                "tol": Real(1e-6, 1e-2, prior="log-uniform"),
+            },
+            {
+                "kernel": Categorical(["poly"]),
+                "C": Real(0.1, 1000, prior="log-uniform"),
+                "gamma": Categorical(["scale", 0.1, 0.01, 0.001]),
+                "degree": Integer(2, 5),
+                "tol": Real(1e-6, 1e-2, prior="log-uniform"),
+            },
+        ]
 
     def _build_model(self, model_hyperparameters: Dict[str, Any]) -> Any:
         """Initializes the SVC with provided hyperparameters."""

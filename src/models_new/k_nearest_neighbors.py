@@ -1,5 +1,6 @@
 from typing import Any, Dict
 from sklearn.neighbors import KNeighborsClassifier
+from skopt.space import Categorical, Integer
 
 from .base import TraditionalModel
 
@@ -25,6 +26,16 @@ class KNearestNeighborsModel(TraditionalModel):
     @property
     def name(self) -> str:
         return "KNN"
+
+    @property
+    def hpo_search_space(self) -> Dict[str, Any]:
+        return {
+            "n_neighbors": Integer(3, 30),
+            "weights": Categorical(["uniform", "distance"]),
+            "algorithm": Categorical(["auto", "brute"]),
+            "metric": Categorical(["minkowski"]),
+            "p": Integer(1, 2),
+        }
 
     def _build_model(self, model_hyperparameters: Dict[str, Any]) -> Any:
         """Initializes the KNeighborsClassifier with provided hyperparameters."""

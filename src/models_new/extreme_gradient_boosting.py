@@ -1,5 +1,6 @@
 from typing import Any, Dict
 from sklearn.ensemble import GradientBoostingClassifier
+from skopt.space import Categorical, Integer, Real
 
 from .base import TraditionalModel
 
@@ -24,6 +25,19 @@ class ExtremeGradientBoostingModel(TraditionalModel):
     @property
     def name(self) -> str:
         return "EGB"
+
+    @property
+    def hpo_search_space(self) -> Dict[str, Any]:
+        return {
+            "n_estimators": Integer(50, 1000),
+            "learning_rate": Real(0.01, 1.0, prior="log-uniform"),
+            "max_depth": Integer(3, 20),
+            "max_features": Categorical(["sqrt", "log2", None]),
+            "min_samples_leaf": Integer(1, 4),
+            "min_samples_split": Integer(2, 4),
+            "loss": Categorical(["log_loss"]),
+            "min_weight_fraction_leaf": Real(0.0, 0.5),
+        }
 
     def _build_model(self, model_hyperparameters: Dict[str, Any]) -> Any:
         """Initializes the GradientBoostingClassifier with provided hyperparameters."""

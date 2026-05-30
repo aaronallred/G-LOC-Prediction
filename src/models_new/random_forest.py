@@ -1,5 +1,6 @@
 from typing import Any, Dict
 from sklearn.ensemble import RandomForestClassifier
+from skopt.space import Categorical, Integer, Real
 
 from .base import TraditionalModel
 
@@ -25,6 +26,18 @@ class RandomForestModel(TraditionalModel):
     @property
     def name(self) -> str:
         return "RF"
+
+    @property
+    def hpo_search_space(self) -> Dict[str, Any]:
+        return {
+            "n_estimators": Integer(10, 1000),
+            "criterion": Categorical(["gini", "entropy", "log_loss"]),
+            "max_depth": Integer(3, 100),
+            "max_features": Categorical(["sqrt", "log2"]),
+            "min_samples_leaf": Integer(1, 4),
+            "min_samples_split": Integer(2, 10),
+            "min_weight_fraction_leaf": Real(0.0, 0.5),
+        }
 
     def _build_model(self, model_hyperparameters: Dict[str, Any]) -> Any:
         """Initializes the RandomForestClassifier with provided hyperparameters."""

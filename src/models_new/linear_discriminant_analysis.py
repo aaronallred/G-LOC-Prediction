@@ -1,5 +1,6 @@
 from typing import Any, Dict
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from skopt.space import Categorical, Real
 
 from .base import TraditionalModel
 
@@ -25,6 +26,20 @@ class LinearDiscriminantAnalysisModel(TraditionalModel):
     @property
     def name(self) -> str:
         return "LDA"
+
+    @property
+    def hpo_search_space(self) -> Any:
+        return [
+            {
+                "solver": Categorical(["svd"]),
+                "tol": Real(1e-10, 1e-2, prior="log-uniform"),
+            },
+            {
+                "solver": Categorical(["lsqr", "eigen"]),
+                "shrinkage": Categorical([0.1, 0.2, 0.4, 0.6, 0.8, 1, "auto"]),
+                "tol": Real(1e-10, 1e-2, prior="log-uniform"),
+            },
+        ]
 
     def _build_model(self, model_hyperparameters: Dict[str, Any]) -> Any:
         """Initializes the LinearDiscriminantAnalysis with provided hyperparameters."""

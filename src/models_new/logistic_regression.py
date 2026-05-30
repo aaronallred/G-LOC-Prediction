@@ -1,5 +1,6 @@
 from typing import Any, Dict
 from sklearn.linear_model import LogisticRegression
+from skopt.space import Categorical, Real
 
 from .base import TraditionalModel
 
@@ -25,6 +26,15 @@ class LogisticRegressionModel(TraditionalModel):
     @property
     def name(self) -> str:
         return "LogReg"
+
+    @property
+    def hpo_search_space(self) -> Dict[str, Any]:
+        return {
+            "penalty": Categorical(["elasticnet"]),
+            "C": Real(0.01, 100, prior="log-uniform"),
+            "solver": Categorical(["saga"]),
+            "l1_ratio": Real(0.0, 1.0),
+        }
 
     def _build_model(self, model_hyperparameters: Dict[str, Any]) -> Any:
         """Initializes the LogisticRegression with provided hyperparameters."""
