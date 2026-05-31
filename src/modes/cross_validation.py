@@ -6,6 +6,7 @@ HPO for advanced models (LogRegTS, LSTM, NAM, TCN, Trans), aligned with the lega
 """
 
 import json
+import joblib
 import logging
 import pickle
 from pathlib import Path
@@ -13,21 +14,20 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from imblearn.over_sampling import SMOTE
+from imblearn.metrics import geometric_mean_score
+import pandas as pd
 from sklearn.linear_model import Lasso
 from sklearn.model_selection import train_test_split
-
-try:
-    from skopt import BayesSearchCV
-    from skopt.space import Categorical, Integer, Real
-except Exception:  # pragma: no cover - handled at call time if HPO is enabled
-    BayesSearchCV = None
-    Categorical = Integer = Real = None
+from sklearn import metrics
+from skopt import BayesSearchCV
+from skopt.space import Categorical, Integer, Real
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
 from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
-from src.models.base import BaseModel, ModelInitStrategy
+from src.models_new.base import BaseModel, ModelInitStrategy
 from src.models.sequence_window_utils import max_trial_sequence_length
+from src.models_new.model_factory import ModelFactory
 from src.traditional_experiment_utils import stratified_kfold_split
 
 logger = logging.getLogger(__name__)
@@ -144,98 +144,6 @@ def _build_traditional_hpo_estimator(
         params=None,
     )
 
-
-def _run_traditional_model_hpo(
-    model: BaseModel,
-    X_train: np.ndarray,
-    y_train: np.ndarray,
-    random_seed: int,
-    class_weight: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Run the legacy BayesSearchCV-based HPO flow for a traditional model."""
-    if BayesSearchCV is None:
-        raise ImportError(
-            "Traditional HPO requires scikit-optimize (skopt) to be installed."
-        )
-
-    model_name = model.get_name() if hasattr(model, "get_name") else str(model)
-    estimator = _build_traditional_hpo_estimator(model, random_seed, class_weight)
-    search_spaces = _build_traditional_hpo_search_space(model_name)
-
-    search = BayesSearchCV(
-        estimator=estimator,
-        search_spaces=search_spaces,
-        n_iter=30,
-        cv=3,
-        scoring="f1",
-        random_state=random_seed,
-        # Reduce concurrency for traditional-fold searches to avoid multiplying
-        # memory usage when the large fold arrays are already resident.
-        n_jobs=1,
-        verbose=1,
-        error_score=np.nan,
-    )
-    search.fit(X_train, np.ravel(y_train))
-
-    best_params = dict(search.best_params_)
-    summary = {
-        "best_params": best_params,
-        "best_score": float(getattr(search, "best_score_", 0.0)),
-        "best_index": int(getattr(search, "best_index_", -1)),
-        "n_iter": 30,
-        "cv": 3,
-        "scoring": "f1",
-    }
-    return {"best_params": best_params, "summary": summary}
-
-
-def _run_traditional_lasso_feature_selection(
-    X_train: np.ndarray,
-    X_test: np.ndarray,
-    y_train: np.ndarray,
-    feature_names: List[str],
-    random_seed: int,
-) -> Tuple[np.ndarray, np.ndarray, List[str]]:
-    """Run the legacy fold-local LASSO feature selection flow."""
-    if BayesSearchCV is None:
-        raise ImportError(
-            "Traditional feature selection requires scikit-optimize (skopt) to be installed."
-        )
-
-    if len(feature_names) == 0:
-        raise ValueError("feature_names must not be empty for LASSO feature selection.")
-
-    search = BayesSearchCV(
-        estimator=Lasso(),
-        search_spaces={"alpha": Real(1e-5, 100, prior="log-uniform")},
-        cv=3,
-        n_iter=50,
-        random_state=random_seed,
-        # Run LASSO search serially in traditional folds to avoid extra process
-        # memory that can lead to OOM when arrays are large.
-        n_jobs=1,
-        verbose=1,
-    )
-    search.fit(X_train, np.ravel(y_train))
-
-    best_lasso = getattr(search, "best_estimator_", None)
-    coef = np.asarray(getattr(best_lasso, "coef_", np.zeros(len(feature_names))), dtype=float).ravel()
-    selected_indices = np.flatnonzero(np.abs(coef) != 0)
-    if selected_indices.size == 0:
-        selected_indices = np.asarray([int(np.argmax(np.abs(coef)))], dtype=int)
-
-    selected_features = [feature_names[index] for index in selected_indices.tolist()]
-    return X_train[:, selected_indices], X_test[:, selected_indices], selected_features
-
-
-def _run_traditional_smote_resampling(
-    X_train: np.ndarray,
-    y_train: np.ndarray,
-    random_seed: int,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Run the legacy traditional SMOTE resampling step before model fitting."""
-    smote_model = SMOTE(random_state=random_seed, k_neighbors=7)
-    return smote_model.fit_resample(X_train, y_train)
 
 
 def _is_hpo_supported_advanced_model(model: BaseModel) -> bool:
@@ -391,43 +299,6 @@ def _extract_hyperparameters_from_model(model: BaseModel) -> Dict[str, Any]:
     return best_params_to_save
 
 
-def _build_fold_result(
-    fold_idx: int,
-    metrics: Dict[str, float],
-    n_train: int,
-    n_val: int,
-    features: Optional[List[str]] = None,
-    best_params: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """Build a fold result dict with standard fields.
-    
-    Args:
-        fold_idx: Fold index
-        metrics: Dict of metric names to values
-        n_train: Number of training samples
-        n_val: Number of validation samples
-        features: Selected features (optional)
-        best_params: Best hyperparameters (optional)
-        
-    Returns:
-        Fold result dict with standard structure
-    """
-    fold_result = {
-        "fold": fold_idx,
-        "metrics": metrics,
-        "n_train": n_train,
-        "n_val": n_val,
-    }
-    
-    if features:
-        fold_result["selected_features"] = features
-    
-    if best_params:
-        fold_result["best_params"] = best_params
-    
-    return fold_result
-
-
 def _run_advanced_model_cv_fold(
     model: BaseModel,
     X_train: np.ndarray,
@@ -506,13 +377,9 @@ def _run_traditional_model_cv_fold(
     class_weight: Optional[str] = None,
     feature_names: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """Run a single fold of cross-validation for a traditional model.
-    
-    Uses model.classify_traditional() interface which returns a legacy tuple:
-    (accuracy, precision, recall, f1, specificity, g_mean).
-    
-    Unlike advanced models, traditional models expect the full dataset and do their own
-    fold splitting via stratified_kfold_split.
+    """
+    Run a single fold of cross-validation for a traditional model to obtain
+    accuracy, precision, recall, f1, specificity, and g_mean metrics.
     
     Args:
         model: The traditional model to evaluate
@@ -525,28 +392,30 @@ def _run_traditional_model_cv_fold(
         feature_names: Raw feature names aligned with X columns
     """
     logger.info(
-        f"Running traditional CV fold {kfold_id} for model {model.get_name()}"
+        f"Running traditional CV fold {kfold_id} for model {model.name}"
     )
+
+    # Error checking
+    if feature_names is None or len(feature_names) == 0:
+        raise ValueError("feature_names must be provided for traditional CV fold.")
 
     # Do fold splitting using stratified_kfold_split on pre-loaded data
     X_train, X_test, y_train, y_test = stratified_kfold_split(
-        y, X, num_splits, kfold_id, random_state=random_seed
+        X, y, num_splits, kfold_id, random_state = random_seed
     )
-
-    if feature_names is None:
-        feature_names = [f"feature_{index}" for index in range(X_train.shape[1])]
 
     logger.info(
         "Running traditional fold-local LASSO feature selection for fold %s on %s features",
         kfold_id,
         X_train.shape[1],
     )
+
     X_train, X_test, selected_features = _run_traditional_lasso_feature_selection(
-        X_train=X_train,
-        X_test=X_test,
-        y_train=y_train,
-        feature_names=feature_names,
-        random_seed=random_seed,
+        X_train = X_train,
+        X_test = X_test,
+        y_train = y_train,
+        feature_names = feature_names,
+        random_seed = random_seed,
     )
 
     logger.info(
@@ -554,81 +423,175 @@ def _run_traditional_model_cv_fold(
         kfold_id,
         len(selected_features),
     )
+
     X_train, y_train = _run_traditional_smote_resampling(
         X_train=X_train,
         y_train=y_train,
         random_seed=random_seed,
     )
 
-    hpo_result = _run_traditional_model_hpo(
+    logger.info(
+        "Running traditional model HPO for fold %s with class_weight = %s",
+        kfold_id,
+        class_weight
+    )
+
+    hpo_result, search = _run_traditional_model_hpo(
         model=model,
         X_train=X_train,
         y_train=y_train,
         random_seed=random_seed,
         class_weight=class_weight,
     )
-    best_params = hpo_result["best_params"]
-    model.best_params = dict(best_params)
 
-    # Call legacy classify_traditional interface
-    # Legacy contract: returns (accuracy, precision, recall, f1, specificity, g_mean)
-    # Signature: classify_traditional(x_train, x_test, y_train, y_test, class_weight_imb, 
-    #                                  random_state, save_folder, model_name, strategy,
-    #                                  best_params=None)
-    result = model.classify_traditional(
-        x_train=X_train,
-        x_test=X_test,
-        y_train=y_train,
-        y_test=y_test,
-        class_weight_imb=class_weight,
-        random_state=random_seed,
-        save_folder=None,
-        model_name=None,
-        strategy=(
-            ModelInitStrategy.RETRAIN_WITH_CONFIG_PARAMS
-            if best_params
-            else ModelInitStrategy.RETRAIN_WITH_DEFAULTS
-        ),
-        best_params=best_params or None,
+    logger.info(
+        "Running traditional model evaluation for fold %s",
+        kfold_id
+    )
+    
+    fold_performance_summary = _run_traditional_model_evaluation(
+        search = search,
+        X_test = X_test,
+        y_test = y_test
     )
 
-    # Parse legacy tuple - handle variable-length returns
-    if isinstance(result, tuple):
-        # Legacy tuple contract (variable length, but first 6 are always the same):
-        # (accuracy, precision, recall, f1, [optional: tree_depth/other], specificity, g_mean)
-        if len(result) == 6:
-            # Standard 6-tuple: (accuracy, precision, recall, f1, specificity, g_mean)
-            accuracy, precision, recall, f1, specificity, g_mean = result
-        elif len(result) == 7:
-            # 7-tuple with extra field: (accuracy, precision, recall, f1, extra, specificity, g_mean)
-            accuracy, precision, recall, f1, _, specificity, g_mean = result
-        else:
-            # Unknown tuple format; try to extract first 4 mandatory + last 2 metrics
-            accuracy = result[0] if len(result) > 0 else 0
-            precision = result[1] if len(result) > 1 else 0
-            recall = result[2] if len(result) > 2 else 0
-            f1 = result[3] if len(result) > 3 else 0
-            specificity = result[-2] if len(result) > 1 else 0
-            g_mean = result[-1] if len(result) > 0 else 0
+    # Build fold result dictionary
+    fold_result = {
+        "fold": kfold_id,
+        "performance": fold_performance_summary,
+        "n_train": len(X_train),
+        "n_val": len(X_test),
+        "selected_features": selected_features,
+        "best_params": search.best_params_,
+    }
+
+    return fold_result, search
+
+def _run_traditional_lasso_feature_selection(
+    X_train: np.ndarray,
+    X_test: np.ndarray,
+    y_train: np.ndarray,
+    feature_names: List[str],
+    random_seed: int
+) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+    """
+    Find optimal lasso alpha parameter and fits a lasso model to determine
+    most important features. This should only see the 'training' data.
+    """
+
+    search = BayesSearchCV(
+        estimator = Lasso(random_state = random_seed),
+        search_spaces = {"alpha": Real(1e-5, 100, prior = "log-uniform")},
+        cv = 3,
+        n_iter = 50,
+        random_state = random_seed,
+        verbose = 1,
+    )
+    search.fit(X_train, np.ravel(y_train))
+
+    best_lasso = search.best_estimator_
+    lasso_optimal_coef = np.abs(best_lasso.coef_)
+    selected_features_indices = np.where(lasso_optimal_coef != 0)[0]
+    selected_features = np.array(feature_names)[selected_features_indices]
+
+    return X_train[:, selected_features_indices], X_test[:, selected_features_indices], selected_features
+
+def _run_traditional_smote_resampling(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    random_seed: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Apply SMOTE resampling to the training data to address class imbalance."""
+    smote_model = SMOTE(random_state = random_seed, k_neighbors = 7)
+    return smote_model.fit_resample(X_train, y_train)
+
+def _run_traditional_model_hpo(
+    model: BaseModel,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    random_seed: int,
+    class_weight: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Run hyperparameter optimization for a traditional model using BayesSearchCV."""
+
+    estimator = model.model_object
+    estimator.set_params({ "random_state": random_seed, "class_weight": class_weight })
+    search = BayesSearchCV(
+        estimator = estimator,
+        search_spaces = model.hpo_search_space,
+        n_iter = 30,
+        cv = 3,
+        scoring = "f1",
+        random_state = random_seed,
+        verbose = 1,
+        error_score = np.nan,
+    )
+    search.fit(X_train, np.ravel(y_train))
+
+    best_params = dict(search.best_params_)
+    summary = {
+        "best_params": best_params,
+        "best_score": float(getattr(search, "best_score_", 0.0)),
+        "best_index": int(getattr(search, "best_index_", -1)),
+        "n_iter": 30,
+        "cv": 3,
+        "scoring": "f1",
+    }
+    return {"best_params": best_params, "summary": summary}, search
+
+def _run_traditional_model_evaluation(
+    search: Any, # Should be a BayesSearchCV fitted search object
+    X_test: np.ndarray,
+    y_test: np.ndarray,
+) -> pd.DataFrame:
+    label_predictions = search.predict(X_test)
+
+    # Assess Performance
+    accuracy = metrics.accuracy_score(y_test, label_predictions)
+    precision = metrics.precision_score(y_test, label_predictions)
+    recall = metrics.recall_score(y_test, label_predictions)
+    f1 = metrics.f1_score(y_test, label_predictions)
+    specificity = metrics.recall_score(y_test, label_predictions, pos_label = 0)
+    g_mean = geometric_mean_score(y_test, label_predictions)
+
+    return {
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "specificity": specificity,
+        "g_mean": g_mean
+    }
+
+def _build_fold_result(
+    fold_idx: int,
+    metrics: Dict[str, float],
+    n_train: int,
+    n_val: int,
+    features: List[str],
+    best_params: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Build a fold result dict with standard fields.
+    
+    Args:
+        fold_idx: Fold index
+        metrics: Dict of metric names to values
+        n_train: Number of training samples
+        n_val: Number of validation samples
+        features: Selected features (optional)
+        best_params: Best hyperparameters (optional)
         
-        metrics = {
-            "accuracy": float(accuracy),
-            "precision": float(precision),
-            "recall": float(recall),
-            "f1": float(f1),
-            "specificity": float(specificity),
-            "g_mean": float(g_mean),
-        }
-    else:
-        # If result is already a dict, use as-is
-        metrics = result
-
-    # Extract hyperparameters and build result
-    if not best_params:
-        best_params = _extract_hyperparameters_from_model(model)
-    fold_result = _build_fold_result(
-        kfold_id, metrics, len(X_train), len(X_test), selected_features, best_params
-    )
+    Returns:
+        Fold result dict with standard structure
+    """
+    fold_result = {
+        "fold": fold_idx,
+        "metrics": metrics,
+        "n_train": n_train,
+        "n_val": n_val,
+        "selected_features": features,
+        "best_params": best_params,
+    }
     
     return fold_result
 
@@ -636,14 +599,15 @@ def _run_traditional_model_cv_fold(
 def run_cross_validation(
     config: GLOCExperimentConfigParser,
     pipeline: DataPipeline,
-    unused_path: Optional[Path] = None,
-    models: Optional[List[BaseModel]] = None,
-    num_splits: int = 10,
-    random_seed: int = 42,
-    class_weight: Optional[str] = None,
-    save_models: bool = True,
-    results_root: Optional[Path] = None,
-    model_type: Optional[ModelType] = None,
+    model_factory: ModelFactory,
+    project_root_path: Path,
+    # models: Optional[List[BaseModel]] = None,
+    # num_splits: int = 10,
+    # random_seed: int = 42,
+    # class_weight: Optional[str] = None,
+    # save_models: bool = True,
+    # results_root: Optional[Path] = None,
+    # model_type: Optional[ModelType] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """Run cross-validation for a list of models.
     
@@ -665,12 +629,12 @@ def run_cross_validation(
     Returns:
         Dict mapping model names to lists of per-fold result dicts.
     """
-    if models is None:
-        models = []
-    if results_root is None:
-        results_root = Path("Results/CrossValidation")
-    if model_type is None:
-        model_type = config.get_model_type()
+    models = config.get_models()
+    results_path = Path(project_root_path / config.get_cross_validation_save_results_folder())
+    model_type = config.get_model_type()
+    num_splits = config.get_cross_validation_num_splits()
+    random_seed = config.get_cross_validation_random_seed()
+    class_weight = config.get_cross_validation_class_weight()
     
     logger.info(
         "Starting cross-validation with %s folds and %s model(s)",
@@ -678,9 +642,9 @@ def run_cross_validation(
         len(models),
     )
 
-    results_root = Path(results_root)
+    # Validate model type and results path
     model_type_folder = model_type.get_folder_name()
-    results_root_with_type = results_root / model_type_folder
+    results_root_with_type = results_path / model_type_folder
     all_results = {}
     
     # Set random seed and model type for pipeline operations
@@ -688,26 +652,28 @@ def run_cross_validation(
     pipeline.set_model_type(model_type)
 
     for model in models:
-        model_name = model.get_name() if hasattr(model, "get_name") else str(model)
+        # Use a dummy model to get its metadata
+        model = model_factory.build_model(model)
+
         logger.info(f"\n{'='*60}")
-        logger.info(f"Cross-validating model: {model_name}")
+        logger.info(f"Cross-validating model: {model.name}")
         logger.info(f"{'='*60}")
 
         model_results = []
-        model_results_dir = results_root_with_type / model_name
+        model_results_dir = results_root_with_type / model.name
 
-        # IMPORTANT: Load data ONCE per model to avoid reprocessing for each fold
-        logger.info(f"Loading data for model {model_name}...")
+        logger.info(f"Loading data for model {model.name}...")
 
         fold_cache = None  # For advanced models: cache fold data upfront
-        
-        if _is_traditional_model(model):
-            # Load full dataset once for traditional models
+
+        if model._is_traditional_model:
+            # Traditional models can load the whole dataset first and then do fold splits
             X, y, feature_names = pipeline.get_data(
-                model=model,
-                traditional_feature_selection="raw",
-                return_feature_names=True,
+                model = model,
+                traditional_feature_selection = "raw",
+                return_feature_names = True,
             )
+
             logger.info(f"Loaded traditional data: X shape {X.shape}, y shape {y.shape}")
         else:
             # Advanced models: require advanced_hpo config and pre-cache fold data
@@ -736,97 +702,99 @@ def run_cross_validation(
 
         for fold_idx in range(num_splits):
             fold_dir = model_results_dir / f"fold_{fold_idx}"
-            fold_dir.mkdir(parents=True, exist_ok=True)
+            fold_dir.mkdir(parents = True, exist_ok = True)
 
-            try:
-                # Route based on model type
-                if _is_traditional_model(model):
-                    # Use pre-loaded data for traditional models
-                    fold_result = _run_traditional_model_cv_fold(
-                        model,
-                        X,
-                        y,
-                        fold_idx,
-                        num_splits,
-                        random_seed,
-                        class_weight,
-                        feature_names=feature_names,
-                    )
-
-                else:
-                    # Advanced model: use pre-cached fold data and required advanced_hpo config
-                    X_train, X_val, y_train, y_val, features = fold_cache[fold_idx]
-                    fold_result = _run_advanced_model_cv_fold(
-                        model,
-                        X_train,
-                        X_val,
-                        y_train,
-                        y_val,
-                        features,
-                        fold_idx,
-                        class_weight,
-                        hpo_config=model_hpo_config,
-                        random_seed=random_seed,
-                        fold_dir=fold_dir,
-                    )
+            if model.is_traditional_model:
+                fold_result, search = _run_traditional_model_cv_fold(
+                    model,
+                    X,
+                    y,
+                    fold_idx,
+                    num_splits,
+                    random_seed,
+                    class_weight,
+                    feature_names = feature_names,
+                )
 
                 # Save fold metrics in fold folder for all model types
-                fold_dir.mkdir(parents=True, exist_ok=True)
-                metrics_path = fold_dir / "metrics.pkl"
-                
-                with open(metrics_path, "wb") as f:
-                    pickle.dump(fold_result, f)
-                logger.info(f"Saved fold {fold_idx} metrics to {metrics_path}")
+                fold_dir.mkdir(parents = True, exist_ok = True)
+                fold_result_path = fold_dir / "fold_result.json"
+                with open(fold_result_path, "wb") as f:
+                    json.dump(fold_result, f)
+                logger.info(f"Saved fold {fold_idx} metrics to {fold_result_path}")
 
-                # Save model artifact immediately for this fold (fail loudly on errors)
-                # This ensures each fold's trained snapshot is persisted right away.
-                if save_models and hasattr(model, "save"):
-                    fold_model_dir = fold_dir / "model"
-                    fold_model_dir.mkdir(parents=True, exist_ok=True)
-                    # Let exceptions from model.save propagate so failures are visible
-                    model.save(str(fold_model_dir))
-                    logger.info(f"Saved model to {fold_model_dir}")
+                # Save BayesSearchCV model in fold folder
+                fold_model_dir = fold_dir / "model.pkl"
+                with open(fold_model_dir, "wb") as f:
+                    joblib.dump(search, f)
+                logger.info(f"Saved fold {fold_idx} BayesSearchCV object to {fold_model_dir}")
 
-                model_results.append(fold_result)
 
-            except Exception as e:
-                logger.error(f"Error in fold {fold_idx} for model {model_name}: {e}")
-                raise
+            # try:
+            #     # Route based on model type
+            #     if _is_traditional_model(model):
+            #         # Use pre-loaded data for traditional models
+            #         fold_result = _run_traditional_model_cv_fold(
+            #             model,
+            #             X,
+            #             y,
+            #             fold_idx,
+            #             num_splits,
+            #             random_seed,
+            #             class_weight,
+            #             feature_names=feature_names,
+            #         )
+
+            #     else:
+            #         # Advanced model: use pre-cached fold data and required advanced_hpo config
+            #         X_train, X_val, y_train, y_val, features = fold_cache[fold_idx]
+            #         fold_result = _run_advanced_model_cv_fold(
+            #             model,
+            #             X_train,
+            #             X_val,
+            #             y_train,
+            #             y_val,
+            #             features,
+            #             fold_idx,
+            #             class_weight,
+            #             hpo_config=model_hpo_config,
+            #             random_seed=random_seed,
+            #             fold_dir=fold_dir,
+            #         )
+
+
+
+            model_results.append(fold_result)
 
         # Model saves were performed per-fold synchronously above.
 
         # Compute and save aggregated metrics
-        if model_results:
-            aggregated, median_fold_idx, median_f1 = _aggregate_cv_results(model_results)
-            summary_path = model_results_dir / "summary.json"
-            with open(summary_path, "w") as f:
-                json.dump(aggregated, f, indent=2)
-            logger.info(f"Saved aggregated CV summary to {summary_path}")
-            logger.info(f"Model {model_name} CV results: {aggregated}")
+        aggregated, median_fold_idx, median_f1 = _aggregate_cv_results(model_results)
+        summary_path = model_results_dir / "summary.json"
+        with open(summary_path, "w") as f:
+            json.dump(aggregated, f, indent=2)
+        logger.info(f"Saved aggregated CV summary to {summary_path}")
+        logger.info(f"Model {model.name} CV results: {aggregated}")
 
-            # Save median hyperparameters if enabled
-            if config.get_cross_validation_save_median_hyperparameters():
-                try:
-                    hyperparams = _extract_median_hyperparameters(
-                        model, median_fold_idx, median_f1, model_name, model_results
-                    )
-                    hyperparams_path = model_results_dir / "median_hyperparameters.json"
-                    with open(hyperparams_path, "w") as f:
-                        json.dump(hyperparams, f, indent=2)
-                    logger.info(
-                        f"Saved median hyperparameters (fold {median_fold_idx}, F1={median_f1:.4f}) "
-                        f"to {hyperparams_path}"
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to extract median hyperparameters for {model_name}: {e}"
-                    )
-
-            all_results[model_name] = model_results
+        # Save median hyperparameters if enabled
+        if config.get_cross_validation_save_median_hyperparameters():
+            try:
+                hyperparams = _extract_median_hyperparameters(
+                    model, median_fold_idx, median_f1, model_name, model_results
+                )
+                hyperparams_path = model_results_dir / "median_hyperparameters.json"
+                with open(hyperparams_path, "w") as f:
+                    json.dump(hyperparams, f, indent=2)
+                logger.info(
+                    f"Saved median hyperparameters (fold {median_fold_idx}, F1={median_f1:.4f}) "
+                    f"to {hyperparams_path}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to extract median hyperparameters for {model_name}: {e}"
+                )
 
     logger.info(f"\nCross-validation complete. Results saved to {results_root_with_type}")
-    return all_results
-
 
 
 
@@ -933,9 +901,6 @@ def _aggregate_cv_results(
         Tuple of (aggregated_metrics, median_fold_idx, median_f1)
     """
     aggregated = {}
-
-    if not fold_results:
-        return aggregated, 0, 0.0
 
     metric_values = {key: [] for key in CANONICAL_CV_METRIC_KEYS}
     f1_scores = []
