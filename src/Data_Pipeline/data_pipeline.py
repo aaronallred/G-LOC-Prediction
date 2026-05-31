@@ -203,18 +203,18 @@ class DataPipeline:
 
     def _resolve_pipeline_kind(self, model: BaseModel) -> Literal["advanced", "traditional"]:
         """Resolve whether the configured model maps to advanced or traditional flow."""
-        if model is None or not hasattr(model, "is_traditional"):
-            raise ValueError("Model does not have 'is_traditional' attribute. Unable to determine pipeline kind.")
+        # if model is None or not hasattr(model, "is_traditional"):
+        #     raise ValueError("Model does not have 'is_traditional' attribute. Unable to determine pipeline kind.")
 
-        return "traditional" if model.is_traditional else "advanced"
+        return "traditional" if model.is_traditional_model else "advanced"
     
 
     def _resolve_classifier_name(self, model: BaseModel) -> str:
         """Resolve classifier name from the configured model."""
-        if model is None or not hasattr(model, "get_name"):
-            raise ValueError("Unable to determine classifier name.")
+        # if model is None or not hasattr(model, "get_name"):
+        #     raise ValueError("Unable to determine classifier name.")
 
-        return model.get_name()
+        return model.name
 
     def _resolve_select_features(self, current_kwargs: dict[str, Any]) -> list[str]:
         """Load selected feature names from the median-hyperparameter cache."""
@@ -1532,10 +1532,10 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
             resolved_model = model_factory(config={})
 
-        if not hasattr(resolved_model, "get_traditional_hyperparameters"):
-            raise ValueError(f"Model '{resolved_model}' does not provide traditional hyperparameters.")
+        # if not hasattr(resolved_model, "get_traditional_hyperparameters"):
+        #     raise ValueError(f"Model '{resolved_model}' does not provide traditional hyperparameters.")
 
-        hyperparameters = resolved_model.get_traditional_hyperparameters()
+        hyperparameters = resolved_model.data_pipeline_hyperparameters
         required_keys = {
             "baseline_window",
             "window_size",

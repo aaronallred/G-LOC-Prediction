@@ -327,7 +327,7 @@ def _run_advanced_model_cv_fold(
         if fold_dir is not None:
             hpo_summary_path = fold_dir / "hpo_summary.json"
             with open(hpo_summary_path, "w", encoding="utf-8") as f:
-                json.dump(hpo_result["summary"], f, indent=2)
+                json.dump(hpo_result["summary"], f, indent = 4)
             logger.info(f"Saved fold {kfold_id} HPO summary to {hpo_summary_path}")
 
     # Train model with tuned params when available
@@ -447,7 +447,7 @@ def _run_traditional_model_cv_fold(
 
     # Build fold result dictionary
     fold_result = _build_fold_result(
-        kfold_id = kfold_id,
+        fold_idx = kfold_id,
         metrics = fold_performance_summary,
         n_train = len(X_train),
         n_val = len(X_test),
@@ -473,7 +473,7 @@ def _run_traditional_lasso_feature_selection(
         estimator = Lasso(random_state = random_seed),
         search_spaces = {"alpha": Real(1e-5, 100, prior = "log-uniform")},
         cv = 3,
-        n_iter = 50,
+        n_iter = 3,
         random_state = random_seed,
         verbose = 1,
     )
@@ -482,7 +482,7 @@ def _run_traditional_lasso_feature_selection(
     best_lasso = search.best_estimator_
     lasso_optimal_coef = np.abs(best_lasso.coef_)
     selected_features_indices = np.where(lasso_optimal_coef != 0)[0]
-    selected_features = np.array(feature_names)[selected_features_indices]
+    selected_features = np.array(feature_names)[selected_features_indices].tolist()
 
     return X_train[:, selected_features_indices], X_test[:, selected_features_indices], selected_features
 
@@ -505,11 +505,13 @@ def _run_traditional_model_hpo(
     """Run hyperparameter optimization for a traditional model using BayesSearchCV."""
 
     estimator = model.model_object
-    estimator.set_params({ "random_state": random_seed, "class_weight": class_weight })
+    valid_params = estimator.get_params()
+    estimator_params = {k: v for k, v in { "random_state": random_seed, "class_weight": class_weight }.items() if k in valid_params}
+    estimator.set_params(**estimator_params)
     search = BayesSearchCV(
         estimator = estimator,
         search_spaces = model.hpo_search_space,
-        n_iter = 30,
+        n_iter = 3,
         cv = 3,
         scoring = "f1",
         random_state = random_seed,
@@ -586,7 +588,7 @@ def run_cross_validation(
     Returns:
         Dict mapping model names to lists of per-fold result dicts.
     """
-    models = config.get_models()
+    models = ["KNN"]
     results_path = Path(project_root_path / config.get_cross_validation_save_results_folder())
     model_type = config.get_model_type()
     num_splits = config.get_cross_validation_num_splits()
@@ -610,7 +612,7 @@ def run_cross_validation(
 
     for model in models:
         # Use a dummy model to get its metadata
-        model = model_factory.build_model(model)
+        model = model_factory.create_model(model)
 
         logger.info(f"\n{'='*60}")
         logger.info(f"Cross-validating model: {model.name}")
@@ -623,7 +625,7 @@ def run_cross_validation(
 
         fold_cache = None  # For advanced models: cache fold data upfront
 
-        if model._is_traditional_model:
+        if model.is_traditional_model:
             # Traditional models can load the whole dataset first and then do fold splits
             X, y, feature_names = pipeline.get_data(
                 model = model,
@@ -712,11 +714,11 @@ def run_cross_validation(
             #             fold_dir=fold_dir,
             #         )
 
-            # Save fold metrics in fold folder for all model types
+            # Save fold metrics in fold folder
             fold_dir.mkdir(parents = True, exist_ok = True)
             fold_result_path = fold_dir / "fold_result.json"
-            with open(fold_result_path, "wb") as f:
-                json.dump(fold_result, f)
+            with open(fold_result_path, "w") as f:
+                json.dump(fold_result, f, indent = 4)
             logger.info(f"Saved fold {fold_idx} metrics to {fold_result_path}")
 
             model_results.append(fold_result)
@@ -725,7 +727,7 @@ def run_cross_validation(
         aggregated, median_fold_idx, median_f1 = _aggregate_cv_results(model_results)
         summary_path = model_results_dir / "summary.json"
         with open(summary_path, "w") as f:
-            json.dump(aggregated, f)
+            json.dump(aggregated, f, indent = 4)
         logger.info(f"Saved aggregated CV summary to {summary_path}")
         logger.info(f"Model {model.name} CV results: {aggregated}")
 
@@ -733,7 +735,7 @@ def run_cross_validation(
         hyperparams = _extract_median_hyperparameters(median_fold_idx, median_f1, model_results)
         hyperparams_path = model_results_dir / "median_hyperparameters.json"
         with open(hyperparams_path, "w") as f:
-            json.dump(hyperparams, f)
+            json.dump(hyperparams, f, indent = 4)
         logger.info(
             f"Saved median hyperparameters (fold {median_fold_idx}, F1={median_f1:.4f}) "
             f"to {hyperparams_path}"
@@ -764,13 +766,13 @@ def _build_fold_result(
     """
     fold_result = {
         "fold": fold_idx,
-        "metrics": metrics,
+        "performance": metrics,
         "n_train": n_train,
         "n_val": n_val,
         "best_params": best_params,
     }
 
-    if features:
+    if features is not None:
         fold_result["selected_features"] = features
     
     return fold_result
