@@ -9,6 +9,7 @@ from upsetplot import UpSet, from_contents
 
 from .Data_Pipeline.data_pipeline import DataPipeline
 from .GLOC_experiment_config_parser import GLOCExperimentConfigParser
+from .models_new.model_factory import ModelFactory
 from .modes.cross_validation import run_cross_validation
 from .modes.feature_space_review import (
     investigate_feature_space,
@@ -77,10 +78,13 @@ def parse_args() -> argparse.Namespace:
 
 def run(config_path: str | None = None) -> None:
     configure_logging()
-    config_parser = GLOCExperimentConfigParser(config_location=config_path)
     _try_enable_cuml_acceleration()
 
-    project_root = Path(__file__).resolve().parent.parent
+    config_parser = GLOCExperimentConfigParser(config_location = config_path)
+    data_pipeline = DataPipeline(config_parser = config_parser)
+    model_factory = ModelFactory()
+
+    project_root_path = Path(__file__).resolve().parent.parent
     did_run_any_mode = False
 
     mode_runners: list[tuple[bool, Callable[[], None]]] = [
@@ -88,13 +92,9 @@ def run(config_path: str | None = None) -> None:
             config_parser.get_cross_validation_enabled(),
             lambda: run_cross_validation(
                 config = config_parser,
-                pipeline = DataPipeline(config_parser = config_parser),
-                results_root = project_root / config_parser.get_cross_validation_save_results_folder(),
-                models = config_parser.get_cross_validation_models(),
-                num_splits = config_parser.get_cross_validation_num_splits(),
-                random_seed = config_parser.get_cross_validation_random_seed(),
-                class_weight = config_parser.get_cross_validation_class_weight(),
-                model_type = config_parser.get_cross_validation_model_type(),
+                pipeline = data_pipeline,
+                model_factory = model_factory,
+                project_root_path = project_root_path
             ),
         ),
         (
@@ -102,7 +102,7 @@ def run(config_path: str | None = None) -> None:
             lambda: run_sensor_ablation_training(
                 config_parser = config_parser,
                 pipeline = DataPipeline(config_parser = config_parser),
-                project_root = project_root,
+                project_root = project_root_path,
                 # Use the configured median_hyperparameters_folder via the config parser by
                 # passing None here; run_sensor_ablation_training will build a resolver.
                 get_hyperparameters_from_json_fn = None,
@@ -116,7 +116,7 @@ def run(config_path: str | None = None) -> None:
             config_parser.get_sensor_ablation_review_enabled(),
             lambda: run_sensor_ablation_review(
                 config_parser = config_parser,
-                project_root = project_root,
+                project_root = project_root_path,
                 load_sensor_ablation_f1_results_fn = load_sensor_ablation_f1_results,
                 build_ranked_sensor_ablation_review_results_fn = build_ranked_sensor_ablation_review_results,
                 filter_sensor_ablation_review_results_fn = filter_sensor_ablation_review_results,
