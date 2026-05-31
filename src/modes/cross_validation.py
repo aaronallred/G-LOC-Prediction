@@ -446,14 +446,14 @@ def _run_traditional_model_cv_fold(
     )
 
     # Build fold result dictionary
-    fold_result = {
-        "fold": kfold_id,
-        "performance": fold_performance_summary,
-        "n_train": len(X_train),
-        "n_val": len(X_test),
-        "selected_features": selected_features,
-        "best_params": search.best_params_,
-    }
+    fold_result = _build_fold_result(
+        kfold_id = kfold_id,
+        metrics = fold_performance_summary,
+        n_train = len(X_train),
+        n_val = len(X_test),
+        best_params = hpo_result["best_params"],
+        features = selected_features
+    )
 
     return fold_result, search
 
@@ -552,39 +552,6 @@ def _run_traditional_model_evaluation(
         "specificity": specificity,
         "g_mean": g_mean
     }
-
-def _build_fold_result(
-    fold_idx: int,
-    metrics: Dict[str, float],
-    n_train: int,
-    n_val: int,
-    features: List[str],
-    best_params: Dict[str, Any]
-) -> Dict[str, Any]:
-    """Build a fold result dict with standard fields.
-    
-    Args:
-        fold_idx: Fold index
-        metrics: Dict of metric names to values
-        n_train: Number of training samples
-        n_val: Number of validation samples
-        features: Selected features (optional)
-        best_params: Best hyperparameters (optional)
-        
-    Returns:
-        Fold result dict with standard structure
-    """
-    fold_result = {
-        "fold": fold_idx,
-        "metrics": metrics,
-        "n_train": n_train,
-        "n_val": n_val,
-        "selected_features": features,
-        "best_params": best_params,
-    }
-    
-    return fold_result
-
 
 def run_cross_validation(
     config: GLOCExperimentConfigParser,
@@ -706,13 +673,6 @@ def run_cross_validation(
                     feature_names = feature_names,
                 )
 
-                # Save fold metrics in fold folder for all model types
-                fold_dir.mkdir(parents = True, exist_ok = True)
-                fold_result_path = fold_dir / "fold_result.json"
-                with open(fold_result_path, "wb") as f:
-                    json.dump(fold_result, f)
-                logger.info(f"Saved fold {fold_idx} metrics to {fold_result_path}")
-
                 # Save BayesSearchCV model in fold folder
                 fold_model_dir = fold_dir / "model.pkl"
                 with open(fold_model_dir, "wb") as f:
@@ -752,7 +712,12 @@ def run_cross_validation(
             #             fold_dir=fold_dir,
             #         )
 
-
+            # Save fold metrics in fold folder for all model types
+            fold_dir.mkdir(parents = True, exist_ok = True)
+            fold_result_path = fold_dir / "fold_result.json"
+            with open(fold_result_path, "wb") as f:
+                json.dump(fold_result, f)
+            logger.info(f"Saved fold {fold_idx} metrics to {fold_result_path}")
 
             model_results.append(fold_result)
 
@@ -775,6 +740,40 @@ def run_cross_validation(
         )
 
     logger.info(f"\nCross-validation complete. Results saved to {results_root_with_type}")
+
+def _build_fold_result(
+    fold_idx: int,
+    metrics: Dict[str, float],
+    n_train: int,
+    n_val: int,
+    best_params: Dict[str, Any],
+    features: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """Build a fold result dict with standard fields.
+    
+    Args:
+        fold_idx: Fold index
+        metrics: Dict of metric names to values
+        n_train: Number of training samples
+        n_val: Number of validation samples
+        features: Selected features (optional)
+        best_params: Best hyperparameters (optional)
+        
+    Returns:
+        Fold result dict with standard structure
+    """
+    fold_result = {
+        "fold": fold_idx,
+        "metrics": metrics,
+        "n_train": n_train,
+        "n_val": n_val,
+        "best_params": best_params,
+    }
+
+    if features:
+        fold_result["selected_features"] = features
+    
+    return fold_result
 
 def _aggregate_cv_results(
     fold_results: List[Dict[str, Any]],
