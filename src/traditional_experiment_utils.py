@@ -17,7 +17,7 @@ from sklearn.model_selection import StratifiedKFold
 from src.model_type import ModelType
 
 
-def stratified_kfold_split(Y, X, num_splits, kfold_ID, random_state=42):
+def stratified_kfold_split(X, y, num_splits, kfold_ID, random_state=42):
     """Split arrays using a reproducible stratified k-fold index."""
     skf = StratifiedKFold(n_splits=num_splits, shuffle=True, random_state=random_state)
 
@@ -25,9 +25,9 @@ def stratified_kfold_split(Y, X, num_splits, kfold_ID, random_state=42):
     if kfold_ID < 0 or kfold_ID >= n_folds:
         raise ValueError(f"Fold index {kfold_ID} out of range (must be between 0 and {n_folds - 1})")
 
-    train_index, test_index = next(islice(skf.split(X, Y), kfold_ID, kfold_ID + 1))
-    x_train, y_train = X[train_index], Y[train_index]
-    x_test, y_test = X[test_index], Y[test_index]
+    train_index, test_index = next(islice(skf.split(X, y), kfold_ID, kfold_ID + 1))
+    x_train, y_train = X[train_index], y[train_index]
+    x_test, y_test = X[test_index], y[test_index]
     return x_train, x_test, y_train, y_test
 
 def get_hyperparameters_from_json(
