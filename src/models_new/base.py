@@ -3,8 +3,7 @@ from enum import Enum
 import joblib
 import numpy as np
 from sklearn.base import clone
-from skopt import BayesSearchCV
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 class ModelInitStrategy(Enum):
     """Enum for specifying how to initialize a model during traditional classification.
@@ -60,8 +59,6 @@ class BaseModel(ABC):
         """Returns the hyperparameter search space for this model."""
         pass
 
-    
-
 
 
     @abstractmethod
@@ -72,11 +69,6 @@ class BaseModel(ABC):
     @abstractmethod
     def train(self, X: Any, y: Any):
         """Hides the PyTorch training loop or calls sklearn.fit()."""
-        pass
-
-    @abstractmethod
-    def tune(self, X: Any, y: Any):
-        """Hides the hyperparameter tuning process (e.g. Optuna for PyTorch or RandomizedSearchCV for sklearn)."""
         pass
 
     @abstractmethod
@@ -124,35 +116,6 @@ class TraditionalModel(BaseModel):
     def train(self, X: np.ndarray, y: np.ndarray):
         """Fit the model using sklearn's fit method."""
         self.model.fit(X, y)
-
-    def tune(self, X: np.ndarray, y: np.ndarray, random_seed: int, class_weight: Optional[str] = None):
-        """Run hyperparameter optimization for a traditional model using BayesSearchCV."""
-        
-        valid_params = self.model.get_params()
-        estimator_params = {k: v for k, v in { "random_state": random_seed, "class_weight": class_weight }.items() if k in valid_params}
-        self.model.set_params(**estimator_params)
-        search = BayesSearchCV(
-            estimator = self.model,
-            search_spaces = self.hpo_search_space,
-            n_iter = 3,
-            cv = 3,
-            scoring = "f1",
-            random_state = random_seed,
-            verbose = 1,
-            error_score = np.nan,
-        )
-        search.fit(X, np.ravel(y))
-
-        best_params = dict(search.best_params_)
-        summary = {
-            "best_params": best_params,
-            "best_score": float(getattr(search, "best_score_", 0.0)),
-            "best_index": int(getattr(search, "best_index_", -1)),
-            "n_iter": 30,
-            "cv": 3,
-            "scoring": "f1",
-        }
-        return {"best_params": best_params, "summary": summary}, search
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict using sklearn's predict method."""

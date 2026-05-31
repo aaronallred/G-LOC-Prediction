@@ -426,7 +426,13 @@ def _run_traditional_model_cv_fold(
         class_weight
     )
 
-    hpo_result, search = model.tune(X_train, y_train, random_seed, class_weight)
+    hpo_result, search = _run_traditional_model_hpo(
+        model=model,
+        X_train=X_train,
+        y_train=y_train,
+        random_seed=random_seed,
+        class_weight=class_weight,
+    )
 
     logger.info(
         "Running traditional model evaluation for fold %s",
@@ -489,6 +495,42 @@ def _run_traditional_smote_resampling(
     smote_model = SMOTE(random_state = random_seed, k_neighbors = 7)
     return smote_model.fit_resample(X_train, y_train)
 
+def _run_traditional_model_hpo(
+    model: BaseModel,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    random_seed: int,
+    class_weight: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Run hyperparameter optimization for a traditional model using BayesSearchCV."""
+
+    estimator = model.model_object
+    valid_params = estimator.get_params()
+    estimator_params = {k: v for k, v in { "random_state": random_seed, "class_weight": class_weight }.items() if k in valid_params}
+    estimator.set_params(**estimator_params)
+    search = BayesSearchCV(
+        estimator = estimator,
+        search_spaces = model.hpo_search_space,
+        n_iter = 3,
+        cv = 3,
+        scoring = "f1",
+        random_state = random_seed,
+        verbose = 1,
+        error_score = np.nan,
+    )
+    search.fit(X_train, np.ravel(y_train))
+
+    best_params = dict(search.best_params_)
+    summary = {
+        "best_params": best_params,
+        "best_score": float(getattr(search, "best_score_", 0.0)),
+        "best_index": int(getattr(search, "best_index_", -1)),
+        "n_iter": 30,
+        "cv": 3,
+        "scoring": "f1",
+    }
+    return {"best_params": best_params, "summary": summary}, search
+
 def _run_traditional_model_evaluation(
     search: Any, # Should be a BayesSearchCV fitted search object
     X_test: np.ndarray,
@@ -517,7 +559,14 @@ def run_cross_validation(
     config: GLOCExperimentConfigParser,
     pipeline: DataPipeline,
     model_factory: ModelFactory,
-    project_root_path: Path
+    project_root_path: Path,
+    # models: Optional[List[BaseModel]] = None,
+    # num_splits: int = 10,
+    # random_seed: int = 42,
+    # class_weight: Optional[str] = None,
+    # save_models: bool = True,
+    # results_root: Optional[Path] = None,
+    # model_type: Optional[ModelType] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """Run cross-validation for a list of models.
     
@@ -527,8 +576,14 @@ def run_cross_validation(
     Args:
         config: GLOCExperimentConfigParser instance
         pipeline: DataPipeline instance for data loading
-        model_factory: ModelFactory instance for creating model objects
-        project_root_path: Root path of the project for saving results
+        unused_path: Deprecated parameter, kept for backward compatibility
+        models: List of BaseModel instances
+        num_splits: Number of cross-validation folds
+        random_seed: Random seed for deterministic splits
+        class_weight: Class weighting strategy (e.g., 'balanced')
+        save_models: Whether to save model artifacts per fold
+        results_root: Root directory for CV results (keyword argument)
+        model_type: ModelType instance for nesting results by model type (keyword argument)
         
     Returns:
         Dict mapping model names to lists of per-fold result dicts.
