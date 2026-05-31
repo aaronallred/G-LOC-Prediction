@@ -86,6 +86,11 @@ class BaseModel(ABC):
         pass
 
     @abstractmethod
+    def get_model_parameters(self) -> Dict[str, Any]:
+        """Returns the model hyperparameters."""
+        pass
+
+    @abstractmethod
     def set_model_parameters(self, model_hyperparameters: Dict[str, Any]):
         """Updates the underlying model's hyperparameters after initialization."""
         pass
@@ -123,6 +128,10 @@ class TraditionalModel(BaseModel):
     def load_model(self, path: str) -> None:
         """Loads the sklearn model using joblib."""
         self.model = joblib.load(path)
+
+    def get_model_parameters(self) -> Dict[str, Any]:
+        """Returns the model hyperparameters."""
+        return self.model.get_params()
 
     def set_model_parameters(self, model_hyperparameters: Dict[str, Any]) -> None:
         """Updates the sklearn model's hyperparameters after initialization."""
