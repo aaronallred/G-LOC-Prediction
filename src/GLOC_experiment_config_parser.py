@@ -342,6 +342,21 @@ class GLOCExperimentConfigParser:
             return ModelType(afe_filter=cv_model_type[0], feature_set=cv_model_type[1])
         raise ValueError("cross_validation.model_type is required")
 
+    def get_model_type(self) -> Optional[ModelType]:
+        """Return a ModelType for generic callers.
+
+        Prefer a global/root-level `model_type` if present, otherwise fall back
+        to cross-validation-specific model type when used from the CV runner.
+        """
+        # If a root-level model_type was parsed at construction, return it
+        if getattr(self, "model_type", None) is not None:
+            return self.model_type
+        # Otherwise, try to read cross-validation-specific model_type
+        try:
+            return self.get_cross_validation_model_type()
+        except Exception:
+            return None
+
     def get_cross_validation_save_results_folder(self) -> str:
         return self._get_nested("cross_validation", "save_results_folder")
 
