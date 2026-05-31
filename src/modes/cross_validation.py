@@ -766,7 +766,7 @@ def _build_fold_result(
     """
     fold_result = {
         "fold": fold_idx,
-        "performance": metrics,
+        "metrics": metrics,
         "n_train": n_train,
         "n_val": n_val,
         "best_params": best_params,
@@ -794,7 +794,7 @@ def _aggregate_cv_results(
 
     # Extract metrics for each fold
     for fold_result in fold_results:
-        fold_performance = fold_result["performance"]
+        fold_performance = fold_result["metrics"]
         for key in metric_keys:
             metric_values[key].append(float(fold_performance[key]))
     
@@ -806,7 +806,7 @@ def _aggregate_cv_results(
     # Find fold index with median F1 (use first if tie)
     median_fold_idx = 0
     for i, fold_result in enumerate(fold_results):
-        fold_f1 = float(fold_result["performance"]["f1"])
+        fold_f1 = float(fold_result["metrics"]["f1"])
         if fold_f1 == median_f1:
             median_fold_idx = i
             break
