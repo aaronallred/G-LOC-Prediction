@@ -33,16 +33,6 @@ from src.traditional_experiment_utils import stratified_kfold_split
 logger = logging.getLogger(__name__)
 
 
-CANONICAL_CV_METRIC_KEYS: Tuple[str, ...] = (
-    "accuracy",
-    "precision",
-    "recall",
-    "f1",
-    "specificity",
-    "g_mean",
-)
-
-
 # Per-model HPO handled via model.hpo_defaults() and model.build_hpo_search_space()
 
 
@@ -796,6 +786,51 @@ def run_cross_validation(
 
     logger.info(f"\nCross-validation complete. Results saved to {results_root_with_type}")
 
+def _aggregate_cv_results(
+    fold_results: List[Dict[str, Any]],
+) -> Tuple[Dict[str, Any], int, float]:
+    """
+    Compute mean/std summary from all metrics and compute median fold based on F1 score.
+
+    Parameters:
+        fold_results: List of dicts, each containing 'performance' dict with metrics for a fold
+    
+    Returns:
+        Tuple of (aggregated_metrics, median_fold_idx, median_f1)
+    """
+    metric_keys = ("accuracy", "precision", "recall", "f1", "specificity", "g_mean")
+    metric_values = {key: [] for key in metric_keys}
+
+    # Extract metrics for each fold
+    for fold_result in fold_results:
+        fold_performance = fold_result["performance"]
+        for key in metric_keys:
+            metric_values[key].append(float(fold_performance[key]))
+    
+    # Find median F1 score
+    f1_sorted = sorted(metric_values["f1"])
+    median_idx = len(f1_sorted) // 2
+    median_f1 = f1_sorted[median_idx]
+
+    # Find fold index with median F1 (use first if tie)
+    median_fold_idx = 0
+    for i, fold_result in enumerate(fold_results):
+        fold_f1 = float(fold_result["performance"]["f1"])
+        if fold_f1 == median_f1:
+            median_fold_idx = i
+            break
+
+    # Compute mean and std for each metric
+    aggregated = {}
+    for key in metric_keys:
+        values = metric_values[key]
+        aggregated[f"{key}_mean"] = float(np.mean(values))
+        aggregated[f"{key}_std"] = float(np.std(values))
+
+    # Add fold count
+    aggregated["num_folds"] = len(fold_results)
+
+    return aggregated, median_fold_idx, median_f1
 
 
 
@@ -887,69 +922,6 @@ def _extract_median_hyperparameters(
             result["best_params"] = dict(model.best_params_)
     
     return result
-
-
-def _aggregate_cv_results(
-    fold_results: List[Dict[str, Any]],
-) -> Tuple[Dict[str, Any], int, float]:
-    """Compute mean/std summary using the canonical CV metric schema.
-
-    This enforces metric parity between traditional and advanced pipelines by
-    requiring every fold to expose the same metric keys.
-    
-    Returns:
-        Tuple of (aggregated_metrics, median_fold_idx, median_f1)
-    """
-    aggregated = {}
-
-    metric_values = {key: [] for key in CANONICAL_CV_METRIC_KEYS}
-    f1_scores = []
-
-    for fold_idx, fold_result in enumerate(fold_results):
-        fold_metrics = fold_result.get("metrics", {})
-        if not isinstance(fold_metrics, dict):
-            raise RuntimeError(
-                f"Fold {fold_idx} must provide metrics as a dict for CV aggregation."
-            )
-
-        missing_keys = [key for key in CANONICAL_CV_METRIC_KEYS if key not in fold_metrics]
-        if missing_keys:
-            raise RuntimeError(
-                f"Fold {fold_idx} metrics missing required keys: {missing_keys}."
-            )
-
-        f1_scores.append(float(fold_metrics["f1"]))
-        for key in CANONICAL_CV_METRIC_KEYS:
-            metric_values[key].append(float(fold_metrics[key]))
-    
-    # Find median F1 score
-    if f1_scores:
-        f1_sorted = sorted(f1_scores)
-        median_idx = len(f1_sorted) // 2
-        median_f1 = f1_sorted[median_idx]
-        
-        # Find fold index with median F1 (use first if tie)
-        median_fold_idx = 0
-        for i, result in enumerate(fold_results):
-            if result.get("metrics", {}).get("f1", 0.0) == median_f1:
-                median_fold_idx = i
-                break
-    else:
-        median_fold_idx = 0
-        median_f1 = 0.0
-
-    # Compute mean and std for each canonical metric in deterministic order.
-    for key in CANONICAL_CV_METRIC_KEYS:
-        values = metric_values[key]
-        aggregated[f"{key}_mean"] = float(np.mean(values))
-        aggregated[f"{key}_std"] = float(np.std(values))
-
-    # Add fold count
-    aggregated["num_folds"] = len(fold_results)
-
-    return aggregated, median_fold_idx, median_f1
-
-
 
 def _cache_fold_data_for_advanced_models(
     pipeline: DataPipeline,
