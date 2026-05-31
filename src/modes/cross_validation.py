@@ -756,33 +756,23 @@ def run_cross_validation(
 
             model_results.append(fold_result)
 
-        # Model saves were performed per-fold synchronously above.
-
         # Compute and save aggregated metrics
         aggregated, median_fold_idx, median_f1 = _aggregate_cv_results(model_results)
         summary_path = model_results_dir / "summary.json"
         with open(summary_path, "w") as f:
-            json.dump(aggregated, f, indent=2)
+            json.dump(aggregated, f)
         logger.info(f"Saved aggregated CV summary to {summary_path}")
         logger.info(f"Model {model.name} CV results: {aggregated}")
 
-        # Save median hyperparameters if enabled
-        if config.get_cross_validation_save_median_hyperparameters():
-            try:
-                hyperparams = _extract_median_hyperparameters(
-                    model, median_fold_idx, median_f1, model_name, model_results
-                )
-                hyperparams_path = model_results_dir / "median_hyperparameters.json"
-                with open(hyperparams_path, "w") as f:
-                    json.dump(hyperparams, f, indent=2)
-                logger.info(
-                    f"Saved median hyperparameters (fold {median_fold_idx}, F1={median_f1:.4f}) "
-                    f"to {hyperparams_path}"
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to extract median hyperparameters for {model_name}: {e}"
-                )
+        # Extract and save median fold hyperparameters and selected features
+        hyperparams = _extract_median_hyperparameters(median_fold_idx, median_f1, model_results)
+        hyperparams_path = model_results_dir / "median_hyperparameters.json"
+        with open(hyperparams_path, "w") as f:
+            json.dump(hyperparams, f)
+        logger.info(
+            f"Saved median hyperparameters (fold {median_fold_idx}, F1={median_f1:.4f}) "
+            f"to {hyperparams_path}"
+        )
 
     logger.info(f"\nCross-validation complete. Results saved to {results_root_with_type}")
 
@@ -832,7 +822,33 @@ def _aggregate_cv_results(
 
     return aggregated, median_fold_idx, median_f1
 
+def _extract_median_hyperparameters(
+    median_fold_idx: int,
+    median_f1: float,
+    fold_results: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Extract hyperparameters and feature info from the trained model.
+    
+    Args:
+        median_fold_idx: Index of the median fold
+        median_f1: F1 score of the median fold
+        fold_results: List of fold result dicts for extracting selected_features and best_params
+        
+    Returns:
+        Dict with fold_id, f1_score, best_params, selected_features (if traditional model)
+    """
+    result = {
+        "fold_id": median_fold_idx,
+        "f1_score": median_f1,
+        "best_params": {}
+    }
 
+    median_fold = fold_results[median_fold_idx]
+    result["best_params"] = median_fold["best_params"]
+    if "selected_features" in median_fold: # For traditional models
+        result["selected_features"] = median_fold["selected_features"]
+    
+    return result
 
 
 def _find_median_fold_idx(
@@ -866,62 +882,6 @@ def _find_median_fold_idx(
     
     # Fallback to first fold if no match
     return 0, f1_scores[0] if f1_scores else 0.0
-
-
-def _extract_median_hyperparameters(
-    model: Any,
-    median_fold_idx: int,
-    median_f1: float,
-    classifier_name: str,
-    fold_results: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
-    """Extract hyperparameters and feature info from the trained model.
-    
-    Args:
-        model: Trained model instance
-        median_fold_idx: Index of the median fold
-        median_f1: F1 score of the median fold
-        classifier_name: Name of the classifier
-        fold_results: List of fold result dicts for extracting selected_features and best_params
-        
-    Returns:
-        Dict with fold_id, f1_score, best_params, selected_features
-    """
-    result = {
-        "fold_id": median_fold_idx,
-        "f1_score": float(median_f1),
-        "best_params": {},
-    }
-
-    # Extract best_params and, only for traditional models, selected_features
-    if fold_results and len(fold_results) > median_fold_idx:
-        median_fold = fold_results[median_fold_idx]
-
-        # Extract best_params from fold results
-        if "best_params" in median_fold:
-            result["best_params"] = median_fold["best_params"]
-
-        # Include selected_features only for traditional (legacy) models
-        try:
-            if _is_traditional_model(model):
-                # Ensure the key exists for traditional models; default to empty list if missing
-                result["selected_features"] = median_fold.get("selected_features", [])
-        except Exception:
-            # If helper not available or fails, fall back to empty list
-            result["selected_features"] = []
-    
-    # Fallback: try to extract best_params from model if not in fold results
-    if not result["best_params"]:
-        # Try custom attribute (G-LOC models use "best_params", not "best_params_")
-        if hasattr(model, "best_params"):
-            best_params = getattr(model, "best_params", {})
-            if best_params:
-                result["best_params"] = dict(best_params) if isinstance(best_params, dict) else {}
-        # Fallback to scikit-learn convention
-        elif hasattr(model, "best_params_"):
-            result["best_params"] = dict(model.best_params_)
-    
-    return result
 
 def _cache_fold_data_for_advanced_models(
     pipeline: DataPipeline,
