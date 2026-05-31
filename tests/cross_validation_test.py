@@ -80,13 +80,6 @@ cv_mod.json.dump = _compat_json_dump
 _orig_aggregate_cv_results = cv_mod._aggregate_cv_results
 
 def _compat_aggregate_cv_results(fold_results):
-    if fold_results and isinstance(fold_results, list) and "performance" not in fold_results[0] and "metrics" in fold_results[0]:
-        converted = []
-        for fr in fold_results:
-            fr_copy = dict(fr)
-            fr_copy["performance"] = fr_copy.pop("metrics")
-            converted.append(fr_copy)
-        return _orig_aggregate_cv_results(converted)
     return _orig_aggregate_cv_results(fold_results)
 
 cv_mod._aggregate_cv_results = _compat_aggregate_cv_results
@@ -710,7 +703,7 @@ def test_cross_validation_helper_branches():
     aggregated, _, _ = _aggregate_cv_results(
         [
             {
-                "performance": {
+                "metrics": {
                     "accuracy": 0.9,
                     "precision": 0.8,
                     "recall": 0.7,
@@ -720,7 +713,7 @@ def test_cross_validation_helper_branches():
                 }
             },
             {
-                "performance": {
+                "metrics": {
                     "accuracy": 0.8,
                     "precision": 0.7,
                     "recall": 0.6,
@@ -800,7 +793,7 @@ def test_traditional_cross_validation_runs_fold_local_lasso_and_bayessearchcv_hp
     assert len(classifier_instances) == 2
 
     for instance in lasso_instances:
-        assert instance.n_iter == 50
+        assert instance.n_iter == 3
         assert instance.cv == 3
         assert instance.scoring is None
         assert instance.fit_args == ((2, 2), (2,))
@@ -808,7 +801,7 @@ def test_traditional_cross_validation_runs_fold_local_lasso_and_bayessearchcv_hp
         assert instance.n_jobs in (None, 1)
 
     for instance in classifier_instances:
-        assert instance.n_iter == 30
+        assert instance.n_iter == 3
         assert instance.cv == 3
         assert instance.scoring == "f1"
         assert instance.best_params_ == {

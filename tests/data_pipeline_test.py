@@ -8,6 +8,8 @@ from src.model_type import ModelType
 class DummyModel:
     def __init__(self, *, is_traditional: bool, name: str) -> None:
         self.is_traditional = is_traditional
+        self.is_traditional_model = is_traditional
+        self.name = name
         self._name = name
 
     def get_name(self) -> str:
