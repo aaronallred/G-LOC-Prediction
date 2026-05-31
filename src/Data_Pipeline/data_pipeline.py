@@ -22,10 +22,10 @@ from sklearn.preprocessing import StandardScaler
 
 from src.Data_Pipeline.baseline import BaselineContext, baseline_data
 from src.Data_Pipeline.features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
-from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
 from src.models.base import BaseModel
 from src.Data_Pipeline.imputation_config import ImputePhase
+from src.models_new.model_factory import ModelFactory
 
 logger = logging.getLogger(__name__)
 # Keep path resolution behavior consistent with the original module location under src/.
@@ -45,21 +45,20 @@ class DataPipeline:
     This class is the single entry point for data preparation. It selects a backend
     either explicitly based on the model type and routes to the appropriate implementation.
     
-    Configuration is sourced from GLOCExperimentConfigParser for reproducibility and
-    centralized configuration management.
+    Configuration is sourced directly from the loaded YAML mapping.
     
     Args:
-        config_parser: GLOCExperimentConfigParser instance containing experiment configuration
+        config: Loaded YAML experiment configuration mapping
         model: Optional BaseModel instance for type resolution
         data_path_override: Optional override for data_path from config (for testing)
     """
 
     def __init__(
             self,
-            config_parser: GLOCExperimentConfigParser,
+            config: dict[str, Any],
     ) -> None:
-        """Initialize the facade with the experiment configuration parser."""
-        self._config_parser = config_parser
+        """Initialize the facade with the experiment configuration mapping."""
+        self._config = config
         self._random_seed: Optional[int] = None
         self._model_type: Optional["ModelType"] = None
 
@@ -140,18 +139,18 @@ class DataPipeline:
                 "Call pipeline.set_model_type() first."
             )
         
+        shared_config = self._config["shared_data_parameters"]
         request_kwargs: dict[str, Any] = {
             "model_type": self._model_type,
-            "remove_NaN_trials": self._config_parser.get_remove_NaN_trials(),
-            "subject_to_analyze": self._config_parser.get_subject_to_analyze(),
-            "trial_to_analyze": self._config_parser.get_trial_to_analyze(),
-            "analysis_type": self._config_parser.get_analysis_type(),
-            "output_feature_dtype": self._config_parser.get_output_feature_dtype(),
-            "impute_file_name": self._config_parser.get_impute_file_name(),
-            # New preferred configuration: ImputePhase enum
-            "impute_phase": self._config_parser.get_impute_phase(),
-            "save_impute": self._config_parser.get_save_impute(),
-            "load_impute": self._config_parser.get_load_impute(),
+            "remove_NaN_trials": shared_config["remove_NaN_trials"],
+            "subject_to_analyze": shared_config["subject_to_analyze"],
+            "trial_to_analyze": shared_config["trial_to_analyze"],
+            "analysis_type": shared_config["analysis_type"],
+            "output_feature_dtype": shared_config["output_feature_dtype"],
+            "impute_file_name": shared_config["impute_file_name"],
+            "impute_phase": shared_config.get("impute_phase", "pre_feature"),
+            "save_impute": shared_config["save_impute"],
+            "load_impute": shared_config["load_impute"],
         }
 
         if backend_type == "advanced":
@@ -161,8 +160,9 @@ class DataPipeline:
             if num_splits is not None:
                 request_kwargs["num_splits"] = num_splits
             request_kwargs["kfold_ID"] = kfold_id
-            request_kwargs["n_neighbors"] = self._config_parser.get_n_neighbors()
-            request_kwargs["baseline_window"] = self._config_parser.get_baseline_window()
+            advanced_config = self._config["advanced_data_parameters"]
+            request_kwargs["n_neighbors"] = advanced_config["n_neighbors"]
+            request_kwargs["baseline_window"] = advanced_config["baseline_window"]
         else:
             request_kwargs["classifier_type"] = self._resolve_classifier_name(model)
             request_kwargs["model"] = model
@@ -172,10 +172,11 @@ class DataPipeline:
                 selected_features = self._resolve_select_features(request_kwargs)
                 selected_features = self._apply_sensor_ablation(selected_features, feature_streams)
                 request_kwargs["select_features"] = selected_features
-            request_kwargs["backstep"] = self._config_parser.get_backstep()
-            request_kwargs["data_rate"] = self._config_parser.get_data_rate()
-            request_kwargs["offset"] = self._config_parser.get_offset()
-            request_kwargs["time_start"] = self._config_parser.get_time_start()
+            traditional_config = self._config["traditional_data_parameters"]
+            request_kwargs["backstep"] = traditional_config["backstep"]
+            request_kwargs["data_rate"] = traditional_config["data_rate"]
+            request_kwargs["offset"] = traditional_config["offset"]
+            request_kwargs["time_start"] = traditional_config["time_start"]
 
         return backend_data_pipeline.get_data(**request_kwargs)
 
@@ -189,16 +190,16 @@ class DataPipeline:
         if pipeline_kind == "traditional":
             logger.info("Selected traditional data pipeline based on model type.")
             return TraditionalDataPipeline(
-                data_path=self._config_parser.get_data_path(),
+                data_path=self._config["data_path"],
                 random_seed=random_seed,
-                config_parser=self._config_parser
+                config=self._config
             )
         else:
             logger.info("Selected advanced data pipeline based on model type.")
             return AdvancedDataPipeline(
-                data_path=self._config_parser.get_data_path(),
+                data_path=self._config["data_path"],
                 random_seed=random_seed,
-                config_parser=self._config_parser
+                config=self._config
             )
 
     def _resolve_pipeline_kind(self, model: BaseModel) -> Literal["advanced", "traditional"]:
@@ -219,7 +220,7 @@ class DataPipeline:
     def _resolve_select_features(self, current_kwargs: dict[str, Any]) -> list[str]:
         """Load selected feature names from the median-hyperparameter cache."""
 
-        median_hyperparameters_root = self._config_parser.get_sensor_ablation_median_hyperparameters_folder()
+        median_hyperparameters_root = self._config["sensor_ablation"]["training"]["median_hyperparameters_folder"]
         model_type_string = f"{current_kwargs['model_type'].afe_filter}_{current_kwargs['model_type'].feature_set}"
         json_path = os.path.join(
             median_hyperparameters_root,
@@ -370,18 +371,18 @@ class BaseGLOCDataPipeline(ABC):
         "Complete": ["v0", "v1", "v2", "v5", "v6"],
     }
 
-    def __init__(self, data_path: str = "../data/", random_seed: int = 42, config_parser: Optional[GLOCExperimentConfigParser] = None) -> None:
+    def __init__(self, data_path: str = "../data/", random_seed: int = 42, config: Optional[dict[str, Any]] = None) -> None:
         """Initialize shared pipeline state.
         
         Args:
             data_path: Path to data directory
             random_seed: Random seed for reproducibility
-            config_parser: GLOCExperimentConfigParser instance for accessing config settings
+            config: Loaded YAML experiment configuration mapping for accessing config settings
         """
         self.data_path = _resolve_from_source_dir(data_path)
         self._data_locations = None
         self.random_seed = random_seed
-        self.config_parser = config_parser
+        self.config = config or {}
 
     @abstractmethod
     def get_data(self, **kwargs: Any) -> Any:
@@ -878,7 +879,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         # Normalize impute_phase and derive behavior flags (preserve backward compatibility where needed).
         try:
             if impute_phase is None:
-                impute_phase = self.config_parser.get_impute_phase()
+                impute_phase = ImputePhase.parse(self.config["shared_data_parameters"].get("impute_phase", "pre_feature"))
             else:
                 impute_phase = ImputePhase.parse(impute_phase)
         except Exception:
@@ -1368,7 +1369,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         # Normalize impute_phase and derive behavior flags (preserve backward compatibility where needed).
         try:
             if impute_phase is None:
-                impute_phase = self.config_parser.get_impute_phase()
+                impute_phase = ImputePhase.parse(self.config["shared_data_parameters"].get("impute_phase", "pre_feature"))
             else:
                 impute_phase = ImputePhase.parse(impute_phase)
         except Exception:
@@ -1525,9 +1526,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             if classifier_type is None:
                 raise ValueError("A model or classifier_type is required for traditional hyperparameter lookup.")
 
-            model_factory = GLOCExperimentConfigParser.MODEL_FACTORIES_BY_NAME.get(classifier_type)
+            model_factory = ModelFactory.MODEL_FACTORIES_BY_NAME.get(classifier_type)
             if model_factory is None:
-                available = ", ".join(sorted(GLOCExperimentConfigParser.MODEL_FACTORIES_BY_NAME.keys()))
+                available = ", ".join(sorted(ModelFactory.MODEL_FACTORIES_BY_NAME.keys()))
                 raise ValueError(f"Unknown classifier_type '{classifier_type}'. Available: {available}")
 
             resolved_model = model_factory(config={})

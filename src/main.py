@@ -8,7 +8,7 @@ from matplotlib_venn import venn2, venn3
 from upsetplot import UpSet, from_contents
 
 from .Data_Pipeline.data_pipeline import DataPipeline
-from .GLOC_experiment_config_parser import GLOCExperimentConfigParser
+from .config_loader import load_experiment_config
 from .models_new.model_factory import ModelFactory
 from .modes.cross_validation import run_cross_validation
 from .modes.feature_space_review import (
@@ -80,8 +80,8 @@ def run(config_path: str | None = None) -> None:
     configure_logging()
     _try_enable_cuml_acceleration()
 
-    config_parser = GLOCExperimentConfigParser(config_location = config_path)
-    data_pipeline = DataPipeline(config_parser = config_parser)
+    config = load_experiment_config(config_path)
+    data_pipeline = DataPipeline(config = config)
     model_factory = ModelFactory()
 
     project_root_path = Path(__file__).resolve().parent.parent
@@ -89,19 +89,19 @@ def run(config_path: str | None = None) -> None:
 
     mode_runners: list[tuple[bool, Callable[[], None]]] = [
         (
-            config_parser.get_cross_validation_enabled(),
+            bool(config["cross_validation"]["enabled"]),
             lambda: run_cross_validation(
-                config = config_parser,
+                config = config,
                 pipeline = data_pipeline,
                 model_factory = model_factory,
                 project_root_path = project_root_path
             ),
         ),
         (
-            config_parser.get_sensor_ablation_enabled(),
+            bool(config["sensor_ablation"]["training"]["enabled"]),
             lambda: run_sensor_ablation_training(
-                config_parser = config_parser,
-                pipeline = DataPipeline(config_parser = config_parser),
+                config = config,
+                pipeline = DataPipeline(config = config),
                 project_root = project_root_path,
                 # Use the configured median_hyperparameters_folder via the config parser by
                 # passing None here; run_sensor_ablation_training will build a resolver.
@@ -113,9 +113,9 @@ def run(config_path: str | None = None) -> None:
             )
         ),
         (
-            config_parser.get_sensor_ablation_review_enabled(),
+            bool(config["sensor_ablation"]["review"]["enabled"]),
             lambda: run_sensor_ablation_review(
-                config_parser = config_parser,
+                config = config,
                 project_root = project_root_path,
                 load_sensor_ablation_f1_results_fn = load_sensor_ablation_f1_results,
                 build_ranked_sensor_ablation_review_results_fn = build_ranked_sensor_ablation_review_results,
@@ -126,9 +126,9 @@ def run(config_path: str | None = None) -> None:
             ),
         ),
         (
-            config_parser.get_feature_space_review_enabled(),
+            bool(config["feature_space_review"]["enabled"]),
             lambda: run_feature_space_review(
-                config_parser = config_parser,
+                config = config,
                 investigate_feature_space_fn = investigate_feature_space,
                 get_hyperparameters_from_json_fn = None,
                 venn2_fn = venn2,

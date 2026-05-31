@@ -8,11 +8,18 @@ import numpy as np
 from numpy import ravel
 
 from src.models.base import ModelInitStrategy
+from src.models_new.model_factory import ModelFactory
 
 
-def _build_default_hyperparameter_loader(config_parser) -> Callable[[str, str], tuple]:
+def _get_model_name(model) -> str:
+    if hasattr(model, "get_name"):
+        return model.get_name()
+    return model.name
+
+
+def _build_default_hyperparameter_loader(config: dict) -> Callable[[str, str], tuple]:
     """Create a loader that reads median hyperparameters from the sensor ablation config."""
-    median_hyperparameters_root = Path(config_parser.get_sensor_ablation_median_hyperparameters_folder())
+    median_hyperparameters_root = Path(config["sensor_ablation"]["training"]["median_hyperparameters_folder"])
 
     def _load_hyperparameters(model_name: str, model_type_name: str):
         json_path = median_hyperparameters_root / model_type_name / model_name / "median_hyperparameters.json"
@@ -162,7 +169,7 @@ def build_ranked_sensor_ablation_review_results(
 
 
 def run_sensor_ablation_training(
-    config_parser,
+    config: dict,
     pipeline,
     project_root: Path,
     get_hyperparameters_from_json_fn: Callable | None,
@@ -173,22 +180,23 @@ def run_sensor_ablation_training(
 ) -> None:
     """Run sensor ablation training across configured stream groups."""
     if get_hyperparameters_from_json_fn is None:
-        get_hyperparameters_from_json_fn = _build_default_hyperparameter_loader(config_parser)
+        get_hyperparameters_from_json_fn = _build_default_hyperparameter_loader(config)
 
-    feature_stream_groups: list[list[str]] = config_parser.get_sensor_ablation_streams()
-    models_to_test: list = config_parser.get_sensor_ablation_training_models()
-    num_splits: int = config_parser.get_sensor_ablation_training_num_splits()
-    model_type = config_parser.get_sensor_ablation_training_model_type()
+    training_config = config["sensor_ablation"]["training"]
+    feature_stream_groups: list[list[str]] = training_config["streams"]
+    models_to_test: list = [ModelFactory.create_model(model_name) for model_name in training_config["models"]]
+    num_splits: int = training_config["num_splits"]
+    model_type = training_config["model_type"]
     f1_results_by_stream: dict[str, dict[str, np.ndarray]] = {
-        model.get_name(): {}
+        _get_model_name(model): {}
         for model in models_to_test
     }
 
-    sensor_ablation_results_dir = Path(config_parser.get_sensor_ablation_training_save_results_folder()) / model_type.get_folder_name()
+    sensor_ablation_results_dir = Path(training_config["save_results_folder"]) / model_type.get_folder_name()
     sensor_ablation_results_dir.mkdir(parents = True, exist_ok = True)
     
     # Set random seed and model type for pipeline operations
-    pipeline.set_random_seed(config_parser.get_sensor_ablation_training_random_seed())
+    pipeline.set_random_seed(training_config["random_seed"])
     pipeline.set_model_type(model_type)
 
     for group_index, feature_streams in enumerate(feature_stream_groups, start = 1):
@@ -196,7 +204,7 @@ def run_sensor_ablation_training(
         stream_str = "-".join(feature_streams)
 
         for model in models_to_test:
-            model_name = model.get_name()
+            model_name = _get_model_name(model)
             logging.info("Running model: %s", model_name)
 
             hyperparameters, _, _, _ = get_hyperparameters_from_json_fn(model_name, model_type.get_folder_name())
@@ -210,7 +218,7 @@ def run_sensor_ablation_training(
                     X = x,
                     num_splits = num_splits,
                     kfold_ID = kfold_id,
-                    random_state = config_parser.get_sensor_ablation_training_random_seed(),
+                    random_state = training_config["random_seed"],
                 )
 
                 metrics_tuple = model.classify_traditional(
@@ -219,7 +227,7 @@ def run_sensor_ablation_training(
                     y_train,
                     y_test,
                     None,
-                    config_parser.get_sensor_ablation_training_random_seed(),
+                    training_config["random_seed"],
                     save_folder = "",  # TODO: Implement saving and loading of trained models
                     model_name = f"{model_name.lower()}_feature_study.pkl",
                     strategy = ModelInitStrategy.RETRAIN_WITH_CONFIG_PARAMS,
@@ -254,7 +262,7 @@ def run_sensor_ablation_training(
 
 
 def run_sensor_ablation_review(
-    config_parser,
+    config: dict,
     project_root: Path,
     load_sensor_ablation_f1_results_fn: Callable[..., dict[str, dict[str, np.ndarray]]],
     build_ranked_sensor_ablation_review_results_fn: Callable[..., dict[str, dict[str, np.ndarray]]],
@@ -264,13 +272,14 @@ def run_sensor_ablation_review(
     stream_label_aliases: Mapping[str, str],
 ) -> None:
     """Review and re-plot saved sensor ablation F1 results using YAML-defined models and one stream group."""
-    model_type = config_parser.get_sensor_ablation_review_model_type()
-    sensor_ablation_results_dir = Path(config_parser.get_sensor_ablation_review_save_results_folder()) / model_type.get_folder_name()
+    review_config = config["sensor_ablation"]["review"]
+    model_type = review_config["model_type"]
+    sensor_ablation_results_dir = Path(review_config["save_results_folder"]) / model_type.get_folder_name()
 
-    models = config_parser.get_sensor_ablation_review_models()
-    classifiers_to_load = [model.get_name() for model in models]
-    sort_streams_by_median = config_parser.get_sensor_ablation_review_sort_streams_by_median()
-    review_stream_group = config_parser.get_sensor_ablation_review_stream_group()
+    models = [ModelFactory.create_model(model_name) for model_name in review_config["models"]]
+    classifiers_to_load = [_get_model_name(model) for model in models]
+    sort_streams_by_median = review_config["sort_streams_by_median"]
+    review_stream_group = review_config["stream_group"]
 
     loading_stream_group = None
     if (not sort_streams_by_median) and len(review_stream_group) > 0:

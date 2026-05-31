@@ -4,11 +4,10 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
-import yaml
 import joblib
 from sklearn.datasets import make_classification
 
-from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
+from src.config_loader import load_experiment_config
 from src.model_type import ModelType
 from src.models.base import ModelInitStrategy
 from src.models.logistic_regression_ts import LogRegTS
@@ -629,46 +628,48 @@ class ModelFactoryStub:
 def test_cross_validation_parser_reads_mode_specific_models_and_hpo_config(tmp_path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
-        yaml.safe_dump(
-            {
-                "data_path": "/tmp/data",
-                "shared_data_parameters": {
-                    "subject_to_analyze": None,
-                    "trial_to_analyze": None,
-                    "analysis_type": 2,
-                    "remove_NaN_trials": True,
-                    "impute_file_name": "imputed.pkl",
-                    "save_impute": False,
-                    "load_impute": False,
-                    "impute_phase": "pre_feature",
-                    "output_feature_dtype": "float32",
-                },
-                "advanced_data_parameters": {"n_neighbors": 4, "baseline_window": 32.5},
-                "traditional_data_parameters": {"backstep": 0, "data_rate": 25, "offset": 0, "time_start": 0},
-                "cross_validation": {
-                    "enabled": True,
-                    "models": ["KNN", "RF"],
-                    "model_type": ["Complete", "Explicit"],
-                    "random_seed": 42,
-                    "num_splits": 2,
-                    "save_results_folder": "Results/CrossValidation",
-                    "class_weight": None,
-                    "save_median_hyperparameters": True,
-                    "hpo": {
-                        "enabled": True,
-                        "n_trials": 4,
-                        "metric": "f1",
-                        "timeout": None,
-                    },
-                },
-            }
-        ),
+                """data_path: /tmp/data
+shared_data_parameters:
+    subject_to_analyze: null
+    trial_to_analyze: null
+    analysis_type: 2
+    remove_NaN_trials: true
+    impute_file_name: imputed.pkl
+    save_impute: false
+    load_impute: false
+    impute_phase: pre_feature
+    output_feature_dtype: float32
+advanced_data_parameters:
+    n_neighbors: 4
+    baseline_window: 32.5
+traditional_data_parameters:
+    backstep: 0
+    data_rate: 25
+    offset: 0
+    time_start: 0
+cross_validation:
+    enabled: true
+    models:
+        - KNN
+        - RF
+    model_type: !ModelType [Complete, Explicit]
+    random_seed: 42
+    num_splits: 2
+    save_results_folder: Results/CrossValidation
+    class_weight: null
+    save_median_hyperparameters: true
+    hpo:
+        enabled: true
+        n_trials: 4
+        metric: f1
+        timeout: null
+""",
         encoding="utf-8",
     )
-    parser = GLOCExperimentConfigParser(config_location=str(config_path))
+    config = load_experiment_config(config_path)
 
-    assert [model.get_name() for model in parser.get_cross_validation_models()] == ["KNN", "RF"]
-    assert parser.get_cross_validation_model_type() == ModelType("Complete", "Explicit")
+    assert config["cross_validation"]["models"] == ["KNN", "RF"]
+    assert config["cross_validation"]["model_type"] == ModelType("Complete", "Explicit")
 
 
 def test_legacy_advanced_classifier_names_are_supported_by_hpo():
@@ -793,7 +794,7 @@ def test_traditional_cross_validation_runs_fold_local_lasso_and_bayessearchcv_hp
     assert len(classifier_instances) == 2
 
     for instance in lasso_instances:
-        assert instance.n_iter == 3
+        assert instance.n_iter == 50
         assert instance.cv == 3
         assert instance.scoring is None
         assert instance.fit_args == ((2, 2), (2,))
@@ -801,7 +802,7 @@ def test_traditional_cross_validation_runs_fold_local_lasso_and_bayessearchcv_hp
         assert instance.n_jobs in (None, 1)
 
     for instance in classifier_instances:
-        assert instance.n_iter == 3
+        assert instance.n_iter == 30
         assert instance.cv == 3
         assert instance.scoring == "f1"
         assert instance.best_params_ == {

@@ -3,10 +3,18 @@ from typing import Callable
 
 from pathlib import Path
 
+from src.models_new.model_factory import ModelFactory
 
-def _build_default_hyperparameter_loader(config_parser) -> Callable[[str, str], tuple]:
+
+def _get_model_name(model) -> str:
+    if hasattr(model, "get_name"):
+        return model.get_name()
+    return model.name
+
+
+def _build_default_hyperparameter_loader(config: dict) -> Callable[[str, str], tuple]:
     """Create a loader that reads median hyperparameters from the configured results root."""
-    median_hyperparameters_root = Path(config_parser.get_sensor_ablation_median_hyperparameters_folder())
+    median_hyperparameters_root = Path(config["sensor_ablation"]["training"]["median_hyperparameters_folder"])
 
     def _load_hyperparameters(classifier: str, model_type_name: str):
         json_path = median_hyperparameters_root / model_type_name / classifier / "median_hyperparameters.json"
@@ -93,7 +101,7 @@ def investigate_feature_space(
 
 
 def run_feature_space_review(
-    config_parser,
+    config: dict,
     investigate_feature_space_fn: Callable,
     get_hyperparameters_from_json_fn: Callable | None,
     venn2_fn,
@@ -102,12 +110,13 @@ def run_feature_space_review(
     upset_cls,
     plt_module,
 ) -> None:
-    model_type = config_parser.get_feature_space_review_model_type()
-    models = config_parser.get_feature_space_review_models()
-    classifiers = [model.get_name() for model in models]
+    feature_space_review_config = config["feature_space_review"]
+    model_type = feature_space_review_config["model_type"]
+    models = [ModelFactory.create_model(model_name) for model_name in feature_space_review_config["models"]]
+    classifiers = [_get_model_name(model) for model in models]
 
     if get_hyperparameters_from_json_fn is None:
-        get_hyperparameters_from_json_fn = _build_default_hyperparameter_loader(config_parser)
+        get_hyperparameters_from_json_fn = _build_default_hyperparameter_loader(config)
 
     if len(classifiers) == 0:
         raise ValueError("feature_space_review.models must be a non-empty list when enabled.")

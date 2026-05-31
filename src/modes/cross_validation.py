@@ -23,7 +23,6 @@ from skopt import BayesSearchCV
 from skopt.space import Categorical, Integer, Real
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
-from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
 from src.models_new.base import BaseModel, ModelInitStrategy
 from src.models.sequence_window_utils import max_trial_sequence_length
@@ -473,7 +472,7 @@ def _run_traditional_lasso_feature_selection(
         estimator = Lasso(random_state = random_seed),
         search_spaces = {"alpha": Real(1e-5, 100, prior = "log-uniform")},
         cv = 3,
-        n_iter = 3,
+        n_iter = 50,
         random_state = random_seed,
         verbose = 1,
     )
@@ -511,7 +510,7 @@ def _run_traditional_model_hpo(
     search = BayesSearchCV(
         estimator = estimator,
         search_spaces = model.hpo_search_space,
-        n_iter = 3,
+        n_iter = 30,
         cv = 3,
         scoring = "f1",
         random_state = random_seed,
@@ -556,17 +555,10 @@ def _run_traditional_model_evaluation(
     }
 
 def run_cross_validation(
-    config: GLOCExperimentConfigParser,
+    config: dict[str, Any],
     pipeline: DataPipeline,
     model_factory: ModelFactory,
     project_root_path: Path,
-    # models: Optional[List[BaseModel]] = None,
-    # num_splits: int = 10,
-    # random_seed: int = 42,
-    # class_weight: Optional[str] = None,
-    # save_models: bool = True,
-    # results_root: Optional[Path] = None,
-    # model_type: Optional[ModelType] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """Run cross-validation for a list of models.
     
@@ -574,7 +566,7 @@ def run_cross_validation(
     training loop. Saves per-fold metrics and aggregated summaries.
     
     Args:
-        config: GLOCExperimentConfigParser instance
+        config: Loaded YAML experiment configuration mapping
         pipeline: DataPipeline instance for data loading
         unused_path: Deprecated parameter, kept for backward compatibility
         models: List of BaseModel instances
@@ -588,12 +580,13 @@ def run_cross_validation(
     Returns:
         Dict mapping model names to lists of per-fold result dicts.
     """
-    models = ["KNN"]
-    results_path = Path(project_root_path / config.get_cross_validation_save_results_folder())
-    model_type = config.get_model_type()
-    num_splits = config.get_cross_validation_num_splits()
-    random_seed = config.get_cross_validation_random_seed()
-    class_weight = config.get_cross_validation_class_weight()
+    cross_validation_config = config["cross_validation"]
+    models = cross_validation_config.get("models", ["KNN"])
+    results_path = Path(project_root_path / cross_validation_config["save_results_folder"])
+    model_type = cross_validation_config["model_type"]
+    num_splits = cross_validation_config["num_splits"]
+    random_seed = cross_validation_config["random_seed"]
+    class_weight = cross_validation_config.get("class_weight")
     
     logger.info(
         "Starting cross-validation with %s folds and %s model(s)",
@@ -604,7 +597,6 @@ def run_cross_validation(
     # Validate model type and results path
     model_type_folder = model_type.get_folder_name()
     results_root_with_type = results_path / model_type_folder
-    all_results = {}
     
     # Set random seed and model type for pipeline operations
     pipeline.set_random_seed(random_seed)
@@ -637,7 +629,7 @@ def run_cross_validation(
         else:
             # Advanced models: require advanced_hpo config and pre-cache fold data
             # This will raise ValueError if advanced_hpo is missing or invalid
-            advanced_hpo_cfg = config.get_advanced_hpo_settings()
+            advanced_hpo_cfg = cross_validation_config["advanced_hpo"]
             # Convert normalized advanced_hpo into model-level hpo_config expected by _run_advanced_model_hpo
             # Note: Parser provides both user-facing parameters (use_sampler, final_early_stop, objective_var, trials)
             # and hardcoded Optuna-level defaults (train_fraction, timeout, sampler_seed, pruner_startup_trials, pruner_warmup_steps)
@@ -645,8 +637,8 @@ def run_cross_validation(
                 "enabled": True,
                 "n_trials": int(advanced_hpo_cfg["n_trials"]),
                 "timeout": advanced_hpo_cfg.get("timeout"),
-                "metric": advanced_hpo_cfg["metric"],
-                "train_fraction": float(advanced_hpo_cfg["train_fraction"]),
+                "metric": advanced_hpo_cfg.get("metric", str(advanced_hpo_cfg.get("objective_var", "f1")).lower()),
+                "train_fraction": float(advanced_hpo_cfg.get("train_fraction", 0.8)),
                 "sampler_seed": advanced_hpo_cfg.get("sampler_seed"),
                 "pruner_startup_trials": advanced_hpo_cfg.get("pruner_startup_trials"),
                 "pruner_warmup_steps": advanced_hpo_cfg.get("pruner_warmup_steps"),
@@ -916,14 +908,14 @@ def _cache_fold_data_for_advanced_models(
 
 
 def _get_selected_features_for_model(
-    config: GLOCExperimentConfigParser,
+    config: dict[str, Any],
     model: BaseModel,
     model_type: "ModelType",
 ) -> List[str]:
     """Try to retrieve selected_features for a model from cached median hyperparameters.
     
     Args:
-        config: GLOCExperimentConfigParser instance
+        config: Loaded YAML experiment configuration mapping
         model: The model to get features for
         model_type: ModelType instance for constructing cache paths
         

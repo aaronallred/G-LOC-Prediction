@@ -1,9 +1,8 @@
 from pathlib import Path
 
 import pytest
-import yaml
 
-from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
+from src.config_loader import load_experiment_config
 from src.model_type import ModelType
 from src.modes.feature_space_review import investigate_feature_space, run_feature_space_review
 
@@ -99,36 +98,39 @@ def test_investigate_feature_space_four_models_uses_upset():
 def test_run_feature_space_review_delegates_configured_model_names(tmp_path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
-        yaml.safe_dump(
-            {
-                "data_path": "/tmp/data",
-                "shared_data_parameters": {
-                    "subject_to_analyze": None,
-                    "trial_to_analyze": None,
-                    "analysis_type": 2,
-                    "remove_NaN_trials": True,
-                    "impute_file_name": "imputed.pkl",
-                    "save_impute": False,
-                    "load_impute": False,
-                    "impute_phase": "pre_feature",
-                    "output_feature_dtype": "float32",
-                },
-                "advanced_data_parameters": {"n_neighbors": 4, "baseline_window": 32.5},
-                "traditional_data_parameters": {"backstep": 0, "data_rate": 25, "offset": 0, "time_start": 0},
-                "feature_space_review": {
-                    "enabled": True,
-                    "models": ["KNN", "RF"],
-                    "model_type": ["Complete", "Explicit"],
-                },
-            }
-        ),
+                """data_path: /tmp/data
+shared_data_parameters:
+    subject_to_analyze: null
+    trial_to_analyze: null
+    analysis_type: 2
+    remove_NaN_trials: true
+    impute_file_name: imputed.pkl
+    save_impute: false
+    load_impute: false
+    impute_phase: pre_feature
+    output_feature_dtype: float32
+advanced_data_parameters:
+    n_neighbors: 4
+    baseline_window: 32.5
+traditional_data_parameters:
+    backstep: 0
+    data_rate: 25
+    offset: 0
+    time_start: 0
+feature_space_review:
+    enabled: true
+    models:
+        - KNN
+        - RF
+    model_type: !ModelType [Complete, Explicit]
+""",
         encoding="utf-8",
     )
-    parser = GLOCExperimentConfigParser(config_location=str(config_path))
+    config = load_experiment_config(config_path)
     captured = {}
 
     run_feature_space_review(
-        config_parser=parser,
+        config=config,
         investigate_feature_space_fn=lambda *args, **kwargs: captured.update(
             classifiers=args[1],
             model_type=args[0],

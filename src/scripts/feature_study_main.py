@@ -16,7 +16,8 @@ from .temporal_functions_traditional import plotting_offset_models, data_with_pr
     plot_f1_scores_across_classifiers, get_model_subfolder, \
      get_median_hyperparameters, get_hyperparameters_from_json, \
     plot_metrics_from_cache
-from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
+from src.config_loader import load_experiment_config
+from src.models_new.model_factory import ModelFactory
 from src.Data_Pipeline.data_pipeline import DataPipeline
 
 import sys
@@ -337,17 +338,19 @@ def restrict_feature_space(select_features, streams):
 
 
 if preference == 7:
-    config_parser = GLOCExperimentConfigParser(config_location = "/home/gloc/G-LOC-Prediction/test.yaml")
-    pipeline = DataPipeline(config_parser = config_parser)
+    config = load_experiment_config("/home/gloc/G-LOC-Prediction/test.yaml")
+    pipeline = DataPipeline(config=config)
 
-    models_to_test = config_parser.get_sensor_ablation_training_models()
-    stream_groups_to_test = config_parser.get_sensor_ablation_streams()
-    model_type_obj = config_parser.get_sensor_ablation_training_model_type()
+    models_to_test = [ModelFactory.create_model(name) for name in config["sensor_ablation"]["training"]["models"]]
+    stream_groups_to_test = config["sensor_ablation"]["training"]["streams"]
+    model_type_obj = config["sensor_ablation"]["training"]["model_type"]
+    # ensure DataPipeline knows the model type
+    pipeline.set_model_type(model_type_obj)
     model_type = [model_type_obj.afe_filter.lower(), model_type_obj.feature_set.lower()]
-    num_kfold = config_parser.get_sensor_ablation_training_num_splits()
+    num_kfold = config["sensor_ablation"]["training"]["num_splits"]
 
     # Store results for plotting later
-    f1_results_by_stream = {model.get_name(): {} for model in models_to_test}
+    f1_results_by_stream = {model.name: {} for model in models_to_test}
 
     for stream_group in stream_groups_to_test:
         print(f"Running stream group: {stream_group}")

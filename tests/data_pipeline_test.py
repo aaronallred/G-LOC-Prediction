@@ -16,57 +16,28 @@ class DummyModel:
         return self._name
 
 
-class DummyConfigParser:
-    def __init__(self) -> None:
-        self._model_type = ModelType("Complete", "Explicit")
-
-    def get_data_path(self):
-        return "/tmp/data"
-
-    def get_remove_NaN_trials(self):
-        return True
-
-    def get_subject_to_analyze(self):
-        return None
-
-    def get_trial_to_analyze(self):
-        return None
-
-    def get_analysis_type(self):
-        return 2
-
-    def get_output_feature_dtype(self):
-        return "float32"
-
-    def get_impute_file_name(self):
-        return "imputed.pkl"
-
-    def get_impute_phase(self):
-        return ImputePhase.PRE_FEATURE
-
-    def get_save_impute(self):
-        return False
-
-    def get_load_impute(self):
-        return False
-
-    def get_n_neighbors(self):
-        return 4
-
-    def get_baseline_window(self):
-        return 32.5
-
-    def get_backstep(self):
-        return 0
-
-    def get_data_rate(self):
-        return 25
-
-    def get_offset(self):
-        return 0
-
-    def get_time_start(self):
-        return 0
+def _make_config() -> dict:
+    return {
+        "data_path": "/tmp/data",
+        "shared_data_parameters": {
+            "subject_to_analyze": None,
+            "trial_to_analyze": None,
+            "analysis_type": 2,
+            "remove_NaN_trials": True,
+            "impute_file_name": "imputed.pkl",
+            "save_impute": False,
+            "load_impute": False,
+            "impute_phase": ImputePhase.PRE_FEATURE,
+            "output_feature_dtype": "float32",
+        },
+        "advanced_data_parameters": {"n_neighbors": 4, "baseline_window": 32.5},
+        "traditional_data_parameters": {"backstep": 0, "data_rate": 25, "offset": 0, "time_start": 0},
+        "sensor_ablation": {
+            "training": {
+                "median_hyperparameters_folder": "ModelSave/CV",
+            }
+        },
+    }
 
 
 class CapturingBackend:
@@ -80,19 +51,19 @@ class CapturingBackend:
 
 
 def test_resolve_pipeline_kind_uses_model_flag():
-    pipeline = DataPipeline(DummyConfigParser())
+    pipeline = DataPipeline(_make_config())
     assert pipeline._resolve_pipeline_kind(DummyModel(is_traditional=True, name="RF")) == "traditional"
     assert pipeline._resolve_pipeline_kind(DummyModel(is_traditional=False, name="Trans")) == "advanced"
 
 
 def test_get_data_requires_model_type():
-    pipeline = DataPipeline(DummyConfigParser())
+    pipeline = DataPipeline(_make_config())
     with pytest.raises(ValueError, match="model_type must be set"):
         pipeline.get_data(model=DummyModel(is_traditional=True, name="RF"))
 
 
 def test_get_data_for_advanced_model_forwards_fold_arguments(monkeypatch):
-    pipeline = DataPipeline(DummyConfigParser())
+    pipeline = DataPipeline(_make_config())
     pipeline.set_model_type(ModelType("Complete", "Explicit"))
     pipeline.set_random_seed(7)
 
@@ -123,7 +94,7 @@ def test_get_data_for_advanced_model_forwards_fold_arguments(monkeypatch):
 
 
 def test_get_data_for_traditional_model_applies_sensor_ablation(monkeypatch):
-    pipeline = DataPipeline(DummyConfigParser())
+    pipeline = DataPipeline(_make_config())
     pipeline.set_model_type(ModelType("Complete", "Explicit"))
 
     backend = CapturingBackend("traditional-ok")
@@ -156,7 +127,7 @@ def test_get_data_for_traditional_model_applies_sensor_ablation(monkeypatch):
 
 
 def test_get_data_for_traditional_model_can_return_raw_features_without_cache_lookup(monkeypatch):
-    pipeline = DataPipeline(DummyConfigParser())
+    pipeline = DataPipeline(_make_config())
     pipeline.set_model_type(ModelType("Complete", "Explicit"))
 
     backend = CapturingBackend(("raw-ok", ["f1", "f2", "f3"]))
@@ -179,6 +150,6 @@ def test_get_data_for_traditional_model_can_return_raw_features_without_cache_lo
 
 
 def test_apply_sensor_ablation_rejects_unknown_stream():
-    pipeline = DataPipeline(DummyConfigParser())
+    pipeline = DataPipeline(_make_config())
     with pytest.raises(ValueError, match="Unknown stream\\(s\\)"):
         pipeline._apply_sensor_ablation(["Fz_alpha - EEG"], ["mystery-stream"])

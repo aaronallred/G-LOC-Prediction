@@ -25,9 +25,7 @@ sensor_ablation:
       - EGB
       - KNN
       - RF
-    model_type:
-      - Complete
-      - Explicit
+    model_type: !ModelType [Complete, Explicit]
     random_seed: 42
     num_splits: 10
     median_hyperparameters_folder: ModelSave/CV
@@ -167,9 +165,7 @@ sensor_ablation:
     models:
       - KNN
       - EGB
-    model_type:
-      - Complete
-      - Explicit
+    model_type: !ModelType [Complete, Explicit]
     stream_group:
       - EEG
     sort_streams_by_median: false
@@ -181,9 +177,7 @@ feature_space_review:
     - KNN
     - EGB
     - RF
-  model_type:
-    - Complete
-    - Explicit
+  model_type: !ModelType [Complete, Explicit]
 
 cross_validation:
   enabled: false
@@ -191,7 +185,7 @@ cross_validation:
   models:
     - KNN
     - RF
-  model_type: [Complete, Explicit]
+  model_type: !ModelType [Complete, Explicit]
   random_seed: 42
   num_splits: 5
   save_results_folder: Results/CrossValidation

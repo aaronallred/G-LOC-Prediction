@@ -1,4 +1,4 @@
-data_path: /home/gloc/G-LOC-Prediction/data
+data_path: /home/gloc/G-LOC-Prediction/data/reduced_smoke
 shared_data_parameters:
   subject_to_analyze: null
   trial_to_analyze: null
@@ -8,6 +8,7 @@ shared_data_parameters:
   save_impute: false
   load_impute: false
   impute_phase: pre_feature
+  output_feature_dtype: float32
 advanced_data_parameters:
   n_neighbors: 4
   baseline_window: 32.5
@@ -48,10 +49,10 @@ cross_validation:
   enabled: true
   # Mode-specific parameters
   models: [KNN]
-  model_type: [Complete, Explicit]
+  model_type: !ModelType [Complete, Explicit]
   random_seed: 42
   num_splits: 2
-  save_results_folder: Results/CrossValidation
+  save_results_folder: Results/Cross_Validation_Temp
   class_weight: null
   save_median_hyperparameters: true
 

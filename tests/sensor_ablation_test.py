@@ -3,11 +3,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import yaml
 
-from src.GLOC_experiment_config_parser import GLOCExperimentConfigParser
 from src.model_type import ModelType
 from src.models.base import ModelInitStrategy
+from src.modes import sensor_ablation as sensor_ablation_mod
 from src.modes.sensor_ablation import (
     apply_stream_label_aliases,
     build_ranked_sensor_ablation_review_results,
@@ -73,47 +72,8 @@ class FakePipeline:
         return np.array([[1.0, 2.0], [3.0, 4.0]]), np.array([0, 1, 0, 1])
 
 
-class FakeSensorAblationConfig:
-    def __init__(self, results_root: Path) -> None:
-        self.results_root = results_root
-        self.training_model = TinyTraditionalModel("TinyKNN")
-
-    def get_sensor_ablation_training_models(self):
-        return [self.training_model]
-
-    def get_sensor_ablation_training_model_type(self):
-        return ModelType("Complete", "Explicit")
-
-    def get_sensor_ablation_training_num_splits(self):
-        return 2
-
-    def get_sensor_ablation_training_random_seed(self):
-        return 13
-
-    def get_sensor_ablation_training_save_results_folder(self):
-        return str(self.results_root)
-
-    def get_sensor_ablation_streams(self):
-        return [["ECG"], ["EEG"]]
-
-    def get_sensor_ablation_review_models(self):
-        return [TinyTraditionalModel("KNN")]
-
-    def get_sensor_ablation_review_model_type(self):
-        return ModelType("Complete", "Explicit")
-
-    def get_sensor_ablation_review_save_results_folder(self):
-        return str(self.results_root)
-
-    def get_sensor_ablation_review_stream_group(self):
-        return ["EEG"]
-
-    def get_sensor_ablation_review_sort_streams_by_median(self):
-        return False
-
-
-def _write_config(tmp_path: Path, review: bool = False, sort_streams_by_median: bool = False) -> Path:
-    config = {
+def _make_config(tmp_path: Path, review: bool = False, sort_streams_by_median: bool = False) -> dict:
+    return {
         "data_path": str(tmp_path / "data"),
         "shared_data_parameters": {
             "subject_to_analyze": None,
@@ -133,9 +93,9 @@ def _write_config(tmp_path: Path, review: bool = False, sort_streams_by_median: 
                 "enabled": True,
                 "save_results_folder": str(tmp_path / "Results" / "Sensor_Ablation"),
                 "models": ["KNN"],
-                "model_type": ["Complete", "Explicit"],
+                "model_type": ModelType("Complete", "Explicit"),
                 "random_seed": 13,
-                        "num_splits": 2,
+                "num_splits": 2,
                 "median_hyperparameters_folder": "ModelSave/CV",
                 "streams": [["ECG"], ["EEG"]],
             },
@@ -143,33 +103,35 @@ def _write_config(tmp_path: Path, review: bool = False, sort_streams_by_median: 
                 "enabled": review,
                 "save_results_folder": str(tmp_path / "Results" / "Sensor_Ablation"),
                 "models": ["KNN"],
-                "model_type": ["Complete", "Explicit"],
+                "model_type": ModelType("Complete", "Explicit"),
                 "stream_group": ["EEG"],
                 "sort_streams_by_median": sort_streams_by_median,
             },
         },
     }
-    path = tmp_path / "config.yaml"
-    path.write_text(yaml.safe_dump(config), encoding="utf-8")
-    return path
 
 
-def test_sensor_ablation_parser_reads_review_defaults_and_overrides(tmp_path):
-    parser = GLOCExperimentConfigParser(config_location=str(_write_config(tmp_path, review=True)))
+def test_sensor_ablation_config_uses_model_type_objects(tmp_path):
+    config = _make_config(tmp_path, review=True)
 
-    assert parser.get_sensor_ablation_training_models()[0].get_name() == "KNN"
-    assert parser.get_sensor_ablation_training_model_type() == ModelType("Complete", "Explicit")
-    assert parser.get_sensor_ablation_review_enabled() is True
-    assert parser.get_sensor_ablation_review_models()[0].get_name() == "KNN"
-    assert parser.get_sensor_ablation_review_stream_group() == ["EEG"]
-    assert parser.get_sensor_ablation_review_sort_streams_by_median() is False
+    assert config["sensor_ablation"]["training"]["model_type"] == ModelType("Complete", "Explicit")
+    assert config["sensor_ablation"]["review"]["model_type"] == ModelType("Complete", "Explicit")
+    assert config["sensor_ablation"]["review"]["stream_group"] == ["EEG"]
+    assert config["sensor_ablation"]["review"]["sort_streams_by_median"] is False
 
 
 def test_run_sensor_ablation_training_saves_stream_scores_and_calls_plotter(tmp_path):
-    config = FakeSensorAblationConfig(tmp_path / "Results" / "Sensor_Ablation")
+    config = _make_config(tmp_path)
     pipeline = FakePipeline()
     plot_calls = []
     split_calls = []
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        sensor_ablation_mod.ModelFactory,
+        "create_model",
+        staticmethod(lambda model_name, model_hyperparameters=None: TinyTraditionalModel("TinyKNN")),
+    )
 
     def get_hyperparameters_from_json_fn(model_name, model_type_name):
         assert model_name == "TinyKNN"
@@ -187,7 +149,7 @@ def test_run_sensor_ablation_training_saves_stream_scores_and_calls_plotter(tmp_
         plot_calls.append(kwargs)
 
     run_sensor_ablation_training(
-        config_parser=config,
+        config=config,
         pipeline=pipeline,
         project_root=tmp_path,
         get_hyperparameters_from_json_fn=get_hyperparameters_from_json_fn,
@@ -195,6 +157,8 @@ def test_run_sensor_ablation_training_saves_stream_scores_and_calls_plotter(tmp_
         plot_f1_violin_by_stream_fn=plot_f1_violin_by_stream_fn,
         save_model_stream_f1_scores_fn=save_model_stream_f1_scores,
     )
+
+    monkeypatch.undo()
 
     assert len(split_calls) == 4
     assert pipeline.calls == [
@@ -242,11 +206,11 @@ def test_run_sensor_ablation_review_uses_stream_group_filter_branch(tmp_path):
     with open(results_root / "KNN" / "EEG.pkl", "wb") as handle:
         pickle.dump(np.asarray([0.5, 0.7]), handle)
 
-    config = FakeSensorAblationConfig(tmp_path / "Results" / "Sensor_Ablation")
+    config = _make_config(tmp_path)
     plot_calls = []
 
     run_sensor_ablation_review(
-        config_parser=config,
+        config=config,
         project_root=tmp_path,
         load_sensor_ablation_f1_results_fn=load_sensor_ablation_f1_results,
         build_ranked_sensor_ablation_review_results_fn=build_ranked_sensor_ablation_review_results,
@@ -271,13 +235,13 @@ def test_run_sensor_ablation_review_uses_ranked_branch(tmp_path):
     with open(results_root / "KNN" / "Participant.pkl", "wb") as handle:
         pickle.dump(np.asarray([0.4, 0.6]), handle)
 
-    config = FakeSensorAblationConfig(tmp_path / "Results" / "Sensor_Ablation")
-    config.get_sensor_ablation_review_sort_streams_by_median = lambda: True
-    config.get_sensor_ablation_review_stream_group = lambda: []
+    config = _make_config(tmp_path)
+    config["sensor_ablation"]["review"]["sort_streams_by_median"] = True
+    config["sensor_ablation"]["review"]["stream_group"] = []
     plot_calls = []
 
     run_sensor_ablation_review(
-        config_parser=config,
+        config=config,
         project_root=tmp_path,
         load_sensor_ablation_f1_results_fn=load_sensor_ablation_f1_results,
         build_ranked_sensor_ablation_review_results_fn=build_ranked_sensor_ablation_review_results,
@@ -294,31 +258,29 @@ def test_run_sensor_ablation_review_uses_ranked_branch(tmp_path):
     assert plot_calls and plot_calls[0][0] == "matrix"
 
 
-def test_parser_requires_median_hyperparameters_folder(tmp_path):
-    # Create a config YAML explicitly WITHOUT the required median_hyperparameters_folder key
-    config = {
-        "data_path": str(tmp_path / "data"),
-        "sensor_ablation": {
-            "training": {
-                "enabled": True,
-                "save_results_folder": str(tmp_path / "Results" / "Sensor_Ablation"),
-                "models": ["KNN"],
-                "model_type": ["Complete", "Explicit"],
-                "random_seed": 13,
-                "num_splits": 2,
-                "streams": [["ECG"], ["EEG"]],
-            }
-        }
-    }
-    cfg_path = tmp_path / "no_median_config.yaml"
-    cfg_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+def test_sensor_ablation_training_requires_median_hyperparameters_folder(tmp_path):
+    config = _make_config(tmp_path)
+    del config["sensor_ablation"]["training"]["median_hyperparameters_folder"]
 
-    parser = GLOCExperimentConfigParser(config_location=str(cfg_path))
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        sensor_ablation_mod.ModelFactory,
+        "create_model",
+        staticmethod(lambda model_name, model_hyperparameters=None: TinyTraditionalModel("TinyKNN")),
+    )
 
-    # Expect accessor to raise since key is required for sensor ablation median hyperparameters
-    import pytest
-    with pytest.raises(ValueError):
-        parser.get_sensor_ablation_median_hyperparameters_folder()
+    with pytest.raises(KeyError):
+        run_sensor_ablation_training(
+            config=config,
+            pipeline=FakePipeline(),
+            project_root=tmp_path,
+            get_hyperparameters_from_json_fn=None,
+            stratified_kfold_split_fn=lambda **kwargs: (np.array([[1.0]]), np.array([[2.0]]), np.array([0]), np.array([1])),
+            plot_f1_violin_by_stream_fn=lambda **kwargs: None,
+            save_model_stream_f1_scores_fn=save_model_stream_f1_scores,
+        )
+
+    monkeypatch.undo()
 
 
 def test_run_sensor_ablation_training_uses_parser_median_folder(tmp_path):
@@ -334,15 +296,18 @@ def test_run_sensor_ablation_training_uses_parser_median_folder(tmp_path):
         encoding="utf-8",
     )
 
-    # Create a fake config that exposes the required getter and other methods used by the runner
-    class FakeConfigWithMedian(FakeSensorAblationConfig):
-        def get_sensor_ablation_median_hyperparameters_folder(self):
-            return str(median_base)
-
-    config = FakeConfigWithMedian(tmp_path / "Results" / "Sensor_Ablation")
+    config = _make_config(tmp_path)
+    config["sensor_ablation"]["training"]["median_hyperparameters_folder"] = str(median_base)
     pipeline = FakePipeline()
     plot_calls = []
     split_calls = []
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        sensor_ablation_mod.ModelFactory,
+        "create_model",
+        staticmethod(lambda model_name, model_hyperparameters=None: TinyTraditionalModel("TinyKNN")),
+    )
 
     def stratified_kfold_split_fn(**kwargs):
         split_calls.append(kwargs)
@@ -356,7 +321,7 @@ def test_run_sensor_ablation_training_uses_parser_median_folder(tmp_path):
 
     # Call with get_hyperparameters_from_json_fn=None so default resolver is used
     run_sensor_ablation_training(
-        config_parser=config,
+        config=config,
         pipeline=pipeline,
         project_root=tmp_path,
         get_hyperparameters_from_json_fn=None,
@@ -364,6 +329,8 @@ def test_run_sensor_ablation_training_uses_parser_median_folder(tmp_path):
         plot_f1_violin_by_stream_fn=plot_f1_violin_by_stream_fn,
         save_model_stream_f1_scores_fn=save_model_stream_f1_scores,
     )
+
+    monkeypatch.undo()
 
     # Verify that splits were run and outputs created
     assert len(split_calls) == 4
