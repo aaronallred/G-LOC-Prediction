@@ -31,14 +31,9 @@ def stratified_kfold_split(X, y, num_splits, kfold_ID, random_state=42):
     return x_train, x_test, y_train, y_test
 
 def get_hyperparameters_from_json(
-    classifier: str,
-    model_type: str,
-    median_hyperparameters_root: str | Path,
+    json_path: Path
 ):
     """Load cached best params, selected features, fold ID, and score from the modern CV JSON."""
-    root = Path(median_hyperparameters_root)
-    json_path = root / model_type / classifier / "median_hyperparameters.json"
-
     with open(json_path, 'r') as f:
         data = json.load(f)
 

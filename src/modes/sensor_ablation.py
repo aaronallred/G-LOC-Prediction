@@ -9,29 +9,7 @@ from numpy import ravel
 
 from src.models.base import ModelInitStrategy
 from src.models_new.model_factory import ModelFactory
-
-def _build_default_hyperparameter_loader(config: dict) -> Callable[[str, str], tuple]:
-    """Create a loader that reads median hyperparameters from the sensor ablation config."""
-    median_hyperparameters_root = Path(config["sensor_ablation"]["training"]["median_hyperparameters_folder"])
-
-    def _load_hyperparameters(model_name: str, model_type_name: str):
-        json_path = median_hyperparameters_root / model_type_name / model_name / "median_hyperparameters.json"
-        if not json_path.exists():
-            raise FileNotFoundError(
-                f"Median hyperparameters file not found for model '{model_name}' at {json_path}"
-            )
-
-        with open(json_path, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-
-        best_params = data.get("best_params", {})
-        selected_features = data.get("selected_features", [])
-        fold_id = data.get("fold_id", None)
-        score = data.get("f1_score", None)
-        return best_params, selected_features, fold_id, score
-
-    return _load_hyperparameters
-
+from src.traditional_experiment_utils import get_hyperparameters_from_json
 
 def extract_f1_score(metrics_tuple: tuple) -> float:
     """Extract F1 score from legacy metric tuple returned by classify_traditional."""
@@ -172,9 +150,6 @@ def run_sensor_ablation_training(
     save_model_stream_f1_scores_fn: Callable[..., Path] = save_model_stream_f1_scores,
 ) -> None:
     """Run sensor ablation training across configured stream groups."""
-    if get_hyperparameters_from_json_fn is None:
-        get_hyperparameters_from_json_fn = _build_default_hyperparameter_loader(config)
-
     training_config = config["sensor_ablation"]["training"]
     feature_stream_groups: list[list[str]] = training_config["streams"]
     models_to_test: list = [ModelFactory.create_model(model_name) for model_name in training_config["models"]]
@@ -199,7 +174,8 @@ def run_sensor_ablation_training(
         for model in models_to_test:
             logging.info("Running model: %s", model.name)
 
-            hyperparameters, _, _, _ = get_hyperparameters_from_json_fn(model.name, model_type.get_folder_name())
+            hyperparameters_path = Path(project_root / training_config["median_hyperparameters_folder"] / model_type.get_folder_name() / model.name / "median_hyperparameters.json")
+            hyperparameters, _, _, _ = get_hyperparameters_from_json(hyperparameters_path)
             x, y = pipeline.get_data(model = model, feature_streams = feature_streams)
             f1_scores = np.zeros(num_splits, dtype = float)
 
@@ -221,7 +197,7 @@ def run_sensor_ablation_training(
                     None,
                     training_config["random_seed"],
                     save_folder = "",  # TODO: Implement saving and loading of trained models
-                    model_name = f"{model_name.lower()}_feature_study.pkl",
+                    model_name = f"{model.name.lower()}_feature_study.pkl",
                     strategy = ModelInitStrategy.RETRAIN_WITH_CONFIG_PARAMS,
                     best_params = hyperparameters,
                 )
@@ -231,7 +207,7 @@ def run_sensor_ablation_training(
 
                 logging.info(
                     "Metrics for %s | streams=%s | fold=%d: %s",
-                    model_name,
+                    model.name,
                     feature_streams,
                     kfold_id,
                     metrics_tuple,
@@ -239,11 +215,11 @@ def run_sensor_ablation_training(
 
             output_path = save_model_stream_f1_scores_fn(
                 results_root_dir = sensor_ablation_results_dir,
-                model_name = model_name,
+                model_name = model.name,
                 stream_str = stream_str,
                 f1_scores = f1_scores,
             )
-            f1_results_by_stream[model_name][stream_str] = f1_scores
+            f1_results_by_stream[model.name][stream_str] = f1_scores
             logging.info("Saved F1 scores to %s", output_path)
 
     plot_f1_violin_by_stream_fn(
