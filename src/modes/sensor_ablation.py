@@ -10,13 +10,6 @@ from numpy import ravel
 from src.models.base import ModelInitStrategy
 from src.models_new.model_factory import ModelFactory
 
-
-def _get_model_name(model) -> str:
-    if hasattr(model, "get_name"):
-        return model.get_name()
-    return model.name
-
-
 def _build_default_hyperparameter_loader(config: dict) -> Callable[[str, str], tuple]:
     """Create a loader that reads median hyperparameters from the sensor ablation config."""
     median_hyperparameters_root = Path(config["sensor_ablation"]["training"]["median_hyperparameters_folder"])
@@ -188,7 +181,7 @@ def run_sensor_ablation_training(
     num_splits: int = training_config["num_splits"]
     model_type = training_config["model_type"]
     f1_results_by_stream: dict[str, dict[str, np.ndarray]] = {
-        _get_model_name(model): {}
+        model.name: {}
         for model in models_to_test
     }
 
@@ -204,10 +197,9 @@ def run_sensor_ablation_training(
         stream_str = "-".join(feature_streams)
 
         for model in models_to_test:
-            model_name = _get_model_name(model)
-            logging.info("Running model: %s", model_name)
+            logging.info("Running model: %s", model.name)
 
-            hyperparameters, _, _, _ = get_hyperparameters_from_json_fn(model_name, model_type.get_folder_name())
+            hyperparameters, _, _, _ = get_hyperparameters_from_json_fn(model.name, model_type.get_folder_name())
             x, y = pipeline.get_data(model = model, feature_streams = feature_streams)
             f1_scores = np.zeros(num_splits, dtype = float)
 
@@ -277,7 +269,7 @@ def run_sensor_ablation_review(
     sensor_ablation_results_dir = Path(review_config["save_results_folder"]) / model_type.get_folder_name()
 
     models = [ModelFactory.create_model(model_name) for model_name in review_config["models"]]
-    classifiers_to_load = [_get_model_name(model) for model in models]
+    classifiers_to_load = [model.name for model in models]
     sort_streams_by_median = review_config["sort_streams_by_median"]
     review_stream_group = review_config["stream_group"]
 
