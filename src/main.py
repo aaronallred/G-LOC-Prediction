@@ -16,28 +16,9 @@ from .modes.feature_space_review import (
     run_feature_space_review,
 )
 from .modes.sensor_ablation import (
-    apply_stream_label_aliases,
-    build_ranked_sensor_ablation_review_results,
-    extract_f1_score,
-    filter_sensor_ablation_review_results,
-    load_sensor_ablation_f1_results,
     run_sensor_ablation_review,
     run_sensor_ablation_training,
-    # save_model_stream_f1_scores,
 )
-from .traditional_experiment_utils import (
-    plot_f1_violin_by_stream,
-    plot_f1_violin_with_stream_matrix,
-    stratified_kfold_split,
-)
-
-
-STREAM_LABEL_ALIASES = {
-    "ECG-HR-BR-Temperature": "Equivital",
-    "Participant": "Demographics",
-    "Centrifuge": "G Force",
-}
-
 
 def _try_enable_cuml_acceleration() -> None:
     """Enable cuML sklearn acceleration when the RAPIDS stack is available."""
@@ -104,26 +85,12 @@ def run(config_path: str | None = None) -> None:
                 pipeline = data_pipeline,
                 model_factory = model_factory,
                 project_root = project_root_path
-                # # Use the configured median_hyperparameters_folder via the config parser by
-                # # passing None here; run_sensor_ablation_training will build a resolver.
-                # get_hyperparameters_from_json_fn = None,
-                # stratified_kfold_split_fn = stratified_kfold_split,
-                # plot_f1_violin_by_stream_fn = plot_f1_violin_by_stream,
-                # extract_f1_score_fn = extract_f1_score,
-                # save_model_stream_f1_scores_fn = save_model_stream_f1_scores,
             )
         ),
         (
             bool(config["sensor_ablation"]["review"]["enabled"]),
             lambda: run_sensor_ablation_review(
-                config = config,
-                project_root = project_root_path,
-                load_sensor_ablation_f1_results_fn = load_sensor_ablation_f1_results,
-                build_ranked_sensor_ablation_review_results_fn = build_ranked_sensor_ablation_review_results,
-                filter_sensor_ablation_review_results_fn = filter_sensor_ablation_review_results,
-                plot_f1_violin_with_stream_matrix_fn = plot_f1_violin_with_stream_matrix,
-                plot_f1_violin_by_stream_fn = plot_f1_violin_by_stream,
-                stream_label_aliases = STREAM_LABEL_ALIASES,
+                config = config
             ),
         ),
         (

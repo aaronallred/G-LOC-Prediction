@@ -11,43 +11,15 @@ from numpy import ravel
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
 from src.models.base import ModelInitStrategy
+from src.model_type import ModelType
 from src.models_new.model_factory import ModelFactory
-from src.traditional_experiment_utils import stratified_kfold_split, get_hyperparameters_from_json
+from src.traditional_experiment_utils import stratified_kfold_split, get_hyperparameters_from_json, plot_f1_violin_with_stream_matrix
 
 def extract_f1_score(metrics_tuple: tuple) -> float:
     """Extract F1 score from legacy metric tuple returned by classify_traditional."""
     if len(metrics_tuple) <= 3:
         raise ValueError(f"Unexpected metrics tuple format. Expected F1 at index 3, got: {metrics_tuple}")
     return float(metrics_tuple[3])
-
-
-def load_sensor_ablation_f1_results(
-    results_root_dir: Path,
-    classifiers: list[str],
-    stream_group: list[str] | None = None,
-) -> dict[str, dict[str, np.ndarray]]:
-    """Load cached per-stream F1 arrays from Results/Sensor_Ablation/<model_type>/<classifier>/*.pkl."""
-    loaded: dict[str, dict[str, np.ndarray]] = {}
-    required_stream_group = frozenset(stream_group) if stream_group else None
-
-    for classifier in classifiers:
-        classifier_dir = results_root_dir / classifier
-        if not classifier_dir.exists():
-            logging.warning("Skipping missing classifier directory: %s", classifier_dir)
-            continue
-
-        stream_scores: dict[str, np.ndarray] = {}
-        for pkl_path in sorted(classifier_dir.glob("*.pkl")):
-            if required_stream_group is not None and frozenset(pkl_path.stem.split("-")) != required_stream_group:
-                continue
-
-            with open(pkl_path, "rb") as handle:
-                stream_scores[pkl_path.stem] = np.asarray(pickle.load(handle), dtype = float)
-
-        if stream_scores:
-            loaded[classifier] = stream_scores
-
-    return loaded
 
 
 def filter_sensor_ablation_review_results(
@@ -82,49 +54,6 @@ def apply_stream_label_aliases(stream_name: str, stream_label_aliases: Mapping[s
     for source_label, target_label in stream_label_aliases.items():
         aliased_name = aliased_name.replace(source_label, target_label)
     return aliased_name
-
-
-def build_ranked_sensor_ablation_review_results(
-    f1_results_by_stream: dict[str, dict[str, np.ndarray]],
-    classifiers: list[str],
-    stream_label_aliases: Mapping[str, str],
-) -> dict[str, dict[str, np.ndarray]]:
-    """Replicate preference-11 review behavior using config-selected classifiers."""
-    all_streams = {
-        stream_name
-        for classifier in classifiers
-        for stream_name in f1_results_by_stream.get(classifier, {}).keys()
-    }
-
-    if len(all_streams) == 0:
-        return {}
-
-    stream_median_map: dict[str, float] = {}
-    for stream_name in all_streams:
-        combined_scores = []
-        for classifier in classifiers:
-            if stream_name in f1_results_by_stream.get(classifier, {}):
-                combined_scores.extend(np.asarray(f1_results_by_stream[classifier][stream_name], dtype = float).tolist())
-
-        if len(combined_scores) > 0:
-            stream_median_map[stream_name] = float(np.median(np.asarray(combined_scores, dtype = float)))
-
-    sorted_streams = sorted(stream_median_map, key = stream_median_map.get, reverse = True)
-
-    ranked_results: dict[str, dict[str, np.ndarray]] = {}
-    for classifier in classifiers:
-        classifier_streams = f1_results_by_stream.get(classifier, {})
-        renamed_streams: dict[str, np.ndarray] = {}
-        for stream_name in sorted_streams:
-            if stream_name not in classifier_streams:
-                continue
-            aliased_stream_name = apply_stream_label_aliases(stream_name, stream_label_aliases)
-            renamed_streams[aliased_stream_name] = np.asarray(classifier_streams[stream_name], dtype = float)
-
-        if len(renamed_streams) > 0:
-            ranked_results[classifier] = renamed_streams
-
-    return ranked_results
 
 
 
@@ -200,13 +129,6 @@ def run_sensor_ablation_training(
             f1_results_by_stream[model.name][stream_str] = f1_scores
             logging.info("Saved F1 scores to %s", output_path)
 
-    # Could manually do this with review mode
-    # plot_f1_violin_by_stream_fn(
-    #     f1_results_by_stream = f1_results_by_stream,
-    #     model_type = model_type,
-    #     save_folder = sensor_ablation_results_dir,
-    # )
-
 def _evaluate_model(y_test: np.ndarray, y_pred: np.ndarray) -> tuple:
     """Evaluate model predictions and return legacy metric tuple format."""
     # Assess Performance
@@ -244,70 +166,71 @@ def _save_model_stream_f1_scores(
 
 
 def run_sensor_ablation_review(
-    config: dict,
-    project_root: Path,
-    load_sensor_ablation_f1_results_fn: Callable[..., dict[str, dict[str, np.ndarray]]],
-    build_ranked_sensor_ablation_review_results_fn: Callable[..., dict[str, dict[str, np.ndarray]]],
-    filter_sensor_ablation_review_results_fn: Callable[..., dict[str, dict[str, np.ndarray]]],
-    plot_f1_violin_with_stream_matrix_fn: Callable,
-    plot_f1_violin_by_stream_fn: Callable,
-    stream_label_aliases: Mapping[str, str],
+    config: dict
 ) -> None:
     """Review and re-plot saved sensor ablation F1 results using YAML-defined models and one stream group."""
     review_config = config["sensor_ablation"]["review"]
     model_type = review_config["model_type"]
     sensor_ablation_results_dir = Path(review_config["save_results_folder"]) / model_type.get_folder_name()
 
-    models = [ModelFactory.create_model(model_name) for model_name in review_config["models"]]
-    classifiers_to_load = [model.name for model in models]
+    models = review_config["models"]
+    # models = [model_factory.create_model(model_name) for model_name in review_config["models"]]
+    # classifiers_to_load = [model.name for model in models]
     sort_streams_by_median = review_config["sort_streams_by_median"]
-    review_stream_group = review_config["stream_group"]
+    stream_groups = review_config["stream_groups"]
 
-    loading_stream_group = None
-    if (not sort_streams_by_median) and len(review_stream_group) > 0:
-        loading_stream_group = review_stream_group
+    if len(models) == 0:
+        raise ValueError("No models specified for sensor ablation review. Update sensor_ablation.review.models in the config.")
 
-    f1_results_by_stream = load_sensor_ablation_f1_results_fn(
-        results_root_dir = sensor_ablation_results_dir,
-        classifiers = classifiers_to_load,
-        stream_group = loading_stream_group,
-    )
-    if len(f1_results_by_stream) == 0:
-        raise ValueError(
-            "Sensor ablation review is enabled, but no cached F1 result files were found under "
-            f"{sensor_ablation_results_dir}."
+    if len(stream_groups) == 0:
+        raise ValueError("No stream groups specified for sensor ablation review. Update sensor_ablation.review.stream_groups in the config.")
+
+    for model in models:
+        # Load all stream-group F1 results for this model, then filter or rank as needed for plotting
+        f1_results_by_stream = _load_sensor_ablation_f1_results_for_model(
+            sensor_ablation_results_dir = sensor_ablation_results_dir,
+            model = model,
+            stream_groups = stream_groups
         )
 
-    if sort_streams_by_median:
-        filtered_results = build_ranked_sensor_ablation_review_results_fn(
-            f1_results_by_stream = f1_results_by_stream,
-            classifiers = classifiers_to_load,
-            stream_label_aliases = stream_label_aliases,
-        )
-    else:
-        filtered_results = filter_sensor_ablation_review_results_fn(
-            f1_results_by_stream = f1_results_by_stream,
-            stream_group = review_stream_group,
-        )
-
-    if len(filtered_results) == 0:
         if sort_streams_by_median:
-            raise ValueError(
-                "Sensor ablation review is enabled with median ranking, but no streams were available "
-                "for the requested classifiers."
-            )
-        raise ValueError(
-            "Sensor ablation review filters removed all streams. "
-            "Update sensor_ablation.review.stream_group in the config."
+            f1_results_by_stream = _sort_streams_by_median_f1(f1_results_by_stream)
+
+        # Plot the F1 distributions for this model across the requested stream groups
+        plot_f1_violin_with_stream_matrix(
+            f1_results_by_stream = f1_results_by_stream,
+            model = model,
+            model_type = model_type
         )
 
-    if sort_streams_by_median:
-        plot_f1_violin_with_stream_matrix_fn(
-            f1_results_by_stream = filtered_results,
-            model_type = model_type,
+def _load_sensor_ablation_f1_results_for_model(
+    sensor_ablation_results_dir: Path,
+    model: str,
+    stream_groups: list[list[str]],
+) -> dict[str, dict[str, np.ndarray]]:
+    """Load cached F1 results for one model across multiple stream groups."""
+    model_dir = sensor_ablation_results_dir / model
+    if not model_dir.exists():
+        raise ValueError(f"Expected model directory not found: {model_dir}")
+
+    f1_results_by_stream: dict[str, dict[str, np.ndarray]] = {}
+    for stream_group in stream_groups:
+        stream_group_str = "-".join(stream_group)
+        stream_group_results_file = model_dir / f"{stream_group_str}.json"
+        with open(stream_group_results_file, "r") as handle:
+            data = json.load(handle)
+            f1_results_by_stream[tuple(stream_group)] = np.asarray(data["f1"], dtype = float)
+
+    return f1_results_by_stream # model -> stream group -> F1 array
+
+def _sort_streams_by_median_f1(f1_results_by_stream: dict, descending: bool = True) -> dict:
+    """
+    Sorts a dictionary of stream F1 scores by their median value.
+    """
+    return dict(
+        sorted(
+            f1_results_by_stream.items(),
+            key=lambda item: np.median(item[1]),
+            reverse=descending
         )
-    else:
-        plot_f1_violin_by_stream_fn(
-            f1_results_by_stream = filtered_results,
-            model_type = model_type,
-        )
+    )
