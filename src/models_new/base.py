@@ -115,7 +115,10 @@ class TraditionalModel(BaseModel):
 
     def train(self, X: np.ndarray, y: np.ndarray):
         """Fit the model using sklearn's fit method."""
-        self.model.fit(X, y)
+        if "random_state" in self.model.get_params():
+            self.model.fit(X, y, random_state = self.model.get_params()["random_state"])
+        else:
+            self.model.fit(X, y)
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict using sklearn's predict method."""
