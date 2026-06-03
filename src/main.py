@@ -23,7 +23,7 @@ from .modes.sensor_ablation import (
     load_sensor_ablation_f1_results,
     run_sensor_ablation_review,
     run_sensor_ablation_training,
-    save_model_stream_f1_scores,
+    # save_model_stream_f1_scores,
 )
 from .traditional_experiment_utils import (
     plot_f1_violin_by_stream,
@@ -101,15 +101,16 @@ def run(config_path: str | None = None) -> None:
             bool(config["sensor_ablation"]["training"]["enabled"]),
             lambda: run_sensor_ablation_training(
                 config = config,
-                pipeline = DataPipeline(config = config),
-                project_root = project_root_path,
-                # Use the configured median_hyperparameters_folder via the config parser by
-                # passing None here; run_sensor_ablation_training will build a resolver.
-                get_hyperparameters_from_json_fn = None,
-                stratified_kfold_split_fn = stratified_kfold_split,
-                plot_f1_violin_by_stream_fn = plot_f1_violin_by_stream,
-                extract_f1_score_fn = extract_f1_score,
-                save_model_stream_f1_scores_fn = save_model_stream_f1_scores,
+                pipeline = data_pipeline,
+                model_factory = model_factory,
+                project_root = project_root_path
+                # # Use the configured median_hyperparameters_folder via the config parser by
+                # # passing None here; run_sensor_ablation_training will build a resolver.
+                # get_hyperparameters_from_json_fn = None,
+                # stratified_kfold_split_fn = stratified_kfold_split,
+                # plot_f1_violin_by_stream_fn = plot_f1_violin_by_stream,
+                # extract_f1_score_fn = extract_f1_score,
+                # save_model_stream_f1_scores_fn = save_model_stream_f1_scores,
             )
         ),
         (

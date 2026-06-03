@@ -5,32 +5,20 @@ from pathlib import Path
 from typing import Callable, Mapping
 
 import numpy as np
+from sklearn import metrics
+from imblearn.metrics import geometric_mean_score
 from numpy import ravel
 
+from src.Data_Pipeline.data_pipeline import DataPipeline
 from src.models.base import ModelInitStrategy
 from src.models_new.model_factory import ModelFactory
-from src.traditional_experiment_utils import get_hyperparameters_from_json
+from src.traditional_experiment_utils import stratified_kfold_split, get_hyperparameters_from_json
 
 def extract_f1_score(metrics_tuple: tuple) -> float:
     """Extract F1 score from legacy metric tuple returned by classify_traditional."""
     if len(metrics_tuple) <= 3:
         raise ValueError(f"Unexpected metrics tuple format. Expected F1 at index 3, got: {metrics_tuple}")
     return float(metrics_tuple[3])
-
-
-def save_model_stream_f1_scores(
-    results_root_dir: Path,
-    model_name: str,
-    stream_str: str,
-    f1_scores: np.ndarray,
-) -> Path:
-    """Persist one model-stream F1 array as Results/Sensor_Ablation/<model>/<stream>.pkl."""
-    model_dir = results_root_dir / model_name
-    model_dir.mkdir(parents = True, exist_ok = True)
-    output_path = model_dir / f"{stream_str}.pkl"
-    with open(output_path, "wb") as handle:
-        pickle.dump(np.asarray(f1_scores, dtype = float), handle)
-    return output_path
 
 
 def load_sensor_ablation_f1_results(
@@ -139,20 +127,22 @@ def build_ranked_sensor_ablation_review_results(
     return ranked_results
 
 
+
 def run_sensor_ablation_training(
     config: dict,
-    pipeline,
+    pipeline: DataPipeline,
+    model_factory: ModelFactory,
     project_root: Path,
-    get_hyperparameters_from_json_fn: Callable | None,
-    stratified_kfold_split_fn: Callable,
-    plot_f1_violin_by_stream_fn: Callable,
-    extract_f1_score_fn: Callable[[tuple], float] = extract_f1_score,
-    save_model_stream_f1_scores_fn: Callable[..., Path] = save_model_stream_f1_scores,
+    # get_hyperparameters_from_json_fn: Callable | None,
+    # stratified_kfold_split_fn: Callable,
+    # plot_f1_violin_by_stream_fn: Callable,
+    # extract_f1_score_fn: Callable[[tuple], float] = extract_f1_score,
+    # save_model_stream_f1_scores_fn: Callable[..., Path] = save_model_stream_f1_scores,
 ) -> None:
     """Run sensor ablation training across configured stream groups."""
     training_config = config["sensor_ablation"]["training"]
     feature_stream_groups: list[list[str]] = training_config["streams"]
-    models_to_test: list = [ModelFactory.create_model(model_name) for model_name in training_config["models"]]
+    models_to_test: list = [model_factory.create_model(model_name) for model_name in training_config["models"]]
     num_splits: int = training_config["num_splits"]
     model_type = training_config["model_type"]
     f1_results_by_stream: dict[str, dict[str, np.ndarray]] = {
@@ -174,46 +164,34 @@ def run_sensor_ablation_training(
         for model in models_to_test:
             logging.info("Running model: %s", model.name)
 
-            hyperparameters_path = Path(project_root / training_config["median_hyperparameters_folder"] / model_type.get_folder_name() / model.name / "median_hyperparameters.json")
-            hyperparameters, _, _, _ = get_hyperparameters_from_json(hyperparameters_path)
-            x, y = pipeline.get_data(model = model, feature_streams = feature_streams)
+            hyperparameters, _, _, _ = get_hyperparameters_from_json(Path(project_root / training_config["median_hyperparameters_folder"]), model_type, model.name)
+            X, y = pipeline.get_data(model = model, feature_streams = feature_streams)
             f1_scores = np.zeros(num_splits, dtype = float)
 
             for kfold_id in range(num_splits):
                 logging.info("Running fold %d/%d", kfold_id + 1, num_splits)
-                x_train, x_test, y_train, y_test = stratified_kfold_split_fn(
-                    Y = ravel(y),
-                    X = x,
-                    num_splits = num_splits,
-                    kfold_ID = kfold_id,
-                    random_state = training_config["random_seed"],
-                )
+                X_train, X_test, y_train, y_test = stratified_kfold_split(X, y, num_splits, kfold_id, training_config["random_seed"])
 
-                metrics_tuple = model.classify_traditional(
-                    x_train,
-                    x_test,
-                    y_train,
-                    y_test,
-                    None,
-                    training_config["random_seed"],
-                    save_folder = "",  # TODO: Implement saving and loading of trained models
-                    model_name = f"{model.name.lower()}_feature_study.pkl",
-                    strategy = ModelInitStrategy.RETRAIN_WITH_CONFIG_PARAMS,
-                    best_params = hyperparameters,
-                )
+                # Re-initialize model for each fold to ensure clean training
+                model = model_factory.create_model(model.name, model_hyperparameters = hyperparameters)
+                if "random_state" in model.get_model_parameters():
+                    model.set_model_parameters({"random_state": training_config["random_seed"]})
 
-                fold_f1 = extract_f1_score_fn(metrics_tuple)
-                f1_scores[kfold_id] = fold_f1
+                # Train and evaluate
+                model.train(X_train, y_train)
+                y_pred = model.predict(X_test)
+                fold_result = _evaluate_model(y_test, y_pred)
+                f1_scores[kfold_id] = fold_result["f1"]
 
                 logging.info(
                     "Metrics for %s | streams=%s | fold=%d: %s",
                     model.name,
                     feature_streams,
                     kfold_id,
-                    metrics_tuple,
+                    fold_result,
                 )
 
-            output_path = save_model_stream_f1_scores_fn(
+            output_path = _save_model_stream_f1_scores(
                 results_root_dir = sensor_ablation_results_dir,
                 model_name = model.name,
                 stream_str = stream_str,
@@ -222,11 +200,47 @@ def run_sensor_ablation_training(
             f1_results_by_stream[model.name][stream_str] = f1_scores
             logging.info("Saved F1 scores to %s", output_path)
 
-    plot_f1_violin_by_stream_fn(
-        f1_results_by_stream = f1_results_by_stream,
-        model_type = model_type,
-        save_folder = sensor_ablation_results_dir,
-    )
+    # Could manually do this with review mode
+    # plot_f1_violin_by_stream_fn(
+    #     f1_results_by_stream = f1_results_by_stream,
+    #     model_type = model_type,
+    #     save_folder = sensor_ablation_results_dir,
+    # )
+
+def _evaluate_model(y_test: np.ndarray, y_pred: np.ndarray) -> tuple:
+    """Evaluate model predictions and return legacy metric tuple format."""
+    # Assess Performance
+    accuracy = metrics.accuracy_score(y_test, y_pred)
+    precision = metrics.precision_score(y_test, y_pred)
+    recall = metrics.recall_score(y_test, y_pred)
+    f1 = metrics.f1_score(y_test, y_pred)
+    specificity = metrics.recall_score(y_test, y_pred, pos_label = 0)
+    g_mean = geometric_mean_score(y_test, y_pred)
+
+    return {
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "specificity": specificity,
+        "g_mean": g_mean
+    }
+
+def _save_model_stream_f1_scores(
+    results_root_dir: Path,
+    model_name: str,
+    stream_str: str,
+    f1_scores: np.ndarray,
+) -> Path:
+    """Persist one model-stream F1 array as Results/Sensor_Ablation/<model>/<stream>.json."""
+    model_dir = results_root_dir / model_name
+    model_dir.mkdir(parents = True, exist_ok = True)
+    output_path = model_dir / f"{stream_str}.json"
+    f1_scores_dict = {"f1": f1_scores.tolist()}
+    with open(output_path, "w") as handle:
+        json.dump(f1_scores_dict, handle)
+    return output_path
+
 
 
 def run_sensor_ablation_review(
