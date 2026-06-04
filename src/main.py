@@ -58,7 +58,7 @@ def run(config_path: str) -> None:
 
     mode_runners: list[tuple[bool, Callable[[], None]]] = [
         (
-            bool(config["cross_validation"]["enabled"]),
+            bool(config.get("cross_validation", {}).get("enabled", False)),
             lambda: run_cross_validation(
                 config = config,
                 pipeline = data_pipeline,
@@ -67,7 +67,7 @@ def run(config_path: str) -> None:
             ),
         ),
         (
-            bool(config["sensor_ablation"]["training"]["enabled"]),
+            bool(config.get("sensor_ablation", {}).get("training", {}).get("enabled", False)),
             lambda: run_sensor_ablation_training(
                 config = config,
                 pipeline = data_pipeline,
@@ -76,13 +76,13 @@ def run(config_path: str) -> None:
             )
         ),
         (
-            bool(config["sensor_ablation"]["review"]["enabled"]),
+            bool(config.get("sensor_ablation", {}).get("review", {}).get("enabled", False)),
             lambda: run_sensor_ablation_review(
                 config = config
             ),
         ),
         (
-            bool(config["feature_space_review"]["enabled"]),
+            bool(config.get("feature_space_review", {}).get("enabled", False)),
             lambda: run_feature_space_review(
                 config = config,
                 model_factory = model_factory
