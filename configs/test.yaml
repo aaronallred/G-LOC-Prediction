@@ -19,7 +19,7 @@ traditional_data_parameters:
   time_start: 0
 
 cross_validation:
-  enabled: true
+  enabled: false
   # Mode-specific parameters
   models: [KNN, EGB]
   model_type: !ModelType [Complete, Explicit]
@@ -37,7 +37,7 @@ cross_validation:
 
 sensor_ablation:
   training:
-    enabled: true
+    enabled: false
     save_results_folder: Results/Sensor_Ablation_Temp
     median_hyperparameters_folder: Results/Cross_Validation_Temp
     # Mode-specific parameters
@@ -62,7 +62,7 @@ sensor_ablation:
     sort_streams_by_median: true
 
 feature_space_review:
-  enabled: true
+  enabled: false
   # Mode-specific parameters
   models: [KNN, EGB]
   model_type: !ModelType [Complete, Explicit]
