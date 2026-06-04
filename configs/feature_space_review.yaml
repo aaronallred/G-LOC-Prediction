@@ -1,0 +1,6 @@
+feature_space_review:
+  enabled: true
+  # Mode-specific parameters
+  models: [KNN, EGB]
+  model_type: !ModelType [Complete, Explicit]
+  median_hyperparameters_folder: Results/Cross_Validation_Temp

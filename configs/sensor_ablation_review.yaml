@@ -1,0 +1,12 @@
+sensor_ablation:
+  review:
+    enabled: True
+    save_results_folder: Results/Sensor_Ablation
+    # Mode-specific parameters for review
+    models: [KNN, EGB]
+    model_type: !ModelType [Complete, Explicit]
+    stream_groups: 
+      - [EEG]
+      - [EEG, Pupil]
+      - [EEG, Pupil, Participant]
+    sort_streams_by_median: true

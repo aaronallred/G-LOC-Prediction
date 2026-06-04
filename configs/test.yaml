@@ -1,0 +1,69 @@
+data_path: /home/gloc/G-LOC-Prediction/data/reduced_smoke
+shared_data_parameters:
+  subject_to_analyze: null
+  trial_to_analyze: null
+  analysis_type: 2
+  remove_NaN_trials: true
+  impute_file_name: imputed_data.pkl
+  save_impute: false
+  load_impute: false
+  impute_phase: pre_feature
+  output_feature_dtype: float32
+advanced_data_parameters:
+  n_neighbors: 4
+  baseline_window: 32.5
+traditional_data_parameters:
+  backstep: 0
+  data_rate: 25
+  offset: 0
+  time_start: 0
+
+cross_validation:
+  enabled: true
+  # Mode-specific parameters
+  models: [KNN, EGB]
+  model_type: !ModelType [Complete, Explicit]
+  random_seed: 42
+  num_splits: 2
+  save_results_folder: Results/Cross_Validation_Temp
+  class_weight: null
+  advanced_hpo:
+    # Advanced classifiers only: REQUIRED when using any advanced model (LSTM, TCN, Trans, NAM, LogRegTS)
+    # These 4 parameters control advanced model training behavior. All other Optuna-level parameters are hardcoded.
+    use_sampler: true            # bool: whether to use a sampler for class imbalance during training
+    final_early_stop: false      # bool: whether final training should use early stopping
+    objective_var: F1            # string: 'F1' or 'Acc' (case-insensitive)
+    trials: 10                  # int: number of Optuna trials
+
+sensor_ablation:
+  training:
+    enabled: true
+    save_results_folder: Results/Sensor_Ablation_Temp
+    median_hyperparameters_folder: Results/Cross_Validation_Temp
+    # Mode-specific parameters
+    models: [KNN, EGB]
+    model_type: !ModelType [Complete, Explicit]
+    random_seed: 42
+    num_splits: 2
+    streams:
+      - [EEG]
+      - [EEG, Pupil]
+      - [EEG, Pupil, Participant]
+  review:
+    enabled: True
+    save_results_folder: Results/Sensor_Ablation_Temp
+    # Mode-specific parameters for review
+    models: [KNN, EGB]
+    model_type: !ModelType [Complete, Explicit]
+    stream_groups: 
+      - [EEG]
+      - [EEG, Pupil]
+      - [EEG, Pupil, Participant]
+    sort_streams_by_median: true
+
+feature_space_review:
+  enabled: true
+  # Mode-specific parameters
+  models: [KNN, EGB]
+  model_type: !ModelType [Complete, Explicit]
+  median_hyperparameters_folder: Results/Cross_Validation_Temp

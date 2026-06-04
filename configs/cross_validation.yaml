@@ -1,4 +1,4 @@
-data_path: /home/gloc/G-LOC-Prediction/data/reduced_smoke
+data_path: /home/gloc/G-LOC-Prediction/data/
 shared_data_parameters:
   subject_to_analyze: null
   trial_to_analyze: null
@@ -17,49 +17,20 @@ traditional_data_parameters:
   data_rate: 25
   offset: 0
   time_start: 0
-sensor_ablation:
-  training:
-    enabled: false
-    save_results_folder: Results/Sensor_Ablation
-    median_hyperparameters_folder: Results/CrossValidation
-    # Mode-specific parameters
-    models: [KNN]
-    model_type: [Complete, Explicit]
-    random_seed: 42
-    num_splits: 2
-    streams:
-      - [ECG, HR, BR, Temperature]
-      - [EEG]
-  review:
-    enabled: false
-    save_results_folder: Results/Sensor_Ablation
-    # Mode-specific parameters for review
-    models: [KNN]
-    model_type: [Complete, Explicit]
-    stream_group: [EEG]
-    sort_streams_by_median: true
-
-feature_space_review:
-  enabled: false
-  # Mode-specific parameters
-  models: [KNN]
-  model_type: [Complete, Explicit]
 
 cross_validation:
   enabled: true
   # Mode-specific parameters
-  models: [KNN]
+  models: [KNN, EGB]
   model_type: !ModelType [Complete, Explicit]
   random_seed: 42
-  num_splits: 2
+  num_splits: 10
   save_results_folder: Results/Cross_Validation_Temp
   class_weight: null
-  save_median_hyperparameters: true
-
-  advanced_hpo:
+  advanced_hpo: # Currently not supported yet :\
     # Advanced classifiers only: REQUIRED when using any advanced model (LSTM, TCN, Trans, NAM, LogRegTS)
     # These 4 parameters control advanced model training behavior. All other Optuna-level parameters are hardcoded.
     use_sampler: true            # bool: whether to use a sampler for class imbalance during training
     final_early_stop: false      # bool: whether final training should use early stopping
     objective_var: F1            # string: 'F1' or 'Acc' (case-insensitive)
-    trials: 10                  # int: number of Optuna trials
+    trials: 100                  # int: number of Optuna trials
