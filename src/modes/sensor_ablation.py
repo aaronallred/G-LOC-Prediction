@@ -1,59 +1,14 @@
 import logging
 import json
-import pickle
 from pathlib import Path
-from typing import Callable, Mapping
 
 import numpy as np
 from sklearn import metrics
 from imblearn.metrics import geometric_mean_score
-from numpy import ravel
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
-from src.models.base import ModelInitStrategy
-from src.model_type import ModelType
 from src.models_new.model_factory import ModelFactory
 from src.traditional_experiment_utils import stratified_kfold_split, get_hyperparameters_from_json, plot_f1_violin_with_stream_matrix
-
-def extract_f1_score(metrics_tuple: tuple) -> float:
-    """Extract F1 score from legacy metric tuple returned by classify_traditional."""
-    if len(metrics_tuple) <= 3:
-        raise ValueError(f"Unexpected metrics tuple format. Expected F1 at index 3, got: {metrics_tuple}")
-    return float(metrics_tuple[3])
-
-
-def filter_sensor_ablation_review_results(
-    f1_results_by_stream: dict[str, dict[str, np.ndarray]],
-    stream_group: list[str],
-) -> dict[str, dict[str, np.ndarray]]:
-    """Filter cached F1 results using one exact stream-label selection from YAML."""
-    if len(f1_results_by_stream) == 0:
-        return {}
-
-    if len(stream_group) == 0:
-        raise ValueError("sensor_ablation_review_parameters.stream_group must be non-empty.")
-
-    required_group_set = frozenset(stream_group)
-
-    filtered: dict[str, dict[str, np.ndarray]] = {}
-    for classifier, stream_dict in f1_results_by_stream.items():
-        matching_streams = {
-            stream_name: scores
-            for stream_name, scores in stream_dict.items()
-            if frozenset(stream_name.split("-")) == required_group_set
-        }
-        if matching_streams:
-            filtered[classifier] = matching_streams
-
-    return filtered
-
-
-def apply_stream_label_aliases(stream_name: str, stream_label_aliases: Mapping[str, str]) -> str:
-    """Apply ordered string replacements to stream labels for plot readability."""
-    aliased_name = stream_name
-    for source_label, target_label in stream_label_aliases.items():
-        aliased_name = aliased_name.replace(source_label, target_label)
-    return aliased_name
 
 
 
