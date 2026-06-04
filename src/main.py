@@ -3,22 +3,12 @@ import logging
 from pathlib import Path
 from typing import Callable
 
-import matplotlib.pyplot as plt
-from matplotlib_venn import venn2, venn3
-from upsetplot import UpSet, from_contents
-
 from .Data_Pipeline.data_pipeline import DataPipeline
 from .config_loader import load_experiment_config
 from .models_new.model_factory import ModelFactory
 from .modes.cross_validation import run_cross_validation
-from .modes.feature_space_review import (
-    investigate_feature_space,
-    run_feature_space_review,
-)
-from .modes.sensor_ablation import (
-    run_sensor_ablation_review,
-    run_sensor_ablation_training,
-)
+from .modes.feature_space_review import run_feature_space_review
+from .modes.sensor_ablation import run_sensor_ablation_review, run_sensor_ablation_training
 
 def _try_enable_cuml_acceleration() -> None:
     """Enable cuML sklearn acceleration when the RAPIDS stack is available."""
@@ -37,14 +27,12 @@ def _try_enable_cuml_acceleration() -> None:
             exc,
         )
 
-
 def configure_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
         force=True,
     )
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -57,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
-def run(config_path: str | None = None) -> None:
+def run(config_path: str) -> None:
     configure_logging()
     _try_enable_cuml_acceleration()
 
@@ -97,13 +85,7 @@ def run(config_path: str | None = None) -> None:
             bool(config["feature_space_review"]["enabled"]),
             lambda: run_feature_space_review(
                 config = config,
-                investigate_feature_space_fn = investigate_feature_space,
-                get_hyperparameters_from_json_fn = None,
-                venn2_fn = venn2,
-                venn3_fn = venn3,
-                from_contents_fn = from_contents,
-                upset_cls = UpSet,
-                plt_module = plt,
+                model_factory = model_factory
             )
         ),
     ]
