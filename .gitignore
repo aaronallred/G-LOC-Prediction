@@ -1,6 +1,7 @@
 data.mat
 .DS_Store
-/data
+*.csv
+*.xlsx
 *.asv
 /outputs
 .idea/inspectionProfiles/profiles_settings.xml
