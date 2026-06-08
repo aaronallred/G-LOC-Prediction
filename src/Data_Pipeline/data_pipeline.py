@@ -9,8 +9,7 @@ import os
 import pickle
 import re
 
-    import faiss
-    FAISS_AVAILABLE = True
+import faiss
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
@@ -45,8 +44,6 @@ class DataPipeline:
     
     Args:
         config: Loaded YAML experiment configuration mapping
-        model: Optional BaseModel instance for type resolution
-        data_path_override: Optional override for data_path from config (for testing)
     """
 
     def __init__(
