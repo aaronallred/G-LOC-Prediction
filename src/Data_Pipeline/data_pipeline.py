@@ -9,12 +9,8 @@ import os
 import pickle
 import re
 
-try:
     import faiss
     FAISS_AVAILABLE = True
-except Exception:  # pragma: no cover - environment may not have faiss installed
-    faiss = None
-    FAISS_AVAILABLE = False
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
@@ -922,8 +918,6 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         )
 
         if do_pre_feature_impute:
-            if not FAISS_AVAILABLE:
-                raise ImportError("FAISS is required for KNN imputation (impute_phase=pre_feature) but is not available in the environment.")
             gloc_data_all_features_imputed_numpy = self._impute_missing_data(
                 gloc_data_all_features_numpy,
                 gloc_labels_numpy,
@@ -966,8 +960,6 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 
         # Post-feature KNN imputation (on the feature matrix) if requested
         if do_post_feature_knn:
-            if not FAISS_AVAILABLE:
-                raise ImportError("FAISS is required for post-feature KNN imputation (impute_phase=post_feature_knn) but is not available in the environment.")
             logger.info("Performing post-feature KNN imputation on feature matrix with n_neighbors=%d", n_neighbors)
             # Preserve trial column while imputing features only
             trial_col = x_feature_matrix[:, -1].copy()
@@ -978,6 +970,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             )
             X_imputed = self._faster_knn_impute_train_test(X_feats, train_indices, test_indices, n_neighbors)
             x_feature_matrix = np.hstack([X_imputed, trial_col.reshape(-1, 1)])
+
 
         return x_train, x_test, y_train, y_test, features["All"]
 
@@ -1394,8 +1387,6 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     imputed_features = pickle.load(f)
                 logger.info("Loaded traditional imputed data from %s.", traditional_impute_path)
             else:
-                if not FAISS_AVAILABLE:
-                    raise ImportError("FAISS is required for KNN imputation (impute_phase=pre_feature) but is not available in the environment.")
                 imputed_features = self._faster_knn_impute(
                     gloc_data[features["All"]].to_numpy(dtype=output_feature_dtype),
                     k=n_neighbors,
@@ -1493,8 +1484,6 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         ################################################ NaN Processing ################################################
         # Optionally perform post-feature KNN imputation on the reduced numpy matrix
         if do_post_feature_knn:
-            if not FAISS_AVAILABLE:
-                raise ImportError("FAISS is required for post-feature KNN imputation (impute_phase=post_feature_knn) but is not available in the environment.")
             logger.info("Performing post-feature KNN imputation on traditional feature matrix with n_neighbors=%d", n_neighbors)
             # gloc_data_all_features_numpy is already a numpy array; impute missing values across entire dataset
             gloc_data_all_features_numpy = self._faster_knn_impute(gloc_data_all_features_numpy, k=n_neighbors)
