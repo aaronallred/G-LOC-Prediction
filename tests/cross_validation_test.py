@@ -26,7 +26,7 @@ from src.modes.cross_validation import (
     _is_hpo_supported_advanced_model,
     _is_traditional_model,
     _run_advanced_model_hpo,
-    _run_traditional_smote_resampling,
+    _smote_resampling,
     _split_train_for_hpo,
     run_cross_validation,
 )
@@ -844,7 +844,7 @@ def test_traditional_smote_helper_matches_legacy_simple_smote():
     X = X.astype(np.float32)
     y = y.astype(int)
 
-    modern_x, modern_y = _run_traditional_smote_resampling(X, y, random_seed=42)
+    modern_x, modern_y = _smote_resampling(X, y, random_seed=42)
     legacy_x, legacy_y = legacy_imbalance.simple_smote(X, y, random_state=42)
 
     np.testing.assert_allclose(modern_x, legacy_x)
