@@ -3,9 +3,10 @@ from enum import Enum
 import joblib
 import numpy as np
 from sklearn.base import clone
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import optuna
+from skopt import BayesSearchCV
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
@@ -47,11 +48,11 @@ class BaseModel(ABC):
         """Returns the model name."""
         pass
 
-    @property
-    @abstractmethod
-    def model_object(self) -> Any:
-        """Returns the underlying model object (e.g. sklearn estimator or PyTorch nn.Module)."""
-        pass
+    # @property
+    # @abstractmethod
+    # def model_object(self) -> Any:
+    #     """Returns the underlying model object (e.g. sklearn estimator or PyTorch nn.Module)."""
+    #     pass
 
     @property
     @abstractmethod
@@ -62,8 +63,13 @@ class BaseModel(ABC):
 
 
     @abstractmethod
-    def _build_model(self) -> Any:
+    def _build_model(self, model_hyperparameters: Dict[str, Any] | None) -> Any:
         """Initializes the underlying PyTorch or sklearn model."""
+        pass
+
+    @abstractmethod
+    def tune(self, X: Any, y: Any) -> Any:
+        """Hides the hyperparameter optimization for each model."""
         pass
 
     @abstractmethod
@@ -109,6 +115,36 @@ class TraditionalModel(BaseModel):
 
 
 
+    def tune(self, X: np.ndarray, y: np.ndarray, random_seed: int, class_weight: Optional[str] = None) -> (Dict[str, Any], BayesSearchCV):
+        """Hides the hyperparameter optimization for each model."""
+        valid_params = self.model.get_params()
+        estimator_params = {k: v for k, v in {"random_state": random_seed, "class_weight": class_weight}.items() if
+                            k in valid_params} # Add `random_state` and `class_weight` parameters if model supports it
+        self.model.set_params(**estimator_params)
+        search = BayesSearchCV(
+            estimator = self.model,
+            search_spaces = self.hpo_search_space,
+            n_iter = 3,
+            cv = 3,
+            scoring = "f1",
+            random_state = random_seed,
+            verbose = 1,
+            error_score = np.nan,
+        )
+        search.fit(X, np.ravel(y))
+
+        best_params = dict(search.best_params_)
+        summary = {
+            "best_params": best_params,
+            "best_score": float(search.best_score_),
+            "best_index": int(search.best_index_),
+            "n_iter": 30,
+            "cv": 3,
+            "scoring": "f1",
+        }
+
+        return {"best_params": best_params, "summary": summary}, search
+
     def train(self, X: np.ndarray, y: np.ndarray):
         """Fit the model using sklearn's fit method."""
         self.model.fit(X, y)
@@ -136,9 +172,16 @@ class TraditionalModel(BaseModel):
 
 
 class DeepLearningModel(BaseModel):
-    def __init__(self, model_hyperparameters: Dict[str, Any] = None):
-        super().__init__(model_hyperparameters or {})
+    def __init__(self, model_hyperparameters: Optional[Dict[str, Any]] = None):
+        """
+        Injects the neural network class and the Optuna search space generator.
+        """
+        self.model_class = model_class
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.best_params = None
+
+        # Super init calls _build_model
+        super().__init__(model_hyperparameters)
 
     @property
     def is_traditional_model(self) -> bool:
@@ -148,80 +191,81 @@ class DeepLearningModel(BaseModel):
     def model_object(self) -> Any:
         return copy.deepcopy(self.model)
 
-    def _prepare_loader(self, X: np.ndarray, y: np.ndarray = None, shuffle: bool = False) -> DataLoader:
-        """Converts raw arrays to PyTorch DataLoaders."""
-        X_tensor = torch.tensor(X, dtype=torch.float32)
-        if y is not None:
-            y_tensor = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
-            dataset = TensorDataset(X_tensor, y_tensor)
-        else:
-            dataset = TensorDataset(X_tensor)
-            
-        batch_size = self.get_model_parameters().get("batch_size", 64)
-        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    def _build_model(self, hparams: Dict[str, Any]) -> nn.Module:
+        """Initializes the injected PyTorch model using provided hyperparameters."""
+        if not hparams:
+            return None
+        # Extract architecture-specific params and ignore training params (like lr, batch_size)
+        arch_params = {k: v for k, v in hparams.items() if k not in ['lr', 'batch_size', 'weight_decay', 'epochs']}
+        return self.model_class(**arch_params).to(self.device)
 
-    def train(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray = None, y_val: np.ndarray = None):
-        """Standardized PyTorch training loop with optional early stopping."""
-        train_loader = self._prepare_loader(X_train, y_train, shuffle=True)
-        hparams = self.get_model_parameters()
-        
-        optimizer = torch.optim.AdamW(
-            self.model.parameters(), 
-            lr=hparams.get("lr", 1e-3), 
-            weight_decay=hparams.get("weight_decay", 1e-4)
-        )
+    def tune(self, X_train: torch.Tensor, y_train: torch.Tensor, n_trials: int = 50) -> Dict[str, Any]:
+        """Runs the Optuna HPO using the injected search space."""
 
-        epochs = hparams.get("num_epochs", 15)
-        self.model.train()
-        self.model.to(self.device)
+        # Pre-split an internal validation set to avoid data leakage during HPO
+        X_t, X_v, y_t, y_v = train_test_split(X_train, y_train, test_size=0.2, stratify=y_train)
 
-        for epoch in range(epochs):
-            for batch_x, batch_y in train_loader:
-                batch_x, batch_y = batch_x.to(self.device), batch_y.to(self.device)
-                optimizer.zero_grad()
-                outputs = self.model(batch_x)
-                loss = nn.BCEWithLogitsLoss()
-                loss.backward()
-                optimizer.step()
-                
-            # Optional: Add validation logic here if X_val is provided
+        def objective(trial):
+            hparams = self.search_space_fn(trial)
+            model = self._build_model(hparams)
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        """Standardized inference loop."""
-        test_loader = self._prepare_loader(X, shuffle=False)
-        self.model.eval()
-        self.model.to(self.device)
-        
-        predictions = []
-        with torch.no_grad():
-            for batch_x, in test_loader:
-                outputs = torch.sigmoid(self.model(batch_x.to(self.device)))
-                predictions.extend(outputs.cpu().numpy())
-                
-        return np.array(predictions).flatten()
+            optimizer = torch.optim.AdamW(
+                model.parameters(),
+                lr=hparams.get('lr', 1e-3),
+                weight_decay=hparams.get('weight_decay', 1e-4)
+            )
+            criterion = nn.BCEWithLogitsLoss()
 
-    def tune(self, X_train: np.ndarray, y_train: np.ndarray, n_trials: int = 50) -> Dict[str, Any]:
-        """Encapsulates Optuna HPO strictly within the model adapter."""
-        def objective(trial: optuna.Trial):
-            # 1. Parse search space and suggest values
-            trial_hparams = {}
-            for param, config in self.hpo_search_space.items():
-                if config["type"] == "categorical":
-                    trial_hparams[param] = trial.suggest_categorical(param, config["choices"])
-                elif config["type"] == "float":
-                    trial_hparams[param] = trial.suggest_float(param, config["low"], config["high"], log=config.get("log", False))
-                elif config["type"] == "int":
-                    trial_hparams[param] = trial.suggest_int(param, config["low"], config["high"])
+            train_loader = DataLoader(TensorDataset(X_t, y_t), batch_size=hparams.get('batch_size', 64), shuffle=True)
 
-            # 2. Update state and rebuild architecture
-            self.set_model_parameters(trial_hparams)
-            self.model = self._build_model()
-            
-            # 3. Train and evaluate (implement a validation split internally for tuning)
-            # For brevity, assuming train() computes and returns a validation metric
-            val_metric = self.train(X_train, y_train) 
-            return val_metric
+            # Minimal training loop for the trial
+            model.train()
+            for epoch in range(hparams.get('epochs', 15)):
+                for batch_X, batch_y in train_loader:
+                    batch_X, batch_y = batch_X.to(self.device), batch_y.to(self.device)
+                    optimizer.zero_grad()
+                    out = model(batch_X)
+                    loss = criterion(out, batch_y.unsqueeze(1).float())
+                    loss.backward()
+                    optimizer.step()
+
+            # Evaluate trial on internal validation set
+            model.eval()
+            with torch.no_grad():
+                preds = torch.sigmoid(model(X_v.to(self.device))).round().cpu()
+                score = f1_score(y_v.cpu(), preds)
+            return score
 
         study = optuna.create_study(direction="maximize")
         study.optimize(objective, n_trials=n_trials)
-        return study.best_params
+
+        self.best_params = study.best_trial.params
+        self.model = self._build_model(self.best_params)  # Lock in the best architecture
+        return self.best_params
+
+    def train(self, X: torch.Tensor, y: torch.Tensor):
+        """Final training pass using the best model configuration."""
+        if not self.model:
+            raise ValueError("Model is not initialized. Run tune() or provide valid hparams first.")
+
+        hparams = self.best_params or self.get_model_parameters()
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=hparams.get('lr', 1e-3))
+        criterion = nn.BCEWithLogitsLoss()
+
+        loader = DataLoader(TensorDataset(X, y), batch_size=hparams.get('batch_size', 64), shuffle=True)
+
+        self.model.train()
+        for epoch in range(hparams.get('epochs', 15)):
+            for batch_X, batch_y in loader:
+                batch_X, batch_y = batch_X.to(self.device), batch_y.to(self.device)
+                optimizer.zero_grad()
+                out = self.model(batch_X)
+                loss = criterion(out, batch_y.unsqueeze(1).float())
+                loss.backward()
+                optimizer.step()
+
+    def predict(self, X: torch.Tensor) -> torch.Tensor:
+        self.model.eval()
+        with torch.no_grad():
+            out = self.model(X.to(self.device))
+            return torch.sigmoid(out).round().cpu()

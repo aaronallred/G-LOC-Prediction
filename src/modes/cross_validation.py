@@ -24,7 +24,7 @@ from skopt.space import Categorical, Integer, Real
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
 from src.model_type import ModelType
-from src.models_new.base import BaseModel, ModelInitStrategy
+from src.models_new.base import BaseModel, TraditionalModel
 from src.models.sequence_window_utils import max_trial_sequence_length
 from src.models_new.model_factory import ModelFactory
 from src.traditional_experiment_utils import stratified_kfold_split
@@ -357,7 +357,7 @@ def _run_advanced_model_cv_fold(
 
 
 def _run_traditional_model_cv_fold(
-    model: BaseModel,
+    model: TraditionalModel,
     X: np.ndarray,
     y: np.ndarray,
     kfold_id: int,
@@ -399,7 +399,7 @@ def _run_traditional_model_cv_fold(
         X_train.shape[1],
     )
 
-    X_train, X_test, selected_features = _run_traditional_lasso_feature_selection(
+    X_train, X_test, selected_features = _lasso_feature_selection(
         X_train = X_train,
         X_test = X_test,
         y_train = y_train,
@@ -413,7 +413,7 @@ def _run_traditional_model_cv_fold(
         len(selected_features),
     )
 
-    X_train, y_train = _run_traditional_smote_resampling(
+    X_train, y_train = _smote_resampling(
         X_train=X_train,
         y_train=y_train,
         random_seed=random_seed,
@@ -425,24 +425,15 @@ def _run_traditional_model_cv_fold(
         class_weight
     )
 
-    hpo_result, search = _run_traditional_model_hpo(
-        model=model,
-        X_train=X_train,
-        y_train=y_train,
-        random_seed=random_seed,
-        class_weight=class_weight,
-    )
+    hpo_result, search = model.tune(X_train, y_train, random_seed, class_weight)
 
     logger.info(
         "Running traditional model evaluation for fold %s",
         kfold_id
     )
-    
-    fold_performance_summary = _run_traditional_model_evaluation(
-        search = search,
-        X_test = X_test,
-        y_test = y_test
-    )
+
+    preds = search.predict(X_test)
+    fold_performance_summary = _evaluate_model(y_test, preds)
 
     # Build fold result dictionary
     fold_result = _build_fold_result(
@@ -456,7 +447,7 @@ def _run_traditional_model_cv_fold(
 
     return fold_result, search
 
-def _run_traditional_lasso_feature_selection(
+def _lasso_feature_selection(
     X_train: np.ndarray,
     X_test: np.ndarray,
     y_train: np.ndarray,
@@ -472,7 +463,7 @@ def _run_traditional_lasso_feature_selection(
         estimator = Lasso(random_state = random_seed),
         search_spaces = {"alpha": Real(1e-5, 100, prior = "log-uniform")},
         cv = 3,
-        n_iter = 50,
+        n_iter = 3,
         random_state = random_seed,
         verbose = 1,
     )
@@ -485,7 +476,7 @@ def _run_traditional_lasso_feature_selection(
 
     return X_train[:, selected_features_indices], X_test[:, selected_features_indices], selected_features
 
-def _run_traditional_smote_resampling(
+def _smote_resampling(
     X_train: np.ndarray,
     y_train: np.ndarray,
     random_seed: int,
@@ -494,56 +485,16 @@ def _run_traditional_smote_resampling(
     smote_model = SMOTE(random_state = random_seed, k_neighbors = 7)
     return smote_model.fit_resample(X_train, y_train)
 
-def _run_traditional_model_hpo(
-    model: BaseModel,
-    X_train: np.ndarray,
-    y_train: np.ndarray,
-    random_seed: int,
-    class_weight: Optional[str] = None,
+def _evaluate_model(
+    actual: np.ndarray,
+    preds: np.ndarray
 ) -> Dict[str, Any]:
-    """Run hyperparameter optimization for a traditional model using BayesSearchCV."""
-
-    estimator = model.model_object
-    valid_params = estimator.get_params()
-    estimator_params = {k: v for k, v in { "random_state": random_seed, "class_weight": class_weight }.items() if k in valid_params}
-    estimator.set_params(**estimator_params)
-    search = BayesSearchCV(
-        estimator = estimator,
-        search_spaces = model.hpo_search_space,
-        n_iter = 30,
-        cv = 3,
-        scoring = "f1",
-        random_state = random_seed,
-        verbose = 1,
-        error_score = np.nan,
-    )
-    search.fit(X_train, np.ravel(y_train))
-
-    best_params = dict(search.best_params_)
-    summary = {
-        "best_params": best_params,
-        "best_score": float(getattr(search, "best_score_", 0.0)),
-        "best_index": int(getattr(search, "best_index_", -1)),
-        "n_iter": 30,
-        "cv": 3,
-        "scoring": "f1",
-    }
-    return {"best_params": best_params, "summary": summary}, search
-
-def _run_traditional_model_evaluation(
-    search: Any, # Should be a BayesSearchCV fitted search object
-    X_test: np.ndarray,
-    y_test: np.ndarray,
-) -> pd.DataFrame:
-    label_predictions = search.predict(X_test)
-
-    # Assess Performance
-    accuracy = metrics.accuracy_score(y_test, label_predictions)
-    precision = metrics.precision_score(y_test, label_predictions)
-    recall = metrics.recall_score(y_test, label_predictions)
-    f1 = metrics.f1_score(y_test, label_predictions)
-    specificity = metrics.recall_score(y_test, label_predictions, pos_label = 0)
-    g_mean = geometric_mean_score(y_test, label_predictions)
+    accuracy = metrics.accuracy_score(actual, preds)
+    precision = metrics.precision_score(actual, preds)
+    recall = metrics.recall_score(actual, preds)
+    f1 = metrics.f1_score(actual, preds)
+    specificity = metrics.recall_score(actual, preds, pos_label = 0)
+    g_mean = geometric_mean_score(actual, preds)
 
     return {
         "accuracy": accuracy,
