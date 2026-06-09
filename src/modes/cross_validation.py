@@ -31,110 +31,6 @@ from src.traditional_experiment_utils import stratified_kfold_split
 
 logger = logging.getLogger(__name__)
 
-
-# Per-model HPO handled via model.hpo_defaults() and model.build_hpo_search_space()
-
-
-def _build_traditional_hpo_search_space(model_name: str) -> Any:
-    """Return the legacy BayesSearchCV search space for a traditional classifier."""
-    if Categorical is None or Integer is None or Real is None:
-        raise ImportError(
-            "BayesSearchCV support requires scikit-optimize (skopt) to be installed."
-        )
-
-    if model_name == "LogReg":
-        return {
-            "penalty": Categorical(["elasticnet"]),
-            "C": Real(0.01, 100, prior="log-uniform"),
-            "solver": Categorical(["saga"]),
-            "l1_ratio": Real(0.0, 1.0),
-        }
-
-    if model_name == "RF":
-        return {
-            "n_estimators": Integer(10, 1000),
-            "criterion": Categorical(["gini", "entropy", "log_loss"]),
-            "max_depth": Integer(3, 100),
-            "max_features": Categorical(["sqrt", "log2"]),
-            "min_samples_leaf": Integer(1, 4),
-            "min_samples_split": Integer(2, 10),
-            "min_weight_fraction_leaf": Real(0.0, 0.5),
-        }
-
-    if model_name == "LDA":
-        return [
-            {
-                "solver": Categorical(["svd"]),
-                "tol": Real(1e-10, 1e-2, prior="log-uniform"),
-            },
-            {
-                "solver": Categorical(["lsqr", "eigen"]),
-                "shrinkage": Categorical([0.1, 0.2, 0.4, 0.6, 0.8, 1, "auto"]),
-                "tol": Real(1e-10, 1e-2, prior="log-uniform"),
-            },
-        ]
-
-    if model_name == "KNN":
-        return {
-            "n_neighbors": Integer(3, 30),
-            "weights": Categorical(["uniform", "distance"]),
-            "algorithm": Categorical(["auto", "brute"]),
-            "metric": Categorical(["minkowski"]),
-            "p": Integer(1, 2),
-        }
-
-    if model_name == "SVM":
-        return [
-            {
-                "kernel": Categorical(["linear", "rbf", "sigmoid"]),
-                "C": Real(0.1, 1000, prior="log-uniform"),
-                "gamma": Categorical(["scale", 0.1, 0.01, 0.001, 0.0001]),
-                "tol": Real(1e-6, 1e-2, prior="log-uniform"),
-            },
-            {
-                "kernel": Categorical(["poly"]),
-                "C": Real(0.1, 1000, prior="log-uniform"),
-                "gamma": Categorical(["scale", 0.1, 0.01, 0.001]),
-                "degree": Integer(2, 5),
-                "tol": Real(1e-6, 1e-2, prior="log-uniform"),
-            },
-        ]
-
-    if model_name == "EGB":
-        return {
-            "n_estimators": Integer(50, 1000),
-            "learning_rate": Real(0.01, 1.0, prior="log-uniform"),
-            "max_depth": Integer(3, 20),
-            "max_features": Categorical(["sqrt", "log2", None]),
-            "min_samples_leaf": Integer(1, 4),
-            "min_samples_split": Integer(2, 4),
-            "loss": Categorical(["log_loss"]),
-            "min_weight_fraction_leaf": Real(0.0, 0.5),
-        }
-
-    raise ValueError(f"Unsupported traditional HPO classifier '{model_name}'.")
-
-
-def _build_traditional_hpo_estimator(
-    model: BaseModel,
-    random_seed: int,
-    class_weight: Optional[str],
-) -> Any:
-    """Build the unfitted estimator used by BayesSearchCV for traditional HPO."""
-    if not hasattr(model, "_build_sklearn_estimator"):
-        raise RuntimeError(
-            f"Model {model.get_name()} does not implement _build_sklearn_estimator()."
-        )
-
-    estimator_builder = getattr(model, "_build_sklearn_estimator")
-    return estimator_builder(
-        class_weight=class_weight,
-        random_state=random_seed,
-        params=None,
-    )
-
-
-
 def _is_hpo_supported_advanced_model(model: BaseModel) -> bool:
     """Return True if model exposes the new per-model HPO API.
 
@@ -249,16 +145,6 @@ def _run_advanced_model_hpo(
         "best_params": best_params,
     }
     return {"best_params": best_params, "summary": summary}
-
-
-def _is_traditional_model(model: Any) -> bool:
-    """Detect if a model follows the legacy 'classify_traditional' contract.
-
-    Prefer the explicit is_traditional flag on the instance. Relying on hasattr
-   ('classify_traditional') is unreliable because BaseModel exposes that method.
-    """
-    return bool(getattr(model, "is_traditional", False))
-
 
 def _extract_hyperparameters_from_model(model: BaseModel) -> Dict[str, Any]:
     """Extract best hyperparameters from a trained model.
@@ -794,39 +680,6 @@ def _extract_median_hyperparameters(
     
     return result
 
-
-def _find_median_fold_idx(
-    fold_results: List[Dict[str, Any]],
-) -> Tuple[int, float]:
-    """Find the fold with median F1 score.
-    
-    Returns:
-        Tuple of (fold_index, f1_score) for the median fold.
-    """
-    if not fold_results:
-        return 0, 0.0
-    
-    # Get F1 scores for each fold
-    f1_scores = []
-    for result in fold_results:
-        metrics = result.get("metrics", {})
-        f1 = metrics.get("f1", 0.0)
-        f1_scores.append(f1)
-    
-    # Find median F1
-    f1_sorted = sorted(f1_scores)
-    median_idx = len(f1_sorted) // 2
-    median_f1 = f1_sorted[median_idx]
-    
-    # Find fold index with median F1 (use first if tie)
-    for i, result in enumerate(fold_results):
-        metrics = result.get("metrics", {})
-        if metrics.get("f1", 0.0) == median_f1:
-            return i, median_f1
-    
-    # Fallback to first fold if no match
-    return 0, f1_scores[0] if f1_scores else 0.0
-
 def _cache_fold_data_for_advanced_models(
     pipeline: DataPipeline,
     model: BaseModel,
@@ -856,48 +709,3 @@ def _cache_fold_data_for_advanced_models(
     
     logger.info(f"Cached fold data for {model.get_name()}: {num_splits} folds")
     return fold_cache
-
-
-def _get_selected_features_for_model(
-    config: dict[str, Any],
-    model: BaseModel,
-    model_type: "ModelType",
-) -> List[str]:
-    """Try to retrieve selected_features for a model from cached median hyperparameters.
-    
-    Args:
-        config: Loaded YAML experiment configuration mapping
-        model: The model to get features for
-        model_type: ModelType instance for constructing cache paths
-        
-    Returns:
-        List of selected feature names, or empty list if not available
-    """
-    model_name = None
-    try:
-        from pathlib import Path
-        model_name = model.get_name()
-        model_type_folder = model_type.get_folder_name()
-        
-        # Look for cached median_hyperparameters from previous HPO runs
-        # This is an optional optimization; it's OK if they don't exist
-        project_root = Path(__file__).resolve().parent.parent.parent
-        cache_path = (
-            project_root / "ModelSave" / "CV" / model_type_folder / 
-            f"median_hyperparameters_{model_name}.json"
-        )
-        
-        if cache_path.exists():
-            with open(cache_path, "r") as f:
-                cached_data = json.load(f)
-                if "selected_features" in cached_data:
-                    logger.debug(f"Using cached selected_features for {model_name}")
-                    return cached_data["selected_features"]
-    except Exception as e:
-        if model_name:
-            logger.debug(f"Could not retrieve cached selected_features for {model_name}: {e}")
-        else:
-            logger.debug(f"Could not retrieve cached selected_features: {e}")
-    
-    # Return empty list if not available - this is OK, we'll use an empty list for this CV run
-    return []
