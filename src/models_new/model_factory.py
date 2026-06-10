@@ -7,6 +7,8 @@ from .linear_discriminant_analysis import LinearDiscriminantAnalysisModel
 from .logistic_regression import LogisticRegressionModel
 from .random_forest import RandomForestModel
 from .support_vector_machine import SupportVectorMachineModel
+from .lstm import LSTMModel
+from .nam import NAMModel
 
 
 class ModelFactory:
@@ -17,6 +19,8 @@ class ModelFactory:
 		"SVM": SupportVectorMachineModel,
 		"EGB": ExtremeGradientBoostingModel,
 		"KNN": KNearestNeighborsModel,
+		"LSTM": LSTMModel,
+		"NAM": NAMModel
 	}
 
 	@classmethod

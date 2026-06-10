@@ -21,29 +21,32 @@ from sklearn.model_selection import train_test_split
 from sklearn import metrics
 from skopt import BayesSearchCV
 from skopt.space import Categorical, Integer, Real
+import torch
+from torch.utils.data import DataLoader
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
 from src.model_type import ModelType
-from src.models_new.base import BaseModel, TraditionalModel
+from src.models_new.base import BaseModel, TraditionalModel, AdvancedModel
 from src.models.sequence_window_utils import max_trial_sequence_length
 from src.models_new.model_factory import ModelFactory
 from src.traditional_experiment_utils import stratified_kfold_split
+from src.advanced_experiment_utils import baseline_down_select, train_test_split_trials
 
 logger = logging.getLogger(__name__)
 
-def _is_hpo_supported_advanced_model(model: BaseModel) -> bool:
-    """Return True if model exposes the new per-model HPO API.
-
-    The refactor removes the old global search-space mapping and requires models to
-    implement build_hpo_search_space(trial, X_train, random_seed).
-    """
-    return (
-        not _is_traditional_model(model)
-        and hasattr(model, "train")
-        and hasattr(model, "evaluate")
-        and hasattr(model, "build_hpo_search_space")
-        and callable(getattr(model, "build_hpo_search_space"))
-    )
+# def _is_hpo_supported_advanced_model(model: BaseModel) -> bool:
+#     """Return True if model exposes the new per-model HPO API.
+#
+#     The refactor removes the old global search-space mapping and requires models to
+#     implement build_hpo_search_space(trial, X_train, random_seed).
+#     """
+#     return (
+#         not _is_traditional_model(model)
+#         and hasattr(model, "train")
+#         and hasattr(model, "evaluate")
+#         and hasattr(model, "build_hpo_search_space")
+#         and callable(getattr(model, "build_hpo_search_space"))
+#     )
 
 
 def _split_train_for_hpo(
@@ -175,7 +178,7 @@ def _extract_hyperparameters_from_model(model: BaseModel) -> Dict[str, Any]:
 
 
 def _run_advanced_model_cv_fold(
-    model: BaseModel,
+    model: AdvancedModel,
     X_train: np.ndarray,
     X_val: np.ndarray,
     y_train: np.ndarray,
@@ -185,61 +188,68 @@ def _run_advanced_model_cv_fold(
     class_weight: Optional[str] = None,
     hpo_config: Optional[Dict[str, Any]] = None,
     random_seed: int = 42,
-    fold_dir: Optional[Path] = None,
+    fold_dir: Optional[Path] = None
 ) -> Dict[str, Any]:
-    """Run a single fold of cross-validation for an advanced (modern) model.
-    
-    Uses model.train() and model.evaluate() interface.
-    Accepts pre-split data instead of calling pipeline.get_data() to avoid redundant I/O.
-    """
-    logger.info(f"Running advanced CV fold {kfold_id} for model {model.get_name()}")
+    logger.info(f"Running advanced CV fold {kfold_id} for model {model.name}")
 
+    model.all_features = features
     best_params: Dict[str, Any] = {}
-    if (
-        hpo_config
-        and hpo_config.get("enabled", False)
-        and int(hpo_config.get("n_trials", 0)) > 0
-        and _is_hpo_supported_advanced_model(model)
-    ):
-        hpo_result = _run_advanced_model_hpo(
-            model=model,
-            X_train=X_train,
-            y_train=y_train,
-            hpo_config=hpo_config,
-            random_seed=random_seed,
-        )
+
+    # 1. Hyperparameter Optimization Tuning Phase
+    if hpo_config and hpo_config.get("enabled", False) and int(hpo_config.get("n_trials", 0)) > 0:
+        hpo_result = model.tune(X_train, y_train, hpo_config = hpo_config, random_seed = random_seed)
         best_params = hpo_result["best_params"]
+
         if fold_dir is not None:
-            hpo_summary_path = fold_dir / "hpo_summary.json"
-            with open(hpo_summary_path, "w", encoding="utf-8") as f:
-                json.dump(hpo_result["summary"], f, indent = 4)
-            logger.info(f"Saved fold {kfold_id} HPO summary to {hpo_summary_path}")
+            with open(fold_dir / "hpo_summary.json", "w", encoding="utf-8") as f:
+                json.dump(hpo_result["summary"], f, indent=4)
 
-    # Train model with tuned params when available
-    model.train(X_train, y_train, params=best_params or None)
+    # 2. Fit Final Model weights
+    model.train(X_train, y_train, params = best_params or None)
 
-    # Evaluate model - REQUIRE that advanced models return specificity and g_mean
-    raw_metrics = model.evaluate(X_val, y_val)
-    if not isinstance(raw_metrics, dict):
-        raise RuntimeError(
-            f"Advanced model {model.get_name()} must return a dict from evaluate() (fold {kfold_id})."
-        )
-    metrics = dict(raw_metrics)
+    # 3. Alignment and Evaluation Outside of Class Structure
+    X_ds_val, _ = baseline_down_select(X_val, model.all_features, model.best_params["baseline_method"])
 
-    # Strict contract: advanced models must include specificity and g_mean
-    if "specificity" not in metrics or "g_mean" not in metrics:
-        raise RuntimeError(
-            f"Advanced model {model.get_name()} must include 'specificity' and 'g_mean' in evaluate() result (fold {kfold_id})."
-        )
-
-    # Extract hyperparameters and build result
-    if not best_params:
-        best_params = _extract_hyperparameters_from_model(model)
-    fold_result = _build_fold_result(
-        kfold_id, metrics, len(X_train), len(X_val), features, best_params
+    actual_labels, predicted_labels = get_advanced_predictions_and_targets(
+        model=model,
+        X=X_ds_val,
+        y=y_val,
+        sequence_length=model.best_params["sequence_length"],
+        step_size=10,  # Explicit legacy execution constraint match
+        batch_size=model.best_params["batch_size"]
     )
-    
-    return fold_result
+
+    # Calculate performance metrics via the external pure function
+    metrics_out = _evaluate_model(actual_labels, predicted_labels)
+
+    if "specificity" not in metrics_out or "g_mean" not in metrics_out:
+        raise RuntimeError(f"Advanced model execution output missing contract elements.")
+
+    return _build_fold_result(kfold_id, metrics_out, len(X_train), len(X_val), best_params)
+
+def get_advanced_predictions_and_targets(
+        model: Any,
+        X: np.ndarray,
+        y: np.ndarray,
+        sequence_length: int,
+        step_size: int,
+        batch_size: int
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Extracts sequence windows, runs model inference, and returns aligned actual vs predicted arrays."""
+    dataset, _, _, target_tensor, _, _ = train_test_split_trials(
+        X, y, sequence_length, step_size=step_size, test_ratio=None, end_label=True
+    )
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+
+    model.model.eval()
+    predictions = []
+    with torch.no_grad():
+        for x_batch, _ in loader:
+            outputs = model.model(x_batch.to(model.device))
+            preds = (outputs.reshape(-1) >= model.best_params["threshold"]).float()
+            predictions.extend(preds.cpu().numpy())
+
+    return target_tensor.numpy(), np.array(predictions)
 
 
 def _run_traditional_model_cv_fold(
@@ -472,7 +482,7 @@ def run_cross_validation(
             # and hardcoded Optuna-level defaults (train_fraction, timeout, sampler_seed, pruner_startup_trials, pruner_warmup_steps)
             model_hpo_config = {
                 "enabled": True,
-                "n_trials": int(advanced_hpo_cfg["n_trials"]),
+                "n_trials": int(advanced_hpo_cfg["trials"]),
                 "timeout": advanced_hpo_cfg.get("timeout"),
                 "metric": advanced_hpo_cfg.get("metric", str(advanced_hpo_cfg.get("objective_var", "f1")).lower()),
                 "train_fraction": float(advanced_hpo_cfg.get("train_fraction", 0.8)),
@@ -509,39 +519,26 @@ def run_cross_validation(
                 with open(fold_model_dir, "wb") as f:
                     joblib.dump(search, f)
                 logger.info(f"Saved fold {fold_idx} BayesSearchCV object to {fold_model_dir}")
+            else:
+                # ---- INSERT THIS BLOCK FOR ADVANCED MODELS ----
+                X_train, X_val, y_train, y_val, features = fold_cache[fold_idx]
 
+                # Expose feature list to the wrapper for baseline down-selection
+                model.all_features = features
 
-            # try:
-            #     # Route based on model type
-            #     if _is_traditional_model(model):
-            #         # Use pre-loaded data for traditional models
-            #         fold_result = _run_traditional_model_cv_fold(
-            #             model,
-            #             X,
-            #             y,
-            #             fold_idx,
-            #             num_splits,
-            #             random_seed,
-            #             class_weight,
-            #             feature_names=feature_names,
-            #         )
-
-            #     else:
-            #         # Advanced model: use pre-cached fold data and required advanced_hpo config
-            #         X_train, X_val, y_train, y_val, features = fold_cache[fold_idx]
-            #         fold_result = _run_advanced_model_cv_fold(
-            #             model,
-            #             X_train,
-            #             X_val,
-            #             y_train,
-            #             y_val,
-            #             features,
-            #             fold_idx,
-            #             class_weight,
-            #             hpo_config=model_hpo_config,
-            #             random_seed=random_seed,
-            #             fold_dir=fold_dir,
-            #         )
+                fold_result = _run_advanced_model_cv_fold(
+                    model = model,
+                    X_train = X_train,
+                    X_val = X_val,
+                    y_train = y_train,
+                    y_val = y_val,
+                    features = features,
+                    kfold_id = fold_idx,
+                    class_weight = class_weight,
+                    hpo_config = model_hpo_config,
+                    random_seed = random_seed,
+                    fold_dir = fold_dir,
+                )
 
             # Save fold metrics in fold folder
             fold_dir.mkdir(parents = True, exist_ok = True)
@@ -707,5 +704,5 @@ def _cache_fold_data_for_advanced_models(
         )
         fold_cache[fold_idx] = (X_train, X_val, y_train, y_val, features)
     
-    logger.info(f"Cached fold data for {model.get_name()}: {num_splits} folds")
+    logger.info(f"Cached fold data for {model.name}: {num_splits} folds")
     return fold_cache
