@@ -359,7 +359,7 @@ def _lasso_feature_selection(
         estimator = Lasso(random_state = random_seed),
         search_spaces = {"alpha": Real(1e-5, 100, prior = "log-uniform")},
         cv = 3,
-        n_iter = 3,
+        n_iter = 50,
         random_state = random_seed,
         verbose = 1,
     )

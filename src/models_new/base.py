@@ -114,7 +114,7 @@ class TraditionalModel(BaseModel):
         search = BayesSearchCV(
             estimator = self.model,
             search_spaces = self.hpo_search_space,
-            n_iter = 3,
+            n_iter = 30,
             cv = 3,
             scoring = "f1",
             random_state = random_seed,
