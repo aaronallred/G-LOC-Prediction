@@ -57,7 +57,7 @@ class LSTMModel(AdvancedModel):
             hidden_dim=params["hidden_dim"],
             output_dim=1,
             num_layers=params["num_layers"],
-            dropout=params["dropout"],
+            dropout=params.get("dropout", 0.0),
             bidirectional=params["bidirectional"]
         )
 

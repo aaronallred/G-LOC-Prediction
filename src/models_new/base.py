@@ -319,3 +319,24 @@ class AdvancedModel(BaseModel):
                 predictions.extend(preds.cpu().numpy())
 
         return np.array(predictions)
+
+    def _build_model(self, model_hyperparameters: Optional[Dict[str, Any]]) -> Any:
+        """Safe placeholder initialization.
+
+        Deep learning architectures cannot build their network graphs until data
+        dimensions and Optuna hyperparameters are known.
+        """
+        if not model_hyperparameters or "sequence_length" not in model_hyperparameters:
+            return None
+
+        # Optional: If fully defined params are passed (e.g. loading from JSON config),
+        # you could build it here if you track your input feature dimension.
+        return None
+
+    def get_model_parameters(self) -> Dict[str, Any]:
+        """Returns the current optimized or configured hyperparameters."""
+        return self.best_params
+
+    def set_model_parameters(self, model_hyperparameters: Dict[str, Any]) -> None:
+        """Updates the hyperparameter configuration dictionary."""
+        self.best_params = model_hyperparameters

@@ -8,7 +8,10 @@ from .logistic_regression import LogisticRegressionModel
 from .random_forest import RandomForestModel
 from .support_vector_machine import SupportVectorMachineModel
 from .lstm import LSTMModel
-from .nam import NAMModel
+from .logistic_regression_ts import LogRegTSModel
+from .tcn import TCNModel
+from .transformer import TransformerModel
+
 
 
 class ModelFactory:
@@ -20,7 +23,9 @@ class ModelFactory:
 		"EGB": ExtremeGradientBoostingModel,
 		"KNN": KNearestNeighborsModel,
 		"LSTM": LSTMModel,
-		"NAM": NAMModel
+		"LogRegTS": LogRegTSModel,
+		"TCN": TCNModel,
+		"Trans": TransformerModel
 	}
 
 	@classmethod
