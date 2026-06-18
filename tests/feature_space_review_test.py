@@ -89,14 +89,7 @@ def test_feature_space_review_reads_models_from_config(tmp_path):
     )
 
     # Patch plt.show so we do not actually display a figure during the test
-    import matplotlib.pyplot as plt
-    original_show = plt.show
-    plt.show = lambda *a, **k: None
-
-    try:
-        run_feature_space_review(config, ModelFactory())
-    finally:
-        plt.show = original_show
+    run_feature_space_review(config, ModelFactory())
 
 
 def test_feature_space_review_with_two_models(tmp_path):
@@ -114,14 +107,7 @@ def test_feature_space_review_with_two_models(tmp_path):
         features=["f2", "f3", "f4"],
     )
 
-    import matplotlib.pyplot as plt
-    original_show = plt.show
-    plt.show = lambda *a, **k: None
-
-    try:
-        run_feature_space_review(config, ModelFactory())
-    finally:
-        plt.show = original_show
+    run_feature_space_review(config, ModelFactory())
 
 
 def test_feature_space_review_with_three_models(tmp_path):
@@ -138,14 +124,7 @@ def test_feature_space_review_with_three_models(tmp_path):
             features=features,
         )
 
-    import matplotlib.pyplot as plt
-    original_show = plt.show
-    plt.show = lambda *a, **k: None
-
-    try:
-        run_feature_space_review(config, ModelFactory())
-    finally:
-        plt.show = original_show
+    run_feature_space_review(config, ModelFactory())
 
 
 def test_feature_space_review_with_four_or_more_models(tmp_path):
@@ -163,11 +142,4 @@ def test_feature_space_review_with_four_or_more_models(tmp_path):
             features=features,
         )
 
-    import matplotlib.pyplot as plt
-    original_show = plt.show
-    plt.show = lambda *a, **k: None
-
-    try:
-        run_feature_space_review(config, ModelFactory())
-    finally:
-        plt.show = original_show
+    run_feature_space_review(config, ModelFactory())
