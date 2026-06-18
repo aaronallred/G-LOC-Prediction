@@ -1,8 +1,10 @@
 from typing import Any, Dict
+
 from sklearn.svm import SVC
 from skopt.space import Categorical, Integer, Real
 
 from .base import TraditionalModel
+
 
 class SupportVectorMachineModel(TraditionalModel):
     """Support Vector Machine classifier wrapper."""
