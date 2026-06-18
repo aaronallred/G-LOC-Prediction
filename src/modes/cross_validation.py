@@ -12,11 +12,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import joblib
 import numpy as np
+import optuna
 import torch
 from imblearn.metrics import geometric_mean_score
 from imblearn.over_sampling import SMOTE
 from sklearn import metrics
 from sklearn.linear_model import Lasso
+from sklearn.utils.class_weight import compute_class_weight
 from skopt import BayesSearchCV
 from skopt.space import Real
 from torch.utils.data import DataLoader
@@ -103,10 +105,10 @@ def _run_advanced_hpo(
         random_seed: int,
 ) -> Dict[str, Any]:
     """Run Optuna HPO for an advanced model and return best params + summary."""
-    import optuna
-
     search_space_builder = model.get_hpo_search_space()
     metric_name = hpo_config.get("metric", "f1")
+
+    class_weight_strategy = hpo_config.get("class_weight", "balanced")
 
     sampler = optuna.samplers.TPESampler(seed=random_seed)
     study = optuna.create_study(direction="maximize", sampler=sampler)
@@ -128,9 +130,10 @@ def _run_advanced_hpo(
 
         trial_net = model._build_model(params, input_dim=train_windows_tensor.shape[2]).to(model.device)
 
-        from sklearn.utils.class_weight import compute_class_weight
         class_weights = torch.tensor(
-            compute_class_weight("balanced", classes=np.array([0, 1]), y=y),
+            compute_class_weight(
+                class_weight_strategy, classes=np.array([0, 1]), y=y
+            ),
             dtype=torch.float,
         )
 
@@ -487,6 +490,7 @@ def run_cross_validation(
                 "pruner_warmup_steps": advanced_hpo_cfg.get("pruner_warmup_steps"),
                 "use_sampler": bool(advanced_hpo_cfg["use_sampler"]),
                 "final_early_stop": bool(advanced_hpo_cfg["final_early_stop"]),
+                "class_weight": class_weight or "balanced",
             }
 
             fold_cache = _cache_fold_data_for_advanced_models(
@@ -520,6 +524,7 @@ def run_cross_validation(
 
                 # Expose feature list to the wrapper for baseline down-selection
                 model.all_features = features
+                model.hpo_config = model_hpo_config
 
                 fold_result = _run_advanced_model_cv_fold(
                     model=model,

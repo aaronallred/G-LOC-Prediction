@@ -24,16 +24,14 @@ cross_validation:
   models: [ LSTM, TCN, Trans, LogRegTS ]
   model_type: !ModelType [ Complete, Explicit ]
   random_seed: 42
-  num_splits: 2
-  save_results_folder: Results/Cross_Validation_Test
+  num_splits: 10
+  save_results_folder: Results/Cross_Validation
   class_weight: null
   advanced_hpo:
-    # Advanced classifiers only: REQUIRED when using any advanced model (LSTM, TCN, Trans, NAM, LogRegTS)
-    # These 4 parameters control advanced model training behavior. All other Optuna-level parameters are hardcoded.
-    use_sampler: true            # bool: whether to use a sampler for class imbalance during training
-    final_early_stop: true      # bool: whether final training should use early stopping
-    objective_var: F1            # string: 'F1' or 'Acc' (case-insensitive)
-    trials: 10                  # int: number of Optuna trials
+    use_sampler: true
+    final_early_stop: true
+    objective_var: F1
+    trials: 10
 
 sensor_ablation:
   training:

@@ -178,9 +178,12 @@ class AdvancedModel(BaseModel):
             val_loader = None
 
         self.model = self._build_model(target_params, input_dim=train_w.shape[2]).to(self.device)
-        class_weights = torch.tensor(compute_class_weight("balanced", classes=np.array([0, 1]), y=y), dtype=torch.float)
+        class_weight_strategy = self.hpo_config.get("class_weight", "balanced")
+        class_weights = torch.tensor(
+            compute_class_weight(class_weight_strategy, classes=np.array([0, 1]), y=y),
+            dtype=torch.float,
+        )
         criterion, optimizer = build_training_components(self.model, class_weights, target_params, self.device)
-
         train_loader = DataLoader(
             train_ds, batch_size=target_params["batch_size"],
             sampler=build_sampler(train_ds.tensors[1], class_weights) if self.hpo_config.get("use_sampler",
