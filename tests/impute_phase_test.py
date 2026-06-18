@@ -117,11 +117,6 @@ def test_post_feature_remove_rows_invokes_process_NaN(monkeypatch):
 
 
 def test_post_feature_knn_calls_faster_knn_imputer(monkeypatch):
-    # Ensure FAISS guard is satisfied for the test
-    import src.Data_Pipeline.data_pipeline as dpmod
-
-    monkeypatch.setattr(dpmod, "FAISS_AVAILABLE", True)
-
     pipeline = make_pipeline()
 
     # Stubs upstream
