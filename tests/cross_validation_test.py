@@ -341,11 +341,11 @@ def test_traditional_cross_validation_saves_metrics_and_hyperparameters(tmp_path
     from src.models_new.model_factory import ModelFactory
 
     pipeline = _FlexiblePipeline()
-    config = _make_cv_config(models=["KNN"])
+    config = _make_cv_config(models=["LogReg"])
 
     run_cross_validation(config, pipeline, ModelFactory(), tmp_path)
 
-    model_root = tmp_path / "Results" / "Complete_Explicit" / "KNN"
+    model_root = tmp_path / "Results" / "Complete_Explicit" / "LogReg"
     folds = sorted([p for p in model_root.iterdir() if p.is_dir() and p.name.startswith("fold_")])
     assert len(folds) == 2
 
@@ -362,11 +362,11 @@ def test_traditional_cross_validation_applies_smote_before_classifier_fit(tmp_pa
     from src.models_new.model_factory import ModelFactory
 
     pipeline = _FlexiblePipeline()
-    config = _make_cv_config(models=["KNN"])
+    config = _make_cv_config(models=["LogReg"])
 
     run_cross_validation(config, pipeline, ModelFactory(), tmp_path)
 
-    model_root = tmp_path / "Results" / "Complete_Explicit" / "KNN"
+    model_root = tmp_path / "Results" / "Complete_Explicit" / "LogReg"
     folds = sorted([p for p in model_root.iterdir() if p.is_dir() and p.name.startswith("fold_")])
     assert len(folds) == 2
 
