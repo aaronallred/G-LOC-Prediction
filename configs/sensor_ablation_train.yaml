@@ -26,6 +26,7 @@ sensor_ablation:
     # Mode-specific parameters
     models: [KNN, EGB]
     model_type: !ModelType [Complete, Explicit]
+    manual_ablation: true
     random_seed: 42
     num_splits: 10
     streams:

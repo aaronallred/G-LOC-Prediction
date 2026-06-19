@@ -29,6 +29,7 @@ def run_sensor_ablation_training(
     models_to_test: list = [model_factory.create_model(model_name) for model_name in training_config["models"]]
     num_splits: int = training_config["num_splits"]
     model_type = training_config["model_type"]
+    manual_ablation = training_config["manual_ablation"]
     f1_results_by_stream: dict[str, dict[str, np.ndarray]] = {
         model.name: {}
         for model in models_to_test
@@ -41,6 +42,12 @@ def run_sensor_ablation_training(
     pipeline.set_random_seed(training_config["random_seed"])
     pipeline.set_model_type(model_type)
 
+    feature_group = "cache"
+    if manual_ablation == True:
+        feature_group = "raw"
+    logging.info("Feature Group: %s", feature_group)
+
+
     for group_index, feature_streams in enumerate(feature_stream_groups, start = 1):
         logging.info("Running stream group %d/%d: %s", group_index, len(feature_stream_groups), feature_streams)
         stream_str = "-".join(feature_streams)
@@ -49,7 +56,7 @@ def run_sensor_ablation_training(
             logging.info("Running model: %s", model.name)
 
             hyperparameters, _, _, _ = get_hyperparameters_from_json(Path(project_root / training_config["median_hyperparameters_folder"]), model_type, model.name)
-            X, y = pipeline.get_data(model = model, feature_streams = feature_streams)
+            X, y, select_features = pipeline.get_data(model = model, feature_streams = feature_streams, return_feature_names = True, traditional_feature_selection=feature_group)
             f1_scores = np.zeros(num_splits, dtype = float)
 
             for kfold_id in range(num_splits):

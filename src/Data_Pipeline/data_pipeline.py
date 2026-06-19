@@ -9,7 +9,12 @@ import os
 import pickle
 import re
 
-import faiss
+try:
+    import faiss
+    FAISS_AVAILABLE = True
+except Exception:  # pragma: no cover - environment may not have faiss installed
+    faiss = None
+    FAISS_AVAILABLE = False
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
@@ -44,6 +49,8 @@ class DataPipeline:
     
     Args:
         config: Loaded YAML experiment configuration mapping
+        model: Optional BaseModel instance for type resolution
+        data_path_override: Optional override for data_path from config (for testing)
     """
 
     def __init__(
@@ -54,30 +61,6 @@ class DataPipeline:
         self._config = config
         self._random_seed: Optional[int] = None
         self._model_type: Optional["ModelType"] = None
-
-    _SENSOR_STREAM_PATTERNS: dict[str, tuple[str, ...]] = {
-        # Equivital streams
-        "ECG": (r"ecg", r"equivital", r"hrv"),
-        "HR": (r"\bhr\b", r"participant_hr"),
-        "BR": (r"\bbr\b",),
-        "Temperature": (r"temp", r"temperature"),
-        # Other device streams
-        "Pupil": (r"pupil",),
-        "Centrifuge": (r"centrifuge",),
-        "EEG": (r"eeg",),
-        "Strain": (r"strain",),
-        # Demographics
-        "Participant": (r"participant_",),
-        "Demographics": (r"participant_",),
-    }
-
-    _SENSOR_STREAM_ALIASES: dict[str, str] = {
-        "demographic": "Demographics",
-        "demographics": "Demographics",
-        "participant": "Participant",
-        "gforce": "Centrifuge",
-        "g force": "Centrifuge",
-    }
 
     def set_random_seed(self, random_seed: int) -> None:
         """Set the random seed for data pipeline operations.
@@ -161,9 +144,9 @@ class DataPipeline:
             request_kwargs["model"] = model
             request_kwargs["traditional_feature_selection"] = traditional_feature_selection
             request_kwargs["return_feature_names"] = return_feature_names
+            request_kwargs["feature_streams"] = feature_streams
             if traditional_feature_selection == "cache":
                 selected_features = self._resolve_select_features(request_kwargs)
-                selected_features = self._apply_sensor_ablation(selected_features, feature_streams)
                 request_kwargs["select_features"] = selected_features
             traditional_config = self._config["traditional_data_parameters"]
             request_kwargs["backstep"] = traditional_config["backstep"]
@@ -227,63 +210,6 @@ class DataPipeline:
 
         return data['selected_features']
 
-    def _apply_sensor_ablation(self, selected_features: list[str], feature_streams: Optional[List[str]]) -> list[str]:
-        """Restrict selected features to usable features for requested streams."""
-        requested_streams = self._normalize_feature_streams(feature_streams)
-        if len(requested_streams) == 0:
-            return selected_features
-
-        unknown_streams = [s for s in requested_streams if s not in self._SENSOR_STREAM_PATTERNS]
-        if unknown_streams:
-            supported = ", ".join(sorted(self._SENSOR_STREAM_PATTERNS.keys()))
-            raise ValueError(
-                f"Unknown stream(s): {unknown_streams}. Supported streams: {supported}."
-            )
-
-        matched_features: list[str] = [
-            feature_name
-            for feature_name in selected_features
-            if any(
-                re.search(pattern, feature_name, flags=re.IGNORECASE)
-                for stream in requested_streams
-                for pattern in self._SENSOR_STREAM_PATTERNS[stream]
-            )
-        ]
-
-        if len(matched_features) == 0:
-            raise ValueError(
-                "Stream filtering removed all selected features. "
-                f"Requested streams={requested_streams}. "
-                "Check stream names and feature naming conventions."
-            )
-
-        logger.info(
-            "Applied sensor ablation for streams=%s. Selected features reduced from %d to %d.",
-            requested_streams,
-            len(selected_features),
-            len(matched_features),
-        )
-        return matched_features
-
-    def _normalize_feature_streams(self, feature_streams: Optional[List[str]]) -> list[str]:
-        """Normalize stream names and de-duplicate while preserving order."""
-        if not feature_streams:
-            return []
-
-        normalized_streams: list[str] = []
-        for stream in feature_streams:
-            if not isinstance(stream, str):
-                continue
-
-            candidate = stream.strip()
-            if not candidate:
-                continue
-
-            canonical = self._SENSOR_STREAM_ALIASES.get(candidate.lower(), candidate)
-            normalized_streams.append(canonical)
-
-        return list(dict.fromkeys(normalized_streams))
-    
 
 
 class BaseGLOCDataPipeline(ABC):
@@ -363,6 +289,31 @@ class BaseGLOCDataPipeline(ABC):
         "noAFE": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
         "Complete": ["v0", "v1", "v2", "v5", "v6"],
     }
+
+    _SENSOR_STREAM_PATTERNS: dict[str, tuple[str, ...]] = {
+        # Equivital streams
+        "ECG": (r"ecg", r"equivital", r"hrv"),
+        "HR": (r"\bhr\b", r"participant_hr"),
+        "BR": (r"\bbr\b",),
+        "Temperature": (r"temp", r"temperature"),
+        # Other device streams
+        "Pupil": (r"pupil",),
+        "Centrifuge": (r"centrifuge",),
+        "EEG": (r"eeg",),
+        "Strain": (r"strain",),
+        # Demographics
+        "Participant": (r"participant_",),
+        "Demographics": (r"participant_",),
+    }
+
+    _SENSOR_STREAM_ALIASES: dict[str, str] = {
+        "demographic": "Demographics",
+        "demographics": "Demographics",
+        "participant": "Participant",
+        "gforce": "Centrifuge",
+        "g force": "Centrifuge",
+    }
+
 
     def __init__(self, data_path: str = "../data/", random_seed: int = 42, config: Optional[dict[str, Any]] = None) -> None:
         """Initialize shared pipeline state.
@@ -791,6 +742,63 @@ class BaseGLOCDataPipeline(ABC):
         select_features = [feature for feature, keep in zip(select_features, keep_columns) if keep]
 
         return x_feature_matrix, select_features
+    
+    def _apply_sensor_ablation(self, selected_features: list[str], feature_streams: Optional[List[str]]) -> list[str]:
+        """Restrict selected features to usable features for requested streams."""
+        requested_streams = self._normalize_feature_streams(feature_streams)
+        if len(requested_streams) == 0:
+            return selected_features
+
+        unknown_streams = [s for s in requested_streams if s not in self._SENSOR_STREAM_PATTERNS]
+        if unknown_streams:
+            supported = ", ".join(sorted(self._SENSOR_STREAM_PATTERNS.keys()))
+            raise ValueError(
+                f"Unknown stream(s): {unknown_streams}. Supported streams: {supported}."
+            )
+
+        matched_features: list[str] = [
+            feature_name
+            for feature_name in selected_features
+            if any(
+                re.search(pattern, feature_name, flags=re.IGNORECASE)
+                for stream in requested_streams
+                for pattern in self._SENSOR_STREAM_PATTERNS[stream]
+            )
+        ]
+
+        if len(matched_features) == 0:
+            raise ValueError(
+                "Stream filtering removed all selected features. "
+                f"Requested streams={requested_streams}. "
+                "Check stream names and feature naming conventions."
+            )
+
+        logger.info(
+            "Applied sensor ablation for streams=%s. Selected features reduced from %d to %d.",
+            requested_streams,
+            len(selected_features),
+            len(matched_features)
+        )
+        return matched_features
+
+    def _normalize_feature_streams(self, feature_streams: Optional[List[str]]) -> list[str]:
+        """Normalize stream names and de-duplicate while preserving order."""
+        if not feature_streams:
+            return []
+
+        normalized_streams: list[str] = []
+        for stream in feature_streams:
+            if not isinstance(stream, str):
+                continue
+
+            candidate = stream.strip()
+            if not candidate:
+                continue
+
+            canonical = self._SENSOR_STREAM_ALIASES.get(candidate.lower(), candidate)
+            normalized_streams.append(canonical)
+
+        return list(dict.fromkeys(normalized_streams))
 
 
 
@@ -915,6 +923,8 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         )
 
         if do_pre_feature_impute:
+            if not FAISS_AVAILABLE:
+                raise ImportError("FAISS is required for KNN imputation (impute_phase=pre_feature) but is not available in the environment.")
             gloc_data_all_features_imputed_numpy = self._impute_missing_data(
                 gloc_data_all_features_numpy,
                 gloc_labels_numpy,
@@ -957,6 +967,8 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 
         # Post-feature KNN imputation (on the feature matrix) if requested
         if do_post_feature_knn:
+            if not FAISS_AVAILABLE:
+                raise ImportError("FAISS is required for post-feature KNN imputation (impute_phase=post_feature_knn) but is not available in the environment.")
             logger.info("Performing post-feature KNN imputation on feature matrix with n_neighbors=%d", n_neighbors)
             # Preserve trial column while imputing features only
             trial_col = x_feature_matrix[:, -1].copy()
@@ -967,7 +979,6 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             )
             X_imputed = self._faster_knn_impute_train_test(X_feats, train_indices, test_indices, n_neighbors)
             x_feature_matrix = np.hstack([X_imputed, trial_col.reshape(-1, 1)])
-
 
         return x_train, x_test, y_train, y_test, features["All"]
 
@@ -1313,6 +1324,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             analysis_type: int,
             *,
             select_features: Optional[List[str]] = None,
+            feature_streams: Optional[List[str]] = None,
             traditional_feature_selection: Literal["cache", "raw"] = "cache",
             return_feature_names: bool = False,
             impute_file_name: Optional[str] = None,
@@ -1384,6 +1396,8 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     imputed_features = pickle.load(f)
                 logger.info("Loaded traditional imputed data from %s.", traditional_impute_path)
             else:
+                if not FAISS_AVAILABLE:
+                    raise ImportError("FAISS is required for KNN imputation (impute_phase=pre_feature) but is not available in the environment.")
                 imputed_features = self._faster_knn_impute(
                     gloc_data[features["All"]].to_numpy(dtype=output_feature_dtype),
                     k=n_neighbors,
@@ -1460,6 +1474,8 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         if traditional_feature_selection == "cache":
             if select_features is None:
                 raise ValueError("select_features is required when traditional_feature_selection='cache'.")
+            
+            select_features = self._apply_sensor_ablation(select_features, feature_streams)
 
             # Backward compatibility: legacy feature lists may still reference "condition".
             translated_select_features = [
@@ -1473,14 +1489,33 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
             gloc_data_all_features_numpy, select_features = self._remove_constant_columns(gloc_data_all_features_numpy, translated_select_features)
         else:
-            gloc_data_all_features_numpy, select_features = self._remove_constant_columns(
+            gloc_data_all_features_numpy, all_available_features = self._remove_constant_columns(
                 gloc_data_all_features_numpy,
                 list(features["All"]),
             )
 
+            select_features = self._apply_sensor_ablation(
+                all_available_features,
+                feature_streams,
+            )
+
+            feature_index = {
+                feature_name: i
+                for i, feature_name in enumerate(all_available_features)
+            }
+
+            selected_indices = [
+                feature_index[feature_name]
+                for feature_name in select_features
+            ]
+
+            gloc_data_all_features_numpy = gloc_data_all_features_numpy[:, selected_indices]
+
         ################################################ NaN Processing ################################################
         # Optionally perform post-feature KNN imputation on the reduced numpy matrix
         if do_post_feature_knn:
+            if not FAISS_AVAILABLE:
+                raise ImportError("FAISS is required for post-feature KNN imputation (impute_phase=post_feature_knn) but is not available in the environment.")
             logger.info("Performing post-feature KNN imputation on traditional feature matrix with n_neighbors=%d", n_neighbors)
             # gloc_data_all_features_numpy is already a numpy array; impute missing values across entire dataset
             gloc_data_all_features_numpy = self._faster_knn_impute(gloc_data_all_features_numpy, k=n_neighbors)
