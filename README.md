@@ -277,6 +277,8 @@ enabled: true
 **Purpose**: Models to cross-validate.
 
 **Available inputs**: List of model aliases. Available models:
+
+Traditional (sklearn):
 - `EGB` (Extreme Gradient Boosting)
 - `KNN` (K Nearest Neighbors)
 - `RF` (Random Forest)
@@ -284,7 +286,12 @@ enabled: true
 - `LogReg` (Logistic Regression)
 - `SVM` (Support Vector Machine)
 
-[//]: # (- `Trans` or `Transformer`)
+Advanced (PyTorch):
+- `LSTM` (Long Short-Term Memory)
+- `TCN` (Temporal Convolutional Network)
+- `Trans` (Transformer)
+- `LogRegTS` (Time-Series Logistic Regression)
+- `NAM` (Neural Additive Model)
 
 **Example**:
 ```yaml
@@ -356,7 +363,57 @@ class_weight: null
 
 #### `advanced_hpo`
 
-**Not implemented yet**
+**Purpose**: Hyperparameter optimization settings for advanced (PyTorch) models. Required when any advanced model is in the `models` list. Ignored for traditional-only runs.
+
+**Available inputs**: Sub-section with the following fields:
+
+##### `use_sampler`
+
+**Purpose**: Whether to use a weighted sampler to address class imbalance during Optuna trial training and final model training.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+use_sampler: true
+```
+
+##### `final_early_stop`
+
+**Purpose**: Whether the final trained model (after HPO) should use early stopping on a held-out validation split. When `true`, 20% of the training data is held out for validation and training stops when the validation metric stops improving. When `false`, the model trains for a fixed number of epochs using all training data.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+final_early_stop: false
+```
+
+##### `objective_var`
+
+**Purpose**: Optimization metric used by Optuna to evaluate each trial. Case-insensitive.
+
+**Available inputs**: `F1` or `Acc`
+
+**Example**:
+```yaml
+objective_var: F1
+```
+
+##### `trials`
+
+**Purpose**: Number of Optuna HPO trials to run per cross-validation fold. Each trial samples a hyperparameter configuration, trains a candidate model, and evaluates it on a validation split. Set to `0` to disable HPO entirely (models train with default hyperparameters).
+
+**Available inputs**: Non-negative integer.
+
+**Example**:
+```yaml
+trials: 100
+```
+
+**Constraints**: 
+- Required when any advanced model is in the `models` list. A missing `advanced_hpo` section will raise a `KeyError` at runtime.
+- Optuna-level parameters (sampler type, pruner settings, timeout) are hardcoded defaults and not exposed in the YAML config.
 
 
 
@@ -644,6 +701,11 @@ cross_validation:
   num_splits: 10
   save_results_folder: Results/Cross_Validation
   class_weight: null
+  advanced_hpo:
+    use_sampler: true
+    final_early_stop: false
+    objective_var: F1
+    trials: 100
 
 sensor_ablation:
   training:
