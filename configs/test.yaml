@@ -12,20 +12,21 @@ shared_data_parameters:
 advanced_data_parameters:
   n_neighbors: 4
   baseline_window: 32.5
+  horizon: 1
 traditional_data_parameters:
   backstep: 0
   data_rate: 25
-  offset: 0
+  offset: 1
   time_start: 0
 
 cross_validation:
   enabled: true
   # Mode-specific parameters
-  models: [ LSTM, TCN, Trans, LogRegTS ]
+  models: [ EGB, KNN, LDA, LogReg, RF, SVM, LSTM, TCN, Trans, LogRegTS ]
   model_type: !ModelType [ Complete, Explicit ]
   random_seed: 42
-  num_splits: 10
-  save_results_folder: Results/Cross_Validation
+  num_splits: 2
+  save_results_folder: Results/Cross_Validation_Temporal_Test
   class_weight: null
   advanced_hpo:
     use_sampler: true

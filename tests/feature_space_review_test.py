@@ -36,6 +36,7 @@ def _make_config(tmp_path: Path, *, models: list[str]) -> dict:
         "advanced_data_parameters": {
             "n_neighbors": 4,
             "baseline_window": 32.5,
+            "horizon": 0,
         },
         "traditional_data_parameters": {
             "backstep": 0,

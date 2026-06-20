@@ -203,6 +203,17 @@ n_neighbors: 4
 baseline_window: 32.5
 ```
 
+#### `horizon`
+
+**Purpose**: Temporal forecasting horizon in samples. Shifts GLOC labels earlier so the model predicts GLOC events `horizon` samples into the future (0 = no shift, baseline). Applied per-trial after the train/test split to avoid data leakage.
+
+**Available inputs**: Non-negative integer (samples).
+
+**Example**:
+```yaml
+horizon: 0  # No forecasting shift
+```
+
 ### Traditional Data Parameters
 
 These parameters control timing and sampling for the traditional pipeline. Configure under `traditional_data_parameters`:
@@ -686,6 +697,7 @@ shared_data_parameters:
 advanced_data_parameters:
   n_neighbors: 4
   baseline_window: 32.5
+  horizon: 0
 traditional_data_parameters:
   backstep: 0
   data_rate: 25

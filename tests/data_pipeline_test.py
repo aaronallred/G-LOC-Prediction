@@ -30,7 +30,7 @@ def _make_config() -> dict:
             "impute_phase": ImputePhase.PRE_FEATURE,
             "output_feature_dtype": "float32",
         },
-        "advanced_data_parameters": {"n_neighbors": 4, "baseline_window": 32.5},
+        "advanced_data_parameters": {"n_neighbors": 4, "baseline_window": 32.5, "horizon": 0},
         "traditional_data_parameters": {"backstep": 0, "data_rate": 25, "offset": 0, "time_start": 0},
         "sensor_ablation": {
             "training": {
@@ -89,6 +89,7 @@ def test_get_data_for_advanced_model_forwards_fold_arguments(monkeypatch):
             "num_splits": 5,
             "n_neighbors": 4,
             "baseline_window": 32.5,
+            "horizon": 0,
         }
     ]
 

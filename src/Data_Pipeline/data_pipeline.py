@@ -149,13 +149,13 @@ class DataPipeline:
         if backend_type == "advanced":
             if kfold_id is None:
                 raise ValueError("kfold_id is required for advanced pipelines.")
-            # Only add num_splits if explicitly provided by the caller
             if num_splits is not None:
                 request_kwargs["num_splits"] = num_splits
             request_kwargs["kfold_ID"] = kfold_id
             advanced_config = self._config["advanced_data_parameters"]
             request_kwargs["n_neighbors"] = advanced_config["n_neighbors"]
             request_kwargs["baseline_window"] = advanced_config["baseline_window"]
+            request_kwargs["horizon"] = advanced_config.get("horizon", 0)
         else:
             request_kwargs["classifier_type"] = self._resolve_classifier_name(model)
             request_kwargs["model"] = model
@@ -776,17 +776,47 @@ class BaseGLOCDataPipeline(ABC):
 
         return combined_baseline, combined_names, baseline_v0, baseline_names_v0
 
+    def _shift_labels_by_samples(
+            self,
+            y: np.ndarray,
+            trial_ids: np.ndarray,
+            n_samples: int,
+    ) -> np.ndarray:
+        """Shift labels left by ``n_samples`` within each trial, padding with zeros.
+
+        This is the core label-shifting logic shared by both the traditional
+        and advanced (via ``horizon``) pipelines.
+        """
+        y = np.asarray(y).copy()
+
+        if n_samples <= 0:
+            return y
+
+        for trial in np.unique(trial_ids):
+            trial_indices = np.nonzero(trial_ids == trial)[0]
+            current_y = y[trial_indices]
+
+            if not np.any(current_y):
+                continue
+
+            if n_samples >= current_y.shape[0]:
+                y[trial_indices] = np.zeros_like(current_y)
+                continue
+
+            y_shifted = current_y[n_samples:]
+            y[trial_indices] = np.concatenate([y_shifted, np.zeros(n_samples, dtype=current_y.dtype)])[: current_y.shape[0]]
+
+        return y
+
     def _remove_constant_columns(
             self,
             x_feature_matrix: np.ndarray,
             select_features: List[str],
     ) -> Tuple[np.ndarray, List[str]]:
         """Remove zero-variance columns from a feature matrix."""
-        # Find all constant columns
         constant_columns = np.all(x_feature_matrix == x_feature_matrix[0, :], axis=0)
         keep_columns = ~constant_columns
 
-        # Remove all constant columns from feature matrix and names
         x_feature_matrix = x_feature_matrix[:, keep_columns]
         select_features = [feature for feature, keep in zip(select_features, keep_columns) if keep]
 
@@ -817,6 +847,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             impute_phase: Any = None,
             n_neighbors: int = 4,
             baseline_window: float = 32.5,
+            horizon: int = 0,
             analysis_type: int = 2,
             remove_NaN_trials: bool = True,
             save_impute: bool = True,
@@ -836,6 +867,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             impute_phase: Which phase to perform imputation in (enum: none, pre_feature, post_feature_remove_rows, post_feature_knn)
             n_neighbors: Number of KNN imputation neighbors
             baseline_window: Baseline window duration in seconds
+            horizon: Temporal forecast horizon in samples (0 = no shift, positive = forecast ahead)
             analysis_type: 2=all data, 1=one participant, 0=one trial
             remove_NaN_trials: Remove trials with all-NaN sensors
             save_impute: Save imputed data to pickle
@@ -844,6 +876,9 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         Returns:
             x_train, y_train, x_test, y_test, all_features
         """
+        if horizon < 0:
+            raise ValueError(f"horizon must be >= 0, got {horizon}")
+
         ################################################### FEATURES SETUP ###################################################
         logger.info("Setting up features and baselines for model_type=%s", model_type)
         feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type)
@@ -968,6 +1003,13 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             X_imputed = self._faster_knn_impute_train_test(X_feats, train_indices, test_indices, n_neighbors)
             x_feature_matrix = np.hstack([X_imputed, trial_col.reshape(-1, 1)])
 
+        ################################################## TEMPORAL HORIZON SHIFT  ################################################
+        if horizon > 0:
+            logger.info("Applying temporal horizon shift of %d samples for advanced forecasting", horizon)
+            train_trial_ids = x_train[:, -1]
+            test_trial_ids = x_test[:, -1]
+            y_train = self._shift_labels_by_samples(y_train, train_trial_ids, horizon)
+            y_test = self._shift_labels_by_samples(y_test, test_trial_ids, horizon)
 
         return x_train, x_test, y_train, y_test, features["All"]
 
@@ -1405,7 +1447,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         ###################################################### Prediction Offset ###############################################
         logger.info("Applying prediction offset with backstep=%d, data_rate=%d", backstep, data_rate)
-        gloc_labels_numpy = self._y_prediction_offset(gloc_labels_numpy, backstep, data_rate, experiment_metadata["trial_id"])
+        gloc_labels_numpy = self._shift_labels_by_samples(
+            gloc_labels_numpy, experiment_metadata["trial_id"], int(backstep * data_rate)
+        )
 
         ################################################ BASELINE ################################################
         logger.info("Calculating baselines with methods: %s", baseline_methods_to_use)
@@ -1601,42 +1645,6 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         return X_imputed
     
-    def _y_prediction_offset(
-            self,
-            y: np.ndarray,
-            backstep: int,
-            data_rate: int,
-            trial_set: np.ndarray,
-    ) -> np.ndarray:
-        """Shift GLOC labels left by the configured prediction horizon."""
-        y = np.asarray(y).copy()
-        offset = int(backstep * data_rate) # the actual number of indices to offset.
-        # if backstep is given as seconds and data rate as hz
-        # the result would be something like 5 seconds back * 25hz so 125 indices shift
-
-        # y is passed as every single subject and trial in one so we have to break out the indices.
-
-        unique_trials = np.unique(trial_set) # finds the unique trials within the set. Gives an array of name of each unique
-
-        if offset <= 0:
-            return y
-
-        for trial in unique_trials:
-            trial_indices = np.nonzero(trial_set == trial)[0]
-            current_y = y[trial_indices]
-
-            if not np.any(current_y):
-                continue
-
-            if offset >= current_y.shape[0]:
-                y[trial_indices] = np.zeros_like(current_y)
-                continue
-
-            y_shifted = current_y[offset:]
-            y[trial_indices] = np.concatenate([y_shifted, np.zeros(offset, dtype=current_y.dtype)])[: current_y.shape[0]]
-
-        return y
-
     def _feature_generation(
             self,
             time_start: float,

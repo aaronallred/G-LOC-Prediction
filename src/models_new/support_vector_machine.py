@@ -49,4 +49,4 @@ class SupportVectorMachineModel(TraditionalModel):
 
     def _build_model(self, model_hyperparameters: Dict[str, Any]) -> Any:
         """Initializes the SVC with provided hyperparameters."""
-        return SVC(**(model_hyperparameters or {}))
+        return SVC(**(model_hyperparameters or {"max_iter": 100}))
