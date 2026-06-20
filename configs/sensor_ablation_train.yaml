@@ -25,11 +25,12 @@ sensor_ablation:
     save_results_folder: Results/Sensor_Ablation
     median_hyperparameters_folder: Results/Cross_Validation
     # Mode-specific parameters
-    models: [KNN, EGB]
-    model_type: !ModelType [Complete, Explicit]
+    models: [ KNN, EGB ]
+    model_type: !ModelType [ Complete, Explicit ]
+    manual_ablation: false
     random_seed: 42
     num_splits: 10
     streams:
-      - [EEG]
-      - [EEG, Pupil]
-      - [EEG, Pupil, Participant]
+      - [ EEG ]
+      - [ EEG, Pupil ]
+      - [ EEG, Pupil, Participant ]

@@ -1,13 +1,12 @@
-from abc import ABC, abstractmethod
-from itertools import islice
-from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Sequence, Set, Tuple
-
 import json
 import logging
 import os
 import pickle
 import re
+from abc import ABC, abstractmethod
+from itertools import islice
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
 
 import faiss
 import numpy as np
@@ -17,9 +16,9 @@ from sklearn.preprocessing import StandardScaler
 
 from src.Data_Pipeline.baseline import BaselineContext, baseline_data
 from src.Data_Pipeline.features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
+from src.Data_Pipeline.imputation_config import ImputePhase
 from src.model_type import ModelType
 from src.models.base import BaseModel
-from src.Data_Pipeline.imputation_config import ImputePhase
 from src.models_new.model_factory import ModelFactory
 
 logger = logging.getLogger(__name__)
@@ -33,6 +32,7 @@ def _resolve_from_source_dir(path_value: str) -> str:
     if candidate.is_absolute():
         return str(candidate)
     return str((SOURCE_DIR / candidate).resolve())
+
 
 class DataPipeline:
     """Facade that routes data loading to the advanced or traditional backend.
@@ -54,30 +54,6 @@ class DataPipeline:
         self._config = config
         self._random_seed: Optional[int] = None
         self._model_type: Optional["ModelType"] = None
-
-    _SENSOR_STREAM_PATTERNS: dict[str, tuple[str, ...]] = {
-        # Equivital streams
-        "ECG": (r"ecg", r"equivital", r"hrv"),
-        "HR": (r"\bhr\b", r"participant_hr"),
-        "BR": (r"\bbr\b",),
-        "Temperature": (r"temp", r"temperature"),
-        # Other device streams
-        "Pupil": (r"pupil",),
-        "Centrifuge": (r"centrifuge",),
-        "EEG": (r"eeg",),
-        "Strain": (r"strain",),
-        # Demographics
-        "Participant": (r"participant_",),
-        "Demographics": (r"participant_",),
-    }
-
-    _SENSOR_STREAM_ALIASES: dict[str, str] = {
-        "demographic": "Demographics",
-        "demographics": "Demographics",
-        "participant": "Participant",
-        "gforce": "Centrifuge",
-        "g force": "Centrifuge",
-    }
 
     def set_random_seed(self, random_seed: int) -> None:
         """Set the random seed for data pipeline operations.
@@ -124,14 +100,14 @@ class DataPipeline:
         """
         backend_type = self._resolve_pipeline_kind(model)
         backend_data_pipeline = self._build_backend(model)
-        
+
         # Use stored model_type - must be set before calling get_data()
         if self._model_type is None:
             raise ValueError(
                 "model_type must be set on DataPipeline before calling get_data(). "
                 "Call pipeline.set_model_type() first."
             )
-        
+
         shared_config = self._config["shared_data_parameters"]
         request_kwargs: dict[str, Any] = {
             "model_type": self._model_type,
@@ -161,9 +137,9 @@ class DataPipeline:
             request_kwargs["model"] = model
             request_kwargs["traditional_feature_selection"] = traditional_feature_selection
             request_kwargs["return_feature_names"] = return_feature_names
+            request_kwargs["feature_streams"] = feature_streams
             if traditional_feature_selection == "cache":
                 selected_features = self._resolve_select_features(request_kwargs)
-                selected_features = self._apply_sensor_ablation(selected_features, feature_streams)
                 request_kwargs["select_features"] = selected_features
             traditional_config = self._config["traditional_data_parameters"]
             request_kwargs["backstep"] = traditional_config["backstep"]
@@ -176,10 +152,10 @@ class DataPipeline:
     def _build_backend(self, model: BaseModel) -> Any:
         """Instantiate the backend pipeline selected by model type."""
         pipeline_kind = self._resolve_pipeline_kind(model)
-        
+
         # Use stored random_seed or default to 0 if not set
         random_seed = self._random_seed if self._random_seed is not None else 0
-        
+
         if pipeline_kind == "traditional":
             logger.info("Selected traditional data pipeline based on model type.")
             return TraditionalDataPipeline(
@@ -201,7 +177,6 @@ class DataPipeline:
         #     raise ValueError("Model does not have 'is_traditional' attribute. Unable to determine pipeline kind.")
 
         return "traditional" if model.is_traditional_model else "advanced"
-    
 
     def _resolve_classifier_name(self, model: BaseModel) -> str:
         """Resolve classifier name from the configured model."""
@@ -227,64 +202,6 @@ class DataPipeline:
 
         return data['selected_features']
 
-    def _apply_sensor_ablation(self, selected_features: list[str], feature_streams: Optional[List[str]]) -> list[str]:
-        """Restrict selected features to usable features for requested streams."""
-        requested_streams = self._normalize_feature_streams(feature_streams)
-        if len(requested_streams) == 0:
-            return selected_features
-
-        unknown_streams = [s for s in requested_streams if s not in self._SENSOR_STREAM_PATTERNS]
-        if unknown_streams:
-            supported = ", ".join(sorted(self._SENSOR_STREAM_PATTERNS.keys()))
-            raise ValueError(
-                f"Unknown stream(s): {unknown_streams}. Supported streams: {supported}."
-            )
-
-        matched_features: list[str] = [
-            feature_name
-            for feature_name in selected_features
-            if any(
-                re.search(pattern, feature_name, flags=re.IGNORECASE)
-                for stream in requested_streams
-                for pattern in self._SENSOR_STREAM_PATTERNS[stream]
-            )
-        ]
-
-        if len(matched_features) == 0:
-            raise ValueError(
-                "Stream filtering removed all selected features. "
-                f"Requested streams={requested_streams}. "
-                "Check stream names and feature naming conventions."
-            )
-
-        logger.info(
-            "Applied sensor ablation for streams=%s. Selected features reduced from %d to %d.",
-            requested_streams,
-            len(selected_features),
-            len(matched_features),
-        )
-        return matched_features
-
-    def _normalize_feature_streams(self, feature_streams: Optional[List[str]]) -> list[str]:
-        """Normalize stream names and de-duplicate while preserving order."""
-        if not feature_streams:
-            return []
-
-        normalized_streams: list[str] = []
-        for stream in feature_streams:
-            if not isinstance(stream, str):
-                continue
-
-            candidate = stream.strip()
-            if not candidate:
-                continue
-
-            canonical = self._SENSOR_STREAM_ALIASES.get(candidate.lower(), candidate)
-            normalized_streams.append(canonical)
-
-        return list(dict.fromkeys(normalized_streams))
-    
-
 
 class BaseGLOCDataPipeline(ABC):
     """Abstract base class for GLOC data pipelines (advanced and traditional).
@@ -295,17 +212,19 @@ class BaseGLOCDataPipeline(ABC):
 
     # Shared constants: Feature groups by model type
     FEATURE_GROUPS_BY_MODEL_TYPE = {
-        ModelType("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain", "demographics"),
+        ModelType("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain",
+                                         "demographics"),
         ModelType("noAFE", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG"),
-        ModelType("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain", "demographics"),
+        ModelType("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain",
+                                            "demographics"),
         ModelType("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG"),
     }
-    
+
     # Mapping of participant -> DC trial numbers for GOR EEG data files
     _EEG_PARTICIPANT_TRIALS = {
-        1: [1, 2, 3],  2: [1, 2, 3],  3: [1, 2, 3],  4: [1, 2, 3],  5: [1, 2, 3],
-        6: [1, 4, 6],  7: [2, 4, 6],  8: [1, 3],     9: [2, 5, 6],
-        10: [2, 4, 5], 11: [1],       12: [1, 5],     13: [1, 3, 6],
+        1: [1, 2, 3], 2: [1, 2, 3], 3: [1, 2, 3], 4: [1, 2, 3], 5: [1, 2, 3],
+        6: [1, 4, 6], 7: [2, 4, 6], 8: [1, 3], 9: [2, 5, 6],
+        10: [2, 4, 5], 11: [1], 12: [1, 5], 13: [1, 3, 6],
     }
 
     _EEG_BASELINE_BANDS = ["delta", "theta", "alpha", "beta"]
@@ -364,7 +283,32 @@ class BaseGLOCDataPipeline(ABC):
         "Complete": ["v0", "v1", "v2", "v5", "v6"],
     }
 
-    def __init__(self, data_path: str = "../data/", random_seed: int = 42, config: Optional[dict[str, Any]] = None) -> None:
+    _SENSOR_STREAM_PATTERNS: dict[str, tuple[str, ...]] = {
+        # Equivital streams
+        "ECG": (r"ecg", r"equivital", r"hrv"),
+        "HR": (r"\bhr\b", r"participant_hr"),
+        "BR": (r"\bbr\b",),
+        "Temperature": (r"temp", r"temperature"),
+        # Other device streams
+        "Pupil": (r"pupil",),
+        "Centrifuge": (r"centrifuge",),
+        "EEG": (r"eeg",),
+        "Strain": (r"strain",),
+        # Demographics
+        "Participant": (r"participant_",),
+        "Demographics": (r"participant_",),
+    }
+
+    _SENSOR_STREAM_ALIASES: dict[str, str] = {
+        "demographic": "Demographics",
+        "demographics": "Demographics",
+        "participant": "Participant",
+        "gforce": "Centrifuge",
+        "g force": "Centrifuge",
+    }
+
+    def __init__(self, data_path: str = "../data/", random_seed: int = 42,
+                 config: Optional[dict[str, Any]] = None) -> None:
         """Initialize shared pipeline state.
         
         Args:
@@ -417,8 +361,9 @@ class BaseGLOCDataPipeline(ABC):
         }
 
         return self._data_locations
-    
-    def _load_data(self, file_paths: Dict[str, Any], output_feature_dtype: np.dtype = np.dtype(np.float32)) -> pd.DataFrame:
+
+    def _load_data(self, file_paths: Dict[str, Any],
+                   output_feature_dtype: np.dtype = np.dtype(np.float32)) -> pd.DataFrame:
         """Load data from CSV or pickle files. If pickle does not exist, create it from CSV."""
         main_data_pickle_file = file_paths["main"].replace(".csv", ".pkl")
 
@@ -430,18 +375,18 @@ class BaseGLOCDataPipeline(ABC):
         else:
             logger.info("Loading data from pickle at %s.", main_data_pickle_file)
             gloc_data = pd.read_pickle(main_data_pickle_file)
-        
+
         # Add GOR and EEG data from other files
         gloc_data = self._process_EEG_GOR(file_paths["eeg_list"], gloc_data, output_feature_dtype)
 
         # Adjust AFE condition column always
         gloc_data["condition"] = gloc_data["condition"].map({"N": 0, "AFE": 1})
-        gloc_data = gloc_data.rename(columns = {"condition": "AFE_indicator"})
+        gloc_data = gloc_data.rename(columns={"condition": "AFE_indicator"})
 
         float64_cols = gloc_data.select_dtypes(include="float64").columns
         if len(float64_cols) > 0:
             gloc_data = gloc_data.astype({col: output_feature_dtype for col in float64_cols}).copy()
-        
+
         # Extracting subject and trial into separate columns
         trial_ids = gloc_data["trial_id"].to_numpy().astype("str")
         trial_ids = np.array(np.char.split(trial_ids, "-").tolist())
@@ -451,7 +396,8 @@ class BaseGLOCDataPipeline(ABC):
         # Decouple from original dataframe to prevent unwanted modifications later on
         return gloc_data
 
-    def _process_EEG_GOR(self, list_of_eeg_data_files: List[str], gloc_data: pd.DataFrame, output_feature_dtype: np.dtype = np.dtype(np.float32)) -> pd.DataFrame:
+    def _process_EEG_GOR(self, list_of_eeg_data_files: List[str], gloc_data: pd.DataFrame,
+                         output_feature_dtype: np.dtype = np.dtype(np.float32)) -> pd.DataFrame:
         """Slot in GOR EEG band power data from xlsx files, replacing NaNs in the main CSV."""
         trial_indices_map = gloc_data.groupby("trial_id", sort=False).indices
         event_validated = gloc_data["event_validated"].to_numpy()
@@ -459,7 +405,7 @@ class BaseGLOCDataPipeline(ABC):
         begin_mask = event_validated == "begin GOR"
         begin_idx_map = (
             pd.Series(np.flatnonzero(begin_mask), index=trial_ids[begin_mask])
-            .groupby(level = 0, sort=False)
+            .groupby(level=0, sort=False)
             .first()
             .to_dict()
         )
@@ -492,7 +438,7 @@ class BaseGLOCDataPipeline(ABC):
 
             start_pos = np.searchsorted(trial_indices, index_begin_GOR)
             n_rows = len(band_dfs["delta"])
-            trial_indexer = trial_indices[start_pos : start_pos + n_rows]
+            trial_indexer = trial_indices[start_pos: start_pos + n_rows]
 
             # Build column names and assign values for each band
             column_names = band_dfs["delta"].columns
@@ -510,13 +456,13 @@ class BaseGLOCDataPipeline(ABC):
             trial_to_analyze: Optional[str] = None,
     ) -> pd.DataFrame:
         """Analyze only section of gloc_data specified using analysis_type."""
-        if analysis_type == 0: # One Trial / One Subject
+        if analysis_type == 0:  # One Trial / One Subject
             mask = (gloc_data["subject"] == subject_to_analyze) & (gloc_data["trial"] == trial_to_analyze)
-        elif analysis_type == 1: # All Trials for One Subject
+        elif analysis_type == 1:  # All Trials for One Subject
             mask = (gloc_data["subject"] == subject_to_analyze)
-        else: # All Trials for All Subjects
+        else:  # All Trials for All Subjects
             return gloc_data
-        
+
         return gloc_data[mask]
 
     def _process_and_get_feature_names(
@@ -531,7 +477,8 @@ class BaseGLOCDataPipeline(ABC):
         GROUPS_OF_FEATURE_GROUPS = {
             "Phys": {"ECG", "BR", "temp", "fnirs", "eyetracking", "rawEEG", "processedEEG"},
             "ECG": {"ECG"},
-            "EEG": {"processedEEG"} # Adding rawEEG does not change anything (rawEEG ignored during baseline v7 and v8 calculations)
+            "EEG": {"processedEEG"}
+            # Adding rawEEG does not change anything (rawEEG ignored during baseline v7 and v8 calculations)
         }
 
         features = {
@@ -597,17 +544,18 @@ class BaseGLOCDataPipeline(ABC):
         trial_has_afe = gloc_data.groupby(["subject", "trial"])["AFE_indicator"].transform("max")
         keep_mask = trial_has_afe != 1
 
-        gloc_data = gloc_data.loc[keep_mask].reset_index(drop = True)
+        gloc_data = gloc_data.loc[keep_mask].reset_index(drop=True)
         gloc_labels = gloc_labels[keep_mask]
 
         return gloc_data, gloc_labels
-    
+
     def _eeg_specific_imputation(self, gloc_data: pd.DataFrame, features: Dict[str, List[str]]) -> pd.DataFrame:
         """Mean-impute EEG channels that are exclusive to one AFE condition."""
         self._eeg_condition_impute(gloc_data, features, gloc_data["AFE_indicator"])
         return gloc_data
 
-    def _eeg_condition_impute(self, gloc_data: pd.DataFrame, features: Dict[str, List[str]], afe_indicator_column: pd.Series, verbose: bool = False) -> None:
+    def _eeg_condition_impute(self, gloc_data: pd.DataFrame, features: Dict[str, List[str]],
+                              afe_indicator_column: pd.Series, verbose: bool = False) -> None:
         """Mean-impute condition-specific EEG columns so both AFE/non-AFE have all features. Modifies gloc_data in-place."""
         # Create masks for each condition
         afe_mask = afe_indicator_column == 1
@@ -624,7 +572,7 @@ class BaseGLOCDataPipeline(ABC):
 
         # Mean imputation processing
         if afe_only_cols:
-            means = gloc_data.loc[afe_mask, afe_only_cols].mean(skipna = True)
+            means = gloc_data.loc[afe_mask, afe_only_cols].mean(skipna=True)
             if verbose:
                 missing_counts = gloc_data.loc[nonafe_mask, afe_only_cols].isna().sum()
             gloc_data.loc[nonafe_mask, afe_only_cols] = gloc_data.loc[nonafe_mask, afe_only_cols].fillna(means)
@@ -634,7 +582,7 @@ class BaseGLOCDataPipeline(ABC):
                     logger.debug("Imputed %d values in '%s' for non-AFE rows.", n, col)
 
         if nonafe_only_cols:
-            means = gloc_data.loc[nonafe_mask, nonafe_only_cols].mean(skipna = True)
+            means = gloc_data.loc[nonafe_mask, nonafe_only_cols].mean(skipna=True)
             if verbose:
                 missing_counts = gloc_data.loc[afe_mask, nonafe_only_cols].isna().sum()
             gloc_data.loc[afe_mask, nonafe_only_cols] = gloc_data.loc[afe_mask, nonafe_only_cols].fillna(means)
@@ -694,7 +642,7 @@ class BaseGLOCDataPipeline(ABC):
         logger.info("%d trials with all NaNs for at least one feature out of %d trials. %d remaining.", M, N, N - M)
 
         return gloc_data, gloc_labels, nan_proportion_df
-    
+
     def _reduce_memory(
             self,
             gloc_data: pd.DataFrame,
@@ -707,13 +655,14 @@ class BaseGLOCDataPipeline(ABC):
         experiment_metadata = {
             "trial_id": trial_id_arr,
             "trial_ints": self._convert_to_unique_ordered_integers(trial_id_arr),
-            "Time (s)": gloc_data["Time (s)"].to_numpy(dtype = output_feature_dtype),
-            "event_validated": gloc_data["event_validated"].to_numpy(dtype = str),
-            "subject": gloc_data["subject"].to_numpy(dtype = str),
-            "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype = np.bool_).reshape(-1, 1),
+            "Time (s)": gloc_data["Time (s)"].to_numpy(dtype=output_feature_dtype),
+            "event_validated": gloc_data["event_validated"].to_numpy(dtype=str),
+            "subject": gloc_data["subject"].to_numpy(dtype=str),
+            "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype=np.bool_).reshape(-1, 1),
         }
 
-        gloc_data_all_features_numpy = np.asarray(gloc_data[features["All"]].to_numpy(dtype = output_feature_dtype), dtype = output_feature_dtype)
+        gloc_data_all_features_numpy = np.asarray(gloc_data[features["All"]].to_numpy(dtype=output_feature_dtype),
+                                                  dtype=output_feature_dtype)
         gloc_labels_numpy = gloc_labels.astype(np.bool_)
 
         del gloc_data, gloc_labels
@@ -771,7 +720,8 @@ class BaseGLOCDataPipeline(ABC):
             eeg_baseline_data=eeg_baseline_data,
         )
 
-        combined_baseline, combined_names, baseline_v0, baseline_names_v0, trial_order = baseline_data(baseline_methods_to_use, context)
+        combined_baseline, combined_names, baseline_v0, baseline_names_v0, trial_order = baseline_data(
+            baseline_methods_to_use, context)
         experiment_metadata["trial_order"] = trial_order
 
         return combined_baseline, combined_names, baseline_v0, baseline_names_v0
@@ -804,7 +754,8 @@ class BaseGLOCDataPipeline(ABC):
                 continue
 
             y_shifted = current_y[n_samples:]
-            y[trial_indices] = np.concatenate([y_shifted, np.zeros(n_samples, dtype=current_y.dtype)])[: current_y.shape[0]]
+            y[trial_indices] = np.concatenate([y_shifted, np.zeros(n_samples, dtype=current_y.dtype)])[
+                : current_y.shape[0]]
 
         return y
 
@@ -822,6 +773,62 @@ class BaseGLOCDataPipeline(ABC):
 
         return x_feature_matrix, select_features
 
+    def _apply_sensor_ablation(self, selected_features: list[str], feature_streams: Optional[List[str]]) -> list[str]:
+        """Restrict selected features to usable features for requested streams."""
+        requested_streams = self._normalize_feature_streams(feature_streams)
+        if len(requested_streams) == 0:
+            return selected_features
+
+        unknown_streams = [s for s in requested_streams if s not in self._SENSOR_STREAM_PATTERNS]
+        if unknown_streams:
+            supported = ", ".join(sorted(self._SENSOR_STREAM_PATTERNS.keys()))
+            raise ValueError(
+                f"Unknown stream(s): {unknown_streams}. Supported streams: {supported}."
+            )
+
+        matched_features: list[str] = [
+            feature_name
+            for feature_name in selected_features
+            if any(
+                re.search(pattern, feature_name, flags=re.IGNORECASE)
+                for stream in requested_streams
+                for pattern in self._SENSOR_STREAM_PATTERNS[stream]
+            )
+        ]
+
+        if len(matched_features) == 0:
+            raise ValueError(
+                "Stream filtering removed all selected features. "
+                f"Requested streams={requested_streams}. "
+                "Check stream names and feature naming conventions."
+            )
+
+        logger.info(
+            "Applied sensor ablation for streams=%s. Selected features reduced from %d to %d.",
+            requested_streams,
+            len(selected_features),
+            len(matched_features)
+        )
+        return matched_features
+
+    def _normalize_feature_streams(self, feature_streams: Optional[List[str]]) -> list[str]:
+        """Normalize stream names and de-duplicate while preserving order."""
+        if not feature_streams:
+            return []
+
+        normalized_streams: list[str] = []
+        for stream in feature_streams:
+            if not isinstance(stream, str):
+                continue
+
+            candidate = stream.strip()
+            if not candidate:
+                continue
+
+            canonical = self._SENSOR_STREAM_ALIASES.get(candidate.lower(), candidate)
+            normalized_streams.append(canonical)
+
+        return list(dict.fromkeys(normalized_streams))
 
 
 class AdvancedDataPipeline(BaseGLOCDataPipeline):
@@ -852,7 +859,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             remove_NaN_trials: bool = True,
             save_impute: bool = True,
             load_impute: bool = True
-        ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, List[str]]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, List[str]]:
         """
         Load raw data and prepare predictor / target sets for advanced classifiers.
 
@@ -884,11 +891,14 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type)
 
         ############################################# LOAD AND PROCESS DATA #############################################
-        logger.info("Loading and processing data with parameters: model_type=%s, subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d", model_type, subject_to_analyze, trial_to_analyze, analysis_type)
+        logger.info(
+            "Loading and processing data with parameters: model_type=%s, subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d",
+            model_type, subject_to_analyze, trial_to_analyze, analysis_type)
         file_paths = self._get_data_locations()
         gloc_data = self._load_data(file_paths, output_feature_dtype)
         gloc_data = self._filter_data_by_analysis_type(analysis_type, gloc_data, subject_to_analyze, trial_to_analyze)
-        gloc_data, features = self._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths, output_feature_dtype)
+        gloc_data, features = self._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type,
+                                                                  file_paths, output_feature_dtype)
         gloc_labels = self._label_gloc_events(gloc_data)
         if model_type.afe_filter != "Complete":
             gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
@@ -907,7 +917,8 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         # Normalize impute_phase and derive behavior flags (preserve backward compatibility where needed).
         try:
             if impute_phase is None:
-                impute_phase = ImputePhase.parse(self.config["shared_data_parameters"].get("impute_phase", "pre_feature"))
+                impute_phase = ImputePhase.parse(
+                    self.config["shared_data_parameters"].get("impute_phase", "pre_feature"))
             else:
                 impute_phase = ImputePhase.parse(impute_phase)
         except Exception:
@@ -975,12 +986,14 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         ################################################ GENERATE FEATURES ################################################
         logger.info("Generating features for model_type=%s", model_type)
         x_feature_matrix, features["All"] = self._generate_features(
-            baseline_methods_to_use, combined_baseline, combined_baseline_names, experiment_metadata, output_feature_dtype
+            baseline_methods_to_use, combined_baseline, combined_baseline_names, experiment_metadata,
+            output_feature_dtype
         )
 
         ############################################# FEATURE CLEAN AND PREP ##############################################
         logger.info("Cleaning and preparing features for model_type=%s", model_type)
-        x_feature_matrix, y_gloc_labels, features["All"], experiment_metadata["trial_ints"] = self._feature_clean_and_prep(
+        x_feature_matrix, y_gloc_labels, features["All"], experiment_metadata[
+            "trial_ints"] = self._feature_clean_and_prep(
             x_feature_matrix, gloc_labels_numpy, features, experiment_metadata, model_type, impute_phase
         )
 
@@ -1035,15 +1048,19 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             logger.info("Loaded imputed data from %s.", impute_path)
         else:
             # Only compute train/test indices when actually imputing
-            _, _, _, _, train_indices, test_indices = self._groupedtrial_kfold_split(gloc_data_all_features_numpy, gloc_labels_numpy, num_splits, kfold_ID, experiment_metadata)
-            gloc_data_all_features_imputed_numpy = self._faster_knn_impute_train_test(gloc_data_all_features_numpy, train_indices, test_indices, n_neighbors)
+            _, _, _, _, train_indices, test_indices = self._groupedtrial_kfold_split(gloc_data_all_features_numpy,
+                                                                                     gloc_labels_numpy, num_splits,
+                                                                                     kfold_ID, experiment_metadata)
+            gloc_data_all_features_imputed_numpy = self._faster_knn_impute_train_test(gloc_data_all_features_numpy,
+                                                                                      train_indices, test_indices,
+                                                                                      n_neighbors)
 
-            del gloc_data_all_features_numpy # Free memory of original data after imputation
+            del gloc_data_all_features_numpy  # Free memory of original data after imputation
 
             if save_impute:
                 impute_dir = os.path.dirname(impute_path)
                 if impute_dir:
-                    os.makedirs(impute_dir, exist_ok = True)
+                    os.makedirs(impute_dir, exist_ok=True)
                 with open(impute_path, 'wb') as f:
                     pickle.dump(gloc_data_all_features_imputed_numpy, f)
                 logger.info("Saved imputed data to %s.", impute_path)
@@ -1070,7 +1087,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Split data into train/test using stratified group K-fold on trial groups."""
         # Grouped K-Fold setup (shuffle=False for reproducibility)
-        gkf = StratifiedGroupKFold(n_splits = num_splits, shuffle = False)
+        gkf = StratifiedGroupKFold(n_splits=num_splits, shuffle=False)
 
         # Validate kfold_ID
         n_folds = gkf.get_n_splits()
@@ -1106,7 +1123,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         mask_test = np.isnan(X_test)
 
         # Temporary mean imputation for FAISS indexing
-        mean_vals = np.nanmean(X_train, axis = 0)
+        mean_vals = np.nanmean(X_train, axis=0)
         X_train_temp = np.where(mask_train, mean_vals, X_train)
         X_test_temp = np.where(mask_test, mean_vals, X_test)
 
@@ -1151,7 +1168,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         X_imputed[test_ind] = X_test_imputed
 
         return X_imputed
-        
+
     def _generate_features(
             self,
             baseline_methods_to_use: List[str],
@@ -1164,20 +1181,20 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         # Get trial_order from metadata (passed from baseline_data)
         trial_order = experiment_metadata.get("trial_order")
         trial_column = experiment_metadata["trial_id"]
-        
+
         if trial_order is None:
             # Fallback: Use pandas unique to preserve first-appearance order like legacy code
             trial_order = pd.unique(trial_column)
-        
+
         # Concatenate trial arrays along first axis
         x_feature_matrix = np.concatenate(
-            [combined_baseline[tid] for tid in trial_order], 
-            axis = 0
+            [combined_baseline[tid] for tid in trial_order],
+            axis=0
         ).astype(output_feature_dtype)
-        
+
         # Build baseline suffixes as frozenset for faster membership testing
         baseline_suffixes = frozenset(baseline_methods_to_use)
-        
+
         # Use boolean indexing instead of nested loops
         ue_indices = np.array([
             i for i, feature in enumerate(combined_baseline_names)
@@ -1185,37 +1202,37 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
                 feature, baseline_suffixes
             )
         ])
-        
+
         # Compute trial_ints in the same order as features were concatenated (trial_order).
         trial_ids_for_rows = np.concatenate([
             np.full(combined_baseline[tid].shape[0], tid, dtype=object)
             for tid in trial_order
         ])
         trial_ints = self._convert_to_unique_ordered_integers(trial_ids_for_rows)
-        
+
         x_feature_matrix = x_feature_matrix[:, ue_indices]
         x_feature_matrix = np.hstack([
             x_feature_matrix,
             trial_ints.reshape(-1, 1)
         ])
-        
+
         all_features = [combined_baseline_names[i] for i in ue_indices]
-        
+
         return x_feature_matrix, all_features
-    
+
     def _is_baselined_stream(self, feature_name: str, baseline_suffixes: frozenset) -> bool:
         """Check if feature_name matches '{unengineered_stream}_{baseline_method}' pattern."""
         # Early exit if feature doesn't contain underscore (optimization)
         if '_' not in feature_name:
             return False
-        
+
         # Extract potential stream and suffix
         parts = feature_name.rsplit('_', 1)
         if len(parts) != 2:
             return False
-        
+
         stream_candidate, suffix = parts
-        
+
         # Check if suffix is a baseline method and stream is unengineered
         return suffix in baseline_suffixes and stream_candidate in self._UNENGINEERED_STREAMS
 
@@ -1237,12 +1254,12 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         # CRITICAL: Extract trial_ints BEFORE removing constant columns,
         # otherwise the last column might be removed and we'll extract the wrong column
         trial_ints = x_feature_matrix[:, -1].copy()
-        
+
         # Separate trial_ints from feature matrix for constant column removal
         # The last column is trial_ints which was added by _generate_features
         x_features_without_trials = x_feature_matrix[:, :-1]
         feature_names_without_trials = features["All"]  # features["All"] should NOT include trial_ints
-        
+
         # Remove constant columns (typically no constant columns)
         x_features_without_trials, feature_names_without_trials = self._remove_constant_columns(
             x_features_without_trials, feature_names_without_trials
@@ -1320,7 +1337,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         # Extract trial indices from last column (use direct slicing for memory efficiency)
         train_trials = x_train[:, -1:]
         test_trials = x_test[:, -1:]
-        
+
         # Remove trial column from features
         x_train = x_train[:, :-1]
         x_test = x_test[:, :-1]
@@ -1335,7 +1352,6 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         x_test = np.hstack([x_test, test_trials])
 
         return x_train, y_train, x_test, y_test
-    
 
 
 class TraditionalDataPipeline(BaseGLOCDataPipeline):
@@ -1355,6 +1371,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             analysis_type: int,
             *,
             select_features: Optional[List[str]] = None,
+            feature_streams: Optional[List[str]] = None,
             traditional_feature_selection: Literal["cache", "raw"] = "cache",
             return_feature_names: bool = False,
             impute_file_name: Optional[str] = None,
@@ -1363,7 +1380,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             save_impute: bool = False,
             load_impute: bool = False,
             model: Optional[BaseModel] = None,
-        ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Return data for a given set of parameters."""
         traditional_hyperparameters = self._resolve_traditional_hyperparameters(model, classifier_type)
         baseline_window = traditional_hyperparameters["baseline_window"]
@@ -1374,18 +1391,21 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         _imbalance_type = traditional_hyperparameters["imbalance_type"]
         impute_type = traditional_hyperparameters["impute_type"]
         n_neighbors = traditional_hyperparameters["n_neighbors"]
-        feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
+        feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type,
+                                                                                                           baseline_methods_to_use)
 
         ############################################# LOAD AND PROCESS DATA #############################################
-        logger.info("Loading and processing data with parameters: classifier_type=%s, model_type=%s, select_features=%s, remove_NaN_trials=%s, offset=%.2f, time_start=%.2f, subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d",)
+        logger.info(
+            "Loading and processing data with parameters: classifier_type=%s, model_type=%s, select_features=%s, remove_NaN_trials=%s, offset=%.2f, time_start=%.2f, subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d", )
         # "Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze"
         file_paths = self._get_data_locations()
 
         # Load data and slot in GOR EEG features from xlsx files, then filter to specified analysis type and process features based on specified feature groups
         gloc_data = self._load_data(file_paths, output_feature_dtype)
         gloc_data = self._filter_data_by_analysis_type(analysis_type, gloc_data, subject_to_analyze, trial_to_analyze)
-        gloc_data, features = self._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type, file_paths, output_feature_dtype)
-        
+        gloc_data, features = self._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type,
+                                                                  file_paths, output_feature_dtype)
+
         # Create GLOC categorical vector
         gloc_labels = self._label_gloc_events(gloc_data)
 
@@ -1401,7 +1421,8 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         # Normalize impute_phase and derive behavior flags (preserve backward compatibility where needed).
         try:
             if impute_phase is None:
-                impute_phase = ImputePhase.parse(self.config["shared_data_parameters"].get("impute_phase", "pre_feature"))
+                impute_phase = ImputePhase.parse(
+                    self.config["shared_data_parameters"].get("impute_phase", "pre_feature"))
             else:
                 impute_phase = ImputePhase.parse(impute_phase)
         except Exception:
@@ -1411,7 +1432,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         do_post_feature_remove_rows = impute_phase == ImputePhase.POST_FEATURE_REMOVE_ROWS
         do_post_feature_knn = impute_phase == ImputePhase.POST_FEATURE_KNN
 
-        logger.info("Cleaning data and performing imputation with impute_phase=%s, pre_feature=%s, post_remove=%s, post_knn=%s, n_neighbors=%d", impute_phase.value, do_pre_feature_impute, do_post_feature_remove_rows, do_post_feature_knn, n_neighbors)
+        logger.info(
+            "Cleaning data and performing imputation with impute_phase=%s, pre_feature=%s, post_remove=%s, post_knn=%s, n_neighbors=%d",
+            impute_phase.value, do_pre_feature_impute, do_post_feature_remove_rows, do_post_feature_knn, n_neighbors)
         if remove_NaN_trials:
             gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
 
@@ -1439,11 +1462,14 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     logger.info("Saved traditional imputed data to %s.", traditional_impute_path)
 
             gloc_data[features["All"]] = imputed_features
-        
+
         ################################################## REDUCE MEMORY ##################################################
         logger.info("Reducing memory usage by converting to numpy arrays with dtype=%s.", output_feature_dtype)
         # Extract out columns from gloc_data into experiment_metadata
-        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data, gloc_labels, features, output_feature_dtype)
+        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data,
+                                                                                                   gloc_labels,
+                                                                                                   features,
+                                                                                                   output_feature_dtype)
 
         ###################################################### Prediction Offset ###############################################
         logger.info("Applying prediction offset with backstep=%d, data_rate=%d", backstep, data_rate)
@@ -1464,7 +1490,8 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         )
 
         ################################# FEATURE GENERATION ########################################
-        logger.info("Generating features with window_size=%.2f, stride=%.2f, offset=%.2f, time_start=%.2f", window_size, stride, offset, time_start)
+        logger.info("Generating features with window_size=%.2f, stride=%.2f, offset=%.2f, time_start=%.2f", window_size,
+                    stride, offset, time_start)
         # Feature generation must run for each offset to window GLOC labels
         raw_gloc_labels_numpy = gloc_labels_numpy.copy()
         gloc_labels_numpy, gloc_data_all_features_numpy, features["All"] = self._feature_generation(
@@ -1498,12 +1525,15 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 time_start
             )
 
-            gloc_data_all_features_numpy = np.hstack([gloc_data_all_features_numpy, experiment_metadata["AFE_indicator_windowed"]])
+            gloc_data_all_features_numpy = np.hstack(
+                [gloc_data_all_features_numpy, experiment_metadata["AFE_indicator_windowed"]])
             features["All"].append("AFE_indicator_windowed")
 
         if traditional_feature_selection == "cache":
             if select_features is None:
                 raise ValueError("select_features is required when traditional_feature_selection='cache'.")
+
+            select_features = self._apply_sensor_ablation(select_features, feature_streams)
 
             # Backward compatibility: legacy feature lists may still reference "condition".
             translated_select_features = [
@@ -1515,17 +1545,36 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             selected_indices = [feature_index[feature_name] for feature_name in translated_select_features]
             gloc_data_all_features_numpy = gloc_data_all_features_numpy[:, selected_indices]
 
-            gloc_data_all_features_numpy, select_features = self._remove_constant_columns(gloc_data_all_features_numpy, translated_select_features)
+            gloc_data_all_features_numpy, select_features = self._remove_constant_columns(gloc_data_all_features_numpy,
+                                                                                          translated_select_features)
         else:
-            gloc_data_all_features_numpy, select_features = self._remove_constant_columns(
+            gloc_data_all_features_numpy, all_available_features = self._remove_constant_columns(
                 gloc_data_all_features_numpy,
                 list(features["All"]),
             )
 
+            select_features = self._apply_sensor_ablation(
+                all_available_features,
+                feature_streams,
+            )
+
+            feature_index = {
+                feature_name: i
+                for i, feature_name in enumerate(all_available_features)
+            }
+
+            selected_indices = [
+                feature_index[feature_name]
+                for feature_name in select_features
+            ]
+
+            gloc_data_all_features_numpy = gloc_data_all_features_numpy[:, selected_indices]
+
         ################################################ NaN Processing ################################################
         # Optionally perform post-feature KNN imputation on the reduced numpy matrix
         if do_post_feature_knn:
-            logger.info("Performing post-feature KNN imputation on traditional feature matrix with n_neighbors=%d", n_neighbors)
+            logger.info("Performing post-feature KNN imputation on traditional feature matrix with n_neighbors=%d",
+                        n_neighbors)
             # gloc_data_all_features_numpy is already a numpy array; impute missing values across entire dataset
             gloc_data_all_features_numpy = self._faster_knn_impute(gloc_data_all_features_numpy, k=n_neighbors)
 
@@ -1538,13 +1587,14 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         ################################################ Get Outputs Ready ############################################
         logger.info("Finalizing outputs and ensuring legacy compatibility in dtypes and shapes.")
-        gloc_data_all_features_numpy, gloc_labels_numpy = self._ready_outputs(gloc_data_all_features_numpy, gloc_labels_numpy)
+        gloc_data_all_features_numpy, gloc_labels_numpy = self._ready_outputs(gloc_data_all_features_numpy,
+                                                                              gloc_labels_numpy)
 
         if return_feature_names:
             return gloc_data_all_features_numpy, gloc_labels_numpy, select_features
 
         return gloc_data_all_features_numpy, gloc_labels_numpy
-    
+
     def _resolve_traditional_hyperparameters(
             self,
             model: Optional[BaseModel],
@@ -1585,13 +1635,14 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         return hyperparameters
 
-    def _get_feature_groups_and_baseline_methods(self, model_type: ModelType, baseline_methods_to_use: List[str]) -> Tuple[Sequence[str], List[str]]:
+    def _get_feature_groups_and_baseline_methods(self, model_type: ModelType, baseline_methods_to_use: List[str]) -> \
+    Tuple[Sequence[str], List[str]]:
         """Resolve feature groups and baseline methods for advanced pipeline variants."""
         feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
 
         if model_type.afe_filter == "Complete":
             baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE["Complete"]
-            
+
         return feature_groups_to_analyze, baseline_methods_to_use
 
     def _resolve_traditional_impute_path(self, impute_file_name: str, classifier_type: str) -> str:
@@ -1624,7 +1675,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         )
 
         # Build FAISS index (HNSW)
-        d = X.shape[1] # dimension
+        d = X.shape[1]  # dimension
         index = faiss.IndexHNSWFlat(d, M)
         index.hnsw.efSearch = efSearch
         index.hnsw.rng = faiss.RandomGenerator(self.random_seed)
@@ -1638,13 +1689,13 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             missing_cols = np.flatnonzero(mask[i])
             if missing_cols.size == 0:
                 continue
-            neighbors = indices[i, 1:] # skip self
+            neighbors = indices[i, 1:]  # skip self
             for j in missing_cols:
                 neighbor_values = X_temp32[neighbors, j]
                 X_imputed[i, j] = np.nanmean(neighbor_values)
 
         return X_imputed
-    
+
     def _feature_generation(
             self,
             time_start: float,
@@ -1664,34 +1715,37 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         """Generate temporal engineered features from baseline data."""
         # Sliding Window Mean
         gloc_window, sliding_window_mean_s1, number_windows, all_features_mean_s1, sliding_window_mean_s2, all_features_mean_s2 = (
-            self._sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc, trial_column,
-            time_column, combined_baseline_names))
+            self._sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc,
+                                           trial_column,
+                                           time_column, combined_baseline_names))
 
         # Sliding Window Standard Deviation, Max, Range
         (sliding_window_stddev_s1, sliding_window_max_s1, sliding_window_range_s1, all_features_stddev_s1,
-        all_features_max_s1,
-        all_features_range_s1, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2,
-        all_features_stddev_s2, all_features_max_s2,
-        all_features_range_s2) = (
+         all_features_max_s1,
+         all_features_range_s1, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2,
+         all_features_stddev_s2, all_features_max_s2,
+         all_features_range_s2) = (
             self._sliding_window_calc(time_start, stride, window_size, combined_baseline, trial_column, time_column,
                                       number_windows, combined_baseline_names))
 
         # Additional Features
         (all_features_additional_s1, sliding_window_integral_left_pupil_s1, sliding_window_integral_right_pupil_s1,
-        sliding_window_consecutive_elements_mean_left_pupil_s1, sliding_window_consecutive_elements_mean_right_pupil_s1,
-        sliding_window_consecutive_elements_max_left_pupil_s1, sliding_window_consecutive_elements_max_right_pupil_s1,
-        sliding_window_consecutive_elements_sum_left_pupil_s1, sliding_window_consecutive_elements_sum_right_pupil_s1,
-        sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1,
-        sliding_window_cognitive_ies_s1,
-        all_features_additional_s2, sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
-        sliding_window_consecutive_elements_mean_left_pupil_s2, sliding_window_consecutive_elements_mean_right_pupil_s2,
-        sliding_window_consecutive_elements_max_left_pupil_s2, sliding_window_consecutive_elements_max_right_pupil_s2,
-        sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
-        sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
-        sliding_window_cognitive_ies_s2) = \
+         sliding_window_consecutive_elements_mean_left_pupil_s1,
+         sliding_window_consecutive_elements_mean_right_pupil_s1,
+         sliding_window_consecutive_elements_max_left_pupil_s1, sliding_window_consecutive_elements_max_right_pupil_s1,
+         sliding_window_consecutive_elements_sum_left_pupil_s1, sliding_window_consecutive_elements_sum_right_pupil_s1,
+         sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1,
+         sliding_window_cognitive_ies_s1,
+         all_features_additional_s2, sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
+         sliding_window_consecutive_elements_mean_left_pupil_s2,
+         sliding_window_consecutive_elements_mean_right_pupil_s2,
+         sliding_window_consecutive_elements_max_left_pupil_s2, sliding_window_consecutive_elements_max_right_pupil_s2,
+         sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
+         sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
+         sliding_window_cognitive_ies_s2) = \
             (self._sliding_window_other_features(time_start, stride, window_size, trial_column, time_column,
-                                            number_windows,
-                                            baseline_names_v0, baseline_v0, feature_groups_to_analyze))
+                                                 number_windows,
+                                                 baseline_names_v0, baseline_v0, feature_groups_to_analyze))
 
         # Unpack Dictionary into Array & combine features into one feature array
         y_gloc_labels, x_feature_matrix = self._unpack_dict(gloc_window, sliding_window_mean_s1, number_windows,
@@ -1753,19 +1807,18 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         # Iterate through unique trial_id
         current_index = 0
         for i in range(np.size(trial_id_in_data)):
-
             # Find number of rows in trial
             num_rows = np.shape(feature_dictionary[trial_id_in_data[i]])[0]
 
             # Set rows and columns in x_feature_matrix equal to current dictionary
-            all_data[current_index:num_rows + current_index,:] = feature_dictionary[trial_id_in_data[i]]
+            all_data[current_index:num_rows + current_index, :] = feature_dictionary[trial_id_in_data[i]]
 
             # Increment row index
             current_index += num_rows
 
         # Find mean and stand deviation of all data
-        inter_trial_mean = np.nanmean(all_data, axis = 0, keepdims=True)
-        inter_trial_standard_deviation = np.nanstd(all_data, axis = 0, keepdims=True)
+        inter_trial_mean = np.nanmean(all_data, axis=0, keepdims=True)
+        inter_trial_standard_deviation = np.nanstd(all_data, axis=0, keepdims=True)
 
         # Build Dictionary for each trial_id
         sliding_window_s2 = dict()
@@ -1776,7 +1829,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             current_trial_data = feature_dictionary[trial_id_in_data[i]]
 
             # Find inter-trial z-score
-            inter_trial_z_score = ((current_trial_data - inter_trial_mean)/inter_trial_standard_deviation)
+            inter_trial_z_score = ((current_trial_data - inter_trial_mean) / inter_trial_standard_deviation)
 
             # Define dictionary item for trial_id
             sliding_window_s2[trial_id_in_data[i]] = inter_trial_z_score
@@ -1794,7 +1847,8 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             trial_column: np.ndarray,
             time_column: np.ndarray,
             combined_baseline_names: List[str],
-    ) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.int32], List[str], Dict[str, np.ndarray], List[str]]:
+    ) -> Tuple[
+        Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.int32], List[str], Dict[str, np.ndarray], List[str]]:
         """Compute sliding-window mean features and aligned GLOC labels."""
 
         # Find Unique Trial ID
@@ -1823,7 +1877,8 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             number_windows_current = np.int32(((time_end - offset) // stride) - (window_size // stride - 1))
 
             # Pre-allocate arrays
-            sliding_window_mean_current = np.zeros((number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1]))
+            sliding_window_mean_current = np.zeros(
+                (number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1]))
             gloc_window_current = np.zeros((number_windows_current, 1))
 
             # Create trimmed gloc data for the specific
@@ -1834,13 +1889,12 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
             # Iterate through all windows to compute relevant parameters
             for j in range(number_windows_current):
-
                 # Find index for current window
                 time_period_feature = (time_iteration <= time_trimmed) & (time_trimmed < (time_iteration + window_size))
                 current_combined_baseline = combined_baseline[trial_id_in_data[i]][time_period_feature]
 
                 # Take nanmean for the window (one value per column (feature))
-                sliding_window_mean_current[j,:] = np.nanmean(current_combined_baseline, axis = 0, keepdims=True)
+                sliding_window_mean_current[j, :] = np.nanmean(current_combined_baseline, axis=0, keepdims=True)
 
                 # Find the offset time for G-LOC label
                 time_period_gloc = (((time_iteration + offset) <= time_trimmed) &
@@ -1856,17 +1910,20 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             # This was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
             # should be removed in separate code or during feature selection.
             sliding_window_mean_current_z_score = np.zeros(np.shape(sliding_window_mean_current))
-            if np.any(np.nanstd(sliding_window_mean_current, axis = 0, keepdims=True) == 0):
+            if np.any(np.nanstd(sliding_window_mean_current, axis=0, keepdims=True) == 0):
                 # Z-score columns that don't have zero standard deviation
                 for col in range(np.shape(sliding_window_mean_current)[1]):
-                    if np.nanstd(sliding_window_mean_current[:,col]) != 0:
-                        sliding_window_mean_current_z_score[:,col] = ((sliding_window_mean_current[:,col] - np.nanmean(
-                            sliding_window_mean_current[:,col])) / np.nanstd(sliding_window_mean_current[:,col]))
+                    if np.nanstd(sliding_window_mean_current[:, col]) != 0:
+                        sliding_window_mean_current_z_score[:, col] = (
+                                    (sliding_window_mean_current[:, col] - np.nanmean(
+                                        sliding_window_mean_current[:, col])) / np.nanstd(
+                                sliding_window_mean_current[:, col]))
                     else:
                         sliding_window_mean_current_z_score[:, col] = np.zeros(np.shape(sliding_window_mean_current)[0])
             else:
-                sliding_window_mean_current_z_score = ((sliding_window_mean_current - np.nanmean(sliding_window_mean_current, axis = 0, keepdims=True))
-                                                / np.nanstd(sliding_window_mean_current, axis = 0, keepdims=True))
+                sliding_window_mean_current_z_score = ((sliding_window_mean_current - np.nanmean(
+                    sliding_window_mean_current, axis=0, keepdims=True))
+                                                       / np.nanstd(sliding_window_mean_current, axis=0, keepdims=True))
 
             # Define dictionary item for trial_id
             sliding_window_mean_s1[trial_id_in_data[i]] = sliding_window_mean_current_z_score
@@ -1931,16 +1988,18 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             number_windows_current = number_windows[trial_id_in_data[i]]
 
             # Pre-allocate arrays
-            sliding_window_stddev_current = np.zeros((number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1]))
-            sliding_window_max_current = np.zeros((number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1]))
-            sliding_window_range_current = np.zeros((number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1]))
+            sliding_window_stddev_current = np.zeros(
+                (number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1]))
+            sliding_window_max_current = np.zeros(
+                (number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1]))
+            sliding_window_range_current = np.zeros(
+                (number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1]))
 
             # Define iteration time
             time_iteration = time_start
 
             # Iterate through all windows to compute relevant parameters
             for j in range(number_windows_current):
-
                 # Find index for current window
                 time_period_feature = (time_iteration <= time_trimmed) & (time_trimmed < (time_iteration + window_size))
 
@@ -1948,13 +2007,15 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 current_combined_baseline = combined_baseline[trial_id_in_data[i]][time_period_feature]
 
                 # Take nan stddev for the window (one value per column (feature))
-                sliding_window_stddev_current[j,:] = np.nanstd(current_combined_baseline, axis = 0, keepdims=True)
+                sliding_window_stddev_current[j, :] = np.nanstd(current_combined_baseline, axis=0, keepdims=True)
 
                 # Take nan max for the window (one value per column (feature))
                 sliding_window_max_current[j, :] = np.nanmax(current_combined_baseline, axis=0, keepdims=True)
 
                 # Take nan range for the window (one value per column (feature))
-                sliding_window_range_current[j, :] = np.nanmax(current_combined_baseline, axis=0, keepdims=True) - np.nanmin(current_combined_baseline, axis=0, keepdims=True)
+                sliding_window_range_current[j, :] = np.nanmax(current_combined_baseline, axis=0,
+                                                               keepdims=True) - np.nanmin(current_combined_baseline,
+                                                                                          axis=0, keepdims=True)
 
                 # Adjust iteration_time
                 time_iteration = stride + time_iteration
@@ -1968,13 +2029,19 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 # Z-score columns that don't have zero standard deviation
                 for col in range(np.shape(sliding_window_stddev_current)[1]):
                     if np.nanstd(sliding_window_stddev_current[:, col]) != 0:
-                        sliding_window_stddev_current_z_score_s1[:, col] = ((sliding_window_stddev_current[:, col] - np.nanmean(sliding_window_stddev_current[:, col])) /
-                                                                np.nanstd(sliding_window_stddev_current[:, col]))
+                        sliding_window_stddev_current_z_score_s1[:, col] = ((sliding_window_stddev_current[
+                                                                                 :, col] - np.nanmean(
+                            sliding_window_stddev_current[:, col])) /
+                                                                            np.nanstd(
+                                                                                sliding_window_stddev_current[:, col]))
                     else:
-                        sliding_window_stddev_current_z_score_s1[:, col] = np.zeros(np.shape(sliding_window_stddev_current)[0])
+                        sliding_window_stddev_current_z_score_s1[:, col] = np.zeros(
+                            np.shape(sliding_window_stddev_current)[0])
             else:
-                sliding_window_stddev_current_z_score_s1 = ((sliding_window_stddev_current - np.nanmean(sliding_window_stddev_current, axis = 0, keepdims=True))
-                                                / np.nanstd(sliding_window_stddev_current, axis = 0, keepdims=True))
+                sliding_window_stddev_current_z_score_s1 = ((sliding_window_stddev_current - np.nanmean(
+                    sliding_window_stddev_current, axis=0, keepdims=True))
+                                                            / np.nanstd(sliding_window_stddev_current, axis=0,
+                                                                        keepdims=True))
 
             # Max
             sliding_window_max_current_z_score_s1 = np.zeros(np.shape(sliding_window_max_current))
@@ -1982,27 +2049,35 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 # Find columns with zero standard deviation
                 for col in range(np.shape(sliding_window_max_current)[1]):
                     if np.nanstd(sliding_window_max_current[:, col]) != 0:
-                        sliding_window_max_current_z_score_s1[:, col] = ((sliding_window_max_current[:, col] - np.nanmean(
-                            sliding_window_max_current[:, col])) / np.nanstd(sliding_window_max_current[:, col]))
+                        sliding_window_max_current_z_score_s1[:, col] = (
+                                    (sliding_window_max_current[:, col] - np.nanmean(
+                                        sliding_window_max_current[:, col])) / np.nanstd(
+                                sliding_window_max_current[:, col]))
                     else:
-                        sliding_window_max_current_z_score_s1[:, col] = np.zeros(np.shape(sliding_window_max_current)[0])
+                        sliding_window_max_current_z_score_s1[:, col] = np.zeros(
+                            np.shape(sliding_window_max_current)[0])
             else:
-                sliding_window_max_current_z_score_s1 = ((sliding_window_max_current - np.nanmean(sliding_window_max_current, axis = 0, keepdims=True))
-                                                / np.nanstd(sliding_window_max_current, axis = 0, keepdims=True))
+                sliding_window_max_current_z_score_s1 = (
+                            (sliding_window_max_current - np.nanmean(sliding_window_max_current, axis=0, keepdims=True))
+                            / np.nanstd(sliding_window_max_current, axis=0, keepdims=True))
             # Range
             sliding_window_range_current_z_score_s1 = np.zeros(np.shape(sliding_window_range_current))
             if np.any(np.nanstd(sliding_window_range_current, axis=0, keepdims=True) == 0):
                 # Find columns with zero standard deviation
                 for col in range(np.shape(sliding_window_range_current)[1]):
                     if np.nanstd(sliding_window_range_current[:, col]) != 0:
-                        sliding_window_range_current_z_score_s1[:, col] = ((sliding_window_range_current[:, col] - np.nanmean(
-                            sliding_window_range_current[:, col])) / np.nanstd(sliding_window_range_current[:, col]))
+                        sliding_window_range_current_z_score_s1[:, col] = (
+                                    (sliding_window_range_current[:, col] - np.nanmean(
+                                        sliding_window_range_current[:, col])) / np.nanstd(
+                                sliding_window_range_current[:, col]))
                     else:
-                        sliding_window_range_current_z_score_s1[:, col] = np.zeros(np.shape(sliding_window_range_current)[0])
+                        sliding_window_range_current_z_score_s1[:, col] = np.zeros(
+                            np.shape(sliding_window_range_current)[0])
             else:
-                sliding_window_range_current_z_score_s1 = ((sliding_window_range_current - np.nanmean(sliding_window_range_current, axis = 0, keepdims=True))
-                                                / np.nanstd(sliding_window_range_current, axis = 0, keepdims=True))
-
+                sliding_window_range_current_z_score_s1 = ((sliding_window_range_current - np.nanmean(
+                    sliding_window_range_current, axis=0, keepdims=True))
+                                                           / np.nanstd(sliding_window_range_current, axis=0,
+                                                                       keepdims=True))
 
             # Define dictionary item for trial_id
             # No standardization
@@ -2029,8 +2104,10 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         all_features_max_s2 = [s + '_max_s2' for s in combined_baseline_names]
         all_features_range_s2 = [s + '_range_s2' for s in combined_baseline_names]
 
-        return (sliding_window_stddev_s1, sliding_window_max_s1, sliding_window_range_s1, all_features_stddev_s1, all_features_max_s1,
-                all_features_range_s1, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2, all_features_stddev_s2,
+        return (sliding_window_stddev_s1, sliding_window_max_s1, sliding_window_range_s1, all_features_stddev_s1,
+                all_features_max_s1,
+                all_features_range_s1, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2,
+                all_features_stddev_s2,
                 all_features_max_s2, all_features_range_s2)
 
     def _sliding_window_other_features(
@@ -2061,12 +2138,12 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
             # Define eyetracking feature names
             eye_tracking_features = ['Left Pupil Integral (Non-Baseline)', 'Right Pupil Integral (Non-Baseline)',
-                                    'Left Pupil Mean of Consecutive Difference (Non-Baseline)',
-                                    'Right Pupil Mean of Consecutive Difference (Non-Baseline)',
-                                    'Left Pupil Max of Consecutive Difference (Non-Baseline)',
-                                    'Right Pupil Max of Consecutive Difference (Non-Baseline)',
-                                    'Left Pupil Sum of Consecutive Difference (Non-Baseline)',
-                                    'Right Pupil Sum of Consecutive Difference (Non-Baseline)']
+                                     'Left Pupil Mean of Consecutive Difference (Non-Baseline)',
+                                     'Right Pupil Mean of Consecutive Difference (Non-Baseline)',
+                                     'Left Pupil Max of Consecutive Difference (Non-Baseline)',
+                                     'Right Pupil Max of Consecutive Difference (Non-Baseline)',
+                                     'Left Pupil Sum of Consecutive Difference (Non-Baseline)',
+                                     'Right Pupil Sum of Consecutive Difference (Non-Baseline)']
         else:
             eye_tracking_features = []
 
@@ -2075,7 +2152,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             index_hr = baseline_names_v0.index('HR (bpm) - Equivital_v0')
 
             # Define ECG feature names
-            ecg_features = ['HRV (SDNN)', 'HRV (RMSSD)']# , 'HRV (PNN50)']. Removed PNN50 due to interpolation
+            ecg_features = ['HRV (SDNN)', 'HRV (RMSSD)']  # , 'HRV (PNN50)']. Removed PNN50 due to interpolation
         else:
             ecg_features = []
 
@@ -2176,11 +2253,11 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
                 if 'ECG' in feature_groups_to_analyze:
                     # Compute HRV
-                    rr_interval = 60000 / feature_window_no_baseline[:,index_hr]
+                    rr_interval = 60000 / feature_window_no_baseline[:, index_hr]
                     sliding_window_hrv_sdnn_current[j] = np.nanstd(rr_interval)
 
                     successive_difference = np.diff(rr_interval)
-                    sliding_window_hrv_rmssd_current[j] = np.sqrt(np.nanmean(successive_difference**2))
+                    sliding_window_hrv_rmssd_current[j] = np.sqrt(np.nanmean(successive_difference ** 2))
 
                     # Compute PNN50
                     # count_50ms_diff_current = np.sum(np.abs(successive_difference) > 50 * 0.04) # 50 times (1/sampling freqeuncy)
@@ -2188,7 +2265,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
                 if 'cognitive' in feature_groups_to_analyze:
                     # Compute IES (Inverse Efficiency Score)
-                    sliding_window_cognitive_ies_current[j] = np.nanmean(feature_window_no_baseline[:,index_response_time]) / (np.nanmean(feature_window_no_baseline[:,index_correct]))
+                    sliding_window_cognitive_ies_current[j] = np.nanmean(
+                        feature_window_no_baseline[:, index_response_time]) / (np.nanmean(
+                        feature_window_no_baseline[:, index_correct]))
 
                 if 'eyetracking' in feature_groups_to_analyze:
                     # Compute non-baseline pupil features
@@ -2196,8 +2275,10 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     right_pupil_no_baseline = feature_window_no_baseline[:, index_right_pupil]
 
                     # Integral (using Trapezoid rule)
-                    sliding_window_integral_left_pupil_current[j] = (window_size / 2) * (left_pupil_no_baseline[-1] + left_pupil_no_baseline[0])
-                    sliding_window_integral_right_pupil_current[j] = (window_size / 2) * (right_pupil_no_baseline[-1] + right_pupil_no_baseline[0])
+                    sliding_window_integral_left_pupil_current[j] = (window_size / 2) * (
+                                left_pupil_no_baseline[-1] + left_pupil_no_baseline[0])
+                    sliding_window_integral_right_pupil_current[j] = (window_size / 2) * (
+                                right_pupil_no_baseline[-1] + right_pupil_no_baseline[0])
 
                     # Compute average difference between consecutive elements
                     left_pupil_consecutive_difference = np.diff(left_pupil_no_baseline)
@@ -2206,16 +2287,22 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     right_pupil_consecutive_difference = np.diff(right_pupil_no_baseline)
                     right_pupil_consecutive_difference_full = np.append(right_pupil_consecutive_difference, np.nan)
 
-                    sliding_window_consecutive_elements_mean_left_pupil_current[j] = np.nanmean(left_pupil_consecutive_difference_full)
-                    sliding_window_consecutive_elements_mean_right_pupil_current[j] = np.nanmean(right_pupil_consecutive_difference_full)
+                    sliding_window_consecutive_elements_mean_left_pupil_current[j] = np.nanmean(
+                        left_pupil_consecutive_difference_full)
+                    sliding_window_consecutive_elements_mean_right_pupil_current[j] = np.nanmean(
+                        right_pupil_consecutive_difference_full)
 
                     # Compute max difference between consecutive elements
-                    sliding_window_consecutive_elements_max_left_pupil_current[j] = np.nanmax(left_pupil_consecutive_difference_full)
-                    sliding_window_consecutive_elements_max_right_pupil_current[j] = np.nanmax(right_pupil_consecutive_difference_full)
+                    sliding_window_consecutive_elements_max_left_pupil_current[j] = np.nanmax(
+                        left_pupil_consecutive_difference_full)
+                    sliding_window_consecutive_elements_max_right_pupil_current[j] = np.nanmax(
+                        right_pupil_consecutive_difference_full)
 
                     # Compute sum of difference between consecutive elements
-                    sliding_window_consecutive_elements_sum_left_pupil_current[j] = np.nansum(left_pupil_consecutive_difference_full)
-                    sliding_window_consecutive_elements_sum_right_pupil_current[j] = np.nansum(right_pupil_consecutive_difference_full)
+                    sliding_window_consecutive_elements_sum_left_pupil_current[j] = np.nansum(
+                        left_pupil_consecutive_difference_full)
+                    sliding_window_consecutive_elements_sum_right_pupil_current[j] = np.nansum(
+                        right_pupil_consecutive_difference_full)
 
                 # Adjust iteration_time
                 time_iteration = stride + time_iteration
@@ -2225,138 +2312,218 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 # Compute z-score to standardize integral left pupil
                 # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
                 # should be removed in separate code or during feature selection
-                sliding_window_integral_left_pupil_current_z_score = np.zeros(np.shape(sliding_window_integral_left_pupil_current))
+                sliding_window_integral_left_pupil_current_z_score = np.zeros(
+                    np.shape(sliding_window_integral_left_pupil_current))
                 if np.any(np.nanstd(sliding_window_integral_left_pupil_current, axis=0, keepdims=True) == 0):
                     # Find columns with zero standard deviation
                     for col in range(np.shape(sliding_window_integral_left_pupil_current)[1]):
                         if np.nanstd(sliding_window_integral_left_pupil_current[:, col]) != 0:
-                            sliding_window_integral_left_pupil_current_z_score[:, col] = ((sliding_window_integral_left_pupil_current[:, col] - np.nanmean(
-                                            sliding_window_integral_left_pupil_current[:, col])) / np.nanstd(sliding_window_integral_left_pupil_current[:, col]))
+                            sliding_window_integral_left_pupil_current_z_score[:, col] = (
+                                        (sliding_window_integral_left_pupil_current[:, col] - np.nanmean(
+                                            sliding_window_integral_left_pupil_current[:, col])) / np.nanstd(
+                                    sliding_window_integral_left_pupil_current[:, col]))
                         else:
                             sliding_window_integral_left_pupil_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_integral_left_pupil_current)[0])
                 else:
-                    sliding_window_integral_left_pupil_current_z_score = ((sliding_window_integral_left_pupil_current - np.nanmean(sliding_window_integral_left_pupil_current, axis = 0, keepdims=True))
-                                                    / np.nanstd(sliding_window_integral_left_pupil_current, axis = 0, keepdims=True))
+                    sliding_window_integral_left_pupil_current_z_score = ((
+                                                                                      sliding_window_integral_left_pupil_current - np.nanmean(
+                                                                                  sliding_window_integral_left_pupil_current,
+                                                                                  axis=0, keepdims=True))
+                                                                          / np.nanstd(
+                                sliding_window_integral_left_pupil_current, axis=0, keepdims=True))
 
                 # Compute z-score to standardize integral right pupil
                 # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
                 # should be removed in separate code or during feature selection
-                sliding_window_integral_right_pupil_current_z_score = np.zeros(np.shape(sliding_window_integral_right_pupil_current))
+                sliding_window_integral_right_pupil_current_z_score = np.zeros(
+                    np.shape(sliding_window_integral_right_pupil_current))
                 if np.any(np.nanstd(sliding_window_integral_right_pupil_current, axis=0, keepdims=True) == 0):
                     # Find columns with zero standard deviation
                     for col in range(np.shape(sliding_window_integral_right_pupil_current)[1]):
                         if np.nanstd(sliding_window_integral_right_pupil_current[:, col]) != 0:
-                            sliding_window_integral_right_pupil_current_z_score[:, col] = ((sliding_window_integral_right_pupil_current[:, col] - np.nanmean(
-                                            sliding_window_integral_right_pupil_current[:, col])) / np.nanstd(sliding_window_integral_right_pupil_current[:, col]))
+                            sliding_window_integral_right_pupil_current_z_score[:, col] = (
+                                        (sliding_window_integral_right_pupil_current[:, col] - np.nanmean(
+                                            sliding_window_integral_right_pupil_current[:, col])) / np.nanstd(
+                                    sliding_window_integral_right_pupil_current[:, col]))
                         else:
                             sliding_window_integral_right_pupil_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_integral_right_pupil_current)[0])
                 else:
-                    sliding_window_integral_right_pupil_current_z_score = ((sliding_window_integral_right_pupil_current - np.nanmean(sliding_window_integral_right_pupil_current, axis = 0, keepdims=True))
-                                                    / np.nanstd(sliding_window_integral_right_pupil_current, axis = 0, keepdims=True))
+                    sliding_window_integral_right_pupil_current_z_score = ((
+                                                                                       sliding_window_integral_right_pupil_current - np.nanmean(
+                                                                                   sliding_window_integral_right_pupil_current,
+                                                                                   axis=0, keepdims=True))
+                                                                           / np.nanstd(
+                                sliding_window_integral_right_pupil_current, axis=0, keepdims=True))
 
                 # Compute z-score to standardize mean of difference of consecutive elements-left pupil
                 # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
                 # should be removed in separate code or during feature selection
-                sliding_window_consecutive_elements_mean_left_pupil_current_z_score = np.zeros(np.shape(sliding_window_consecutive_elements_mean_left_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_mean_left_pupil_current, axis=0, keepdims=True) == 0):
+                sliding_window_consecutive_elements_mean_left_pupil_current_z_score = np.zeros(
+                    np.shape(sliding_window_consecutive_elements_mean_left_pupil_current))
+                if np.any(np.nanstd(sliding_window_consecutive_elements_mean_left_pupil_current, axis=0,
+                                    keepdims=True) == 0):
                     # Find columns with zero standard deviation
                     for col in range(np.shape(sliding_window_consecutive_elements_mean_left_pupil_current)[1]):
                         if np.nanstd(sliding_window_consecutive_elements_mean_left_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_mean_left_pupil_current_z_score[:, col] = ((sliding_window_consecutive_elements_mean_left_pupil_current[:, col] - np.nanmean(
-                                            sliding_window_consecutive_elements_mean_left_pupil_current[:, col])) / np.nanstd(sliding_window_consecutive_elements_mean_left_pupil_current[:, col]))
+                            sliding_window_consecutive_elements_mean_left_pupil_current_z_score[:, col] = ((
+                                                                                                                       sliding_window_consecutive_elements_mean_left_pupil_current[
+                                                                                                                           :, col] - np.nanmean(
+                                                                                                                   sliding_window_consecutive_elements_mean_left_pupil_current[
+                                                                                                                       :, col])) / np.nanstd(
+                                sliding_window_consecutive_elements_mean_left_pupil_current[:, col]))
                         else:
                             sliding_window_consecutive_elements_mean_left_pupil_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_consecutive_elements_mean_left_pupil_current)[0])
                 else:
-                    sliding_window_consecutive_elements_mean_left_pupil_current_z_score = ((sliding_window_consecutive_elements_mean_left_pupil_current - np.nanmean(sliding_window_consecutive_elements_mean_left_pupil_current, axis = 0, keepdims=True))
-                                                    / np.nanstd(sliding_window_consecutive_elements_mean_left_pupil_current, axis = 0, keepdims=True))
+                    sliding_window_consecutive_elements_mean_left_pupil_current_z_score = ((
+                                                                                                       sliding_window_consecutive_elements_mean_left_pupil_current - np.nanmean(
+                                                                                                   sliding_window_consecutive_elements_mean_left_pupil_current,
+                                                                                                   axis=0,
+                                                                                                   keepdims=True))
+                                                                                           / np.nanstd(
+                                sliding_window_consecutive_elements_mean_left_pupil_current, axis=0, keepdims=True))
 
                 # Compute z-score to standardize mean of difference of consecutive elements-right pupil
                 # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
                 # should be removed in separate code or during feature selection
-                sliding_window_consecutive_elements_mean_right_pupil_current_z_score = np.zeros(np.shape(sliding_window_consecutive_elements_mean_right_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_mean_right_pupil_current, axis=0, keepdims=True) == 0):
+                sliding_window_consecutive_elements_mean_right_pupil_current_z_score = np.zeros(
+                    np.shape(sliding_window_consecutive_elements_mean_right_pupil_current))
+                if np.any(np.nanstd(sliding_window_consecutive_elements_mean_right_pupil_current, axis=0,
+                                    keepdims=True) == 0):
                     # Find columns with zero standard deviation
                     for col in range(np.shape(sliding_window_consecutive_elements_mean_right_pupil_current)[1]):
                         if np.nanstd(sliding_window_consecutive_elements_mean_right_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_mean_right_pupil_current_z_score[:, col] = ((sliding_window_consecutive_elements_mean_right_pupil_current[:, col] - np.nanmean(
-                                            sliding_window_consecutive_elements_mean_right_pupil_current[:, col])) / np.nanstd(sliding_window_consecutive_elements_mean_right_pupil_current[:, col]))
+                            sliding_window_consecutive_elements_mean_right_pupil_current_z_score[:, col] = ((
+                                                                                                                        sliding_window_consecutive_elements_mean_right_pupil_current[
+                                                                                                                            :, col] - np.nanmean(
+                                                                                                                    sliding_window_consecutive_elements_mean_right_pupil_current[
+                                                                                                                        :, col])) / np.nanstd(
+                                sliding_window_consecutive_elements_mean_right_pupil_current[:, col]))
                         else:
                             sliding_window_consecutive_elements_mean_right_pupil_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_consecutive_elements_mean_right_pupil_current)[0])
                 else:
-                    sliding_window_consecutive_elements_mean_right_pupil_current_z_score = ((sliding_window_consecutive_elements_mean_right_pupil_current - np.nanmean(sliding_window_consecutive_elements_mean_right_pupil_current, axis = 0, keepdims=True))
-                                                    / np.nanstd(sliding_window_consecutive_elements_mean_right_pupil_current, axis = 0, keepdims=True))
+                    sliding_window_consecutive_elements_mean_right_pupil_current_z_score = ((
+                                                                                                        sliding_window_consecutive_elements_mean_right_pupil_current - np.nanmean(
+                                                                                                    sliding_window_consecutive_elements_mean_right_pupil_current,
+                                                                                                    axis=0,
+                                                                                                    keepdims=True))
+                                                                                            / np.nanstd(
+                                sliding_window_consecutive_elements_mean_right_pupil_current, axis=0, keepdims=True))
 
                 # Compute z-score to standardize max of difference of consecutive elements-left pupil
                 # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
                 # should be removed in separate code or during feature selection
-                sliding_window_consecutive_elements_max_left_pupil_current_z_score = np.zeros(np.shape(sliding_window_consecutive_elements_max_left_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_max_left_pupil_current, axis=0, keepdims=True) == 0):
+                sliding_window_consecutive_elements_max_left_pupil_current_z_score = np.zeros(
+                    np.shape(sliding_window_consecutive_elements_max_left_pupil_current))
+                if np.any(np.nanstd(sliding_window_consecutive_elements_max_left_pupil_current, axis=0,
+                                    keepdims=True) == 0):
                     # Find columns with zero standard deviation
                     for col in range(np.shape(sliding_window_consecutive_elements_max_left_pupil_current)[1]):
                         if np.nanstd(sliding_window_consecutive_elements_max_left_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_max_left_pupil_current_z_score[:, col] = ((sliding_window_consecutive_elements_max_left_pupil_current[:, col] - np.nanmean(
-                                            sliding_window_consecutive_elements_max_left_pupil_current[:, col])) / np.nanstd(sliding_window_consecutive_elements_max_left_pupil_current[:, col]))
+                            sliding_window_consecutive_elements_max_left_pupil_current_z_score[:, col] = ((
+                                                                                                                      sliding_window_consecutive_elements_max_left_pupil_current[
+                                                                                                                          :, col] - np.nanmean(
+                                                                                                                  sliding_window_consecutive_elements_max_left_pupil_current[
+                                                                                                                      :, col])) / np.nanstd(
+                                sliding_window_consecutive_elements_max_left_pupil_current[:, col]))
                         else:
                             sliding_window_consecutive_elements_max_left_pupil_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_consecutive_elements_max_left_pupil_current)[0])
                 else:
-                    sliding_window_consecutive_elements_max_left_pupil_current_z_score = ((sliding_window_consecutive_elements_max_left_pupil_current - np.nanmean(sliding_window_consecutive_elements_max_left_pupil_current, axis = 0, keepdims=True))
-                                                    / np.nanstd(sliding_window_consecutive_elements_max_left_pupil_current, axis = 0, keepdims=True))
+                    sliding_window_consecutive_elements_max_left_pupil_current_z_score = ((
+                                                                                                      sliding_window_consecutive_elements_max_left_pupil_current - np.nanmean(
+                                                                                                  sliding_window_consecutive_elements_max_left_pupil_current,
+                                                                                                  axis=0,
+                                                                                                  keepdims=True))
+                                                                                          / np.nanstd(
+                                sliding_window_consecutive_elements_max_left_pupil_current, axis=0, keepdims=True))
 
                 # Compute z-score to standardize max of difference of consecutive elements-right pupil
                 # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
                 # should be removed in separate code or during feature
-                sliding_window_consecutive_elements_max_right_pupil_current_z_score = np.zeros(np.shape(sliding_window_consecutive_elements_max_right_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_max_right_pupil_current, axis=0, keepdims=True) == 0):
+                sliding_window_consecutive_elements_max_right_pupil_current_z_score = np.zeros(
+                    np.shape(sliding_window_consecutive_elements_max_right_pupil_current))
+                if np.any(np.nanstd(sliding_window_consecutive_elements_max_right_pupil_current, axis=0,
+                                    keepdims=True) == 0):
                     # Find columns with zero standard deviation
                     for col in range(np.shape(sliding_window_consecutive_elements_max_right_pupil_current)[1]):
                         if np.nanstd(sliding_window_consecutive_elements_max_right_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_max_right_pupil_current_z_score[:, col] = ((sliding_window_consecutive_elements_max_right_pupil_current[:, col] - np.nanmean(
-                                            sliding_window_consecutive_elements_max_right_pupil_current[:, col])) / np.nanstd(sliding_window_consecutive_elements_max_right_pupil_current[:, col]))
+                            sliding_window_consecutive_elements_max_right_pupil_current_z_score[:, col] = ((
+                                                                                                                       sliding_window_consecutive_elements_max_right_pupil_current[
+                                                                                                                           :, col] - np.nanmean(
+                                                                                                                   sliding_window_consecutive_elements_max_right_pupil_current[
+                                                                                                                       :, col])) / np.nanstd(
+                                sliding_window_consecutive_elements_max_right_pupil_current[:, col]))
                         else:
                             sliding_window_consecutive_elements_max_right_pupil_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_consecutive_elements_max_right_pupil_current)[0])
                 else:
-                    sliding_window_consecutive_elements_max_right_pupil_current_z_score = ((sliding_window_consecutive_elements_max_right_pupil_current - np.nanmean(sliding_window_consecutive_elements_max_right_pupil_current, axis = 0, keepdims=True))
-                                                    / np.nanstd(sliding_window_consecutive_elements_max_right_pupil_current, axis = 0, keepdims=True))
+                    sliding_window_consecutive_elements_max_right_pupil_current_z_score = ((
+                                                                                                       sliding_window_consecutive_elements_max_right_pupil_current - np.nanmean(
+                                                                                                   sliding_window_consecutive_elements_max_right_pupil_current,
+                                                                                                   axis=0,
+                                                                                                   keepdims=True))
+                                                                                           / np.nanstd(
+                                sliding_window_consecutive_elements_max_right_pupil_current, axis=0, keepdims=True))
 
                 # Compute z-score to standardize sum of difference of consecutive elements-left pupil
                 # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
                 # should be removed in separate code or during feature selection
-                sliding_window_consecutive_elements_sum_left_pupil_current_z_score = np.zeros(np.shape(sliding_window_consecutive_elements_sum_left_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_sum_left_pupil_current, axis=0, keepdims=True) == 0):
+                sliding_window_consecutive_elements_sum_left_pupil_current_z_score = np.zeros(
+                    np.shape(sliding_window_consecutive_elements_sum_left_pupil_current))
+                if np.any(np.nanstd(sliding_window_consecutive_elements_sum_left_pupil_current, axis=0,
+                                    keepdims=True) == 0):
                     # Find columns with zero standard deviation
                     for col in range(np.shape(sliding_window_consecutive_elements_sum_left_pupil_current)[1]):
                         if np.nanstd(sliding_window_consecutive_elements_sum_left_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_sum_left_pupil_current_z_score[:, col] = ((sliding_window_consecutive_elements_sum_left_pupil_current[:, col] - np.nanmean(
-                                            sliding_window_consecutive_elements_sum_left_pupil_current[:, col])) / np.nanstd(sliding_window_consecutive_elements_sum_left_pupil_current[:, col]))
+                            sliding_window_consecutive_elements_sum_left_pupil_current_z_score[:, col] = ((
+                                                                                                                      sliding_window_consecutive_elements_sum_left_pupil_current[
+                                                                                                                          :, col] - np.nanmean(
+                                                                                                                  sliding_window_consecutive_elements_sum_left_pupil_current[
+                                                                                                                      :, col])) / np.nanstd(
+                                sliding_window_consecutive_elements_sum_left_pupil_current[:, col]))
                         else:
                             sliding_window_consecutive_elements_sum_left_pupil_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_consecutive_elements_sum_left_pupil_current)[0])
                 else:
-                    sliding_window_consecutive_elements_sum_left_pupil_current_z_score = ((sliding_window_consecutive_elements_sum_left_pupil_current - np.nanmean(sliding_window_consecutive_elements_sum_left_pupil_current, axis = 0, keepdims=True))
-                                                    / np.nanstd(sliding_window_consecutive_elements_sum_left_pupil_current, axis = 0, keepdims=True))
+                    sliding_window_consecutive_elements_sum_left_pupil_current_z_score = ((
+                                                                                                      sliding_window_consecutive_elements_sum_left_pupil_current - np.nanmean(
+                                                                                                  sliding_window_consecutive_elements_sum_left_pupil_current,
+                                                                                                  axis=0,
+                                                                                                  keepdims=True))
+                                                                                          / np.nanstd(
+                                sliding_window_consecutive_elements_sum_left_pupil_current, axis=0, keepdims=True))
 
                 # Compute z-score to standardize sum of difference of consecutive elements-right pupil
                 # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
                 # should be removed in separate code or during feature selection
-                sliding_window_consecutive_elements_sum_right_pupil_current_z_score = np.zeros(np.shape(sliding_window_consecutive_elements_sum_right_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_sum_right_pupil_current, axis=0, keepdims=True) == 0):
+                sliding_window_consecutive_elements_sum_right_pupil_current_z_score = np.zeros(
+                    np.shape(sliding_window_consecutive_elements_sum_right_pupil_current))
+                if np.any(np.nanstd(sliding_window_consecutive_elements_sum_right_pupil_current, axis=0,
+                                    keepdims=True) == 0):
                     # Find columns with zero standard deviation
                     for col in range(np.shape(sliding_window_consecutive_elements_sum_right_pupil_current)[1]):
                         if np.nanstd(sliding_window_consecutive_elements_sum_right_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_sum_right_pupil_current_z_score[:, col] = ((sliding_window_consecutive_elements_sum_right_pupil_current[:, col] - np.nanmean(
-                                            sliding_window_consecutive_elements_sum_right_pupil_current[:, col])) / np.nanstd(sliding_window_consecutive_elements_sum_right_pupil_current[:, col]))
+                            sliding_window_consecutive_elements_sum_right_pupil_current_z_score[:, col] = ((
+                                                                                                                       sliding_window_consecutive_elements_sum_right_pupil_current[
+                                                                                                                           :, col] - np.nanmean(
+                                                                                                                   sliding_window_consecutive_elements_sum_right_pupil_current[
+                                                                                                                       :, col])) / np.nanstd(
+                                sliding_window_consecutive_elements_sum_right_pupil_current[:, col]))
                         else:
                             sliding_window_consecutive_elements_sum_right_pupil_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_consecutive_elements_sum_right_pupil_current)[0])
                 else:
-                    sliding_window_consecutive_elements_sum_right_pupil_current_z_score = ((sliding_window_consecutive_elements_sum_right_pupil_current - np.nanmean(sliding_window_consecutive_elements_sum_right_pupil_current, axis = 0, keepdims=True))
-                                                    / np.nanstd(sliding_window_consecutive_elements_sum_right_pupil_current, axis = 0, keepdims=True))
+                    sliding_window_consecutive_elements_sum_right_pupil_current_z_score = ((
+                                                                                                       sliding_window_consecutive_elements_sum_right_pupil_current - np.nanmean(
+                                                                                                   sliding_window_consecutive_elements_sum_right_pupil_current,
+                                                                                                   axis=0,
+                                                                                                   keepdims=True))
+                                                                                           / np.nanstd(
+                                sliding_window_consecutive_elements_sum_right_pupil_current, axis=0, keepdims=True))
             if 'ECG' in feature_groups_to_analyze:
                 # Compute z-score to standardize hrv sdnn
                 # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
@@ -2366,14 +2533,18 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     # Find columns with zero standard deviation
                     for col in range(np.shape(sliding_window_hrv_sdnn_current)[1]):
                         if np.nanstd(sliding_window_hrv_sdnn_current[:, col]) != 0:
-                            sliding_window_hrv_sdnn_current_z_score[:, col] = ((sliding_window_hrv_sdnn_current[:, col] - np.nanmean(
-                                            sliding_window_hrv_sdnn_current[:, col])) / np.nanstd(sliding_window_hrv_sdnn_current[:, col]))
+                            sliding_window_hrv_sdnn_current_z_score[:, col] = (
+                                        (sliding_window_hrv_sdnn_current[:, col] - np.nanmean(
+                                            sliding_window_hrv_sdnn_current[:, col])) / np.nanstd(
+                                    sliding_window_hrv_sdnn_current[:, col]))
                         else:
                             sliding_window_hrv_sdnn_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_hrv_sdnn_current)[0])
                 else:
-                    sliding_window_hrv_sdnn_current_z_score = ((sliding_window_hrv_sdnn_current - np.nanmean(sliding_window_hrv_sdnn_current, axis = 0, keepdims=True))
-                                                    / np.nanstd(sliding_window_hrv_sdnn_current, axis = 0, keepdims=True))
+                    sliding_window_hrv_sdnn_current_z_score = ((sliding_window_hrv_sdnn_current - np.nanmean(
+                        sliding_window_hrv_sdnn_current, axis=0, keepdims=True))
+                                                               / np.nanstd(sliding_window_hrv_sdnn_current, axis=0,
+                                                                           keepdims=True))
 
                 # Compute z-score to standardize hrv rmssd
                 # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
@@ -2383,14 +2554,18 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     # Find columns with zero standard deviation
                     for col in range(np.shape(sliding_window_hrv_rmssd_current)[1]):
                         if np.nanstd(sliding_window_hrv_rmssd_current[:, col]) != 0:
-                            sliding_window_hrv_rmssd_current_z_score[:, col] = ((sliding_window_hrv_rmssd_current[:, col] - np.nanmean(
-                                            sliding_window_hrv_rmssd_current[:, col])) / np.nanstd(sliding_window_hrv_rmssd_current[:, col]))
+                            sliding_window_hrv_rmssd_current_z_score[:, col] = (
+                                        (sliding_window_hrv_rmssd_current[:, col] - np.nanmean(
+                                            sliding_window_hrv_rmssd_current[:, col])) / np.nanstd(
+                                    sliding_window_hrv_rmssd_current[:, col]))
                         else:
                             sliding_window_hrv_rmssd_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_hrv_rmssd_current)[0])
                 else:
-                    sliding_window_hrv_rmssd_current_z_score = ((sliding_window_hrv_rmssd_current - np.nanmean(sliding_window_hrv_rmssd_current, axis = 0, keepdims=True))
-                                                    / np.nanstd(sliding_window_hrv_rmssd_current, axis = 0, keepdims=True))
+                    sliding_window_hrv_rmssd_current_z_score = ((sliding_window_hrv_rmssd_current - np.nanmean(
+                        sliding_window_hrv_rmssd_current, axis=0, keepdims=True))
+                                                                / np.nanstd(sliding_window_hrv_rmssd_current, axis=0,
+                                                                            keepdims=True))
 
                 # # Compute z-score to standardize hrv pnn50
                 # # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
@@ -2418,36 +2593,54 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     # Find columns with zero standard deviation
                     for col in range(np.shape(sliding_window_cognitive_ies_current)[1]):
                         if np.nanstd(sliding_window_cognitive_ies_current[:, col]) != 0:
-                            sliding_window_cognitive_IES_current_z_score[:, col] = ((sliding_window_cognitive_ies_current[:, col] - np.nanmean(
-                                            sliding_window_cognitive_ies_current[:, col])) / np.nanstd(sliding_window_cognitive_ies_current[:, col]))
+                            sliding_window_cognitive_IES_current_z_score[:, col] = (
+                                        (sliding_window_cognitive_ies_current[:, col] - np.nanmean(
+                                            sliding_window_cognitive_ies_current[:, col])) / np.nanstd(
+                                    sliding_window_cognitive_ies_current[:, col]))
                         else:
                             sliding_window_cognitive_IES_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_cognitive_ies_current)[0])
                 else:
-                    sliding_window_cognitive_IES_current_z_score = ((sliding_window_cognitive_ies_current - np.nanmean(sliding_window_cognitive_ies_current, axis=0, keepdims=True))
-                                                    / np.nanstd(sliding_window_cognitive_ies_current, axis=0, keepdims=True))
+                    sliding_window_cognitive_IES_current_z_score = ((sliding_window_cognitive_ies_current - np.nanmean(
+                        sliding_window_cognitive_ies_current, axis=0, keepdims=True))
+                                                                    / np.nanstd(sliding_window_cognitive_ies_current,
+                                                                                axis=0, keepdims=True))
 
             # Define dictionary item for trial_id
             if 'eyetracking' in feature_groups_to_analyze:
                 # No standardization
                 sliding_window_integral_left_pupil[trial_id_in_data[i]] = sliding_window_integral_left_pupil_current
                 sliding_window_integral_right_pupil[trial_id_in_data[i]] = sliding_window_integral_right_pupil_current
-                sliding_window_consecutive_elements_mean_left_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_left_pupil_current
-                sliding_window_consecutive_elements_mean_right_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_right_pupil_current
-                sliding_window_consecutive_elements_max_left_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_max_left_pupil_current
-                sliding_window_consecutive_elements_max_right_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_max_right_pupil_current
-                sliding_window_consecutive_elements_sum_left_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_left_pupil_current
-                sliding_window_consecutive_elements_sum_right_pupil[trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_right_pupil_current
+                sliding_window_consecutive_elements_mean_left_pupil[
+                    trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_left_pupil_current
+                sliding_window_consecutive_elements_mean_right_pupil[
+                    trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_right_pupil_current
+                sliding_window_consecutive_elements_max_left_pupil[
+                    trial_id_in_data[i]] = sliding_window_consecutive_elements_max_left_pupil_current
+                sliding_window_consecutive_elements_max_right_pupil[
+                    trial_id_in_data[i]] = sliding_window_consecutive_elements_max_right_pupil_current
+                sliding_window_consecutive_elements_sum_left_pupil[
+                    trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_left_pupil_current
+                sliding_window_consecutive_elements_sum_right_pupil[
+                    trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_right_pupil_current
 
                 # Intra-Trial Standardization (s1)
-                sliding_window_integral_left_pupil_s1[trial_id_in_data[i]] = sliding_window_integral_left_pupil_current_z_score
-                sliding_window_integral_right_pupil_s1[trial_id_in_data[i]] = sliding_window_integral_right_pupil_current_z_score
-                sliding_window_consecutive_elements_mean_left_pupil_s1[trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_left_pupil_current_z_score
-                sliding_window_consecutive_elements_mean_right_pupil_s1[trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_right_pupil_current_z_score
-                sliding_window_consecutive_elements_max_left_pupil_s1[trial_id_in_data[i]] = sliding_window_consecutive_elements_max_left_pupil_current_z_score
-                sliding_window_consecutive_elements_max_right_pupil_s1[trial_id_in_data[i]] = sliding_window_consecutive_elements_max_right_pupil_current_z_score
-                sliding_window_consecutive_elements_sum_left_pupil_s1[trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_left_pupil_current_z_score
-                sliding_window_consecutive_elements_sum_right_pupil_s1[trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_right_pupil_current_z_score
+                sliding_window_integral_left_pupil_s1[
+                    trial_id_in_data[i]] = sliding_window_integral_left_pupil_current_z_score
+                sliding_window_integral_right_pupil_s1[
+                    trial_id_in_data[i]] = sliding_window_integral_right_pupil_current_z_score
+                sliding_window_consecutive_elements_mean_left_pupil_s1[
+                    trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_left_pupil_current_z_score
+                sliding_window_consecutive_elements_mean_right_pupil_s1[
+                    trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_right_pupil_current_z_score
+                sliding_window_consecutive_elements_max_left_pupil_s1[
+                    trial_id_in_data[i]] = sliding_window_consecutive_elements_max_left_pupil_current_z_score
+                sliding_window_consecutive_elements_max_right_pupil_s1[
+                    trial_id_in_data[i]] = sliding_window_consecutive_elements_max_right_pupil_current_z_score
+                sliding_window_consecutive_elements_sum_left_pupil_s1[
+                    trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_left_pupil_current_z_score
+                sliding_window_consecutive_elements_sum_right_pupil_s1[
+                    trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_right_pupil_current_z_score
             if 'ECG' in feature_groups_to_analyze:
                 # No standardization
                 sliding_window_hrv_sdnn[trial_id_in_data[i]] = sliding_window_hrv_sdnn_current
@@ -2471,14 +2664,22 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         # Inter-trial standardization (s2)
         if 'eyetracking' in feature_groups_to_analyze:
-            sliding_window_integral_left_pupil_s2 = self._inter_trial_standardization(sliding_window_integral_left_pupil)
-            sliding_window_integral_right_pupil_s2 = self._inter_trial_standardization(sliding_window_integral_right_pupil)
-            sliding_window_consecutive_elements_mean_left_pupil_s2 = self._inter_trial_standardization(sliding_window_consecutive_elements_mean_left_pupil)
-            sliding_window_consecutive_elements_mean_right_pupil_s2 = self._inter_trial_standardization(sliding_window_consecutive_elements_mean_right_pupil)
-            sliding_window_consecutive_elements_max_left_pupil_s2 = self._inter_trial_standardization(sliding_window_consecutive_elements_max_left_pupil)
-            sliding_window_consecutive_elements_max_right_pupil_s2 = self._inter_trial_standardization(sliding_window_consecutive_elements_max_right_pupil)
-            sliding_window_consecutive_elements_sum_left_pupil_s2 = self._inter_trial_standardization(sliding_window_consecutive_elements_sum_left_pupil)
-            sliding_window_consecutive_elements_sum_right_pupil_s2 = self._inter_trial_standardization(sliding_window_consecutive_elements_sum_right_pupil)
+            sliding_window_integral_left_pupil_s2 = self._inter_trial_standardization(
+                sliding_window_integral_left_pupil)
+            sliding_window_integral_right_pupil_s2 = self._inter_trial_standardization(
+                sliding_window_integral_right_pupil)
+            sliding_window_consecutive_elements_mean_left_pupil_s2 = self._inter_trial_standardization(
+                sliding_window_consecutive_elements_mean_left_pupil)
+            sliding_window_consecutive_elements_mean_right_pupil_s2 = self._inter_trial_standardization(
+                sliding_window_consecutive_elements_mean_right_pupil)
+            sliding_window_consecutive_elements_max_left_pupil_s2 = self._inter_trial_standardization(
+                sliding_window_consecutive_elements_max_left_pupil)
+            sliding_window_consecutive_elements_max_right_pupil_s2 = self._inter_trial_standardization(
+                sliding_window_consecutive_elements_max_right_pupil)
+            sliding_window_consecutive_elements_sum_left_pupil_s2 = self._inter_trial_standardization(
+                sliding_window_consecutive_elements_sum_left_pupil)
+            sliding_window_consecutive_elements_sum_right_pupil_s2 = self._inter_trial_standardization(
+                sliding_window_consecutive_elements_sum_right_pupil)
         if 'ECG' in feature_groups_to_analyze:
             sliding_window_hrv_sdnn_s2 = self._inter_trial_standardization(sliding_window_hrv_sdnn)
             sliding_window_hrv_rmssd_s2 = self._inter_trial_standardization(sliding_window_hrv_rmssd)
@@ -2488,17 +2689,25 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         all_features_additional_s2 = [s + '_s2' for s in all_features_additional]
 
-        return (all_features_additional_s1, sliding_window_integral_left_pupil_s1, sliding_window_integral_right_pupil_s1,
-        sliding_window_consecutive_elements_mean_left_pupil_s1, sliding_window_consecutive_elements_mean_right_pupil_s1,
-        sliding_window_consecutive_elements_max_left_pupil_s1, sliding_window_consecutive_elements_max_right_pupil_s1,
-        sliding_window_consecutive_elements_sum_left_pupil_s1, sliding_window_consecutive_elements_sum_right_pupil_s1,
-        sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_cognitive_ies_s1,
-        all_features_additional_s2, sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
-        sliding_window_consecutive_elements_mean_left_pupil_s2, sliding_window_consecutive_elements_mean_right_pupil_s2,
-        sliding_window_consecutive_elements_max_left_pupil_s2, sliding_window_consecutive_elements_max_right_pupil_s2,
-        sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
-        sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
-        sliding_window_cognitive_ies_s2)
+        return (all_features_additional_s1, sliding_window_integral_left_pupil_s1,
+                sliding_window_integral_right_pupil_s1,
+                sliding_window_consecutive_elements_mean_left_pupil_s1,
+                sliding_window_consecutive_elements_mean_right_pupil_s1,
+                sliding_window_consecutive_elements_max_left_pupil_s1,
+                sliding_window_consecutive_elements_max_right_pupil_s1,
+                sliding_window_consecutive_elements_sum_left_pupil_s1,
+                sliding_window_consecutive_elements_sum_right_pupil_s1,
+                sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_cognitive_ies_s1,
+                all_features_additional_s2, sliding_window_integral_left_pupil_s2,
+                sliding_window_integral_right_pupil_s2,
+                sliding_window_consecutive_elements_mean_left_pupil_s2,
+                sliding_window_consecutive_elements_mean_right_pupil_s2,
+                sliding_window_consecutive_elements_max_left_pupil_s2,
+                sliding_window_consecutive_elements_max_right_pupil_s2,
+                sliding_window_consecutive_elements_sum_left_pupil_s2,
+                sliding_window_consecutive_elements_sum_right_pupil_s2,
+                sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
+                sliding_window_cognitive_ies_s2)
 
     def _unpack_dict(
             self,
@@ -2546,18 +2755,28 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             total_rows += number_windows[trial_id_in_data[i]]
 
         # Create tuple of all dictionaries
-        all_feature_dictionaries = [sliding_window_mean_s1, sliding_window_stddev_s1, sliding_window_max_s1, sliding_window_range_s1,
+        all_feature_dictionaries = [sliding_window_mean_s1, sliding_window_stddev_s1, sliding_window_max_s1,
+                                    sliding_window_range_s1,
                                     sliding_window_integral_left_pupil_s1, sliding_window_integral_right_pupil_s1,
-                                    sliding_window_consecutive_elements_mean_left_pupil_s1, sliding_window_consecutive_elements_mean_right_pupil_s1,
-                                    sliding_window_consecutive_elements_max_left_pupil_s1, sliding_window_consecutive_elements_max_right_pupil_s1,
-                                    sliding_window_consecutive_elements_sum_left_pupil_s1, sliding_window_consecutive_elements_sum_right_pupil_s1,
-                                    sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_cognitive_ies_s1,
-                                    sliding_window_mean_s2, sliding_window_stddev_s2, sliding_window_max_s2,sliding_window_range_s2,
+                                    sliding_window_consecutive_elements_mean_left_pupil_s1,
+                                    sliding_window_consecutive_elements_mean_right_pupil_s1,
+                                    sliding_window_consecutive_elements_max_left_pupil_s1,
+                                    sliding_window_consecutive_elements_max_right_pupil_s1,
+                                    sliding_window_consecutive_elements_sum_left_pupil_s1,
+                                    sliding_window_consecutive_elements_sum_right_pupil_s1,
+                                    sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1,
+                                    sliding_window_cognitive_ies_s1,
+                                    sliding_window_mean_s2, sliding_window_stddev_s2, sliding_window_max_s2,
+                                    sliding_window_range_s2,
                                     sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
-                                    sliding_window_consecutive_elements_mean_left_pupil_s2,sliding_window_consecutive_elements_mean_right_pupil_s2,
-                                    sliding_window_consecutive_elements_max_left_pupil_s2, sliding_window_consecutive_elements_max_right_pupil_s2,
-                                    sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
-                                    sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2, sliding_window_cognitive_ies_s2]
+                                    sliding_window_consecutive_elements_mean_left_pupil_s2,
+                                    sliding_window_consecutive_elements_mean_right_pupil_s2,
+                                    sliding_window_consecutive_elements_max_left_pupil_s2,
+                                    sliding_window_consecutive_elements_max_right_pupil_s2,
+                                    sliding_window_consecutive_elements_sum_left_pupil_s2,
+                                    sliding_window_consecutive_elements_sum_right_pupil_s2,
+                                    sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
+                                    sliding_window_cognitive_ies_s2]
 
         # Find all non-empty dictionaries
         non_empty_feature_dictionaries = []
@@ -2585,19 +2804,20 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             # For all non-empty dictionaries, set specific rows equal to the dictionary item corresponding to trial_id
             column_index = 0
             for dictionary in range(len(non_empty_feature_dictionaries)):
-
                 # Find current dictionary
                 current_dictionary = non_empty_feature_dictionaries[dictionary]
 
                 # Set rows and columns in x_feature_matrix equal to current dictionary
                 x_feature_matrix[current_index:num_rows + current_index,
-                column_index:np.shape(current_dictionary[trial_id_in_data[i]])[1] + column_index] = current_dictionary[trial_id_in_data[i]].astype(output_feature_dtype)
+                column_index:np.shape(current_dictionary[trial_id_in_data[i]])[1] + column_index] = current_dictionary[
+                    trial_id_in_data[i]].astype(output_feature_dtype)
 
                 # Increment column index
                 column_index += np.shape(current_dictionary[trial_id_in_data[i]])[1]
 
             # Set corresponding gloc labels from current trial
-            y_gloc_labels[current_index:num_rows+current_index, :] = gloc_window[trial_id_in_data[i]].astype(output_feature_dtype)
+            y_gloc_labels[current_index:num_rows + current_index, :] = gloc_window[trial_id_in_data[i]].astype(
+                output_feature_dtype)
 
             # Increment row index
             current_index += num_rows
@@ -2620,14 +2840,17 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         """Reduce feature matrix columns to the requested selected features."""
         if model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit":
             afe_indicator_column_windowed, gloc_compare, _ = self._sliding_window_max(
-                experiment_metadata["AFE_indicator"], experiment_metadata["trial_id"], experiment_metadata["Time (s)"], gloc_labels,
+                experiment_metadata["AFE_indicator"], experiment_metadata["trial_id"], experiment_metadata["Time (s)"],
+                gloc_labels,
                 offset, stride, window_size, time_start
             )
-            gloc_data_all_features_imputed_numpy = np.hstack([gloc_data_all_features_imputed_numpy, afe_indicator_column_windowed])
+            gloc_data_all_features_imputed_numpy = np.hstack(
+                [gloc_data_all_features_imputed_numpy, afe_indicator_column_windowed])
             features["All"].append("AFE_indicator_windowed")
 
         # Convert feature matrix to DataFrame for column selection
-        gloc_data_all_features_imputed_numpy = pd.DataFrame(gloc_data_all_features_imputed_numpy, columns = features["All"])
+        gloc_data_all_features_imputed_numpy = pd.DataFrame(gloc_data_all_features_imputed_numpy,
+                                                            columns=features["All"])
         gloc_data_all_features_imputed_numpy = gloc_data_all_features_imputed_numpy[select_features]
         gloc_data_all_features_imputed_numpy = gloc_data_all_features_imputed_numpy.to_numpy()
 
@@ -2683,7 +2906,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         all_trials = np.array(all_trials)
 
         return all_features, all_labels, all_trials
-    
+
     def _process_NaN_temporal(
             self,
             y_gloc_labels: np.ndarray,
@@ -2711,7 +2934,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         y_gloc_labels_noNaN = y_gloc_labels[~row_nan_mask]
 
         return y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features, removed_row_indices
-    
+
     def _ready_outputs(
             self,
             x_feature_matrix: Any,
