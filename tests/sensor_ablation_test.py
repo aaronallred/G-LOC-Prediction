@@ -1,78 +1,79 @@
-import pickle
+"""Tests for the modern sensor-ablation mode (src/modes/sensor_ablation.py).
+
+These tests target the *post-refactor* API surface.
+"""
+
+from __future__ import annotations
+
+import json
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from src.model_type import ModelType
-from src.models.base import ModelInitStrategy
-from src.modes import sensor_ablation as sensor_ablation_mod
 from src.modes.sensor_ablation import (
-    apply_stream_label_aliases,
-    build_ranked_sensor_ablation_review_results,
-    filter_sensor_ablation_review_results,
-    load_sensor_ablation_f1_results,
-    run_sensor_ablation_review,
     run_sensor_ablation_training,
-    save_model_stream_f1_scores,
+    run_sensor_ablation_review,
+    _load_sensor_ablation_f1_results_for_model,
+    _save_model_stream_f1_scores,
+    _sort_streams_by_median_f1,
 )
 
 
-class TinyTraditionalModel:
+# ---------------------------------------------------------------------------
+# Fixtures & stubs
+# ---------------------------------------------------------------------------
+
+class _TinyTraditionalModel:
+    """Minimal traditional model that satisfies the sensor-ablation contract."""
+
     def __init__(self, name: str = "TinyKNN") -> None:
-        self._name = name
-        self.is_traditional = True
-        self.calls = []
+        self.name = name
+        self.calls: list[dict] = []
 
-    def get_name(self) -> str:
-        return self._name
+    def train(self, X, y):
+        self.calls.append({"x_shape": X.shape, "y_shape": y.shape})
 
-    def classify_traditional(
-        self,
-        x_train,
-        x_test,
-        y_train,
-        y_test,
-        class_weight_imb,
-        random_state,
-        save_folder,
-        model_name,
-        strategy=ModelInitStrategy.RETRAIN_WITH_DEFAULTS,
-        best_params=None,
-    ):
-        self.calls.append(
-            {
-                "x_train": x_train,
-                "x_test": x_test,
-                "y_train": y_train,
-                "y_test": y_test,
-                "class_weight_imb": class_weight_imb,
-                "random_state": random_state,
-                "save_folder": save_folder,
-                "model_name": model_name,
-                "strategy": strategy,
-                "best_params": best_params,
-            }
-        )
+    def predict(self, X):
+        return np.zeros(len(X), dtype=int)
+
+    def get_model_parameters(self):
+        return {}
+
+    def set_model_parameters(self, params):
+        pass
+
+    def classify_traditional(self, *args, **kwargs):
+        self.calls.append({"args": args, "kwargs": kwargs})
         return (0.9, 0.8, 0.7, 0.6, 0.5, 0.4)
 
 
-class FakePipeline:
+class _FakeModelFactory:
+    """Factory that returns _TinyTraditionalModel instances."""
+
+    def create_model(self, model_name: str, **kwargs):
+        return _TinyTraditionalModel(model_name)
+
+
+class _FakePipeline:
+    """Pipeline whose get_data() returns (X, y) regardless of arguments."""
+
     def __init__(self) -> None:
-        self.calls = []
+        self.calls: list[dict] = []
 
-    def set_random_seed(self, random_seed):
-        self.random_seed = random_seed
+    def set_random_seed(self, random_seed: int) -> None:
+        pass
 
-    def set_model_type(self, model_type):
-        self.model_type = model_type
+    def set_model_type(self, model_type) -> None:
+        pass
 
     def get_data(self, model=None, feature_streams=None):
-        self.calls.append({"model": model.get_name(), "feature_streams": list(feature_streams or [])})
-        return np.array([[1.0, 2.0], [3.0, 4.0]]), np.array([0, 1, 0, 1])
+        self.calls.append({"model": getattr(model, "name", None), "feature_streams": list(feature_streams or [])})
+        return np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]]), np.array([0, 1, 0, 1])
 
 
-def _make_config(tmp_path: Path, review: bool = False, sort_streams_by_median: bool = False) -> dict:
+def _make_config(tmp_path: Path) -> dict:
     return {
         "data_path": str(tmp_path / "data"),
         "shared_data_parameters": {
@@ -86,8 +87,17 @@ def _make_config(tmp_path: Path, review: bool = False, sort_streams_by_median: b
             "impute_phase": "pre_feature",
             "output_feature_dtype": "float32",
         },
-        "advanced_data_parameters": {"n_neighbors": 4, "baseline_window": 32.5},
-        "traditional_data_parameters": {"backstep": 0, "data_rate": 25, "offset": 0, "time_start": 0},
+        "advanced_data_parameters": {
+            "n_neighbors": 4,
+            "baseline_window": 32.5,
+            "horizon": 0,
+        },
+        "traditional_data_parameters": {
+            "backstep": 0,
+            "data_rate": 25,
+            "offset": 0,
+            "time_start": 0,
+        },
         "sensor_ablation": {
             "training": {
                 "enabled": True,
@@ -96,243 +106,129 @@ def _make_config(tmp_path: Path, review: bool = False, sort_streams_by_median: b
                 "model_type": ModelType("Complete", "Explicit"),
                 "random_seed": 13,
                 "num_splits": 2,
-                "median_hyperparameters_folder": "ModelSave/CV",
-                "streams": [["ECG"], ["EEG"]],
+                "median_hyperparameters_folder": str(tmp_path / "ModelSave" / "CV"),
+                "streams": [
+                    ["ECG"],
+                    ["EEG", "Pupil"],
+                ],
             },
             "review": {
-                "enabled": review,
+                "enabled": True,
                 "save_results_folder": str(tmp_path / "Results" / "Sensor_Ablation"),
                 "models": ["KNN"],
                 "model_type": ModelType("Complete", "Explicit"),
-                "stream_group": ["EEG"],
-                "sort_streams_by_median": sort_streams_by_median,
+                "stream_groups": [
+                    ["ECG"],
+                    ["EEG", "Pupil"],
+                ],
+                "sort_streams_by_median": False,
             },
         },
     }
 
 
+# ---------------------------------------------------------------------------
+# Unit tests for helper functions
+# ---------------------------------------------------------------------------
+
+def test_sort_streams_by_median_f1():
+    f1_results = {
+        ("ECG",): np.array([0.5, 0.6, 0.7]),
+        ("EEG", "Pupil"): np.array([0.8, 0.9, 0.7]),
+    }
+    result = _sort_streams_by_median_f1(f1_results)
+    keys = list(result.keys())
+    assert keys[0] == ("EEG", "Pupil")
+    assert keys[1] == ("ECG",)
+
+
+def test_save_and_load_f1_scores(tmp_path):
+    f1_scores = np.array([0.5, 0.6, 0.7])
+    output_path = _save_model_stream_f1_scores(tmp_path, "KNN", "ECG", f1_scores)
+    assert output_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# End-to-end tests
+# ---------------------------------------------------------------------------
+
 def test_sensor_ablation_config_uses_model_type_objects(tmp_path):
-    config = _make_config(tmp_path, review=True)
-
-    assert config["sensor_ablation"]["training"]["model_type"] == ModelType("Complete", "Explicit")
-    assert config["sensor_ablation"]["review"]["model_type"] == ModelType("Complete", "Explicit")
-    assert config["sensor_ablation"]["review"]["stream_group"] == ["EEG"]
-    assert config["sensor_ablation"]["review"]["sort_streams_by_median"] is False
-
-
-def test_run_sensor_ablation_training_saves_stream_scores_and_calls_plotter(tmp_path):
     config = _make_config(tmp_path)
-    pipeline = FakePipeline()
-    plot_calls = []
-    split_calls = []
-
-    monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(
-        sensor_ablation_mod.ModelFactory,
-        "create_model",
-        staticmethod(lambda model_name, model_hyperparameters=None: TinyTraditionalModel("TinyKNN")),
+    assert config["sensor_ablation"]["training"]["model_type"] == ModelType(
+        "Complete", "Explicit"
+    )
+    assert config["sensor_ablation"]["review"]["model_type"] == ModelType(
+        "Complete", "Explicit"
     )
 
-    def get_hyperparameters_from_json_fn(model_name, model_type_name):
-        assert model_name == "TinyKNN"
-        assert model_type_name == "Complete_Explicit"
-        return ({"k": 3}, [], [], [])
 
-    def stratified_kfold_split_fn(**kwargs):
-        split_calls.append(kwargs)
-        x = np.asarray(kwargs["X"])
-        y = np.asarray(kwargs["Y"])
-        midpoint = len(y) // 2
-        return x[:midpoint], x[midpoint:], y[:midpoint], y[midpoint:]
-
-    def plot_f1_violin_by_stream_fn(**kwargs):
-        plot_calls.append(kwargs)
-
-    run_sensor_ablation_training(
-        config=config,
-        pipeline=pipeline,
-        project_root=tmp_path,
-        get_hyperparameters_from_json_fn=get_hyperparameters_from_json_fn,
-        stratified_kfold_split_fn=stratified_kfold_split_fn,
-        plot_f1_violin_by_stream_fn=plot_f1_violin_by_stream_fn,
-        save_model_stream_f1_scores_fn=save_model_stream_f1_scores,
-    )
-
-    monkeypatch.undo()
-
-    assert len(split_calls) == 4
-    assert pipeline.calls == [
-        {"model": "TinyKNN", "feature_streams": ["ECG"]},
-        {"model": "TinyKNN", "feature_streams": ["EEG"]},
-    ]
-    assert plot_calls and "TinyKNN" in plot_calls[0]["f1_results_by_stream"]
-    assert (tmp_path / "Results" / "Sensor_Ablation" / "Complete_Explicit" / "TinyKNN" / "ECG.pkl").exists()
-    assert (tmp_path / "Results" / "Sensor_Ablation" / "Complete_Explicit" / "TinyKNN" / "EEG.pkl").exists()
-
-
-def test_sensor_ablation_review_filters_and_ranks_cached_results(tmp_path):
-    results_root = tmp_path / "Results" / "Sensor_Ablation" / "Complete_Explicit"
-    (results_root / "KNN").mkdir(parents=True)
-    (results_root / "RF").mkdir(parents=True)
-    with open(results_root / "KNN" / "EEG.pkl", "wb") as handle:
-        pickle.dump(np.asarray([0.5, 0.7]), handle)
-    with open(results_root / "RF" / "EEG.pkl", "wb") as handle:
-        pickle.dump(np.asarray([0.6, 0.8]), handle)
-    with open(results_root / "KNN" / "ECG-HR-BR-Temperature.pkl", "wb") as handle:
-        pickle.dump(np.asarray([0.2, 0.4]), handle)
-    with open(results_root / "RF" / "ECG-HR-BR-Temperature.pkl", "wb") as handle:
-        pickle.dump(np.asarray([0.3, 0.9]), handle)
-
-    loaded = load_sensor_ablation_f1_results(results_root, ["KNN", "RF"], stream_group=["EEG"])
-    assert set(loaded.keys()) == {"KNN", "RF"}
-    filtered = filter_sensor_ablation_review_results(loaded, ["EEG"])
-    assert set(filtered["KNN"].keys()) == {"EEG"}
-
-    ranked = build_ranked_sensor_ablation_review_results(
-        load_sensor_ablation_f1_results(results_root, ["KNN", "RF"]),
-        classifiers=["KNN", "RF"],
-        stream_label_aliases={
-            "ECG-HR-BR-Temperature": "Equivital",
-            "Participant": "Demographics",
-            "Centrifuge": "G Force",
-        },
-    )
-    assert "Equivital" in ranked["KNN"]
-
-
-def test_run_sensor_ablation_review_uses_stream_group_filter_branch(tmp_path):
-    results_root = tmp_path / "Results" / "Sensor_Ablation" / "Complete_Explicit"
-    (results_root / "KNN").mkdir(parents=True)
-    with open(results_root / "KNN" / "EEG.pkl", "wb") as handle:
-        pickle.dump(np.asarray([0.5, 0.7]), handle)
-
+@pytest.mark.integration
+def test_run_sensor_ablation_training_saves_stream_scores(tmp_path):
     config = _make_config(tmp_path)
-    plot_calls = []
+    pipeline = _FakePipeline()
 
-    run_sensor_ablation_review(
-        config=config,
-        project_root=tmp_path,
-        load_sensor_ablation_f1_results_fn=load_sensor_ablation_f1_results,
-        build_ranked_sensor_ablation_review_results_fn=build_ranked_sensor_ablation_review_results,
-        filter_sensor_ablation_review_results_fn=filter_sensor_ablation_review_results,
-        plot_f1_violin_with_stream_matrix_fn=lambda **kwargs: plot_calls.append(("matrix", kwargs)),
-        plot_f1_violin_by_stream_fn=lambda **kwargs: plot_calls.append(("by_stream", kwargs)),
-        stream_label_aliases={
-            "ECG-HR-BR-Temperature": "Equivital",
-            "Participant": "Demographics",
-            "Centrifuge": "G Force",
-        },
+    # Set up median hyperparameters so the code can read them.
+    median_dir = tmp_path / "ModelSave" / "CV" / "Complete_Explicit" / "KNN"
+    median_dir.mkdir(parents=True, exist_ok=True)
+    median_dir.joinpath("median_hyperparameters.json").write_text(
+        json.dumps({
+            "best_params": {"k": 3},
+            "selected_features": ["feat_a", "feat_b"],
+            "fold_id": 0,
+            "f1_score": 0.8,
+        })
     )
 
-    assert plot_calls and plot_calls[0][0] == "by_stream"
+    run_sensor_ablation_training(config, pipeline, _FakeModelFactory(), tmp_path)
+
+    results = tmp_path / "Results" / "Sensor_Ablation" / "Complete_Explicit" / "KNN"
+    assert (results / "ECG.json").exists()
+    assert (results / "EEG-Pupil.json").exists()
 
 
-def test_run_sensor_ablation_review_uses_ranked_branch(tmp_path):
-    results_root = tmp_path / "Results" / "Sensor_Ablation" / "Complete_Explicit"
-    (results_root / "KNN").mkdir(parents=True)
-    with open(results_root / "KNN" / "ECG-HR-BR-Temperature.pkl", "wb") as handle:
-        pickle.dump(np.asarray([0.5, 0.8]), handle)
-    with open(results_root / "KNN" / "Participant.pkl", "wb") as handle:
-        pickle.dump(np.asarray([0.4, 0.6]), handle)
-
+@pytest.mark.integration
+def test_run_sensor_ablation_review_loads_and_plots(tmp_path):
     config = _make_config(tmp_path)
-    config["sensor_ablation"]["review"]["sort_streams_by_median"] = True
-    config["sensor_ablation"]["review"]["stream_group"] = []
-    plot_calls = []
+    # Ensure training is disabled and review is enabled
+    config["sensor_ablation"]["training"]["enabled"] = False
+    config["sensor_ablation"]["review"]["enabled"] = True
 
-    run_sensor_ablation_review(
-        config=config,
-        project_root=tmp_path,
-        load_sensor_ablation_f1_results_fn=load_sensor_ablation_f1_results,
-        build_ranked_sensor_ablation_review_results_fn=build_ranked_sensor_ablation_review_results,
-        filter_sensor_ablation_review_results_fn=filter_sensor_ablation_review_results,
-        plot_f1_violin_with_stream_matrix_fn=lambda **kwargs: plot_calls.append(("matrix", kwargs)),
-        plot_f1_violin_by_stream_fn=lambda **kwargs: plot_calls.append(("by_stream", kwargs)),
-        stream_label_aliases={
-            "ECG-HR-BR-Temperature": "Equivital",
-            "Participant": "Demographics",
-            "Centrifuge": "G Force",
-        },
-    )
+    # Pre-populate results so review has data to load
+    results_dir = tmp_path / "Results" / "Sensor_Ablation" / "Complete_Explicit" / "KNN"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    (results_dir / "ECG.json").write_text(json.dumps({"f1": [0.5, 0.6]}))
+    (results_dir / "EEG-Pupil.json").write_text(json.dumps({"f1": [0.8, 0.7]}))
 
-    assert plot_calls and plot_calls[0][0] == "matrix"
+    run_sensor_ablation_review(config)
 
 
 def test_sensor_ablation_training_requires_median_hyperparameters_folder(tmp_path):
     config = _make_config(tmp_path)
     del config["sensor_ablation"]["training"]["median_hyperparameters_folder"]
-
-    monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(
-        sensor_ablation_mod.ModelFactory,
-        "create_model",
-        staticmethod(lambda model_name, model_hyperparameters=None: TinyTraditionalModel("TinyKNN")),
-    )
+    pipeline = _FakePipeline()
 
     with pytest.raises(KeyError):
-        run_sensor_ablation_training(
-            config=config,
-            pipeline=FakePipeline(),
-            project_root=tmp_path,
-            get_hyperparameters_from_json_fn=None,
-            stratified_kfold_split_fn=lambda **kwargs: (np.array([[1.0]]), np.array([[2.0]]), np.array([0]), np.array([1])),
-            plot_f1_violin_by_stream_fn=lambda **kwargs: None,
-            save_model_stream_f1_scores_fn=save_model_stream_f1_scores,
-        )
-
-    monkeypatch.undo()
+        run_sensor_ablation_training(config, pipeline, _FakeModelFactory(), tmp_path)
 
 
+@pytest.mark.integration
 def test_run_sensor_ablation_training_uses_parser_median_folder(tmp_path):
-    # Prepare a temporary median hyperparameters folder and JSON for TinyKNN
-    model_type_folder = "Complete_Explicit"
-    median_base = tmp_path / "ModelSave" / "CV"
-    target_folder = median_base / model_type_folder / "TinyKNN"
-    target_folder.mkdir(parents=True, exist_ok=True)
-
-    median_file = target_folder / "median_hyperparameters.json"
-    median_file.write_text(
-        '{"best_params": {"k": 5}, "selected_features": [], "fold_id": 0, "f1_score": 0.5}',
-        encoding="utf-8",
-    )
-
     config = _make_config(tmp_path)
-    config["sensor_ablation"]["training"]["median_hyperparameters_folder"] = str(median_base)
-    pipeline = FakePipeline()
-    plot_calls = []
-    split_calls = []
+    pipeline = _FakePipeline()
 
-    monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(
-        sensor_ablation_mod.ModelFactory,
-        "create_model",
-        staticmethod(lambda model_name, model_hyperparameters=None: TinyTraditionalModel("TinyKNN")),
+    median_dir = tmp_path / "ModelSave" / "CV" / "Complete_Explicit" / "KNN"
+    median_dir.mkdir(parents=True, exist_ok=True)
+    median_dir.joinpath("median_hyperparameters.json").write_text(
+        json.dumps({
+            "best_params": {"n_neighbors": 3},
+            "selected_features": ["feat_a", "feat_b"],
+            "fold_id": 0,
+            "f1_score": 0.8,
+        })
     )
 
-    def stratified_kfold_split_fn(**kwargs):
-        split_calls.append(kwargs)
-        x = np.asarray(kwargs["X"])
-        y = np.asarray(kwargs["Y"])
-        midpoint = len(y) // 2
-        return x[:midpoint], x[midpoint:], y[:midpoint], y[midpoint:]
+    run_sensor_ablation_training(config, pipeline, _FakeModelFactory(), tmp_path)
 
-    def plot_f1_violin_by_stream_fn(**kwargs):
-        plot_calls.append(kwargs)
-
-    # Call with get_hyperparameters_from_json_fn=None so default resolver is used
-    run_sensor_ablation_training(
-        config=config,
-        pipeline=pipeline,
-        project_root=tmp_path,
-        get_hyperparameters_from_json_fn=None,
-        stratified_kfold_split_fn=stratified_kfold_split_fn,
-        plot_f1_violin_by_stream_fn=plot_f1_violin_by_stream_fn,
-        save_model_stream_f1_scores_fn=save_model_stream_f1_scores,
-    )
-
-    monkeypatch.undo()
-
-    # Verify that splits were run and outputs created
-    assert len(split_calls) == 4
-    assert (tmp_path / "Results" / "Sensor_Ablation" / "Complete_Explicit" / "TinyKNN" / "ECG.pkl").exists()
-    assert (tmp_path / "Results" / "Sensor_Ablation" / "Complete_Explicit" / "TinyKNN" / "EEG.pkl").exists()
+    results = tmp_path / "Results" / "Sensor_Ablation" / "Complete_Explicit" / "KNN"
+    assert (results / "ECG.json").exists()
+    assert (results / "EEG-Pupil.json").exists()

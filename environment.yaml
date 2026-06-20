@@ -8,6 +8,7 @@ dependencies:
   - _python_abi3_support=1.0=hd8ed1ab_2
   - alembic=1.18.4=pyhcf101f3_0
   - alsa-lib=1.2.15.3=hb03c661_0
+  - annotated-types=0.7.0=pyhd8ed1ab_1
   - aws-c-auth=0.10.1=h2d2dd48_2
   - aws-c-cal=0.9.13=h2c9d079_1
   - aws-c-common=0.12.6=hb03c661_0
@@ -215,7 +216,7 @@ dependencies:
   - libucxx=0.49.00=cuda13_260408_8d47a9ff
   - libudev1=260.1=h6569c3e_0
   - libutf8proc=2.11.3=hfe17d71_0
-  - libuuid=2.42=h5347b49_0
+  - libuuid=2.42.1=h5347b49_0
   - libuv=1.51.0=hb03c661_1
   - libvulkan-loader=1.4.341.0=h5279c79_0
   - libwebp-base=1.6.0=hd42ef1d_0
@@ -275,6 +276,8 @@ dependencies:
   - pybind11=3.0.1=pyh7a1b43c_0
   - pybind11-abi=11=hc364b38_1
   - pybind11-global=3.0.1=pyhc7ab6ef_0
+  - pydantic=2.13.4=pyhcf101f3_0
+  - pydantic-core=2.46.4=py312h868fb18_0
   - pygam=0.12.0=pyhd8ed1ab_0
   - pygments=2.20.0=pyhd8ed1ab_0
   - pylibcudf=26.04.00=cuda13_cp311_abi3_260408_f9c3cf19
@@ -301,6 +304,7 @@ dependencies:
   - readline=8.3=h853b02a_0
   - rich=15.0.0=pyhcf101f3_0
   - rmm=26.04.00=cuda13_cp311_abi3_260408_48b36cc6
+  - ruff=0.15.15=h6a952e8_1
   - s2n=1.7.1=h1cbb8d7_1
   - scikit-learn=1.8.0=np2py312h3226591_1
   - scikit-optimize=0.10.2=pyhd8ed1ab_1
@@ -327,6 +331,7 @@ dependencies:
   - treelite=4.7.0=py312h51dcb72_0
   - triton=3.6.0=cuda130py312hc6dca4b_1
   - typing-extensions=4.15.0=h396c80c_0
+  - typing-inspection=0.4.2=pyhcf101f3_2
   - typing_extensions=4.15.0=pyhcf101f3_0
   - tzdata=2025c=hc9c84f9_1
   - ucx=1.20.0=hf72d326_1
@@ -364,6 +369,32 @@ dependencies:
   - zlib-ng=2.3.3=hceb46e0_1
   - zstd=1.5.7=hb78ec9c_6
   - pip:
+    - asttokens==3.0.1
+    - basedpyright==1.39.8
+    - comm==0.2.3
+    - debugpy==1.8.21
+    - decorator==5.3.1
+    - executing==2.2.1
+    - ipykernel==7.2.0
+    - ipython==9.14.1
+    - ipython_pygments_lexers==1.1.1
+    - jedi==0.20.0
+    - jupyter_client==8.9.0
+    - jupyter_core==5.9.1
+    - matplotlib-inline==0.2.2
+    - nest-asyncio==1.6.0
+    - nodejs-wheel-binaries==24.16.0
+    - parso==0.8.7
+    - pexpect==4.9.0
+    - platformdirs==4.10.0
+    - prompt_toolkit==3.0.52
+    - psutil==7.2.2
+    - ptyprocess==0.7.0
+    - pure_eval==0.2.3
+    - pyzmq==27.1.0
     - setuptools==81.0.0
+    - stack-data==0.6.3
+    - traitlets==5.15.1
+    - wcwidth==0.8.0
 
-prefix: "/home/gloc/miniforge3/envs/gloc"
+prefix: "/home/jasper_shen/miniforge3/envs/gloc"

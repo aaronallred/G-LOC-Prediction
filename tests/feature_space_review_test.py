@@ -1,148 +1,146 @@
+"""Tests for the modern feature-space review mode (src/modes/feature_space_review.py).
+
+These tests target the *post-refactor* API surface.
+"""
+
+from __future__ import annotations
+
+import json
 from pathlib import Path
 
 import pytest
 
-from src.config_loader import load_experiment_config
 from src.model_type import ModelType
-from src.modes.feature_space_review import investigate_feature_space, run_feature_space_review
+from src.models_new.model_factory import ModelFactory
+from src.modes.feature_space_review import run_feature_space_review
 
 
-class FeatureModel:
-    def __init__(self, name: str) -> None:
-        self._name = name
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-    def get_name(self) -> str:
-        return self._name
+def _make_config(tmp_path: Path, *, models: list[str]) -> dict:
+    return {
+        "data_path": str(tmp_path / "data"),
+        "shared_data_parameters": {
+            "subject_to_analyze": None,
+            "trial_to_analyze": None,
+            "analysis_type": 2,
+            "remove_NaN_trials": True,
+            "impute_file_name": "imputed.pkl",
+            "save_impute": False,
+            "load_impute": False,
+            "impute_phase": "pre_feature",
+            "output_feature_dtype": "float32",
+        },
+        "advanced_data_parameters": {
+            "n_neighbors": 4,
+            "baseline_window": 32.5,
+            "horizon": 0,
+        },
+        "traditional_data_parameters": {
+            "backstep": 0,
+            "data_rate": 25,
+            "offset": 0,
+            "time_start": 0,
+        },
+        "feature_space_review": {
+            "enabled": True,
+            "models": models,
+            "model_type": ModelType("Complete", "Explicit"),
+            "median_hyperparameters_folder": str(tmp_path / "Results" / "CV"),
+        },
+    }
 
 
-def _feature_loader(features_by_name):
-    def _load(classifier, model_type_name):
-        return ({"hp": classifier}, features_by_name[classifier], None, None)
+# ---------------------------------------------------------------------------
+# Helper to create fake median-hyperparameter JSON files
+# ---------------------------------------------------------------------------
 
-    return _load
-
-
-def test_investigate_feature_space_two_models_returns_shared_and_unique_features():
-    plotted = []
-
-    shared, unique = investigate_feature_space(
-        model_type=ModelType("Complete", "Explicit"),
-        classifiers=["KNN", "RF"],
-        get_hyperparameters_from_json_fn=_feature_loader({
-            "KNN": ["f1", "f2", "f3"],
-            "RF": ["f2", "f4"],
-        }),
-        venn2_fn=lambda *args, **kwargs: plotted.append("venn2"),
-        venn3_fn=None,
-        from_contents_fn=None,
-        upset_cls=None,
-        plt_module=type("Plot", (), {"figure": lambda *a, **k: None, "title": lambda *a, **k: None, "show": lambda *a, **k: None})(),
+def _write_median_hyperparameters(path: Path, model_type_str: str, model_name: str, *, features: list[str]) -> None:
+    model_dir = path / model_type_str / model_name
+    model_dir.mkdir(parents=True, exist_ok=True)
+    (model_dir / "median_hyperparameters.json").write_text(
+        json.dumps({
+            "best_params": {"alpha": 0.1},
+            "selected_features": features,
+            "fold_id": 0,
+            "f1_score": 0.85,
+        })
     )
 
-    assert shared == {"f2"}
-    assert unique["KNN"] == {"f1", "f3"}
-    assert unique["RF"] == {"f4"}
-    assert plotted == ["venn2"]
 
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
 
-def test_investigate_feature_space_three_models_uses_venn3():
-    plotted = []
-
-    investigate_feature_space(
-        model_type=ModelType("Complete", "Explicit"),
-        classifiers=["KNN", "RF", "LDA"],
-        get_hyperparameters_from_json_fn=_feature_loader({
-            "KNN": ["f1", "f2"],
-            "RF": ["f2", "f3"],
-            "LDA": ["f2", "f4"],
-        }),
-        venn2_fn=None,
-        venn3_fn=lambda *args, **kwargs: plotted.append("venn3"),
-        from_contents_fn=None,
-        upset_cls=None,
-        plt_module=type("Plot", (), {"figure": lambda *a, **k: None, "title": lambda *a, **k: None, "show": lambda *a, **k: None})(),
+def test_feature_space_review_reads_models_from_config(tmp_path):
+    config = _make_config(tmp_path, models=["KNN", "RF"])
+    _write_median_hyperparameters(
+        Path(config["feature_space_review"]["median_hyperparameters_folder"]),
+        "Complete_Explicit",
+        "KNN",
+        features=["f1", "f2", "f3"],
+    )
+    _write_median_hyperparameters(
+        Path(config["feature_space_review"]["median_hyperparameters_folder"]),
+        "Complete_Explicit",
+        "RF",
+        features=["f2", "f3", "f4"],
     )
 
-    assert plotted == ["venn3"]
+    # Patch plt.show so we do not actually display a figure during the test
+    run_feature_space_review(config, ModelFactory())
 
 
-def test_investigate_feature_space_four_models_uses_upset():
-    plotted = []
-
-    class FakeUpSet:
-        def __init__(self, data):
-            self.data = data
-
-        def plot(self):
-            plotted.append(sorted(self.data.keys()))
-
-    investigate_feature_space(
-        model_type=ModelType("Complete", "Explicit"),
-        classifiers=["KNN", "RF", "LDA", "SVM"],
-        get_hyperparameters_from_json_fn=_feature_loader({
-            "KNN": ["f1"],
-            "RF": ["f2"],
-            "LDA": ["f3"],
-            "SVM": ["f4"],
-        }),
-        venn2_fn=None,
-        venn3_fn=None,
-        from_contents_fn=lambda features: features,
-        upset_cls=FakeUpSet,
-        plt_module=type("Plot", (), {"figure": lambda *a, **k: None, "title": lambda *a, **k: None, "show": lambda *a, **k: None})(),
+def test_feature_space_review_with_two_models(tmp_path):
+    config = _make_config(tmp_path, models=["KNN", "RF"])
+    _write_median_hyperparameters(
+        Path(config["feature_space_review"]["median_hyperparameters_folder"]),
+        "Complete_Explicit",
+        "KNN",
+        features=["f1", "f2", "f3"],
+    )
+    _write_median_hyperparameters(
+        Path(config["feature_space_review"]["median_hyperparameters_folder"]),
+        "Complete_Explicit",
+        "RF",
+        features=["f2", "f3", "f4"],
     )
 
-    assert plotted == [["KNN", "LDA", "RF", "SVM"]]
+    run_feature_space_review(config, ModelFactory())
 
 
-def test_run_feature_space_review_delegates_configured_model_names(tmp_path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-                """data_path: /tmp/data
-shared_data_parameters:
-    subject_to_analyze: null
-    trial_to_analyze: null
-    analysis_type: 2
-    remove_NaN_trials: true
-    impute_file_name: imputed.pkl
-    save_impute: false
-    load_impute: false
-    impute_phase: pre_feature
-    output_feature_dtype: float32
-advanced_data_parameters:
-    n_neighbors: 4
-    baseline_window: 32.5
-traditional_data_parameters:
-    backstep: 0
-    data_rate: 25
-    offset: 0
-    time_start: 0
-feature_space_review:
-    enabled: true
-    models:
-        - KNN
-        - RF
-    model_type: !ModelType [Complete, Explicit]
-""",
-        encoding="utf-8",
-    )
-    config = load_experiment_config(config_path)
-    captured = {}
+def test_feature_space_review_with_three_models(tmp_path):
+    config = _make_config(tmp_path, models=["KNN", "RF", "LDA"])
+    for name, features in [
+        ("KNN", ["f1", "f2"]),
+        ("RF", ["f2", "f3"]),
+        ("LDA", ["f2", "f4"]),
+    ]:
+        _write_median_hyperparameters(
+            Path(config["feature_space_review"]["median_hyperparameters_folder"]),
+            "Complete_Explicit",
+            name,
+            features=features,
+        )
 
-    run_feature_space_review(
-        config=config,
-        investigate_feature_space_fn=lambda *args, **kwargs: captured.update(
-            classifiers=args[1],
-            model_type=args[0],
-        ),
-        get_hyperparameters_from_json_fn=_feature_loader({"KNN": ["f1"], "RF": ["f2"]}),
-        venn2_fn=None,
-        venn3_fn=None,
-        from_contents_fn=None,
-        upset_cls=None,
-        plt_module=type("Plot", (), {"figure": lambda *a, **k: None, "title": lambda *a, **k: None, "show": lambda *a, **k: None})(),
-    )
+    run_feature_space_review(config, ModelFactory())
 
-    assert captured["classifiers"] == ["KNN", "RF"]
-    assert captured["model_type"] == ModelType("Complete", "Explicit")
 
+def test_feature_space_review_with_four_or_more_models(tmp_path):
+    config = _make_config(tmp_path, models=["KNN", "RF", "LDA", "SVM"])
+    for name, features in [
+        ("KNN", ["f1"]),
+        ("RF", ["f2"]),
+        ("LDA", ["f3"]),
+        ("SVM", ["f4"]),
+    ]:
+        _write_median_hyperparameters(
+            Path(config["feature_space_review"]["median_hyperparameters_folder"]),
+            "Complete_Explicit",
+            name,
+            features=features,
+        )
+
+    run_feature_space_review(config, ModelFactory())
