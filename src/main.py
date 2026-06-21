@@ -5,10 +5,11 @@ from typing import Callable
 
 from .Data_Pipeline.data_pipeline import DataPipeline
 from .config_loader import load_experiment_config
-from .models_new.model_factory import ModelFactory
+from .models.model_factory import ModelFactory
 from .modes.cross_validation import run_cross_validation
 from .modes.feature_space_review import run_feature_space_review
 from .modes.sensor_ablation import run_sensor_ablation_review, run_sensor_ablation_training
+
 
 def _try_enable_cuml_acceleration() -> None:
     """Enable cuML sklearn acceleration when the RAPIDS stack is available."""
@@ -27,12 +28,14 @@ def _try_enable_cuml_acceleration() -> None:
             exc,
         )
 
+
 def configure_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
         force=True,
     )
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -45,12 +48,13 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
+
 def run(config_path: str) -> None:
     configure_logging()
     _try_enable_cuml_acceleration()
 
     config = load_experiment_config(config_path)
-    data_pipeline = DataPipeline(config = config)
+    data_pipeline = DataPipeline(config=config)
     model_factory = ModelFactory()
 
     project_root_path = Path(__file__).resolve().parent.parent
@@ -60,32 +64,32 @@ def run(config_path: str) -> None:
         (
             bool(config.get("cross_validation", {}).get("enabled", False)),
             lambda: run_cross_validation(
-                config = config,
-                pipeline = data_pipeline,
-                model_factory = model_factory,
-                project_root_path = project_root_path
+                config=config,
+                pipeline=data_pipeline,
+                model_factory=model_factory,
+                project_root_path=project_root_path
             ),
         ),
         (
             bool(config.get("sensor_ablation", {}).get("training", {}).get("enabled", False)),
             lambda: run_sensor_ablation_training(
-                config = config,
-                pipeline = data_pipeline,
-                model_factory = model_factory,
-                project_root = project_root_path
+                config=config,
+                pipeline=data_pipeline,
+                model_factory=model_factory,
+                project_root=project_root_path
             )
         ),
         (
             bool(config.get("sensor_ablation", {}).get("review", {}).get("enabled", False)),
             lambda: run_sensor_ablation_review(
-                config = config
+                config=config
             ),
         ),
         (
             bool(config.get("feature_space_review", {}).get("enabled", False)),
             lambda: run_feature_space_review(
-                config = config,
-                model_factory = model_factory
+                config=config,
+                model_factory=model_factory
             )
         ),
     ]

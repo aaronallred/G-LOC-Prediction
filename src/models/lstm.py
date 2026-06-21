@@ -1,22 +1,26 @@
-# src/models_new/lstm.py
+# src/models/lstm.py
 from typing import Any, Dict, Optional
+
 import numpy as np
 import torch
 import torch.nn as nn
-from src.models_new.base import AdvancedModel
+
+from src.models.base import AdvancedModel
+
 
 class LSTM(nn.Module):
     """Pure PyTorch LSTM sequence classification module."""
-    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int = 1, 
+
+    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int = 1,
                  num_layers: int = 2, dropout: float = 0.3, bidirectional: bool = False):
         super().__init__()
         self.num_directions = 2 if bidirectional else 1
         self.lstm = nn.LSTM(
-            input_dim, 
-            hidden_dim, 
-            num_layers, 
-            batch_first=True, 
-            dropout=dropout if num_layers > 1 else 0, 
+            input_dim,
+            hidden_dim,
+            num_layers,
+            batch_first=True,
+            dropout=dropout if num_layers > 1 else 0,
             bidirectional=bidirectional
         )
         self.fc = nn.Linear(hidden_dim * self.num_directions, output_dim)
@@ -49,9 +53,11 @@ class LSTMModel(AdvancedModel):
                 "bidirectional": trial.suggest_categorical("bidirectional", [False]),
                 "threshold": trial.suggest_float('threshold', 0.1, 0.9)
             }
+
         return _builder
 
-    def _build_model(self, model_hyperparameters: Optional[Dict[str, Any]] = None, *, input_dim: Optional[int] = None, **kwargs) -> Any:
+    def _build_model(self, model_hyperparameters: Optional[Dict[str, Any]] = None, *, input_dim: Optional[int] = None,
+                     **kwargs) -> Any:
         if model_hyperparameters is None or input_dim is None:
             return None
         return LSTM(

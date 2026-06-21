@@ -1,13 +1,23 @@
-import copy
-import os
-import joblib
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Dict, Any
-
-from imblearn.metrics import geometric_mean_score
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+import joblib
 import numpy as np
+from typing import Any, Dict, Optional, List
+
+import torch
+from torch.utils.data import DataLoader
+from sklearn.utils.class_weight import compute_class_weight
+
+from src.advanced_experiment_utils import (
+    baseline_down_select,
+    train_test_split_trials,
+    build_training_components,
+    build_sampler,
+    train_with_early_stopping,
+    run_train_epoch,
+)
+from imblearn.metrics import geometric_mean_score
+from sklearn import metrics as sklearn_metrics
 
 
 class ModelInitStrategy(Enum):
@@ -15,247 +25,210 @@ class ModelInitStrategy(Enum):
     
     Replaces the confusing (retrain, temporal) boolean pair with a single semantic strategy.
     """
+
     RETRAIN_WITH_DEFAULTS = "retrain_with_defaults"
     """Train model using default hyperparameters (no best_params needed)."""
-    
+
     RETRAIN_WITH_CONFIG_PARAMS = "retrain_with_config_params"
     """Train model using hyperparameters from best_params dict (e.g., from JSON config)."""
-    
+
     LOAD_SAVED_MODEL = "load_saved_model"
     """Load a pre-trained model from disk (save_folder and model_name required)."""
 
+
 class BaseModel(ABC):
-    TRADITIONAL_HYPERPARAMETERS: Dict[str, Any] = {}
+    """Unified base class for all machine learning models.
 
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
-        self.best_params = {}
-        self.split_info = {}
-        self.is_traditional = False
+    Both traditional (sklearn) and advanced (PyTorch) models share the same
+    interface so that the cross-validation and other orchestration code can
+    treat them polymorphically.
+    """
 
+    def __init__(self, model_hyperparameters: Dict[str, Any] = None):
+        self.model = self._build_model(model_hyperparameters)
+        self.best_params: Dict[str, Any] = model_hyperparameters or {}
+        self.all_features: List[str] = []
+        self.searcher: Optional[Any] = None
+
+    @property
     @abstractmethod
-    def train(self, X, y, params: Dict = None) -> None:
-        """Train final model with specific params"""
+    def is_traditional_model(self) -> bool:
+        pass
+
+    @property
+    @abstractmethod
+    def data_pipeline_hyperparameters(self) -> Dict[str, Any]:
+        pass
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
         pass
 
     @abstractmethod
-    def evaluate(self, X, y) -> Dict[str, float]:
-        """Return metrics"""
-        pass
-    
-    @abstractmethod
-    def save(self, path: str) -> None:
-        """Save artifacts (params, split info, model weights)"""
+    def get_hpo_search_space(self) -> Any:
         pass
 
     @abstractmethod
-    def load(self, path: str) -> None:
-        """Load artifacts"""
+    def _build_model(self, model_hyperparameters: Dict[str, Any] | None) -> Any:
         pass
 
-    def is_traditiona(self) -> bool:
-        """Return True if model is traditional (non-deep learning)"""
-        return self.is_traditional
+    @abstractmethod
+    def train(self, X: np.ndarray, y: np.ndarray, params: Optional[Dict[str, Any]] = None) -> None:
+        pass
 
-    def get_traditional_hyperparameters(self) -> Dict[str, Any]:
-        """Return the traditional data-pipeline hyperparameters for this model."""
-        traditional_hyperparameters = copy.deepcopy(self.TRADITIONAL_HYPERPARAMETERS)
-        overrides = self.config.get("traditional_hyperparameters")
-        if isinstance(overrides, dict):
-            traditional_hyperparameters.update(copy.deepcopy(overrides))
-        return traditional_hyperparameters
+    @abstractmethod
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        pass
 
-    def hpo_defaults(self) -> Dict[str, Any]:
-        """Return model-local HPO defaults.
-
-        This is intentionally simple and model implementations should override
-        to exactly match legacy search defaults (n_trials, metric, timeout,
-        sampler_seed, etc.). The returned dict will be used by the
-        cross-validation driver and must contain at least the following keys:
-        - enabled: bool
-        - n_trials: int
-        - timeout: Optional[int]
-        - metric: str
-        - train_fraction: float
-        """
+    def evaluate(self, X: np.ndarray, y: np.ndarray) -> Dict[str, Any]:
+        preds = self.predict(X)
         return {
-            "enabled": True,
-            "n_trials": 10,
-            "timeout": None,
-            "metric": "f1",
-            "train_fraction": 0.8,
-            "sampler_seed": None,
-            "pruner_startup_trials": 3,
-            "pruner_warmup_steps": 0,
+            "accuracy": sklearn_metrics.accuracy_score(y, preds),
+            "precision": sklearn_metrics.precision_score(y, preds),
+            "recall": sklearn_metrics.recall_score(y, preds),
+            "f1": sklearn_metrics.f1_score(y, preds),
+            "specificity": sklearn_metrics.recall_score(y, preds, pos_label=0),
+            "g_mean": geometric_mean_score(y, preds),
         }
 
-    def build_hpo_search_space(self, trial, X_train: np.ndarray, random_seed: int) -> Dict[str, Any]:
-        """Build model-specific Optuna search space.
-
-        Subclasses should implement this method and return a dictionary of
-        hyperparameters suitable for passing into the model.train(...) method.
-        """
-        raise NotImplementedError("Model must implement build_hpo_search_space(trial, X_train, random_seed)")
-
-    def _initialize_model_for_classification(
-        self,
-        strategy: ModelInitStrategy,
-        x_train,
-        y_train,
-        class_weight_imb,
-        random_state,
-        save_folder: str = None,
-        model_name: str = None,
-        best_params: Dict[str, Any] = None,
-    ):
-        """Initialize and return a fitted sklearn estimator based on initialization strategy.
-        
-        This method consolidates the initialization logic that was previously duplicated
-        across every model's classify_traditional() implementation.
-        
-        Args:
-            strategy: ModelInitStrategy enum specifying how to initialize the model.
-            x_train: Training feature matrix.
-            y_train: Training labels.
-            class_weight_imb: Class weight strategy (e.g., 'balanced', None).
-            random_state: Random seed for reproducibility.
-            save_folder: Directory containing saved model (required for LOAD_SAVED_MODEL).
-            model_name: Filename of saved model (required for LOAD_SAVED_MODEL).
-            best_params: Hyperparameters dict (required for RETRAIN_WITH_CONFIG_PARAMS).
-        
-        Returns:
-            Fitted sklearn estimator ready for prediction.
-            
-        Raises:
-            NotImplementedError: If subclass does not override _build_sklearn_estimator().
-            ValueError: If strategy-specific requirements not met (e.g., best_params missing).
-        """
-        y_train_flat = y_train.ravel() if hasattr(y_train, 'ravel') else y_train
-        
-        if strategy == ModelInitStrategy.RETRAIN_WITH_DEFAULTS:
-            # Train with default hyperparameters
-            return self._build_sklearn_estimator(
-                class_weight=class_weight_imb,
-                random_state=random_state,
-                params=None,
-            ).fit(x_train, y_train_flat)
-        
-        elif strategy == ModelInitStrategy.RETRAIN_WITH_CONFIG_PARAMS:
-            # Train with provided hyperparameters from config/JSON
-            if best_params is None:
-                raise ValueError(
-                    "RETRAIN_WITH_CONFIG_PARAMS strategy requires best_params to be provided."
-                )
-            runtime_params = dict(best_params)
-            # Don't set n_jobs here - let subclasses handle it if they support it
-            return self._build_sklearn_estimator(
-                class_weight=class_weight_imb,
-                random_state=random_state,
-                params=runtime_params,
-            ).fit(x_train, y_train_flat)
-        
-        elif strategy == ModelInitStrategy.LOAD_SAVED_MODEL:
-            # Load pre-trained model from disk
-            if save_folder is None or model_name is None:
-                raise ValueError(
-                    "LOAD_SAVED_MODEL strategy requires both save_folder and model_name."
-                )
-            model_path = os.path.join(save_folder, model_name)
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"Model file not found: {model_path}")
-            return joblib.load(model_path)
-        
-        else:
-            raise ValueError(f"Unknown initialization strategy: {strategy}")
-
-    def _build_sklearn_estimator(
-        self,
-        class_weight: str = None,
-        random_state: int = None,
-        params: Dict[str, Any] = None,
-    ):
-        """Build an unfitted sklearn estimator.
-        
-        Subclasses should override this method to return their specific sklearn classifier
-        configured with the given parameters.
-        
-        Args:
-            class_weight: Class weight strategy to apply.
-            random_state: Random seed.
-            params: Additional hyperparameters to apply (overrides class_weight and random_state).
-        
-        Returns:
-            Unfitted sklearn estimator (e.g., RandomForestClassifier, LogisticRegression, etc.).
-        
-        Raises:
-            NotImplementedError: If the subclass does not override this method.
-        """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not override _build_sklearn_estimator()."
-        )
-
-    def classify_traditional(
-        self,
-        x_train,
-        x_test,
-        y_train,
-        y_test,
-        class_weight_imb,
-        random_state,
-        save_folder,
-        model_name,
-        strategy: ModelInitStrategy = ModelInitStrategy.RETRAIN_WITH_DEFAULTS,
-        best_params=None,
-    ):
-        """Legacy-compatible traditional classifier entry point.
-
-        Replaces the confusing (retrain, temporal) flags with a semantic ModelInitStrategy enum.
-        
-        Args:
-            x_train, x_test, y_train, y_test: Train/test splits.
-            class_weight_imb: Class weight strategy.
-            random_state: Random seed.
-            save_folder: Folder for model persistence (used with LOAD_SAVED_MODEL).
-            model_name: Model filename (used with LOAD_SAVED_MODEL).
-            strategy: ModelInitStrategy specifying initialization behavior.
-            best_params: Hyperparameters dict (required for RETRAIN_WITH_CONFIG_PARAMS).
-        
-        Returns:
-            Tuple of legacy metrics: (accuracy, precision, recall, f1, specificity, g_mean)
-            or variable-length tuple if model adds extra metrics (e.g., tree depths for RF).
-
-        Traditional model wrappers should override this method and return the same
-        tuple structure as the legacy classify_* functions in
-        src/scripts/GLOC_classifier_traditional.py.
-        """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not implement classify_traditional()."
-        )
-
-    @staticmethod
-    def _legacy_binary_metrics(y_true, y_pred) -> tuple[float, float, float, float, float, float]:
-        """Compute legacy metric set with matching defaults and ordering."""
-        accuracy = accuracy_score(y_true, y_pred)
-        precision = precision_score(y_true, y_pred)
-        recall = recall_score(y_true, y_pred)
-        f1 = f1_score(y_true, y_pred)
-        specificity = recall_score(y_true, y_pred, pos_label=0)
-        g_mean = geometric_mean_score(y_true, y_pred)
-        return accuracy, precision, recall, f1, specificity, g_mean
-
-    @staticmethod
-    def _print_legacy_metrics(title: str, metrics: tuple[float, float, float, float, float, float]) -> None:
-        """Print the legacy binary metric summary in the expected terminal format."""
-        accuracy, precision, recall, f1, specificity, g_mean = metrics
-        print(f"\n{title}")
-        print(f"Accuracy:  {accuracy}")
-        print(f"Precision:  {precision}")
-        print(f"Recall:  {recall}")
-        print(f"F1 Score:  {f1}")
-        print(f"Specificity:  {specificity}")
-        print(f"G-Mean:  {g_mean}")
+    @abstractmethod
+    def save_model(self, path: str) -> None:
+        pass
 
     @abstractmethod
-    def get_name(self) -> str:
-        """Return model name"""
+    def load_model(self, path: str) -> None:
         pass
+
+    @abstractmethod
+    def get_model_parameters(self) -> Dict[str, Any]:
+        pass
+
+    @abstractmethod
+    def set_model_parameters(self, model_hyperparameters: Dict[str, Any]) -> None:
+        pass
+
+
+class TraditionalModel(BaseModel):
+    @property
+    def is_traditional_model(self) -> bool:
+        return True
+
+    @property
+    def hpo_search_space(self) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    def get_hpo_search_space(self) -> Any:
+        return self.hpo_search_space
+
+    def train(self, X: np.ndarray, y: np.ndarray, params: Optional[Dict[str, Any]] = None) -> None:
+        self.model.fit(X, y)
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        return self.model.predict(X)
+
+    def save_model(self, path: str) -> None:
+        joblib.dump(self.model, path)
+
+    def load_model(self, path: str) -> None:
+        self.model = joblib.load(path)
+
+    def get_model_parameters(self) -> Dict[str, Any]:
+        return self.model.get_params()
+
+    def set_model_parameters(self, model_hyperparameters: Dict[str, Any]) -> None:
+        self.model.set_params(**model_hyperparameters)
+
+
+class AdvancedModel(BaseModel):
+    def __init__(self, model_hyperparameters: Optional[Dict[str, Any]] = None):
+        super().__init__(model_hyperparameters)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.hpo_config: Dict[str, Any] = {}
+
+    @property
+    def is_traditional_model(self) -> bool:
+        return False
+
+    @property
+    def data_pipeline_hyperparameters(self) -> Dict[str, Any]:
+        return {}
+
+    def _build_model(self, model_hyperparameters: Optional[Dict[str, Any]] = None, *, input_dim: Optional[int] = None, **kwargs) -> Any:
+        if input_dim is None:
+            return None
+        raise NotImplementedError("Advanced model subclasses must implement _build_model with input_dim to instantiate architecture.")
+
+    def train(self, X: np.ndarray, y: np.ndarray, params: Optional[Dict[str, Any]] = None) -> None:
+        target_params = params if params is not None else self.best_params
+        self.best_params = target_params
+
+        X_ds, _ = baseline_down_select(X, self.all_features, target_params["baseline_method"])
+        final_early_stop = self.hpo_config.get("final_early_stop", False)
+
+        if final_early_stop:
+            train_ds, val_ds, train_w, _, _, _ = train_test_split_trials(
+                X_ds, y, target_params["sequence_length"], target_params["step_size"], test_ratio=0.2, end_label=True
+            )
+            val_loader = DataLoader(val_ds, batch_size=target_params["batch_size"], shuffle=False)
+        else:
+            train_ds, _, train_w, _, _, _ = train_test_split_trials(
+                X_ds, y, target_params["sequence_length"], target_params["step_size"], test_ratio=None, end_label=True
+            )
+            val_loader = None
+
+        self.model = self._build_model(target_params, input_dim=train_w.shape[2]).to(self.device)
+        class_weight_strategy = self.hpo_config.get("class_weight", "balanced")
+        class_weights = torch.tensor(
+            compute_class_weight(class_weight_strategy, classes=np.array([0, 1]), y=y),
+            dtype=torch.float,
+        )
+        criterion, optimizer = build_training_components(self.model, class_weights, target_params, self.device)
+        train_loader = DataLoader(
+            train_ds, batch_size=target_params["batch_size"],
+            sampler=build_sampler(train_ds.tensors[1], class_weights) if self.hpo_config.get("use_sampler",
+                                                                                             True) else None
+        )
+
+        if final_early_stop and val_loader is not None:
+            best_state, _, _ = train_with_early_stopping(
+                self.model, train_loader, val_loader, criterion, optimizer, self.device,
+                target_params["threshold"], self.hpo_config.get("metric", "f1")
+            )
+            if best_state:
+                self.model.load_state_dict(best_state)
+        else:
+            num_epochs = max(target_params.get("best_epoch", 15), 15)
+            for epoch in range(num_epochs):
+                run_train_epoch(self.model, train_loader, criterion, optimizer, self.device)
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        X_ds, _ = baseline_down_select(X, self.all_features, self.best_params["baseline_method"])
+        dummy_y = np.zeros(len(X_ds))
+        dataset, _, _, _, _, _ = train_test_split_trials(
+            X=X_ds, Y=dummy_y, window_size=self.best_params["sequence_length"], step_size=10, test_ratio=None,
+            end_label=True
+        )
+        loader = DataLoader(dataset, batch_size=self.best_params["batch_size"], shuffle=False)
+
+        self.model.eval()
+        predictions = []
+        with torch.no_grad():
+            for x_batch, _ in loader:
+                outputs = self.model(x_batch.to(self.device))
+                preds = (outputs.reshape(-1) >= self.best_params["threshold"]).float()
+                predictions.extend(preds.cpu().numpy())
+
+        return np.array(predictions)
+
+    def save_model(self, path: str) -> None:
+        torch.save(self.model.state_dict(), path)
+
+    def load_model(self, path: str) -> None:
+        self.model.load_state_dict(torch.load(path))
+
+    def get_model_parameters(self) -> Dict[str, Any]:
+        return self.best_params
+
+    def set_model_parameters(self, model_hyperparameters: Dict[str, Any]) -> None:
+        self.best_params = model_hyperparameters

@@ -1,28 +1,21 @@
-import numpy as np
-import os
-import joblib  # For saving the model
 from numpy import ravel
 import time
-import matplotlib.pyplot as plt
+import time
+import warnings
+
 from matplotlib_venn import venn2, venn3
+from numpy import ravel
 from upsetplot import from_contents, UpSet
 
-
-from .GLOC_data_processing_traditional import *
-from .GLOC_classifier_traditional import stratified_kfold_split, classify_logistic_regression, classify_random_forest, \
-    classify_lda, classify_svm, classify_knn, classify_ensemble_with_gradboost
-from .imbalance_techniques_traditional import resample_ros
-from .temporal_functions_traditional import plotting_offset_models, data_with_prediction, \
-    plot_f1_scores_across_classifiers, get_model_subfolder, \
-     get_median_hyperparameters, get_hyperparameters_from_json, \
-    plot_metrics_from_cache
-from src.config_loader import load_experiment_config
-from src.models_new.model_factory import ModelFactory
 from src.Data_Pipeline.data_pipeline import DataPipeline
+from src.config_loader import load_experiment_config
+from src.models.model_factory import ModelFactory
+from .GLOC_classifier_traditional import stratified_kfold_split, classify_random_forest, \
+    classify_knn, classify_ensemble_with_gradboost
+from .imbalance_techniques_traditional import resample_ros
+from .temporal_functions_traditional import get_model_subfolder, \
+    get_median_hyperparameters, get_hyperparameters_from_json
 
-import sys
-import pickle
-import warnings
 warnings.filterwarnings("ignore", message="Could not find the number of physical cores")
 
 ######## This file will be used to do feature focused studies
@@ -32,14 +25,13 @@ import os
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 
-
-offset_ranges = (0,1,1) # No longer doing any offset (no temporal eval)
-data_rate = 25 # (hz)
-preference = 7 # Which section of the code do we want to run
+offset_ranges = (0, 1, 1)  # No longer doing any offset (no temporal eval)
+data_rate = 25  # (hz)
+preference = 7  # Which section of the code do we want to run
 random_state = 42
 class_weight_imb = None
+
 
 def test_violin(f1_results_by_stream, model_type, subfolder2=None):
     """
@@ -192,6 +184,7 @@ def test_violin(f1_results_by_stream, model_type, subfolder2=None):
 
     plt.show()
 
+
 def plot_f1_violin_by_stream(f1_results_by_stream, model_type, subfolder2=None):
     """
     Create faceted violin plots of F1 scores per classifier, grouped by feature stream.
@@ -245,12 +238,12 @@ def plot_f1_violin_by_stream(f1_results_by_stream, model_type, subfolder2=None):
         col="Classifier",
         kind="violin",
         orient="v",
-        inner="box",          # Adds a small boxplot inside each violin
-        hue="Stream",         # Ensures consistent coloring across panels
+        inner="box",  # Adds a small boxplot inside each violin
+        hue="Stream",  # Ensures consistent coloring across panels
         palette="Set2",
-        legend=False,         # Avoid redundant legend (streams already on y-axis)
-        sharex=False,          # Lock x-axis across classifiers for comparability
-        sharey=True,         # Allow each classifier to show its own stream list
+        legend=False,  # Avoid redundant legend (streams already on y-axis)
+        sharex=False,  # Lock x-axis across classifiers for comparability
+        sharey=True,  # Allow each classifier to show its own stream list
         height=6,
         aspect=1.2,
     )
@@ -281,7 +274,6 @@ def plot_f1_violin_by_stream(f1_results_by_stream, model_type, subfolder2=None):
 
     # Display the plot
     plt.show()
-
 
 
 def restrict_feature_space(select_features, streams):
@@ -336,7 +328,6 @@ def restrict_feature_space(select_features, streams):
     return usable_features
 
 
-
 if preference == 7:
     config = load_experiment_config("/home/gloc/G-LOC-Prediction/test.yaml")
     pipeline = DataPipeline(config=config)
@@ -361,7 +352,7 @@ if preference == 7:
         for model in models_to_test:
             classifier = model.get_name()
             print(f"Running model: {classifier}")
-            
+
             start_time = time.time()
             num_kfold = 10  # Number of CV folds
 
@@ -492,7 +483,6 @@ def investigate_feature_space(model_type, classifiers):
     return shared_features, unique_features
 
 
-
 if preference == 8:
     """
     Inspect previously saved F1 results from preference 7.
@@ -586,6 +576,7 @@ if preference == 8:
     for gid, items in STREAM_GROUPS.items():
         print(f"  {gid}: {', '.join(items)}")
 
+
     # Map each stream name -> set of group IDs it belongs to
     def groups_for_stream(stream_name: str) -> set:
         s_lower = stream_name.lower()
@@ -596,6 +587,7 @@ if preference == 8:
                     groups.add(gid)
                     break
         return groups
+
 
     stream_to_groups = {s: groups_for_stream(s) for s in all_streams}
 
@@ -726,8 +718,6 @@ if preference == 8:
     # plt.tight_layout()
     # plt.show()
 
-
-
 if preference == 9:
     # Preference to plot overlap of features ONLY
     # Agnostic to how every many classifiers we want to look at
@@ -737,12 +727,11 @@ if preference == 9:
     # Try with all however many classifiers
     investigate_feature_space(model_type, ['KNN', 'EGB', 'RF'])
 
-
 if preference == 10:
     # Save Hyperparameters to JSON
     model_type = ['noAFE', 'explicit']
     classifier = 'logreg'
-    get_median_hyperparameters(classifier,get_model_subfolder(model_type))
+    get_median_hyperparameters(classifier, get_model_subfolder(model_type))
 
 if preference == 11:
     """
@@ -843,7 +832,8 @@ if preference == 11:
     filtered_results = {
         clf: {
             # stream: f1_results_by_stream[clf][stream]
-            stream.replace('ECG-HR-BR-Temperature', 'Equivital').replace('Participant', 'Demographics').replace('Centrifuge','G Force'): f1_results_by_stream[clf][stream]
+            stream.replace('ECG-HR-BR-Temperature', 'Equivital').replace('Participant', 'Demographics').replace(
+                'Centrifuge', 'G Force'): f1_results_by_stream[clf][stream]
             for stream in sorted_streams
             if stream in f1_results_by_stream[clf]
         }

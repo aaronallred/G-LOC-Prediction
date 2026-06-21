@@ -8,10 +8,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from src.model_type import ModelType
-from src.models_new.model_factory import ModelFactory
+from src.models.model_factory import ModelFactory
 from src.modes.feature_space_review import run_feature_space_review
 
 

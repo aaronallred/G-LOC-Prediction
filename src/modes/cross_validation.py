@@ -31,8 +31,8 @@ from src.advanced_experiment_utils import (
     build_sampler,
     train_with_early_stopping,
 )
-from src.models_new.base import BaseModel, TraditionalModel, AdvancedModel
-from src.models_new.model_factory import ModelFactory
+from src.models.base import BaseModel, TraditionalModel, AdvancedModel
+from src.models.model_factory import ModelFactory
 from src.traditional_experiment_utils import stratified_kfold_split
 
 logger = logging.getLogger(__name__)

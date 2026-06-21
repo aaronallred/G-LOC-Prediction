@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+import src.modes.cross_validation as _cv_mod
 from src.model_type import ModelType
 from src.modes.cross_validation import (
     run_cross_validation,
@@ -21,7 +22,6 @@ from src.modes.cross_validation import (
     _extract_median_hyperparameters,
     _smote_resampling,
 )
-import src.modes.cross_validation as _cv_mod
 
 
 class _FastBayesSearchCV:
@@ -76,8 +76,8 @@ def _fast_bayes_search(monkeypatch):
 
 def _create_factory_with_defaults():
     """Create a ModelFactory that injects default best_params for advanced models."""
-    from src.models_new.model_factory import ModelFactory
-    from src.models_new.logistic_regression_ts import LogRegTSModel
+    from src.models.model_factory import ModelFactory
+    from src.models.logistic_regression_ts import LogRegTSModel
 
     orig_create = ModelFactory.create_model
 
@@ -133,6 +133,7 @@ class _DummyAdvancedModel:
     def get_hpo_search_space(self):
         def _builder(trial, X_train, random_seed):
             return {"lr": 0.01}
+
         return _builder
 
     def train(self, X, y, params=None):
@@ -386,7 +387,7 @@ cross_validation:
 # ---------------------------------------------------------------------------
 
 def test_traditional_cross_validation_saves_metrics_and_hyperparameters(tmp_path):
-    from src.models_new.model_factory import ModelFactory
+    from src.models.model_factory import ModelFactory
 
     pipeline = _FlexiblePipeline()
     config = _make_cv_config(models=["LogReg"])
@@ -407,7 +408,7 @@ def test_traditional_cross_validation_saves_metrics_and_hyperparameters(tmp_path
 
 
 def test_traditional_cross_validation_applies_smote_before_classifier_fit(tmp_path):
-    from src.models_new.model_factory import ModelFactory
+    from src.models.model_factory import ModelFactory
 
     pipeline = _FlexiblePipeline()
     config = _make_cv_config(models=["LogReg"])
