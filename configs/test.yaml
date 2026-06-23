@@ -20,7 +20,7 @@ traditional_data_parameters:
   time_start: 0
 
 cross_validation:
-  enabled: true
+  enabled: false
   # Mode-specific parameters
   #  models: [ EGB, KNN, LDA, LogReg, RF, SVM, LSTM, TCN, Trans, LogRegTS ] <- All models
   models: [ KNN, LSTM ]
@@ -37,14 +37,15 @@ cross_validation:
 
 sensor_ablation:
   training:
-    enabled: false
-    save_results_folder: Results/Sensor_Ablation
-    median_hyperparameters_folder: Results/Cross_Validation
-    # Mode-specific parameters
-    models: [ KNN, LogReg ]
+    enabled: true
+    manual_ablation: false
+    save_results_folder: Results/Sensor_Ablation_Test
+    median_hyperparameters_folder: Results/Cross_Validation_Test
+    models: [ KNN, LSTM ]
     model_type: !ModelType [ Complete, Explicit ]
     random_seed: 42
     num_splits: 2
+    class_weight: balanced
     streams:
       - [ EEG ]
       - [ EEG, Pupil, Participant ]

@@ -30,6 +30,7 @@ sensor_ablation:
     manual_ablation: false
     random_seed: 42
     num_splits: 10
+    class_weight: null  # null, "balanced", or a dict like {0: 1.0, 1: 2.0}
     streams:
       - [ EEG ]
       - [ EEG, Pupil ]

@@ -1,6 +1,5 @@
 import json
 import logging
-import pickle
 from pathlib import Path
 
 import numpy as np
@@ -8,6 +7,10 @@ from imblearn.metrics import geometric_mean_score
 from sklearn import metrics
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
+from src.advanced_experiment_utils import (
+    baseline_down_select,
+    get_advanced_predictions_and_targets,
+)
 from src.models.model_factory import ModelFactory
 from src.traditional_experiment_utils import stratified_kfold_split, get_hyperparameters_from_json, \
     plot_f1_violin_with_stream_matrix
@@ -18,23 +21,15 @@ def run_sensor_ablation_training(
         pipeline: DataPipeline,
         model_factory: ModelFactory,
         project_root: Path,
-        # get_hyperparameters_from_json_fn: Callable | None,
-        # stratified_kfold_split_fn: Callable,
-        # plot_f1_violin_by_stream_fn: Callable,
-        # extract_f1_score_fn: Callable[[tuple], float] = extract_f1_score,
-        # save_model_stream_f1_scores_fn: Callable[..., Path] = save_model_stream_f1_scores,
 ) -> None:
     """Run sensor ablation training across configured stream groups."""
     training_config = config["sensor_ablation"]["training"]
     feature_stream_groups: list[list[str]] = training_config["streams"]
-    models_to_test: list = [model_factory.create_model(model_name) for model_name in training_config["models"]]
+    model_names: list[str] = training_config["models"]
     num_splits: int = training_config["num_splits"]
     model_type = training_config["model_type"]
     manual_ablation = training_config["manual_ablation"]
-    f1_results_by_stream: dict[str, dict[str, np.ndarray]] = {
-        model.name: {}
-        for model in models_to_test
-    }
+    class_weight = training_config.get("class_weight", None)
 
     sensor_ablation_results_dir = Path(training_config["save_results_folder"]) / model_type.get_folder_name()
     sensor_ablation_results_dir.mkdir(parents=True, exist_ok=True)
@@ -43,7 +38,6 @@ def run_sensor_ablation_training(
         training_config.get("save_models_folder", "ModelSave/Sensor_Ablation")) / model_type.get_folder_name())
     sensor_ablation_models_dir.mkdir(parents=True, exist_ok=True)
 
-    # Set random seed and model type for pipeline operations
     pipeline.set_random_seed(training_config["random_seed"])
     pipeline.set_model_type(model_type)
 
@@ -56,49 +50,44 @@ def run_sensor_ablation_training(
         logging.info("Running stream group %d/%d: %s", group_index, len(feature_stream_groups), feature_streams)
         stream_str = "-".join(feature_streams)
 
-        for model in models_to_test:
-            logging.info("Running model: %s", model.name)
-
+        for model_name in model_names:
+            logging.info("Running model: %s", model_name)
+            model = model_factory.create_model(model_name)
             hyperparameters, _, _, _ = get_hyperparameters_from_json(
                 Path(project_root / training_config["median_hyperparameters_folder"]), model_type, model.name)
-            X, y, select_features = pipeline.get_data(model=model, feature_streams=feature_streams,
-                                                      return_feature_names=True,
-                                                      traditional_feature_selection=feature_group)
             f1_scores = np.zeros(num_splits, dtype=float)
 
-            fold_metrics = {}
-            for kfold_id in range(num_splits):
-                logging.info("Running fold %d/%d", kfold_id + 1, num_splits)
-                X_train, X_test, y_train, y_test = stratified_kfold_split(X, y, num_splits, kfold_id,
-                                                                          training_config["random_seed"])
-
-                # Re-initialize model for each fold to ensure clean training
-                model = model_factory.create_model(model.name, model_hyperparameters=hyperparameters)
-                if "random_state" in model.get_model_parameters():
-                    model.set_model_parameters({"random_state": training_config["random_seed"]})
-
-                # Train and evaluate
-                model.train(X_train, y_train)
-                y_pred = model.predict(X_test)
-                fold_result = _evaluate_model(y_test, y_pred)
-                f1_scores[kfold_id] = fold_result["f1"]
-
-                model_path = _save_trained_model(
-                    models_root_dir=sensor_ablation_models_dir,
-                    model_name=model.name,
-                    stream_str=stream_str,
-                    kfold_id=kfold_id + 1,
+            if model.is_traditional_model:
+                _run_traditional_ablation(
                     model=model,
+                    model_factory=model_factory,
+                    hyperparameters=hyperparameters,
+                    pipeline=pipeline,
+                    feature_streams=feature_streams,
+                    feature_group=feature_group,
+                    class_weight=class_weight,
+                    num_splits=num_splits,
+                    random_seed=training_config["random_seed"],
+                    f1_scores=f1_scores,
+                    sensor_ablation_models_dir=sensor_ablation_models_dir,
+                    sensor_ablation_results_dir=sensor_ablation_results_dir,
+                    stream_str=stream_str,
                 )
-
-                logging.info(
-                    "Metrics for %s | streams=%s | fold=%d: %s",
-                    model.name,
-                    feature_streams,
-                    kfold_id,
-                    fold_result,
+            else:
+                _run_advanced_ablation(
+                    model=model,
+                    model_factory=model_factory,
+                    hyperparameters=hyperparameters,
+                    pipeline=pipeline,
+                    feature_streams=feature_streams,
+                    class_weight=class_weight,
+                    num_splits=num_splits,
+                    random_seed=training_config["random_seed"],
+                    f1_scores=f1_scores,
+                    sensor_ablation_models_dir=sensor_ablation_models_dir,
+                    sensor_ablation_results_dir=sensor_ablation_results_dir,
+                    stream_str=stream_str,
                 )
-                logging.info("Saved trained model to %s", model_path)
 
             output_path = _save_model_stream_f1_scores(
                 results_root_dir=sensor_ablation_results_dir,
@@ -106,18 +95,123 @@ def run_sensor_ablation_training(
                 stream_str=stream_str,
                 f1_scores=f1_scores,
             )
-            f1_results_by_stream[model.name][stream_str] = f1_scores
             logging.info("Saved F1 scores to %s", output_path)
 
             metadata_path = _save_model_metadata(
                 models_root_dir=sensor_ablation_models_dir,
                 model_name=model.name,
                 stream_str=stream_str,
-                feature_names=select_features,
+                feature_names=[],  # Populated inside ablation runners
                 hyperparameters=hyperparameters,
-                fold_metrics=fold_metrics,
+                fold_metrics={},
             )
             logging.info("Saved model metadata to %s", metadata_path)
+
+
+def _run_traditional_ablation(
+        model,
+        model_factory: ModelFactory,
+        hyperparameters: dict,
+        pipeline: DataPipeline,
+        feature_streams: list[str],
+        feature_group: str,
+        class_weight,
+        num_splits: int,
+        random_seed: int,
+        f1_scores: np.ndarray,
+        sensor_ablation_models_dir: Path,
+        sensor_ablation_results_dir: Path,
+        stream_str: str,
+) -> None:
+    X, y, select_features = pipeline.get_data(
+        model=model, feature_streams=feature_streams,
+        return_feature_names=True,
+        traditional_feature_selection=feature_group,
+    )
+
+    for kfold_id in range(num_splits):
+        logging.info("Running fold %d/%d", kfold_id + 1, num_splits)
+        X_train, X_test, y_train, y_test = stratified_kfold_split(X, y, num_splits, kfold_id, random_seed)
+
+        model = model_factory.create_model(model.name, model_hyperparameters=hyperparameters)
+        if class_weight is not None and "class_weight" in model.get_model_parameters():
+            model.set_model_parameters({"class_weight": class_weight})
+        if "random_state" in model.get_model_parameters():
+            model.set_model_parameters({"random_state": random_seed})
+
+        model.train(X_train, y_train)
+        y_pred = model.predict(X_test)
+        fold_result = _evaluate_model(y_test, y_pred)
+        f1_scores[kfold_id] = fold_result["f1"]
+
+        model_path = _save_trained_model(
+            models_root_dir=sensor_ablation_models_dir,
+            model_name=model.name,
+            stream_str=stream_str,
+            kfold_id=kfold_id + 1,
+            model=model,
+        )
+
+        logging.info(
+            "Metrics for %s | streams=%s | fold=%d: %s",
+            model.name, feature_streams, kfold_id, fold_result,
+        )
+        logging.info("Saved trained model to %s", model_path)
+
+
+def _run_advanced_ablation(
+        model,
+        model_factory: ModelFactory,
+        hyperparameters: dict,
+        pipeline: DataPipeline,
+        feature_streams: list[str],
+        class_weight,
+        num_splits: int,
+        random_seed: int,
+        f1_scores: np.ndarray,
+        sensor_ablation_models_dir: Path,
+        sensor_ablation_results_dir: Path,
+        stream_str: str,
+) -> None:
+    for kfold_id in range(num_splits):
+        logging.info("Running fold %d/%d", kfold_id + 1, num_splits)
+        X_train, X_test, y_train, y_test, features = pipeline.get_data(
+            model=model, kfold_id=kfold_id, num_splits=num_splits,
+            feature_streams=feature_streams,
+        )
+
+        model = model_factory.create_model(model.name, model_hyperparameters=hyperparameters)
+        model.all_features = features
+        if "random_state" in model.get_model_parameters():
+            model.set_model_parameters({"random_state": random_seed})
+
+        model.train(X_train, y_train, class_weight=class_weight)
+
+        X_test_ds, _ = baseline_down_select(X_test, model.all_features, model.best_params["baseline_method"])
+        actual_labels, predicted_labels = get_advanced_predictions_and_targets(
+            model=model,
+            X=X_test_ds,
+            y=y_test,
+            sequence_length=model.best_params["sequence_length"],
+            step_size=10,
+            batch_size=model.best_params["batch_size"],
+        )
+        fold_result = _evaluate_model(actual_labels, predicted_labels)
+        f1_scores[kfold_id] = fold_result["f1"]
+
+        model_path = _save_trained_model(
+            models_root_dir=sensor_ablation_models_dir,
+            model_name=model.name,
+            stream_str=stream_str,
+            kfold_id=kfold_id + 1,
+            model=model,
+        )
+
+        logging.info(
+            "Metrics for %s | streams=%s | fold=%d: %s",
+            model.name, feature_streams, kfold_id, fold_result,
+        )
+        logging.info("Saved trained model to %s", model_path)
 
 
 def _evaluate_model(y_test: np.ndarray, y_pred: np.ndarray) -> tuple:
@@ -242,10 +336,9 @@ def _save_trained_model(
     model_dir = models_root_dir / model_name / stream_str
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    model_path = model_dir / f"fold_{kfold_id}.pkl"
-
-    with open(model_path, "wb") as handle:
-        pickle.dump(model, handle)
+    ext = ".pkl" if model.is_traditional_model else ".pt"
+    model_path = model_dir / f"fold_{kfold_id}{ext}"
+    model.save_model(str(model_path))
 
     return model_path
 

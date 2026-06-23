@@ -31,6 +31,7 @@ class _TinyTraditionalModel:
     def __init__(self, name: str = "TinyKNN") -> None:
         self.name = name
         self.calls: list[dict] = []
+        self.is_traditional_model = True
 
     def train(self, X, y):
         self.calls.append({"x_shape": X.shape, "y_shape": y.shape})
@@ -43,6 +44,10 @@ class _TinyTraditionalModel:
 
     def set_model_parameters(self, params):
         pass
+
+    def save_model(self, path: str):
+        import joblib
+        joblib.dump(self, path)
 
     def classify_traditional(self, *args, **kwargs):
         self.calls.append({"args": args, "kwargs": kwargs})
@@ -57,7 +62,7 @@ class _FakeModelFactory:
 
 
 class _FakePipeline:
-    """Pipeline whose get_data() returns (X, y) regardless of arguments."""
+    """Pipeline whose get_data() returns fake data regardless of arguments."""
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
@@ -68,9 +73,23 @@ class _FakePipeline:
     def set_model_type(self, model_type) -> None:
         pass
 
-    def get_data(self, model=None, feature_streams=None):
-        self.calls.append({"model": getattr(model, "name", None), "feature_streams": list(feature_streams or [])})
-        return np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]]), np.array([0, 1, 0, 1])
+    def get_data(self, model=None, kfold_id=None, num_splits=None, feature_streams=None, 
+                 traditional_feature_selection="cache", return_feature_names=False):
+        self.calls.append({
+            "model": getattr(model, "name", None), 
+            "feature_streams": list(feature_streams or []),
+            "kfold_id": kfold_id,
+            "num_splits": num_splits
+        })
+        if kfold_id is not None:
+            # Simulate advanced pipeline return value
+            return np.array([[1.0, 2.0], [3.0, 4.0]]), np.array([[5.0, 6.0], [7.0, 8.0]]), np.array([0, 0]), np.array([1, 1]), ["feat_a", "feat_b"]
+        else:
+            # Simulate traditional pipeline return value
+            if return_feature_names:
+                return np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]]), np.array([0, 1, 0, 1]), ["feat_a", "feat_b"]
+            else:
+                return np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]]), np.array([0, 1, 0, 1])
 
 
 def _make_config(tmp_path: Path) -> dict:
@@ -98,20 +117,22 @@ def _make_config(tmp_path: Path) -> dict:
             "offset": 0,
             "time_start": 0,
         },
-        "sensor_ablation": {
-            "training": {
-                "enabled": True,
-                "save_results_folder": str(tmp_path / "Results" / "Sensor_Ablation"),
-                "models": ["KNN"],
-                "model_type": ModelType("Complete", "Explicit"),
-                "random_seed": 13,
-                "num_splits": 2,
-                "median_hyperparameters_folder": str(tmp_path / "ModelSave" / "CV"),
-                "streams": [
-                    ["ECG"],
-                    ["EEG", "Pupil"],
-                ],
-            },
+    "sensor_ablation": {
+        "training": {
+            "enabled": True,
+            "save_results_folder": str(tmp_path / "Results" / "Sensor_Ablation"),
+            "models": ["KNN"],
+            "model_type": ModelType("Complete", "Explicit"),
+            "random_seed": 13,
+            "num_splits": 2,
+            "median_hyperparameters_folder": str(tmp_path / "ModelSave" / "CV"),
+            "manual_ablation": False,
+            "class_weight": None,
+            "streams": [
+                ["ECG"],
+                ["EEG", "Pupil"],
+            ],
+        },
             "review": {
                 "enabled": True,
                 "save_results_folder": str(tmp_path / "Results" / "Sensor_Ablation"),

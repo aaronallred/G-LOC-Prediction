@@ -30,6 +30,7 @@ from src.advanced_experiment_utils import (
     build_training_components,
     build_sampler,
     train_with_early_stopping,
+    get_advanced_predictions_and_targets,
 )
 from src.models.base import BaseModel, TraditionalModel, AdvancedModel
 from src.models.model_factory import ModelFactory
@@ -183,30 +184,6 @@ def _run_advanced_hpo(
         },
     }
 
-
-def get_advanced_predictions_and_targets(
-        model: Any,
-        X: np.ndarray,
-        y: np.ndarray,
-        sequence_length: int,
-        step_size: int,
-        batch_size: int
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Extracts sequence windows, runs model inference, and returns aligned actual vs predicted arrays."""
-    dataset, _, _, target_tensor, _, _ = train_test_split_trials(
-        X, y, sequence_length, step_size=step_size, test_ratio=None, end_label=True
-    )
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
-
-    model.model.eval()
-    predictions = []
-    with torch.no_grad():
-        for x_batch, _ in loader:
-            outputs = model.model(x_batch.to(model.device))
-            preds = (outputs.reshape(-1) >= model.best_params["threshold"]).float()
-            predictions.extend(preds.cpu().numpy())
-
-    return target_tensor.numpy(), np.array(predictions)
 
 
 def _run_traditional_model_cv_fold(
@@ -427,7 +404,7 @@ def run_cross_validation(
         Dict mapping model names to lists of per-fold result dicts.
     """
     cross_validation_config = config["cross_validation"]
-    models = cross_validation_config.get("models", ["KNN"])
+    models = cross_validation_config.get("models")
     results_path = Path(project_root_path / cross_validation_config["save_results_folder"])
     model_type = cross_validation_config["model_type"]
     num_splits = cross_validation_config["num_splits"]

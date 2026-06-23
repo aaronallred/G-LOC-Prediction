@@ -159,7 +159,8 @@ class AdvancedModel(BaseModel):
             return None
         raise NotImplementedError("Advanced model subclasses must implement _build_model with input_dim to instantiate architecture.")
 
-    def train(self, X: np.ndarray, y: np.ndarray, params: Optional[Dict[str, Any]] = None) -> None:
+    def train(self, X: np.ndarray, y: np.ndarray, params: Optional[Dict[str, Any]] = None,
+              class_weight: Optional[str] = None) -> None:
         target_params = params if params is not None else self.best_params
         self.best_params = target_params
 
@@ -178,7 +179,8 @@ class AdvancedModel(BaseModel):
             val_loader = None
 
         self.model = self._build_model(target_params, input_dim=train_w.shape[2]).to(self.device)
-        class_weight_strategy = self.hpo_config.get("class_weight", "balanced")
+        class_weight_strategy = class_weight if class_weight is not None else \
+                                self.hpo_config.get("class_weight", "balanced")
         class_weights = torch.tensor(
             compute_class_weight(class_weight_strategy, classes=np.array([0, 1]), y=y),
             dtype=torch.float,

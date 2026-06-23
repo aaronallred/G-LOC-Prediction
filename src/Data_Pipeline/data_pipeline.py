@@ -132,6 +132,7 @@ class DataPipeline:
             request_kwargs["n_neighbors"] = advanced_config["n_neighbors"]
             request_kwargs["baseline_window"] = advanced_config["baseline_window"]
             request_kwargs["horizon"] = advanced_config.get("horizon", 0)
+            request_kwargs["feature_streams"] = feature_streams
         else:
             request_kwargs["classifier_type"] = self._resolve_classifier_name(model)
             request_kwargs["model"] = model
@@ -188,6 +189,8 @@ class DataPipeline:
     def _resolve_select_features(self, current_kwargs: dict[str, Any]) -> list[str]:
         """Load selected feature names from the median-hyperparameter cache."""
 
+        # TODO -> This is probably bad to hardcode it to sensor ablation config, but sensor ablation config is the only
+        # one that uses it, so it is fine for now
         median_hyperparameters_root = self._config["sensor_ablation"]["training"]["median_hyperparameters_folder"]
         model_type_string = f"{current_kwargs['model_type'].afe_filter}_{current_kwargs['model_type'].feature_set}"
         json_path = os.path.join(
@@ -858,7 +861,8 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             analysis_type: int = 2,
             remove_NaN_trials: bool = True,
             save_impute: bool = True,
-            load_impute: bool = True
+            load_impute: bool = True,
+            feature_streams: Optional[List[str]] = None
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, List[str]]:
         """
         Load raw data and prepare predictor / target sets for advanced classifiers.
@@ -879,6 +883,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             remove_NaN_trials: Remove trials with all-NaN sensors
             save_impute: Save imputed data to pickle
             load_impute: Load imputed data from pickle if available
+            feature_streams: Optional sensor stream names to include (None = all features)
 
         Returns:
             x_train, y_train, x_test, y_test, all_features
@@ -1023,6 +1028,19 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             test_trial_ids = x_test[:, -1]
             y_train = self._shift_labels_by_samples(y_train, train_trial_ids, horizon)
             y_test = self._shift_labels_by_samples(y_test, test_trial_ids, horizon)
+
+        ############################################# SENSOR ABLATION / FEATURE FILTER  #############################################
+        if feature_streams is not None and len(feature_streams) > 0:
+            all_feature_names = features["All"]
+            filtered_feature_names = self._apply_sensor_ablation(all_feature_names, feature_streams)
+            col_indices = [all_feature_names.index(name) for name in filtered_feature_names]
+            x_train = np.hstack([x_train[:, col_indices], x_train[:, -1:]])
+            x_test = np.hstack([x_test[:, col_indices], x_test[:, -1:]])
+            features["All"] = filtered_feature_names
+            logger.info(
+                "Applied sensor ablation for advanced pipeline: streams=%s, features %d -> %d",
+                feature_streams, len(all_feature_names), len(filtered_feature_names),
+            )
 
         return x_train, x_test, y_train, y_test, features["All"]
 
