@@ -16,7 +16,7 @@ from src.modes.sensor_ablation import (
     run_sensor_ablation_training,
     run_sensor_ablation_review,
     _load_sensor_ablation_f1_results_for_model,
-    _save_model_stream_f1_scores,
+    _save_summary,
     _sort_streams_by_median_f1,
 )
 
@@ -163,10 +163,19 @@ def test_sort_streams_by_median_f1():
     assert keys[1] == ("ECG",)
 
 
-def test_save_and_load_f1_scores(tmp_path):
-    f1_scores = np.array([0.5, 0.6, 0.7])
-    output_path = _save_model_stream_f1_scores(tmp_path, "KNN", "ECG", f1_scores)
+def test_save_summary(tmp_path):
+    fold_results = [
+        {"accuracy": 0.8, "f1": 0.7, "precision": 0.75, "recall": 0.65, "specificity": 0.9, "g_mean": 0.77},
+        {"accuracy": 0.85, "f1": 0.75, "precision": 0.8, "recall": 0.7, "specificity": 0.92, "g_mean": 0.8},
+    ]
+    hyperparams = {"k": 3}
+    output_path = _save_summary(tmp_path, hyperparams, fold_results)
     assert output_path.exists()
+    with open(output_path) as f:
+        data = json.load(f)
+    assert data["model_hyperparameters"] == {"k": 3}
+    assert data["performance"]["f1"] == [0.7, 0.75]
+    assert data["performance"]["accuracy"] == [0.8, 0.85]
 
 
 # ---------------------------------------------------------------------------
@@ -203,8 +212,10 @@ def test_run_sensor_ablation_training_saves_stream_scores(tmp_path):
     run_sensor_ablation_training(config, pipeline, _FakeModelFactory(), tmp_path)
 
     results = tmp_path / "Results" / "Sensor_Ablation" / "Complete_Explicit" / "KNN"
-    assert (results / "ECG.json").exists()
-    assert (results / "EEG-Pupil.json").exists()
+    assert (results / "ECG" / "summary.json").exists()
+    assert (results / "EEG-Pupil" / "summary.json").exists()
+    assert (results / "ECG" / "fold_0.pkl").exists()
+    assert (results / "ECG" / "fold_1.pkl").exists()
 
 
 @pytest.mark.integration
@@ -216,9 +227,16 @@ def test_run_sensor_ablation_review_loads_and_plots(tmp_path):
 
     # Pre-populate results so review has data to load
     results_dir = tmp_path / "Results" / "Sensor_Ablation" / "Complete_Explicit" / "KNN"
-    results_dir.mkdir(parents=True, exist_ok=True)
-    (results_dir / "ECG.json").write_text(json.dumps({"f1": [0.5, 0.6]}))
-    (results_dir / "EEG-Pupil.json").write_text(json.dumps({"f1": [0.8, 0.7]}))
+    ecg_dir = results_dir / "ECG"
+    eeg_pupil_dir = results_dir / "EEG-Pupil"
+    ecg_dir.mkdir(parents=True, exist_ok=True)
+    eeg_pupil_dir.mkdir(parents=True, exist_ok=True)
+    (ecg_dir / "summary.json").write_text(json.dumps(
+        {"model_hyperparameters": {}, "performance": {"f1": [0.5, 0.6]}}
+    ))
+    (eeg_pupil_dir / "summary.json").write_text(json.dumps(
+        {"model_hyperparameters": {}, "performance": {"f1": [0.8, 0.7]}}
+    ))
 
     run_sensor_ablation_review(config)
 
@@ -251,5 +269,5 @@ def test_run_sensor_ablation_training_uses_parser_median_folder(tmp_path):
     run_sensor_ablation_training(config, pipeline, _FakeModelFactory(), tmp_path)
 
     results = tmp_path / "Results" / "Sensor_Ablation" / "Complete_Explicit" / "KNN"
-    assert (results / "ECG.json").exists()
-    assert (results / "EEG-Pupil.json").exists()
+    assert (results / "ECG" / "summary.json").exists()
+    assert (results / "EEG-Pupil" / "summary.json").exists()

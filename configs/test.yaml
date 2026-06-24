@@ -37,7 +37,7 @@ cross_validation:
 
 sensor_ablation:
   training:
-    enabled: true
+    enabled: false
     manual_ablation: false
     save_results_folder: Results/Sensor_Ablation_Test
     median_hyperparameters_folder: Results/Cross_Validation_Test
@@ -50,10 +50,10 @@ sensor_ablation:
       - [ EEG ]
       - [ EEG, Pupil, Participant ]
   review:
-    enabled: false
-    save_results_folder: Results/Sensor_Ablation
+    enabled: true
+    save_results_folder: Results/Sensor_Ablation_Test
     # Mode-specific parameters for review
-    models: [ KNN, LogReg ]
+    models: [ KNN, LSTM ]
     model_type: !ModelType [ Complete, Explicit ]
     stream_groups:
       - [ EEG ]
