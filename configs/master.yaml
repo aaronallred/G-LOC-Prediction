@@ -12,6 +12,7 @@ shared_data_parameters:
 advanced_data_parameters:
   n_neighbors: 4
   baseline_window: 32.5
+  horizon: 0
 traditional_data_parameters:
   backstep: 0
   data_rate: 25
@@ -21,19 +22,17 @@ traditional_data_parameters:
 cross_validation:
   enabled: true
   # Mode-specific parameters
-  models: [KNN, EGB]
-  model_type: !ModelType [Complete, Explicit]
+  models: [ KNN, EGB ]
+  model_type: !ModelType [ Complete, Explicit ]
   random_seed: 42
   num_splits: 10
   save_results_folder: Results/Cross_Validation
   class_weight: null
-  advanced_hpo: # Currently not supported yet :\
-    # Advanced classifiers only: REQUIRED when using any advanced model (LSTM, TCN, Trans, NAM, LogRegTS)
-    # These 4 parameters control advanced model training behavior. All other Optuna-level parameters are hardcoded.
-    use_sampler: true            # bool: whether to use a sampler for class imbalance during training
-    final_early_stop: false      # bool: whether final training should use early stopping
-    objective_var: F1            # string: 'F1' or 'Acc' (case-insensitive)
-    trials: 100                  # int: number of Optuna trials
+  advanced_hpo:
+    use_sampler: true
+    final_early_stop: false
+    objective_var: F1
+    trials: 100
 
 sensor_ablation:
   training:
@@ -41,29 +40,29 @@ sensor_ablation:
     save_results_folder: Results/Sensor_Ablation
     median_hyperparameters_folder: Results/Cross_Validation
     # Mode-specific parameters
-    models: [KNN, EGB]
-    model_type: !ModelType [Complete, Explicit]
+    models: [ KNN, EGB ]
+    model_type: !ModelType [ Complete, Explicit ]
     random_seed: 42
     num_splits: 10
     streams:
-      - [EEG]
-      - [EEG, Pupil]
-      - [EEG, Pupil, Participant]
+      - [ EEG ]
+      - [ EEG, Pupil ]
+      - [ EEG, Pupil, Participant ]
   review:
     enabled: True
     save_results_folder: Results/Sensor_Ablation
     # Mode-specific parameters for review
-    models: [KNN, EGB]
-    model_type: !ModelType [Complete, Explicit]
-    stream_groups: 
-      - [EEG]
-      - [EEG, Pupil]
-      - [EEG, Pupil, Participant]
+    models: [ KNN, EGB ]
+    model_type: !ModelType [ Complete, Explicit ]
+    stream_groups:
+      - [ EEG ]
+      - [ EEG, Pupil ]
+      - [ EEG, Pupil, Participant ]
     sort_streams_by_median: true
 
 feature_space_review:
   enabled: true
   # Mode-specific parameters
-  models: [KNN, EGB]
-  model_type: !ModelType [Complete, Explicit]
+  models: [ KNN, EGB ]
+  model_type: !ModelType [ Complete, Explicit ]
   median_hyperparameters_folder: Results/Cross_Validation

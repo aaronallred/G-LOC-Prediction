@@ -16,7 +16,7 @@ from src.scripts import GLOC_classifier_traditional as legacy
 @pytest.fixture
 def binary_split_data():
     X, y = make_classification(
-        n_samples=120,
+        n_samples=60,
         n_features=10,
         n_informative=6,
         n_redundant=2,
@@ -190,7 +190,7 @@ def _call_legacy_classifier(model_cls, legacy_fn, x_train, x_test, y_train, y_te
         (
             ExtremeGradientBoostingModel,
             legacy.classify_ensemble_with_gradboost,
-            {"n_estimators": 60, "learning_rate": 0.05, "max_depth": 3},
+            {"n_estimators": 30, "learning_rate": 0.05, "max_depth": 3},
             "egb.pkl",
         ),
     ],

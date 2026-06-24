@@ -12,6 +12,7 @@ shared_data_parameters:
 advanced_data_parameters:
   n_neighbors: 4
   baseline_window: 32.5
+  horizon: 0
 traditional_data_parameters:
   backstep: 0
   data_rate: 25
@@ -24,12 +25,13 @@ sensor_ablation:
     save_results_folder: Results/Sensor_Ablation
     median_hyperparameters_folder: Results/Cross_Validation
     # Mode-specific parameters
-    models: [KNN, EGB]
-    model_type: !ModelType [Complete, Explicit]
-    manual_ablation: true
+    models: [ KNN, EGB ]
+    model_type: !ModelType [ Complete, Explicit ]
+    manual_ablation: false
     random_seed: 42
     num_splits: 10
+    class_weight: null  # null, "balanced", or a dict like {0: 1.0, 1: 2.0}
     streams:
-      - [EEG]
-      - [EEG, Pupil]
-      - [EEG, Pupil, Participant]
+      - [ EEG ]
+      - [ EEG, Pupil ]
+      - [ EEG, Pupil, Participant ]
