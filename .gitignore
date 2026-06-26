@@ -316,3 +316,4 @@ __marimo__/
 *.csv
 *.json
 *.pt
+data/
