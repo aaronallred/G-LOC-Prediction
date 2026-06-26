@@ -316,7 +316,7 @@ class BaseGLOCDataPipeline(ABC):
             random_seed: Random seed for reproducibility
             config: Loaded YAML experiment configuration mapping for accessing config settings
         """
-        self.data_path = _resolve_from_source_dir(data_path)
+        self.data_path = os.path.abspath(os.path.join(data_path, ".."))
         self._data_locations = None
         self.random_seed = random_seed
         self.config = config or {}

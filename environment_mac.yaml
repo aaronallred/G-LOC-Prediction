@@ -1,0 +1,62 @@
+name: gloc_mac
+
+channels:
+  - conda-forge
+  - pytorch
+  - defaults
+
+dependencies:
+  - python=3.12
+
+  # Core stack (stable versions)
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn
+  - statsmodels
+
+  # ML / tuning
+  - matplotlib
+  - seaborn
+  - shap
+  - numba
+  - llvmlite
+  - optuna
+  - scikit-optimize
+
+  # Feature engineering
+  - feature-engine
+
+  # Visualization / analysis
+  - matplotlib-venn
+  - upsetplot
+
+  # Data + IO
+  - pyarrow
+  - openpyxl
+  - sqlalchemy
+  - pyyaml
+  - pillow
+
+  # General utilities
+  - tqdm
+  - joblib
+  - networkx
+
+  # PyTorch (Mac MPS supported)
+  - pytorch
+  - torchvision
+
+  # Imbalanced learning
+  - imbalanced-learn
+
+  # CPU FAISS (NOT GPU FAISS)
+  - faiss-cpu
+
+  # Pip-only
+  - pip
+  - pip:
+      - nvtx
+      - pyaml
+      - pyro-ppl
+      - pytest
