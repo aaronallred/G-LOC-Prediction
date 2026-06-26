@@ -1,10 +1,12 @@
-# src/models_new/tcn.py
+# src/models/tcn.py
 from typing import Any, Dict, Optional
+
 import numpy as np
+import optuna
 import torch
 import torch.nn as nn
-import optuna
-from src.models_new.base import AdvancedModel
+
+from src.models.base import AdvancedModel
 
 
 class TemporalBlock(nn.Module):
@@ -95,9 +97,11 @@ class TCNModel(AdvancedModel):
                 "kernel_size": kernel_size,
                 "threshold": trial.suggest_float('threshold', 0.1, 0.9)
             }
+
         return _builder
 
-    def _build_model(self, model_hyperparameters: Optional[Dict[str, Any]] = None, *, input_dim: Optional[int] = None, **kwargs) -> Any:
+    def _build_model(self, model_hyperparameters: Optional[Dict[str, Any]] = None, *, input_dim: Optional[int] = None,
+                     **kwargs) -> Any:
         if model_hyperparameters is None or input_dim is None:
             return None
         return TCNClassifier(

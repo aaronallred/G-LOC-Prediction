@@ -1,11 +1,11 @@
+from typing import Any, List, Tuple
+
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn import metrics
-from typing import Dict, List
 import torch
 import torch.nn as nn
-from torch.utils.data import TensorDataset
-
+from sklearn import metrics
+from sklearn.model_selection import train_test_split
+from torch.utils.data import TensorDataset, DataLoader
 
 
 def baseline_down_select(x: np.ndarray, all_features: List[str], method: int) -> tuple:
@@ -116,23 +116,25 @@ def train_with_early_stopping(model, train_loader, val_loader, criterion, optimi
     return best_state, best_epoch, best_metric
 
 
-def evaluate_loader(model: torch.nn.Module, loader: torch.utils.data.DataLoader, threshold: float,
-                    device: torch.device) -> Dict[str, float]:
-    model.eval()
-    all_preds, all_labels = [], []
-    with torch.no_grad():
-        for x_batch, y_batch in loader:
-            outputs = model(x_batch.to(device))
-            preds = (outputs.reshape(-1) >= threshold).float()
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(y_batch.reshape(-1).cpu().numpy())
+def get_advanced_predictions_and_targets(
+        model: Any,
+        X: np.ndarray,
+        y: np.ndarray,
+        sequence_length: int,
+        step_size: int,
+        batch_size: int
+) -> Tuple[np.ndarray, np.ndarray]:
+    dataset, _, _, target_tensor, _, _ = train_test_split_trials(
+        X, y, sequence_length, step_size=step_size, test_ratio=None, end_label=True
+    )
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
-    actual, predicted = np.array(all_labels), np.array(all_preds)
-    return {
-        "accuracy": float(metrics.accuracy_score(actual, predicted)),
-        "precision": float(metrics.precision_score(actual, predicted, zero_division=0)),
-        "recall": float(metrics.recall_score(actual, predicted, zero_division=0)),
-        "f1": float(metrics.f1_score(actual, predicted, zero_division=0)),
-        "specificity": float(metrics.recall_score(actual, predicted, pos_label=0, zero_division=0)),
-        "g_mean": float(geometric_mean_score(actual, predicted))
-    }
+    model.model.eval()
+    predictions = []
+    with torch.no_grad():
+        for x_batch, _ in loader:
+            outputs = model.model(x_batch.to(model.device))
+            preds = (outputs.reshape(-1) >= model.best_params["threshold"]).float()
+            predictions.extend(preds.cpu().numpy())
+
+    return target_tensor.numpy(), np.array(predictions)

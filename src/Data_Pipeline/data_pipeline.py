@@ -19,7 +19,7 @@ from src.Data_Pipeline.features import FEATURE_REGISTRY, RawEEGGroup, ProcessedE
 from src.Data_Pipeline.imputation_config import ImputePhase
 from src.model_type import ModelType
 from src.models.base import BaseModel
-from src.models_new.model_factory import ModelFactory
+from src.models.model_factory import ModelFactory
 
 logger = logging.getLogger(__name__)
 # Keep path resolution behavior consistent with the original module location under src/.
@@ -132,6 +132,7 @@ class DataPipeline:
             request_kwargs["n_neighbors"] = advanced_config["n_neighbors"]
             request_kwargs["baseline_window"] = advanced_config["baseline_window"]
             request_kwargs["horizon"] = advanced_config.get("horizon", 0)
+            request_kwargs["feature_streams"] = feature_streams
         else:
             request_kwargs["classifier_type"] = self._resolve_classifier_name(model)
             request_kwargs["model"] = model
@@ -188,6 +189,8 @@ class DataPipeline:
     def _resolve_select_features(self, current_kwargs: dict[str, Any]) -> list[str]:
         """Load selected feature names from the median-hyperparameter cache."""
 
+        # TODO -> This is probably bad to hardcode it to sensor ablation config, but sensor ablation config is the only
+        # one that uses it, so it is fine for now
         median_hyperparameters_root = self._config["sensor_ablation"]["training"]["median_hyperparameters_folder"]
         model_type_string = f"{current_kwargs['model_type'].afe_filter}_{current_kwargs['model_type'].feature_set}"
         json_path = os.path.join(
@@ -858,7 +861,8 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             analysis_type: int = 2,
             remove_NaN_trials: bool = True,
             save_impute: bool = True,
-            load_impute: bool = True
+            load_impute: bool = True,
+            feature_streams: Optional[List[str]] = None
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, List[str]]:
         """
         Load raw data and prepare predictor / target sets for advanced classifiers.
@@ -879,6 +883,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             remove_NaN_trials: Remove trials with all-NaN sensors
             save_impute: Save imputed data to pickle
             load_impute: Load imputed data from pickle if available
+            feature_streams: Optional sensor stream names to include (None = all features)
 
         Returns:
             x_train, y_train, x_test, y_test, all_features
@@ -1023,6 +1028,19 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             test_trial_ids = x_test[:, -1]
             y_train = self._shift_labels_by_samples(y_train, train_trial_ids, horizon)
             y_test = self._shift_labels_by_samples(y_test, test_trial_ids, horizon)
+
+        ############################################# SENSOR ABLATION / FEATURE FILTER  #############################################
+        if feature_streams is not None and len(feature_streams) > 0:
+            all_feature_names = features["All"]
+            filtered_feature_names = self._apply_sensor_ablation(all_feature_names, feature_streams)
+            col_indices = [all_feature_names.index(name) for name in filtered_feature_names]
+            x_train = np.hstack([x_train[:, col_indices], x_train[:, -1:]])
+            x_test = np.hstack([x_test[:, col_indices], x_test[:, -1:]])
+            features["All"] = filtered_feature_names
+            logger.info(
+                "Applied sensor ablation for advanced pipeline: streams=%s, features %d -> %d",
+                feature_streams, len(all_feature_names), len(filtered_feature_names),
+            )
 
         return x_train, x_test, y_train, y_test, features["All"]
 
@@ -1636,7 +1654,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         return hyperparameters
 
     def _get_feature_groups_and_baseline_methods(self, model_type: ModelType, baseline_methods_to_use: List[str]) -> \
-    Tuple[Sequence[str], List[str]]:
+            Tuple[Sequence[str], List[str]]:
         """Resolve feature groups and baseline methods for advanced pipeline variants."""
         feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
 
@@ -1915,9 +1933,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 for col in range(np.shape(sliding_window_mean_current)[1]):
                     if np.nanstd(sliding_window_mean_current[:, col]) != 0:
                         sliding_window_mean_current_z_score[:, col] = (
-                                    (sliding_window_mean_current[:, col] - np.nanmean(
-                                        sliding_window_mean_current[:, col])) / np.nanstd(
-                                sliding_window_mean_current[:, col]))
+                                (sliding_window_mean_current[:, col] - np.nanmean(
+                                    sliding_window_mean_current[:, col])) / np.nanstd(
+                            sliding_window_mean_current[:, col]))
                     else:
                         sliding_window_mean_current_z_score[:, col] = np.zeros(np.shape(sliding_window_mean_current)[0])
             else:
@@ -2050,16 +2068,16 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 for col in range(np.shape(sliding_window_max_current)[1]):
                     if np.nanstd(sliding_window_max_current[:, col]) != 0:
                         sliding_window_max_current_z_score_s1[:, col] = (
-                                    (sliding_window_max_current[:, col] - np.nanmean(
-                                        sliding_window_max_current[:, col])) / np.nanstd(
-                                sliding_window_max_current[:, col]))
+                                (sliding_window_max_current[:, col] - np.nanmean(
+                                    sliding_window_max_current[:, col])) / np.nanstd(
+                            sliding_window_max_current[:, col]))
                     else:
                         sliding_window_max_current_z_score_s1[:, col] = np.zeros(
                             np.shape(sliding_window_max_current)[0])
             else:
                 sliding_window_max_current_z_score_s1 = (
-                            (sliding_window_max_current - np.nanmean(sliding_window_max_current, axis=0, keepdims=True))
-                            / np.nanstd(sliding_window_max_current, axis=0, keepdims=True))
+                        (sliding_window_max_current - np.nanmean(sliding_window_max_current, axis=0, keepdims=True))
+                        / np.nanstd(sliding_window_max_current, axis=0, keepdims=True))
             # Range
             sliding_window_range_current_z_score_s1 = np.zeros(np.shape(sliding_window_range_current))
             if np.any(np.nanstd(sliding_window_range_current, axis=0, keepdims=True) == 0):
@@ -2067,9 +2085,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 for col in range(np.shape(sliding_window_range_current)[1]):
                     if np.nanstd(sliding_window_range_current[:, col]) != 0:
                         sliding_window_range_current_z_score_s1[:, col] = (
-                                    (sliding_window_range_current[:, col] - np.nanmean(
-                                        sliding_window_range_current[:, col])) / np.nanstd(
-                                sliding_window_range_current[:, col]))
+                                (sliding_window_range_current[:, col] - np.nanmean(
+                                    sliding_window_range_current[:, col])) / np.nanstd(
+                            sliding_window_range_current[:, col]))
                     else:
                         sliding_window_range_current_z_score_s1[:, col] = np.zeros(
                             np.shape(sliding_window_range_current)[0])
@@ -2276,9 +2294,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
                     # Integral (using Trapezoid rule)
                     sliding_window_integral_left_pupil_current[j] = (window_size / 2) * (
-                                left_pupil_no_baseline[-1] + left_pupil_no_baseline[0])
+                            left_pupil_no_baseline[-1] + left_pupil_no_baseline[0])
                     sliding_window_integral_right_pupil_current[j] = (window_size / 2) * (
-                                right_pupil_no_baseline[-1] + right_pupil_no_baseline[0])
+                            right_pupil_no_baseline[-1] + right_pupil_no_baseline[0])
 
                     # Compute average difference between consecutive elements
                     left_pupil_consecutive_difference = np.diff(left_pupil_no_baseline)
@@ -2319,17 +2337,17 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     for col in range(np.shape(sliding_window_integral_left_pupil_current)[1]):
                         if np.nanstd(sliding_window_integral_left_pupil_current[:, col]) != 0:
                             sliding_window_integral_left_pupil_current_z_score[:, col] = (
-                                        (sliding_window_integral_left_pupil_current[:, col] - np.nanmean(
-                                            sliding_window_integral_left_pupil_current[:, col])) / np.nanstd(
-                                    sliding_window_integral_left_pupil_current[:, col]))
+                                    (sliding_window_integral_left_pupil_current[:, col] - np.nanmean(
+                                        sliding_window_integral_left_pupil_current[:, col])) / np.nanstd(
+                                sliding_window_integral_left_pupil_current[:, col]))
                         else:
                             sliding_window_integral_left_pupil_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_integral_left_pupil_current)[0])
                 else:
                     sliding_window_integral_left_pupil_current_z_score = ((
-                                                                                      sliding_window_integral_left_pupil_current - np.nanmean(
-                                                                                  sliding_window_integral_left_pupil_current,
-                                                                                  axis=0, keepdims=True))
+                                                                                  sliding_window_integral_left_pupil_current - np.nanmean(
+                                                                              sliding_window_integral_left_pupil_current,
+                                                                              axis=0, keepdims=True))
                                                                           / np.nanstd(
                                 sliding_window_integral_left_pupil_current, axis=0, keepdims=True))
 
@@ -2343,17 +2361,17 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     for col in range(np.shape(sliding_window_integral_right_pupil_current)[1]):
                         if np.nanstd(sliding_window_integral_right_pupil_current[:, col]) != 0:
                             sliding_window_integral_right_pupil_current_z_score[:, col] = (
-                                        (sliding_window_integral_right_pupil_current[:, col] - np.nanmean(
-                                            sliding_window_integral_right_pupil_current[:, col])) / np.nanstd(
-                                    sliding_window_integral_right_pupil_current[:, col]))
+                                    (sliding_window_integral_right_pupil_current[:, col] - np.nanmean(
+                                        sliding_window_integral_right_pupil_current[:, col])) / np.nanstd(
+                                sliding_window_integral_right_pupil_current[:, col]))
                         else:
                             sliding_window_integral_right_pupil_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_integral_right_pupil_current)[0])
                 else:
                     sliding_window_integral_right_pupil_current_z_score = ((
-                                                                                       sliding_window_integral_right_pupil_current - np.nanmean(
-                                                                                   sliding_window_integral_right_pupil_current,
-                                                                                   axis=0, keepdims=True))
+                                                                                   sliding_window_integral_right_pupil_current - np.nanmean(
+                                                                               sliding_window_integral_right_pupil_current,
+                                                                               axis=0, keepdims=True))
                                                                            / np.nanstd(
                                 sliding_window_integral_right_pupil_current, axis=0, keepdims=True))
 
@@ -2368,20 +2386,20 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     for col in range(np.shape(sliding_window_consecutive_elements_mean_left_pupil_current)[1]):
                         if np.nanstd(sliding_window_consecutive_elements_mean_left_pupil_current[:, col]) != 0:
                             sliding_window_consecutive_elements_mean_left_pupil_current_z_score[:, col] = ((
-                                                                                                                       sliding_window_consecutive_elements_mean_left_pupil_current[
-                                                                                                                           :, col] - np.nanmean(
                                                                                                                    sliding_window_consecutive_elements_mean_left_pupil_current[
-                                                                                                                       :, col])) / np.nanstd(
+                                                                                                                       :, col] - np.nanmean(
+                                                                                                               sliding_window_consecutive_elements_mean_left_pupil_current[
+                                                                                                                   :, col])) / np.nanstd(
                                 sliding_window_consecutive_elements_mean_left_pupil_current[:, col]))
                         else:
                             sliding_window_consecutive_elements_mean_left_pupil_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_consecutive_elements_mean_left_pupil_current)[0])
                 else:
                     sliding_window_consecutive_elements_mean_left_pupil_current_z_score = ((
-                                                                                                       sliding_window_consecutive_elements_mean_left_pupil_current - np.nanmean(
-                                                                                                   sliding_window_consecutive_elements_mean_left_pupil_current,
-                                                                                                   axis=0,
-                                                                                                   keepdims=True))
+                                                                                                   sliding_window_consecutive_elements_mean_left_pupil_current - np.nanmean(
+                                                                                               sliding_window_consecutive_elements_mean_left_pupil_current,
+                                                                                               axis=0,
+                                                                                               keepdims=True))
                                                                                            / np.nanstd(
                                 sliding_window_consecutive_elements_mean_left_pupil_current, axis=0, keepdims=True))
 
@@ -2396,20 +2414,20 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     for col in range(np.shape(sliding_window_consecutive_elements_mean_right_pupil_current)[1]):
                         if np.nanstd(sliding_window_consecutive_elements_mean_right_pupil_current[:, col]) != 0:
                             sliding_window_consecutive_elements_mean_right_pupil_current_z_score[:, col] = ((
-                                                                                                                        sliding_window_consecutive_elements_mean_right_pupil_current[
-                                                                                                                            :, col] - np.nanmean(
                                                                                                                     sliding_window_consecutive_elements_mean_right_pupil_current[
-                                                                                                                        :, col])) / np.nanstd(
+                                                                                                                        :, col] - np.nanmean(
+                                                                                                                sliding_window_consecutive_elements_mean_right_pupil_current[
+                                                                                                                    :, col])) / np.nanstd(
                                 sliding_window_consecutive_elements_mean_right_pupil_current[:, col]))
                         else:
                             sliding_window_consecutive_elements_mean_right_pupil_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_consecutive_elements_mean_right_pupil_current)[0])
                 else:
                     sliding_window_consecutive_elements_mean_right_pupil_current_z_score = ((
-                                                                                                        sliding_window_consecutive_elements_mean_right_pupil_current - np.nanmean(
-                                                                                                    sliding_window_consecutive_elements_mean_right_pupil_current,
-                                                                                                    axis=0,
-                                                                                                    keepdims=True))
+                                                                                                    sliding_window_consecutive_elements_mean_right_pupil_current - np.nanmean(
+                                                                                                sliding_window_consecutive_elements_mean_right_pupil_current,
+                                                                                                axis=0,
+                                                                                                keepdims=True))
                                                                                             / np.nanstd(
                                 sliding_window_consecutive_elements_mean_right_pupil_current, axis=0, keepdims=True))
 
@@ -2424,20 +2442,20 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     for col in range(np.shape(sliding_window_consecutive_elements_max_left_pupil_current)[1]):
                         if np.nanstd(sliding_window_consecutive_elements_max_left_pupil_current[:, col]) != 0:
                             sliding_window_consecutive_elements_max_left_pupil_current_z_score[:, col] = ((
-                                                                                                                      sliding_window_consecutive_elements_max_left_pupil_current[
-                                                                                                                          :, col] - np.nanmean(
                                                                                                                   sliding_window_consecutive_elements_max_left_pupil_current[
-                                                                                                                      :, col])) / np.nanstd(
+                                                                                                                      :, col] - np.nanmean(
+                                                                                                              sliding_window_consecutive_elements_max_left_pupil_current[
+                                                                                                                  :, col])) / np.nanstd(
                                 sliding_window_consecutive_elements_max_left_pupil_current[:, col]))
                         else:
                             sliding_window_consecutive_elements_max_left_pupil_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_consecutive_elements_max_left_pupil_current)[0])
                 else:
                     sliding_window_consecutive_elements_max_left_pupil_current_z_score = ((
-                                                                                                      sliding_window_consecutive_elements_max_left_pupil_current - np.nanmean(
-                                                                                                  sliding_window_consecutive_elements_max_left_pupil_current,
-                                                                                                  axis=0,
-                                                                                                  keepdims=True))
+                                                                                                  sliding_window_consecutive_elements_max_left_pupil_current - np.nanmean(
+                                                                                              sliding_window_consecutive_elements_max_left_pupil_current,
+                                                                                              axis=0,
+                                                                                              keepdims=True))
                                                                                           / np.nanstd(
                                 sliding_window_consecutive_elements_max_left_pupil_current, axis=0, keepdims=True))
 
@@ -2452,20 +2470,20 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     for col in range(np.shape(sliding_window_consecutive_elements_max_right_pupil_current)[1]):
                         if np.nanstd(sliding_window_consecutive_elements_max_right_pupil_current[:, col]) != 0:
                             sliding_window_consecutive_elements_max_right_pupil_current_z_score[:, col] = ((
-                                                                                                                       sliding_window_consecutive_elements_max_right_pupil_current[
-                                                                                                                           :, col] - np.nanmean(
                                                                                                                    sliding_window_consecutive_elements_max_right_pupil_current[
-                                                                                                                       :, col])) / np.nanstd(
+                                                                                                                       :, col] - np.nanmean(
+                                                                                                               sliding_window_consecutive_elements_max_right_pupil_current[
+                                                                                                                   :, col])) / np.nanstd(
                                 sliding_window_consecutive_elements_max_right_pupil_current[:, col]))
                         else:
                             sliding_window_consecutive_elements_max_right_pupil_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_consecutive_elements_max_right_pupil_current)[0])
                 else:
                     sliding_window_consecutive_elements_max_right_pupil_current_z_score = ((
-                                                                                                       sliding_window_consecutive_elements_max_right_pupil_current - np.nanmean(
-                                                                                                   sliding_window_consecutive_elements_max_right_pupil_current,
-                                                                                                   axis=0,
-                                                                                                   keepdims=True))
+                                                                                                   sliding_window_consecutive_elements_max_right_pupil_current - np.nanmean(
+                                                                                               sliding_window_consecutive_elements_max_right_pupil_current,
+                                                                                               axis=0,
+                                                                                               keepdims=True))
                                                                                            / np.nanstd(
                                 sliding_window_consecutive_elements_max_right_pupil_current, axis=0, keepdims=True))
 
@@ -2480,20 +2498,20 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     for col in range(np.shape(sliding_window_consecutive_elements_sum_left_pupil_current)[1]):
                         if np.nanstd(sliding_window_consecutive_elements_sum_left_pupil_current[:, col]) != 0:
                             sliding_window_consecutive_elements_sum_left_pupil_current_z_score[:, col] = ((
-                                                                                                                      sliding_window_consecutive_elements_sum_left_pupil_current[
-                                                                                                                          :, col] - np.nanmean(
                                                                                                                   sliding_window_consecutive_elements_sum_left_pupil_current[
-                                                                                                                      :, col])) / np.nanstd(
+                                                                                                                      :, col] - np.nanmean(
+                                                                                                              sliding_window_consecutive_elements_sum_left_pupil_current[
+                                                                                                                  :, col])) / np.nanstd(
                                 sliding_window_consecutive_elements_sum_left_pupil_current[:, col]))
                         else:
                             sliding_window_consecutive_elements_sum_left_pupil_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_consecutive_elements_sum_left_pupil_current)[0])
                 else:
                     sliding_window_consecutive_elements_sum_left_pupil_current_z_score = ((
-                                                                                                      sliding_window_consecutive_elements_sum_left_pupil_current - np.nanmean(
-                                                                                                  sliding_window_consecutive_elements_sum_left_pupil_current,
-                                                                                                  axis=0,
-                                                                                                  keepdims=True))
+                                                                                                  sliding_window_consecutive_elements_sum_left_pupil_current - np.nanmean(
+                                                                                              sliding_window_consecutive_elements_sum_left_pupil_current,
+                                                                                              axis=0,
+                                                                                              keepdims=True))
                                                                                           / np.nanstd(
                                 sliding_window_consecutive_elements_sum_left_pupil_current, axis=0, keepdims=True))
 
@@ -2508,20 +2526,20 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     for col in range(np.shape(sliding_window_consecutive_elements_sum_right_pupil_current)[1]):
                         if np.nanstd(sliding_window_consecutive_elements_sum_right_pupil_current[:, col]) != 0:
                             sliding_window_consecutive_elements_sum_right_pupil_current_z_score[:, col] = ((
-                                                                                                                       sliding_window_consecutive_elements_sum_right_pupil_current[
-                                                                                                                           :, col] - np.nanmean(
                                                                                                                    sliding_window_consecutive_elements_sum_right_pupil_current[
-                                                                                                                       :, col])) / np.nanstd(
+                                                                                                                       :, col] - np.nanmean(
+                                                                                                               sliding_window_consecutive_elements_sum_right_pupil_current[
+                                                                                                                   :, col])) / np.nanstd(
                                 sliding_window_consecutive_elements_sum_right_pupil_current[:, col]))
                         else:
                             sliding_window_consecutive_elements_sum_right_pupil_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_consecutive_elements_sum_right_pupil_current)[0])
                 else:
                     sliding_window_consecutive_elements_sum_right_pupil_current_z_score = ((
-                                                                                                       sliding_window_consecutive_elements_sum_right_pupil_current - np.nanmean(
-                                                                                                   sliding_window_consecutive_elements_sum_right_pupil_current,
-                                                                                                   axis=0,
-                                                                                                   keepdims=True))
+                                                                                                   sliding_window_consecutive_elements_sum_right_pupil_current - np.nanmean(
+                                                                                               sliding_window_consecutive_elements_sum_right_pupil_current,
+                                                                                               axis=0,
+                                                                                               keepdims=True))
                                                                                            / np.nanstd(
                                 sliding_window_consecutive_elements_sum_right_pupil_current, axis=0, keepdims=True))
             if 'ECG' in feature_groups_to_analyze:
@@ -2534,9 +2552,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     for col in range(np.shape(sliding_window_hrv_sdnn_current)[1]):
                         if np.nanstd(sliding_window_hrv_sdnn_current[:, col]) != 0:
                             sliding_window_hrv_sdnn_current_z_score[:, col] = (
-                                        (sliding_window_hrv_sdnn_current[:, col] - np.nanmean(
-                                            sliding_window_hrv_sdnn_current[:, col])) / np.nanstd(
-                                    sliding_window_hrv_sdnn_current[:, col]))
+                                    (sliding_window_hrv_sdnn_current[:, col] - np.nanmean(
+                                        sliding_window_hrv_sdnn_current[:, col])) / np.nanstd(
+                                sliding_window_hrv_sdnn_current[:, col]))
                         else:
                             sliding_window_hrv_sdnn_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_hrv_sdnn_current)[0])
@@ -2555,9 +2573,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     for col in range(np.shape(sliding_window_hrv_rmssd_current)[1]):
                         if np.nanstd(sliding_window_hrv_rmssd_current[:, col]) != 0:
                             sliding_window_hrv_rmssd_current_z_score[:, col] = (
-                                        (sliding_window_hrv_rmssd_current[:, col] - np.nanmean(
-                                            sliding_window_hrv_rmssd_current[:, col])) / np.nanstd(
-                                    sliding_window_hrv_rmssd_current[:, col]))
+                                    (sliding_window_hrv_rmssd_current[:, col] - np.nanmean(
+                                        sliding_window_hrv_rmssd_current[:, col])) / np.nanstd(
+                                sliding_window_hrv_rmssd_current[:, col]))
                         else:
                             sliding_window_hrv_rmssd_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_hrv_rmssd_current)[0])
@@ -2594,9 +2612,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     for col in range(np.shape(sliding_window_cognitive_ies_current)[1]):
                         if np.nanstd(sliding_window_cognitive_ies_current[:, col]) != 0:
                             sliding_window_cognitive_IES_current_z_score[:, col] = (
-                                        (sliding_window_cognitive_ies_current[:, col] - np.nanmean(
-                                            sliding_window_cognitive_ies_current[:, col])) / np.nanstd(
-                                    sliding_window_cognitive_ies_current[:, col]))
+                                    (sliding_window_cognitive_ies_current[:, col] - np.nanmean(
+                                        sliding_window_cognitive_ies_current[:, col])) / np.nanstd(
+                                sliding_window_cognitive_ies_current[:, col]))
                         else:
                             sliding_window_cognitive_IES_current_z_score[:, col] = np.zeros(
                                 np.shape(sliding_window_cognitive_ies_current)[0])

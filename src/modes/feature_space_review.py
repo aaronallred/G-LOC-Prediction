@@ -1,19 +1,16 @@
-import json
-from typing import Callable
-
 from pathlib import Path
+
 import matplotlib.pyplot as plt
 from matplotlib_venn import venn2, venn3
 from upsetplot import from_contents, UpSet
 
-from src.models_new.model_factory import ModelFactory
+from src.models.model_factory import ModelFactory
 from src.traditional_experiment_utils import get_hyperparameters_from_json
 
 
-
 def run_feature_space_review(
-    config: dict,
-    model_factory: ModelFactory
+        config: dict,
+        model_factory: ModelFactory
 ) -> None:
     """
     Performs a review of the feature space by analyzing the selected features across different classifiers. 
@@ -33,12 +30,13 @@ def run_feature_space_review(
 
     if len(models) == 0:
         raise ValueError("feature_space_review.models must be a non-empty list when enabled.")
-    
+
     # Inspect feature overlap across classifiers and render the matching set visualization
     features_dict = {}
     for model in models:
         median_hyperparameters_folder = Path(feature_space_review_config["median_hyperparameters_folder"])
-        _, selected_features, _, _ = get_hyperparameters_from_json(median_hyperparameters_folder, model_type, model.name)
+        _, selected_features, _, _ = get_hyperparameters_from_json(median_hyperparameters_folder, model_type,
+                                                                   model.name)
         features_dict[model.name] = set(selected_features)
 
     shared_features = set.intersection(*features_dict.values())
