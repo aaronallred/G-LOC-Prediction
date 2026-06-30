@@ -460,6 +460,24 @@ sensor_ablation:
 save_results_folder: Results/Sensor_Ablation
 ```
 
+#### `save_models_folder`
+
+**Purpose**: Directory where trained fold models are saved for later use, including SHAP analysis.
+
+**Available inputs**: Relative or absolute path to a directory.
+
+**Example**:
+```yaml
+save_models_folder: ModelSave/Sensor_Ablation
+```
+
+**Expected output structure**:
+```text
+{save_models_folder}/{model_type}/{model_name}/{stream_group}/fold_0.pkl
+{save_models_folder}/{model_type}/{model_name}/{stream_group}/fold_1.pkl
+...
+```
+
 #### `median_hyperparameters_folders`
 
 **Purpose**: Directory where median hyperparameters are saved from cross validation.
@@ -675,6 +693,495 @@ models: [KNN, RF]
 **Example**:
 ```yaml
 model_type: [Complete, Explicit]
+```
+
+### Mode: SHAP Analysis
+
+Generate SHAP explanations from saved fold models.
+
+**Purpose**: Load trained fold models from a previous sensor ablation run, recreate the matching data splits, generate SHAP explanations, save those explanation objects, and optionally create SHAP plots.
+
+**Section**: `shap_analysis`
+
+**Standard use case**: Use this mode after sensor ablation training has already saved fold models.
+
+#### `enabled`
+
+**Purpose**: Whether to run SHAP analysis.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+shap_analysis:
+  enabled: true
+```
+
+#### `plot_saved_only`
+
+**Purpose**: Controls whether SHAP explanations are generated or only loaded for plotting.
+
+**Available inputs**:
+- `false` — generate SHAP explanations from saved models, save the explanations, and create plots.
+- `true` — skip SHAP generation and only plot previously saved SHAP explanations.
+
+**Example for SHAP generation**:
+```yaml
+plot_saved_only: false
+```
+
+#### `saved_models_folder`
+
+**Purpose**: Directory containing trained fold models from sensor ablation training.
+
+**Available inputs**: Relative or absolute path to a directory.
+
+**Example**:
+```yaml
+saved_models_folder: ModelSave/Sensor_Ablation
+```
+
+**Expected input structure**:
+```text
+{saved_models_folder}/{model_type}/{model_name}/{stream_group}/fold_0.pkl
+{saved_models_folder}/{model_type}/{model_name}/{stream_group}/fold_1.pkl
+...
+```
+
+#### `save_results_folder`
+
+**Purpose**: Directory where SHAP explanation objects are saved.
+
+**Available inputs**: Relative or absolute path to a directory.
+
+**Example**:
+```yaml
+save_results_folder: Results/SHAP_Analysis
+```
+
+**Expected output structure**:
+```text
+{save_results_folder}/{model_type}/{model_name}/{stream_group}/fold_0_shap_explanation.pkl
+{save_results_folder}/{model_type}/{model_name}/{stream_group}/fold_1_shap_explanation.pkl
+...
+```
+
+#### `save_plots_folder`
+
+**Purpose**: Directory where SHAP plots are saved.
+
+**Available inputs**: Relative or absolute path to a directory.
+
+**Example**:
+```yaml
+save_plots_folder: Results/SHAP_Plots
+```
+
+#### `model_type`
+
+**Purpose**: Feature extraction configuration used to locate saved models and recreate matching data.
+
+**Available inputs**: Two-item list `[afe_filter, feature_set]`.
+
+**Example**:
+```yaml
+model_type: !ModelType [Complete, Explicit]
+```
+
+#### `models`
+
+**Purpose**: Models to explain.
+
+**Available inputs**: List of model aliases with saved fold models.
+
+**Example**:
+```yaml
+models: [RF, EGB]
+```
+
+#### `streams`
+
+**Purpose**: Stream groups to explain.
+
+**Available inputs**: List of stream-group lists. These should match the stream groups used when the models were trained.
+
+**Example**:
+```yaml
+streams:
+  - [ECG, EEG, Centrifuge, Participant, Pupil]
+```
+
+#### `random_seed`
+
+**Purpose**: Random seed used to recreate the same k-fold splits used during model training.
+
+**Available inputs**: Positive integer.
+
+**Example**:
+```yaml
+random_seed: 42
+```
+
+#### `num_splits`
+
+**Purpose**: Number of folds to recreate and explain.
+
+**Available inputs**: Positive integer.
+
+**Example**:
+```yaml
+num_splits: 10
+```
+
+**Important**: This should match the number of folds used during the original sensor ablation training run.
+
+#### `manual_ablation`
+
+**Purpose**: Controls whether SHAP recreates the data using cached selected features or raw stream-specific features.
+
+**Available inputs**:
+- `false` — use cached selected features, matching the standard sensor ablation workflow.
+- `true` — use raw stream-specific features.
+
+**Example**:
+```yaml
+manual_ablation: false
+```
+
+**Important**: This should match the setting used when the explained models were trained.
+
+#### `nsamples_train`
+
+**Purpose**: Number of training samples to use for SHAP background/reference data when sampling is needed.
+
+**Available inputs**: Positive integer.
+
+**Example**:
+```yaml
+nsamples_train: 100
+```
+
+#### `nsamples_test`
+
+**Purpose**: Number of test samples to explain when sampling is needed.
+
+**Available inputs**: Positive integer.
+
+**Example**:
+```yaml
+nsamples_test: 50
+```
+
+#### `overwrite`
+
+**Purpose**: Whether to overwrite existing saved SHAP explanation files.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+overwrite: false
+```
+
+#### `max_display`
+
+**Purpose**: Maximum number of features or feature groups to show in SHAP plots.
+
+**Available inputs**: Positive integer.
+
+**Example**:
+```yaml
+max_display: 20
+```
+
+#### `class_index`
+
+**Purpose**: Class index to plot when the SHAP explanation contains a class dimension.
+
+**Available inputs**: Non-negative integer.
+
+**Example**:
+```yaml
+class_index: 1
+```
+
+For binary classification, `1` usually corresponds to the positive/G-LOC class.
+
+#### `print_vals`
+
+**Purpose**: Whether to print/log SHAP feature values while plotting.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+print_vals: true
+```
+
+#### Violin plot layout settings
+
+**Purpose**: Control figure size and margins for SHAP violin plots.
+
+**Available inputs**: Positive numeric values.
+
+**Example**:
+```yaml
+violin_plot_width: 26
+violin_plot_height: 10
+violin_left_margin: 0.36
+violin_right_margin: 0.96
+```
+
+#### Example SHAP generation config
+
+```yaml
+shap_analysis:
+  enabled: true
+  plot_saved_only: false
+
+  saved_models_folder: ModelSave/Sensor_Ablation
+  save_results_folder: Results/SHAP_Analysis
+  save_plots_folder: Results/SHAP_Plots
+
+  model_type: !ModelType [Complete, Explicit]
+  models: [RF, EGB]
+  streams:
+    - [ECG, EEG, Centrifuge, Participant, Pupil]
+
+  random_seed: 42
+  num_splits: 10
+  manual_ablation: false
+
+  nsamples_train: 100
+  nsamples_test: 50
+  overwrite: false
+
+  max_display: 20
+  class_index: 1
+  print_vals: true
+
+  violin_plot_width: 26
+  violin_plot_height: 10
+  violin_left_margin: 0.36
+  violin_right_margin: 0.96
+```
+
+---
+
+### Mode: SHAP Plotting
+
+Plot previously saved SHAP explanations without regenerating them.
+
+**Purpose**: Load saved SHAP explanation objects from `save_results_folder` and create plots in `save_plots_folder`. This is useful when SHAP generation has already been completed and you only want to adjust or regenerate visualizations.
+
+**Section**: `shap_analysis`
+
+**Important**: SHAP plotting uses the same top-level YAML section as SHAP generation. The difference is that `plot_saved_only` is set to `true`.
+
+#### `enabled`
+
+**Purpose**: Whether to run SHAP plotting.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+shap_analysis:
+  enabled: true
+```
+
+#### `plot_saved_only`
+
+**Purpose**: Skip SHAP generation and only plot saved SHAP explanations.
+
+**Available inputs**: `true`
+
+**Example**:
+```yaml
+plot_saved_only: true
+```
+
+#### `save_results_folder`
+
+**Purpose**: Directory containing saved SHAP explanation objects.
+
+**Available inputs**: Relative or absolute path to a directory.
+
+**Example**:
+```yaml
+save_results_folder: Results/SHAP_Analysis
+```
+
+#### `save_plots_folder`
+
+**Purpose**: Directory where SHAP plots are saved.
+
+**Available inputs**: Relative or absolute path to a directory.
+
+**Example**:
+```yaml
+save_plots_folder: Results/SHAP_Plots
+```
+
+#### `model_type`
+
+**Purpose**: Feature extraction configuration used to locate saved SHAP explanations and name the plot outputs.
+
+**Available inputs**: Two-item list `[afe_filter, feature_set]`.
+
+**Example**:
+```yaml
+model_type: !ModelType [Complete, Explicit]
+```
+
+#### `models`
+
+**Purpose**: Models whose saved SHAP explanations should be plotted.
+
+**Available inputs**: List of model aliases.
+
+**Example**:
+```yaml
+models: [RF]
+```
+
+#### `streams`
+
+**Purpose**: Stream groups whose saved SHAP explanations should be plotted.
+
+**Available inputs**: List of stream-group lists.
+
+**Example**:
+```yaml
+streams:
+  - [ECG, EEG, Centrifuge, Participant, Pupil]
+```
+
+#### `num_splits`
+
+**Purpose**: Number of saved fold explanations to load.
+
+**Available inputs**: Positive integer.
+
+**Example**:
+```yaml
+num_splits: 10
+```
+
+#### `plot_scope`
+
+**Purpose**: Controls whether plots are generated per fold, across all folds, or both.
+
+**Available inputs**:
+- `individual` — create plots for each fold separately
+- `all` — combine saved fold explanations and create one overall plot
+- `both` — create both individual-fold plots and combined plots
+
+**Example**:
+```yaml
+plot_scope: all
+```
+
+#### `max_display`
+
+**Purpose**: Maximum number of features or feature groups to show in SHAP plots.
+
+**Available inputs**: Positive integer.
+
+**Example**:
+```yaml
+max_display: 20
+```
+
+#### `class_index`
+
+**Purpose**: Class index to plot when the saved SHAP explanation contains a class dimension.
+
+**Available inputs**: Non-negative integer.
+
+**Example**:
+```yaml
+class_index: 1
+```
+
+For binary classification, `1` usually corresponds to the positive/G-LOC class.
+
+#### `print_vals`
+
+**Purpose**: Whether to print/log SHAP feature values while plotting.
+
+**Available inputs**: `true` or `false`
+
+**Example**:
+```yaml
+print_vals: true
+```
+
+#### Violin plot layout settings
+
+**Purpose**: Control figure size and margins for SHAP violin plots.
+
+**Available inputs**: Positive numeric values.
+
+**Example**:
+```yaml
+violin_plot_width: 26
+violin_plot_height: 10
+violin_left_margin: 0.36
+violin_right_margin: 0.96
+```
+
+#### `grouped_bar_plots`
+
+**Purpose**: Whether to create grouped SHAP bar plots in addition to standard SHAP plots.
+
+**Available inputs**: Sub-section with `enabled: true` or `enabled: false`.
+
+**Example**:
+```yaml
+grouped_bar_plots:
+  enabled: true
+```
+
+Grouped SHAP bar plots aggregate individual features into interpretable feature groups such as:
+- modalities
+- baseline windows
+- EEG channels
+- EEG bands
+- EEG channel-band combinations
+- raw versus processed features
+- raw versus PSD features
+
+Grouped bar plots can use either summed absolute SHAP values or mean absolute SHAP values if that option is exposed in the plotting configuration. Summed absolute SHAP values show total contribution by group, while mean absolute SHAP values normalize by the number of features in each group.
+
+#### Example SHAP plot-only config
+
+```yaml
+shap_analysis:
+  enabled: true
+  plot_saved_only: true
+
+  save_results_folder: Results/SHAP_Analysis
+  save_plots_folder: Results/SHAP_Plots
+
+  model_type: !ModelType [Complete, Explicit]
+  models: [RF]
+  streams:
+    - [ECG, EEG, Centrifuge, Participant, Pupil]
+  num_splits: 10
+
+  max_display: 20
+  class_index: 1
+  print_vals: true
+  plot_scope: all
+
+  violin_plot_width: 26
+  violin_plot_height: 10
+  violin_left_margin: 0.36
+  violin_right_margin: 0.96
+
+  grouped_bar_plots:
+    enabled: true
 ```
 
 ### Complete Example
