@@ -8,6 +8,7 @@ from .config_loader import load_experiment_config
 from .models.model_factory import ModelFactory
 from .modes.cross_validation import run_cross_validation
 from .modes.feature_space_review import run_feature_space_review
+from .modes.real_time_equivital import run_real_time_equivital
 from .modes.sensor_ablation import run_sensor_ablation_review, run_sensor_ablation_training
 
 
@@ -92,6 +93,14 @@ def run(config_path: str) -> None:
                 model_factory=model_factory
             )
         ),
+        (
+            bool(config.get("real_time_equivital", {}).get("enabled", False)),
+            lambda: run_real_time_equivital(
+                config=config,
+                model_factory=model_factory,
+                project_root_path=project_root_path
+            )
+        ),
     ]
 
     for is_enabled, runner in mode_runners:
@@ -101,9 +110,9 @@ def run(config_path: str) -> None:
 
     if not did_run_any_mode:
         logging.info(
-            "No runnable mode enabled. Set sensor_ablation.training.enabled, "
-            "sensor_ablation.review.enabled, feature_space_review.enabled, "
-            "or cross_validation.enabled to true in the config."
+            "No runnable mode enabled. Set real_time_equivital.enabled, "
+            "sensor_ablation.training.enabled, sensor_ablation.review.enabled, "
+            "feature_space_review.enabled, or cross_validation.enabled to true in the config."
         )
 
 
