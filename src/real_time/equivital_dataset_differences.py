@@ -409,10 +409,10 @@ def run_comparison(
         traditional_feature_selection="raw",
         return_feature_names=True,
     )
-    equivital_features = [f for f in all_features if "Equivital" in f]
     # Build a name->index map that handles dropped features / out-of-sync lists
     feature_index_map = {name: idx for idx, name in enumerate(all_features) if idx < X.shape[1]}
-    equivital_indices = [feature_index_map[f] for f in equivital_features if f in feature_index_map]
+    equivital_features = [f for f in all_features if "Equivital" in f and f in feature_index_map]
+    equivital_indices = [feature_index_map[f] for f in equivital_features]
     X_eq = X[:, equivital_indices]
     logger.info("Pipeline: %d total features, %d are Equivital.", len(all_features), len(equivital_features))
 
