@@ -22,8 +22,8 @@ from src.models.base import BaseModel
 from src.models.model_factory import ModelFactory
 
 logger = logging.getLogger(__name__)
-# Keep path resolution behavior consistent with the original module location under src/.
-SOURCE_DIR = Path(__file__).resolve().parents[1]
+# Keep path resolution behavior consistent with the original module location
+SOURCE_DIR = Path(__file__).resolve().parents[2]
 
 
 def _resolve_from_source_dir(path_value: str) -> str:
