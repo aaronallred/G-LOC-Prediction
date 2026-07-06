@@ -26,11 +26,16 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
+from src.config_loader import load_experiment_config
+import yaml
+
 # Optional plotting imports
 try:
     import matplotlib
+
     matplotlib.use("Agg")  # Non-interactive backend
     import matplotlib.pyplot as plt
+
     PLOTTING_AVAILABLE = True
 except ImportError:  # pragma: no cover
     PLOTTING_AVAILABLE = False  # type: ignore[assignment]
@@ -42,6 +47,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 RAW_CSV_FILENAME = "all_trials_25_hz_stacked_null_str_filled.csv"
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -351,9 +357,9 @@ def _create_plots(report: dict[str, Any], output_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def run_comparison(
-    config_path: Path | None = None,
-    project_root: Path | None = None,
-    output_dir: Path | None = None,
+        config_path: Path | None = None,
+        project_root: Path | None = None,
+        output_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Load both datasets, compare, and save reports.
 
@@ -387,8 +393,7 @@ def run_comparison(
     from src.models.model_factory import ModelFactory
     from src.model_type import ModelType
 
-    with open(config_path, "r", encoding="utf-8") as fh:
-        config = yaml.safe_load(fh)
+    config = load_experiment_config(config_path)
 
     pipeline = DataPipeline(config=config)
     model_factory = ModelFactory()
