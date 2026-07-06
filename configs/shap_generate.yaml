@@ -1,0 +1,59 @@
+data_path: C:\Users\savan\G-LOC-Prediction\data
+
+shared_data_parameters:
+  subject_to_analyze: null
+  trial_to_analyze: null
+  analysis_type: 2
+  remove_NaN_trials: true
+  impute_file_name: imputed_data.pkl
+  save_impute: false
+  load_impute: false
+  impute_phase: pre_feature
+  output_feature_dtype: float32
+
+advanced_data_parameters:
+  n_neighbors: 4
+  baseline_window: 32.5
+
+traditional_data_parameters:
+  backstep: 0
+  data_rate: 25
+  offset: 0
+  time_start: 0
+
+shap_analysis:
+  enabled: true
+  plot_saved_only: false
+
+  saved_models_folder: ModelSave/Sensor_Ablation
+  save_results_folder: Results/SHAP_Analysis
+  save_plots_folder: Results/SHAP_Plots
+
+  model_type: !ModelType [Complete, Explicit]
+  models: [RF, EGB]
+  streams:
+    - [ECG, EEG, Centrifuge, Participant, Pupil]
+
+  random_seed: 42
+  num_splits: 10
+  manual_ablation: false
+
+  nsamples_train: 100
+  nsamples_test: 50
+  overwrite: false
+
+  max_display: 20
+  class_index: 1
+  print_vals: true
+
+  violin_plot_width: 26
+  violin_plot_height: 10
+  violin_left_margin: 0.36
+  violin_right_margin: 0.96
+
+sensor_ablation:
+  training:
+    enabled: false
+    save_results_folder: Results/Sensor_Ablation
+    save_models_folder: ModelSave/Sensor_Ablation
+    median_hyperparameters_folder: Results/CrossValidation

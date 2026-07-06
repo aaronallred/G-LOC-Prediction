@@ -1,0 +1,25 @@
+shap_analysis:
+  enabled: true
+  plot_saved_only: true
+
+  save_results_folder: Results/SHAP_Analysis
+  save_plots_folder: Results/SHAP_Plots
+
+  model_type: !ModelType [Complete, Explicit]
+  models: [RF]
+  streams:
+    - [ECG, EEG, Centrifuge, Participant, Pupil]
+  num_splits: 10
+
+  max_display: 20
+  class_index: 1
+  print_vals: true
+  plot_scope: all # Options: individual, all, both
+
+  violin_plot_width: 26
+  violin_plot_height: 10
+  violin_left_margin: 0.36
+  violin_right_margin: 0.96
+
+  grouped_bar_plots:
+    enabled: true
