@@ -8,8 +8,10 @@ from .config_loader import load_experiment_config
 from .models.model_factory import ModelFactory
 from .modes.cross_validation import run_cross_validation
 from .modes.feature_space_review import run_feature_space_review
+from .modes.leave_one_participant_out import run_leave_one_participant_out
 from .modes.sensor_ablation import run_sensor_ablation_review, run_sensor_ablation_training
 from .modes.shap_analysis import run_shap_analysis
+
 
 
 def _try_enable_cuml_acceleration() -> None:
@@ -100,6 +102,15 @@ def run(config_path: str) -> None:
                 pipeline=data_pipeline,
                 model_factory=model_factory,
                 project_root=project_root_path,
+            ),
+        ),
+        (
+            bool(config.get("leave_one_participant_out", {}).get("enabled", False)),
+            lambda: run_leave_one_participant_out(
+                config=config,
+                pipeline=data_pipeline,
+                model_factory=model_factory,
+                project_root_path=project_root_path,
             ),
         ),
     ]

@@ -1,0 +1,88 @@
+# Example config for LOPO (Leave-One-Participant-Out) cross-validation.
+#
+# PREREQUISITE: run `cross_validation` (enabled: true) for each model in
+# `leave_one_participant_out.models` BEFORE running this config, using the
+# SAME model_type. LOPO loads each model's already-selected feature set from
+# {cross_validation.save_results_folder}/{model_type}/{model_name}/median_hyperparameters.json
+# so that per-subject data pulls stay column-aligned (see the long comment
+# at the top of src/modes/leave_one_participant_out.py for why).
+
+data_path: /home/gloc/G-LOC-Prediction/data
+
+shared_data_parameters:
+  # subject_to_analyze and analysis_type are overwritten per-subject at
+  # runtime by leave_one_participant_out.py -- whatever you put here is
+  # irrelevant for this mode, but must still be valid YAML for other modes
+  # sharing this config.
+  subject_to_analyze: null
+  trial_to_analyze: null
+  analysis_type: 2
+  remove_NaN_trials: true
+  impute_file_name: imputed_data.pkl
+  save_impute: false
+  load_impute: false
+  impute_phase: pre_feature
+  output_feature_dtype: float32
+
+advanced_data_parameters:
+  n_neighbors: 4
+  baseline_window: 32.5
+  horizon: 0
+
+traditional_data_parameters:
+  backstep: 0
+  data_rate: 25
+  offset: 0
+  time_start: 0
+
+# --- Step 1: produce median_hyperparameters.json for each model you want ---
+# This is a normal cross_validation run. Set enabled: true and run it FIRST
+# (as its own invocation, or in the same config before switching to LOPO).
+cross_validation:
+  enabled: false   # flip to true to (re)generate median_hyperparameters.json
+  models: [KNN, RF]
+  model_type: !ModelType [Complete, Explicit]
+  random_seed: 42
+  num_splits: 10
+  save_results_folder: Results/Cross_Validation
+  class_weight: null
+  advanced_hpo:
+    use_sampler: true
+    final_early_stop: false
+    objective_var: F1
+    trials: 100
+
+# --- Step 2: the actual LOPO mode ---
+leave_one_participant_out:
+  enabled: true
+  models: [KNN, RF]              # traditional models only -- see module docstring
+  model_type: !ModelType [Complete, Explicit]   # MUST match the cross_validation run above
+  random_seed: 42
+  class_weight: null             # or "balanced" if GLOC/no-GLOC classes are imbalanced
+  save_results_folder: Results/LOPO_CV
+  subjects: null                 # null = all subjects 1-13; or e.g. [1, 2, 5] to test a subset first
+
+# --- Required plumbing quirk, NOT a real sensor-ablation run ---
+# DataPipeline._resolve_select_features() hardcodes its lookup to this path
+# whenever traditional_feature_selection="cache" is requested (which LOPO
+# uses internally). Point it at the SAME folder cross_validation wrote to
+# above. sensor_ablation.training.enabled can stay false -- this section
+# only needs to exist so the config key resolves; the sensor ablation mode
+# itself does not run.
+sensor_ablation:
+  training:
+    enabled: false
+    median_hyperparameters_folder: Results/Cross_Validation   # must match cross_validation.save_results_folder above
+    save_results_folder: Results/Sensor_Ablation
+    models: [KNN, RF]
+    model_type: !ModelType [Complete, Explicit]
+    random_seed: 42
+    num_splits: 10
+    streams: []
+  review:
+    enabled: false
+    save_results_folder: Results/Sensor_Ablation
+    models: [KNN, RF]
+    model_type: !ModelType [Complete, Explicit]
+    stream_groups: []
+    sort_streams_by_median: false
