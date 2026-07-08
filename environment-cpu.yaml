@@ -1,0 +1,29 @@
+name: gloc
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - numpy
+  - pandas
+  - scikit-learn
+  - imbalanced-learn
+  - scikit-optimize
+  - matplotlib
+  - matplotlib-venn
+  - seaborn
+  - shap
+  - optuna
+  - faiss-cpu=1.14.3
+  - pytest
+  - ipykernel
+  - openpyxl
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cpu
+      - torch
+      - torchvision
+      - PyQt6==6.11.0
+      - UpSetPlot==0.9.0
+      - munkres==1.1.4
+      - unicodedata2==17.0.1

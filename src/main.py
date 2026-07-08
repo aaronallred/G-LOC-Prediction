@@ -10,6 +10,7 @@ from .modes.cross_validation import run_cross_validation
 from .modes.feature_space_review import run_feature_space_review
 from .modes.real_time_equivital import run_real_time_equivital
 from .modes.sensor_ablation import run_sensor_ablation_review, run_sensor_ablation_training
+from .modes.shap_analysis import run_shap_analysis
 
 
 def _try_enable_cuml_acceleration() -> None:
@@ -100,6 +101,15 @@ def run(config_path: str) -> None:
                 model_factory=model_factory,
                 project_root_path=project_root_path
             )
+        ),
+        (
+            bool(config.get("shap_analysis", {}).get("enabled", False)),
+            lambda: run_shap_analysis(
+                config=config,
+                pipeline=data_pipeline,
+                model_factory=model_factory,
+                project_root=project_root_path,
+            ),
         ),
     ]
 
