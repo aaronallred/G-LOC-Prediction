@@ -1,12 +1,9 @@
 name: gloc
 channels:
-  - rapidsai
   - conda-forge
   - defaults
 dependencies:
   - python=3.12
-  - cuda-version>=13.0,<=13.2
-  - cuml=26.06
   - cupy
   - numpy
   - pandas
