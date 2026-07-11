@@ -154,3 +154,55 @@ def test_apply_sensor_ablation_rejects_unknown_stream():
     pipeline = DataPipeline(_make_config())
     with pytest.raises(ValueError, match="Unknown stream\\(s\\)"):
         pipeline._apply_sensor_ablation(["Fz_alpha - EEG"], ["mystery-stream"])
+
+
+def test_standardize_flag_is_forwarded_to_backend(monkeypatch):
+    pipeline = DataPipeline(_make_config())
+    pipeline.set_model_type(ModelType("Complete", "Explicit"))
+
+    backend = CapturingBackend("ok")
+    monkeypatch.setattr(pipeline, "_build_backend", lambda _model: backend)
+    monkeypatch.setattr(pipeline, "_resolve_select_features", lambda _kwargs: [])
+
+    pipeline.get_data(model=DummyModel(is_traditional=True, name="RF"))
+    assert backend.calls[0]["standardize"] is True
+
+
+def test_standardize_flag_is_forwarded_to_backend_false(monkeypatch):
+    config = _make_config()
+    config["traditional_data_parameters"]["standardize"] = False
+    pipeline = DataPipeline(config)
+    pipeline.set_model_type(ModelType("Complete", "Explicit"))
+
+    backend = CapturingBackend("ok")
+    monkeypatch.setattr(pipeline, "_build_backend", lambda _model: backend)
+    monkeypatch.setattr(pipeline, "_resolve_select_features", lambda _kwargs: [])
+
+    pipeline.get_data(model=DummyModel(is_traditional=True, name="RF"))
+    assert backend.calls[0]["standardize"] is False
+
+
+def test_standardize_flag_defaults_true_when_omitted(monkeypatch):
+    config = _make_config()
+    assert "standardize" not in config["traditional_data_parameters"]
+
+    pipeline = DataPipeline(config)
+    pipeline.set_model_type(ModelType("Complete", "Explicit"))
+
+    backend = CapturingBackend("ok")
+    monkeypatch.setattr(pipeline, "_build_backend", lambda _model: backend)
+    monkeypatch.setattr(pipeline, "_resolve_select_features", lambda _kwargs: [])
+
+    pipeline.get_data(model=DummyModel(is_traditional=True, name="RF"))
+    assert backend.calls[0]["standardize"] is True
+
+
+def test_advanced_backend_does_not_receive_standardize_flag(monkeypatch):
+    pipeline = DataPipeline(_make_config())
+    pipeline.set_model_type(ModelType("Complete", "Explicit"))
+
+    backend = CapturingBackend("advanced-ok")
+    monkeypatch.setattr(pipeline, "_build_backend", lambda _model: backend)
+
+    pipeline.get_data(model=DummyModel(is_traditional=False, name="Trans"), kfold_id=3, num_splits=5)
+    assert "standardize" not in backend.calls[0]
