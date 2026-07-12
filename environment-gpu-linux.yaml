@@ -1,6 +1,7 @@
 name: gloc
 channels:
   - rapidsai
+  - pytorch
   - conda-forge
   - defaults
 dependencies:
