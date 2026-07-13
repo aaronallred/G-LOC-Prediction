@@ -1,10 +1,13 @@
+# GPU-first cross-validation configuration for the GPU workstation.
 data_path: data/
 main_data_file: all_trials_25_hz_stacked_null_str_filled_reduced.csv
+
 runtime:
-  device: auto  # Change to cuda on the Alienware
-  require_gpu: false  # Change to true to fail instead of silently using CPU
+  device: cuda
+  require_gpu: true
   enable_cuml: true
-  timing_output: Results/run_timing.json
+  timing_output: Results/alienware_run_timing.json
+
 shared_data_parameters:
   subject_to_analyze: null
   trial_to_analyze: null
@@ -15,10 +18,12 @@ shared_data_parameters:
   load_impute: false
   impute_phase: pre_feature
   output_feature_dtype: float32
+
 advanced_data_parameters:
   n_neighbors: 4
   baseline_window: 32.5
   horizon: 0
+
 traditional_data_parameters:
   backstep: 0
   data_rate: 25
@@ -27,12 +32,11 @@ traditional_data_parameters:
 
 cross_validation:
   enabled: true
-  # Mode-specific parameters
-  models: [ XGB ]
-  model_type: !ModelType [ Complete, Explicit ]
+  models: [XGB]
+  model_type: !ModelType [Complete, Explicit]
   random_seed: 42
   num_splits: 2
-  save_results_folder: Results/Cross_Validation_Temp
+  save_results_folder: Results/Cross_Validation_Alienware
   class_weight: null
   traditional_hpo:
     n_iter: 30
@@ -44,3 +48,12 @@ cross_validation:
     final_early_stop: false
     objective_var: F1
     trials: 100
+
+sensor_ablation:
+  training:
+    enabled: false
+  review:
+    enabled: false
+
+feature_space_review:
+  enabled: false

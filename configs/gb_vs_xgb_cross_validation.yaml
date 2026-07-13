@@ -1,10 +1,5 @@
 data_path: data/
 main_data_file: all_trials_25_hz_stacked_null_str_filled_reduced.csv
-runtime:
-  device: auto  # Change to cuda on the Alienware
-  require_gpu: false  # Change to true to fail instead of silently using CPU
-  enable_cuml: true
-  timing_output: Results/run_timing.json
 shared_data_parameters:
   subject_to_analyze: null
   trial_to_analyze: null
@@ -27,18 +22,12 @@ traditional_data_parameters:
 
 cross_validation:
   enabled: true
-  # Mode-specific parameters
-  models: [ XGB ]
+  models: [ EGB, XGB ]
   model_type: !ModelType [ Complete, Explicit ]
   random_seed: 42
   num_splits: 2
-  save_results_folder: Results/Cross_Validation_Temp
+  save_results_folder: Results/Cross_Validation_GB_vs_XGB
   class_weight: null
-  traditional_hpo:
-    n_iter: 30
-    cv: 3
-    n_jobs: 1
-    scoring: f1
   advanced_hpo:
     use_sampler: true
     final_early_stop: false

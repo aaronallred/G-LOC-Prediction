@@ -18,6 +18,7 @@ from src.advanced_experiment_utils import (
 )
 from imblearn.metrics import geometric_mean_score
 from sklearn import metrics as sklearn_metrics
+from src.runtime import get_compute_device
 
 
 class ModelInitStrategy(Enum):
@@ -143,7 +144,7 @@ class TraditionalModel(BaseModel):
 class AdvancedModel(BaseModel):
     def __init__(self, model_hyperparameters: Optional[Dict[str, Any]] = None):
         super().__init__(model_hyperparameters)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = get_compute_device()
         self.hpo_config: Dict[str, Any] = {}
 
     @property

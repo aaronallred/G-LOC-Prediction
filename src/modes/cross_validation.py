@@ -8,6 +8,7 @@ HPO for advanced models (LogRegTS, LSTM, NAM, TCN, Trans), aligned with the lega
 import json
 import logging
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple
 
 import joblib
@@ -34,6 +35,7 @@ from src.advanced_experiment_utils import (
 from src.models_new.base import BaseModel, TraditionalModel, AdvancedModel
 from src.models_new.model_factory import ModelFactory
 from src.traditional_experiment_utils import stratified_kfold_split
+from src.runtime import synchronize_accelerator
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +117,9 @@ def _run_advanced_hpo(
 
     def objective(trial: optuna.Trial) -> float:
         params = search_space_builder(trial, X, random_seed)
-        params["objective_var"] = hpo_config.get("metric")
+        metric = str(hpo_config.get("metric", "f1")).lower()
+        params["objective_var"] = "Acc" if metric in {"acc", "accuracy"} else "F1"
+        trial.set_user_attr("resolved_params", params)
 
         X_ds, _ = baseline_down_select(X, model.all_features, params["baseline_method"])
         train_dataset, val_dataset, train_windows_tensor, _, _, val_windows_labels = train_test_split_trials(
@@ -172,8 +176,15 @@ def _run_advanced_hpo(
 
         return float(metrics.f1_score(val_windows_labels.numpy(), np.array(trial_preds)))
 
-    study.optimize(objective, n_trials=int(hpo_config["n_trials"]), catch=(RuntimeError, ValueError))
-    model.best_params = dict(study.best_params)
+    # Keep trials sequential on a single GPU. Concurrent trials often contend
+    # for VRAM and are slower or less stable than sequential tuning.
+    study.optimize(
+        objective,
+        n_trials=int(hpo_config["n_trials"]),
+        n_jobs=1,
+        catch=(RuntimeError, ValueError),
+    )
+    model.best_params = dict(study.best_trial.user_attrs["resolved_params"])
     return {
         "best_params": model.best_params,
         "summary": {
@@ -218,6 +229,7 @@ def _run_traditional_model_cv_fold(
         random_seed: int,
         class_weight: Optional[str] = None,
         feature_names: Optional[List[str]] = None,
+        hpo_config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Run a single fold of cross-validation for a traditional model to obtain
@@ -278,7 +290,9 @@ def _run_traditional_model_cv_fold(
         class_weight
     )
 
-    hpo_result, search = _run_traditional_hpo(model, X_train, y_train, random_seed, class_weight)
+    hpo_result, search = _run_traditional_hpo(
+        model, X_train, y_train, random_seed, class_weight, hpo_config
+    )
 
     logger.info(
         "Running traditional model evaluation for fold %s",
@@ -347,6 +361,7 @@ def _run_traditional_hpo(
         y: np.ndarray,
         random_seed: int,
         class_weight: Optional[str] = None,
+        hpo_config: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], Any]:
     """Run BayesSearchCV for a traditional model.
 
@@ -360,12 +375,19 @@ def _run_traditional_hpo(
     extra = {k: v for k, v in {"random_state": random_seed, "class_weight": class_weight}.items() if k in valid_params}
     model.model.set_params(**extra)
 
+    hpo_config = hpo_config or {}
+    n_iter = int(hpo_config.get("n_iter", 30))
+    cv = int(hpo_config.get("cv", 3))
+    n_jobs = int(hpo_config.get("n_jobs", 1))
+    scoring = str(hpo_config.get("scoring", "f1"))
+
     searcher = BayesSearchCV(
         estimator=model.model,
         search_spaces=model.get_hpo_search_space(),
-        n_iter=30,
-        cv=3,
-        scoring="f1",
+        n_iter=n_iter,
+        cv=cv,
+        scoring=scoring,
+        n_jobs=n_jobs,
         random_state=random_seed,
         verbose=1,
         error_score=np.nan,
@@ -378,9 +400,10 @@ def _run_traditional_hpo(
         "best_params": best_params,
         "best_score": float(searcher.best_score_),
         "best_index": int(searcher.best_index_),
-        "n_iter": 30,
-        "cv": 3,
-        "scoring": "f1",
+        "n_iter": n_iter,
+        "cv": cv,
+        "n_jobs": n_jobs,
+        "scoring": scoring,
     }
     return {"best_params": best_params, "summary": summary}, searcher
 
@@ -433,6 +456,7 @@ def run_cross_validation(
     num_splits = cross_validation_config["num_splits"]
     random_seed = cross_validation_config["random_seed"]
     class_weight = cross_validation_config.get("class_weight")
+    traditional_hpo_config = cross_validation_config.get("traditional_hpo", {})
 
     logger.info(
         "Starting cross-validation with %s folds and %s model(s)",
@@ -501,6 +525,8 @@ def run_cross_validation(
         for fold_idx in range(num_splits):
             fold_dir = model_results_dir / f"fold_{fold_idx}"
             fold_dir.mkdir(parents=True, exist_ok=True)
+            synchronize_accelerator()
+            fold_started = perf_counter()
 
             if model.is_traditional_model:
                 fold_result, search = _run_traditional_model_cv_fold(
@@ -512,6 +538,7 @@ def run_cross_validation(
                     random_seed,
                     class_weight,
                     feature_names=feature_names,
+                    hpo_config=traditional_hpo_config,
                 )
 
                 # Save BayesSearchCV model in fold folder
@@ -539,6 +566,9 @@ def run_cross_validation(
                     random_seed=random_seed,
                     fold_dir=fold_dir,
                 )
+
+            synchronize_accelerator()
+            fold_result["duration_seconds"] = round(perf_counter() - fold_started, 6)
 
             # Save fold metrics in fold folder
             fold_dir.mkdir(parents=True, exist_ok=True)

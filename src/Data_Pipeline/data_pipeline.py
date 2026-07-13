@@ -22,16 +22,15 @@ from src.models.base import BaseModel
 from src.models_new.model_factory import ModelFactory
 
 logger = logging.getLogger(__name__)
-# Keep path resolution behavior consistent with the original module location under src/.
-SOURCE_DIR = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _resolve_from_source_dir(path_value: str) -> str:
-    """Resolve relative paths against this module's directory."""
+    """Resolve relative configuration paths against the repository root."""
     candidate = Path(path_value).expanduser()
     if candidate.is_absolute():
         return str(candidate)
-    return str((SOURCE_DIR / candidate).resolve())
+    return str((PROJECT_ROOT / candidate).resolve())
 
 
 class DataPipeline:
@@ -352,8 +351,14 @@ class BaseGLOCDataPipeline(ABC):
             for band in self._EEG_BASELINE_BANDS
         ]
 
+        main_data_file = self.config.get(
+            "main_data_file", "all_trials_25_hz_stacked_null_str_filled.csv"
+        )
+        if Path(main_data_file).name != main_data_file:
+            raise ValueError("main_data_file must be a filename, not a path")
+
         self._data_locations = {
-            "main": os.path.join(self.data_path, "all_trials_25_hz_stacked_null_str_filled.csv"),
+            "main": os.path.join(self.data_path, main_data_file),
             "baseline": os.path.join(self.data_path, "ParticipantBaseline.csv"),
             "demographic": os.path.join(self.data_path, "GLOC_Effectiveness_Final.csv"),
             "eeg_list": list_of_eeg_data_file_paths,
@@ -361,6 +366,28 @@ class BaseGLOCDataPipeline(ABC):
         }
 
         return self._data_locations
+
+    @staticmethod
+    def _filter_unavailable_auxiliary_inputs(
+            feature_groups: Sequence[str],
+            baseline_methods: List[str],
+            file_paths: Dict[str, Any],
+    ) -> Tuple[List[str], List[str]]:
+        """Skip features that require files absent from a reduced-only dataset."""
+        feature_groups = list(feature_groups)
+        baseline_methods = list(baseline_methods)
+
+        if "demographics" in feature_groups and not os.path.isfile(file_paths["demographic"]):
+            logger.warning("Demographics file unavailable; skipping demographic features.")
+            feature_groups.remove("demographics")
+
+        if not os.path.isfile(file_paths["baseline"]):
+            baseline_methods = [method for method in baseline_methods if method not in {"v5", "v6"}]
+
+        if not all(os.path.isfile(path) for path in file_paths["baseline_eeg_processed_list"]):
+            baseline_methods = [method for method in baseline_methods if method not in {"v7", "v8"}]
+
+        return feature_groups, baseline_methods
 
     def _load_data(self, file_paths: Dict[str, Any],
                    output_feature_dtype: np.dtype = np.dtype(np.float32)) -> pd.DataFrame:
@@ -376,8 +403,9 @@ class BaseGLOCDataPipeline(ABC):
             logger.info("Loading data from pickle at %s.", main_data_pickle_file)
             gloc_data = pd.read_pickle(main_data_pickle_file)
 
-        # Add GOR and EEG data from other files
-        gloc_data = self._process_EEG_GOR(file_paths["eeg_list"], gloc_data, output_feature_dtype)
+        # Reduced exports already contain processed EEG band columns.
+        if "reduced" not in Path(file_paths["main"]).stem:
+            gloc_data = self._process_EEG_GOR(file_paths["eeg_list"], gloc_data, output_feature_dtype)
 
         # Adjust AFE condition column always
         gloc_data["condition"] = gloc_data["condition"].map({"N": 0, "AFE": 1})
@@ -684,17 +712,19 @@ class BaseGLOCDataPipeline(ABC):
             model_type: ModelType,
     ) -> Tuple[Dict[str, np.ndarray], List[str], Dict[str, np.ndarray], List[str]]:
         """Compute baselines and return combined outputs plus v0 baseline data/names."""
-        participant_baseline = pd.read_csv(file_paths["baseline"])
-        participant_baseline_rhr = participant_baseline["resting HR [seated]"][:-1]
-        participant_baseline_rhr.index = [f"{i:02d}" for i in range(1, 14)]
+        participant_baseline_rhr = None
+        if {"v5", "v6"}.intersection(baseline_methods_to_use):
+            participant_baseline = pd.read_csv(file_paths["baseline"])
+            participant_baseline_rhr = participant_baseline["resting HR [seated]"][:-1]
+            participant_baseline_rhr.index = [f"{i:02d}" for i in range(1, 14)]
 
         eeg_baseline_data = {}
-        for filepath in file_paths["baseline_eeg_processed_list"]:
-            df = pd.read_csv(filepath)
-            df.index = [f"{i:02d}" for i in range(1, 14)]
-            # Extract band name from filename pattern: GLOC_EEG_baseline_{band}_noAFE1.csv
-            band = os.path.basename(filepath).split("_")[3]
-            eeg_baseline_data[band] = df
+        if {"v7", "v8"}.intersection(baseline_methods_to_use):
+            for filepath in file_paths["baseline_eeg_processed_list"]:
+                df = pd.read_csv(filepath)
+                df.index = [f"{i:02d}" for i in range(1, 14)]
+                band = os.path.basename(filepath).split("_")[3]
+                eeg_baseline_data[band] = df
 
         # Build feature-group index arrays using set lookups for O(1) membership
         phys_set, ecg_set, eeg_set = set(features["Phys"]), set(features["ECG"]), set(features["EEG"])
@@ -895,6 +925,9 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             "Loading and processing data with parameters: model_type=%s, subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d",
             model_type, subject_to_analyze, trial_to_analyze, analysis_type)
         file_paths = self._get_data_locations()
+        feature_groups_to_analyze, baseline_methods_to_use = self._filter_unavailable_auxiliary_inputs(
+            feature_groups_to_analyze, baseline_methods_to_use, file_paths
+        )
         gloc_data = self._load_data(file_paths, output_feature_dtype)
         gloc_data = self._filter_data_by_analysis_type(analysis_type, gloc_data, subject_to_analyze, trial_to_analyze)
         gloc_data, features = self._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type,
@@ -1399,6 +1432,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             "Loading and processing data with parameters: classifier_type=%s, model_type=%s, select_features=%s, remove_NaN_trials=%s, offset=%.2f, time_start=%.2f, subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d", )
         # "Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze"
         file_paths = self._get_data_locations()
+        feature_groups_to_analyze, baseline_methods_to_use = self._filter_unavailable_auxiliary_inputs(
+            feature_groups_to_analyze, baseline_methods_to_use, file_paths
+        )
 
         # Load data and slot in GOR EEG features from xlsx files, then filter to specified analysis type and process features based on specified feature groups
         gloc_data = self._load_data(file_paths, output_feature_dtype)

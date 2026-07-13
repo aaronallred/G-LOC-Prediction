@@ -1,4 +1,9 @@
 data_path: /home/gloc/G-LOC-Prediction/data/
+runtime:
+  device: auto  # Alienware: use cuda; local development: use auto
+  require_gpu: false
+  enable_cuml: true
+  timing_output: Results/run_timing.json
 shared_data_parameters:
   subject_to_analyze: null
   trial_to_analyze: null
@@ -28,6 +33,11 @@ cross_validation:
   num_splits: 10
   save_results_folder: Results/Cross_Validation
   class_weight: null
+  traditional_hpo:
+    n_iter: 30
+    cv: 3
+    n_jobs: 1
+    scoring: f1
   advanced_hpo:
     use_sampler: true
     final_early_stop: false

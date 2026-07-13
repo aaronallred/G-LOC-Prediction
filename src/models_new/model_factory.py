@@ -11,7 +11,7 @@ from .lstm import LSTMModel
 from .logistic_regression_ts import LogRegTSModel
 from .tcn import TCNModel
 from .transformer import TransformerModel
-
+from .xgboost import XGBoostModel
 
 
 class ModelFactory:
@@ -25,7 +25,8 @@ class ModelFactory:
 		"LSTM": LSTMModel,
 		"LogRegTS": LogRegTSModel,
 		"TCN": TCNModel,
-		"Trans": TransformerModel
+		"Trans": TransformerModel,
+		"XGB": XGBoostModel,
 	}
 
 	@classmethod

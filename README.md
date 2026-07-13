@@ -27,8 +27,94 @@ conda activate gloc
 Run the main module from the repository root (G-LOC-Prediction/) with a specific YAML configuration file:
 
 ```bash
-python -m src.main --config /configs/your_config.yaml
+python -m src.main --config configs/your_config.yaml
 ```
+
+## GPU execution and timing
+
+The pipeline can use an NVIDIA GPU for PyTorch models (`LogRegTS`, `LSTM`,
+`TCN`, and `Trans`), XGBoost (`XGB`), and supported sklearn estimators through
+RAPIDS cuML acceleration. Configure hardware at the top level of the YAML:
+
+```yaml
+runtime:
+  device: cuda
+  require_gpu: true
+  enable_cuml: true
+  timing_output: Results/run_timing.json
+```
+
+- `device`: `auto`, `cuda`, `mps`, or `cpu`. Use `cuda` on the Alienware.
+- `require_gpu`: stop immediately if a requested GPU is unavailable. This is
+  useful on the Alienware because it prevents an accidentally slow CPU run.
+- `enable_cuml`: install RAPIDS sklearn acceleration hooks when CUDA is active.
+- `timing_output`: JSON report containing total runtime, per-mode runtime,
+  hardware details, and success/failure status. Set it to `null` to disable the
+  report. Cross-validation fold JSON files also contain `duration_seconds`.
+
+Before a full run on the Alienware, verify the driver and environment:
+
+```bash
+nvidia-smi
+conda env create -f environment.yaml
+conda activate gloc
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+python -m src.main --config configs/alienware_gpu_cross_validation.yaml
+```
+
+The ready-to-use GPU-first example is
+`configs/alienware_gpu_cross_validation.yaml`; it deliberately fails if CUDA
+is unavailable instead of falling back to CPU.
+
+Hyperparameter tuning does use the GPU when the estimator itself is GPU-backed:
+
+- Optuna trials for all PyTorch time-series models train and validate on the
+  configured device.
+- Every `XGB` BayesSearchCV candidate uses XGBoost's CUDA histogram algorithm.
+- RAPIDS can accelerate supported sklearn candidates. Unsupported sklearn
+  algorithms remain on the CPU; `EGB` (sklearn GradientBoosting) should be
+  treated as CPU-bound. Prefer `XGB` for GPU gradient boosting.
+- GPU trials intentionally run one at a time (`n_jobs: 1`) to avoid trials
+  competing for GPU memory. More visible GPUs do not currently make this a
+  distributed/multi-GPU pipeline.
+
+Traditional tuning controls can be changed without editing Python:
+
+```yaml
+cross_validation:
+  traditional_hpo:
+    n_iter: 30
+    cv: 3
+    n_jobs: 1
+    scoring: f1
+```
+
+The model hyperparameters searched by the current code are:
+
+- `LogReg`: penalty, regularization strength `C`, solver, and `l1_ratio`.
+- `RF`: tree count, split criterion, depth, feature sampling, leaf/split sizes,
+  and minimum weighted leaf fraction.
+- `LDA`: solver, tolerance, and shrinkage.
+- `SVM`: kernel, `C`, gamma, tolerance, and polynomial degree.
+- `KNN`: neighbor count, weighting, search algorithm, distance metric, and `p`.
+- `EGB`: estimator count, learning rate, depth, feature sampling, leaf/split
+  sizes, loss, and minimum weighted leaf fraction.
+- `XGB`: estimator count, depth, learning rate, row/column subsampling, and
+  minimum child weight.
+- `LogRegTS`: baseline method, batch size, optimizer, weight decay, learning
+  rate, sequence length, decision threshold, and step size.
+- `LSTM`: the LogRegTS parameters plus hidden size, layer count, dropout, and
+  bidirectionality.
+- `TCN`: batch/optimizer settings plus hidden size, layers, dropout, sequence
+  length, step size, kernel size, threshold, and baseline method.
+- `Trans`: batch/optimizer settings plus model dimension, attention heads,
+  encoder layers, feed-forward dimension, dropout, sequence length, step size,
+  threshold, and baseline method.
+
+Data-pipeline settings such as baseline/window sizes, stride, imputation
+neighbors, class weighting, SMOTE, fold count, and random seed also affect a
+run, but most are experiment/preprocessing parameters rather than values in the
+model HPO search spaces.
 
 ## YAML Configuration
 
