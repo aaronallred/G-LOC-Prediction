@@ -2,8 +2,9 @@ name: gloc
 channels:
   - rapidsai
   - pytorch
+  - nvidia
   - conda-forge
-  - defaults
+  - nodefaults
 dependencies:
   - python=3.12
   - cuda-version>=12.2,<=12.9
