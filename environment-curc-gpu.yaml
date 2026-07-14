@@ -1,4 +1,4 @@
-name: gloc
+name: gloc-gpu
 channels:
   - rapidsai
   - pytorch
@@ -29,7 +29,6 @@ dependencies:
       - --extra-index-url https://download.pytorch.org/whl/cu126
       - torch
       - torchvision
-      - PyQt6==6.11.0
       - UpSetPlot==0.9.0
       - munkres==1.1.4
       - unicodedata2==17.0.1
