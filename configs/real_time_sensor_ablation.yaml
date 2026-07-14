@@ -25,7 +25,7 @@ sensor_ablation:
     enabled: true
     save_results_folder: Results/Sensor_Ablation_Real_Time
     median_hyperparameters_folder: Results/Cross_Validation
-    models: [ EGB, KNN ]
+    models: [ EGB, KNN, RF ]
     model_type: !ModelType [ Complete, Explicit ]
     manual_ablation: true
     random_seed: 42
