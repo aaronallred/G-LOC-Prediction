@@ -7,11 +7,9 @@ dependencies:
   - numpy
   - pandas
   - scikit-learn
-  - imbalanced-learn
   - matplotlib
   - matplotlib-venn
   - seaborn
-  - shap
   - optuna
   - pytest
   - ipykernel
@@ -23,6 +21,8 @@ dependencies:
       - torchvision
       - faiss-cpu==1.14.3
       - scikit-optimize
+      - shap
+      - imbalanced-learn
       - UpSetPlot==0.9.0
       - munkres==1.1.4
       - unicodedata2==17.0.1
