@@ -1,6 +1,5 @@
 name: gloc-cpu
 channels:
-  - pytorch
   - conda-forge
   - nodefaults
 dependencies:
@@ -15,7 +14,6 @@ dependencies:
   - seaborn
   - shap
   - optuna
-  - faiss-cpu=1.14.3
   - pytest
   - ipykernel
   - openpyxl
@@ -24,6 +22,7 @@ dependencies:
       - --extra-index-url https://download.pytorch.org/whl/cpu
       - torch
       - torchvision
+      - faiss-cpu=1.14.3
       - UpSetPlot==0.9.0
       - munkres==1.1.4
       - unicodedata2==17.0.1
