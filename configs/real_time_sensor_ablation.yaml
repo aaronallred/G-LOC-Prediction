@@ -1,4 +1,4 @@
-data_path: /home/jasper_shen/Projects/G-LOC-Prediction/data
+data_path: data
 shared_data_parameters:
   subject_to_analyze: null
   trial_to_analyze: null
