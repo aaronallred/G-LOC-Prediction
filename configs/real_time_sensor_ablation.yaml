@@ -18,11 +18,10 @@ traditional_data_parameters:
   data_rate: 25
   offset: 0
   time_start: 0
-  standardize: false
 
 sensor_ablation:
   training:
-    enabled: true
+    enabled: false
     save_results_folder: Results/Sensor_Ablation_Real_Time
     median_hyperparameters_folder: Results/Cross_Validation
     models: [ EGB, KNN, RF ]
@@ -34,9 +33,9 @@ sensor_ablation:
     streams:
       - [ ECG, Centrifuge ]
   review:
-    enabled: false
+    enabled: true
     save_results_folder: Results/Sensor_Ablation_Real_Time
-    models: [ EGB, KNN ]
+    models: [ EGB, KNN, RF ]
     model_type: !ModelType [ Complete, Explicit ]
     stream_groups:
       - [ ECG, Centrifuge ]
