@@ -16,6 +16,7 @@ from sklearn.preprocessing import StandardScaler
 
 from src.Data_Pipeline.baseline import BaselineContext, baseline_data
 from src.Data_Pipeline.features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
+from src.Data_Pipeline.fold_standardizer import GlobalStandardizer, TrialAwareStandardizer
 from src.Data_Pipeline.imputation_config import ImputePhase
 from src.model_type import ModelType
 from src.models.base import BaseModel
@@ -82,21 +83,26 @@ class DataPipeline:
     ) -> Any:
         """Execute the selected backend data pipeline.
 
-        For advanced pipelines this returns:
-        ``x_train, x_test, y_train, y_test, all_features``
+        For both advanced and traditional pipelines this returns a fold-aware
+        train/test split plus, when ``return_feature_names=True``, the feature
+        name list:
 
-        For traditional pipelines this returns:
-        ``x_feature_matrix, y_gloc_labels``
-        
+        - ``return_feature_names=False``:
+          ``(x_train, x_test, y_train, y_test)``
+        - ``return_feature_names=True``:
+          ``(x_train, x_test, y_train, y_test, select_features)``
+
         Args:
             model: Model instance
-            kfold_id: Fold index for cross-validation (optional)
-            num_splits: Number of folds for k-fold splitting (optional). If not provided, 
-                        modes must handle k-fold splitting themselves.
+            kfold_id: Fold index for cross-validation (required for both
+                advanced and traditional backends so that fold-aware
+                standardization can be applied to training rows only).
+            num_splits: Number of folds for k-fold splitting (required).
             feature_streams: Feature streams to select (optional)
             
         Returns:
-            Tuple or data from the backend pipeline
+            Tuple of split data (and feature names when requested) from the
+            backend pipeline.
         """
         backend_type = self._resolve_pipeline_kind(model)
         backend_data_pipeline = self._build_backend(model)
@@ -134,6 +140,13 @@ class DataPipeline:
             request_kwargs["horizon"] = advanced_config.get("horizon", 0)
             request_kwargs["feature_streams"] = feature_streams
         else:
+            if kfold_id is None or num_splits is None:
+                raise ValueError(
+                    "Traditional pipeline requires kfold_id and num_splits for fold-aware "
+                    f"standardization. Got kfold_id={kfold_id}, num_splits={num_splits}."
+                )
+            request_kwargs["kfold_id"] = kfold_id
+            request_kwargs["num_splits"] = num_splits
             request_kwargs["classifier_type"] = self._resolve_classifier_name(model)
             request_kwargs["model"] = model
             request_kwargs["traditional_feature_selection"] = traditional_feature_selection
@@ -1398,8 +1411,20 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             save_impute: bool = False,
             load_impute: bool = False,
             model: Optional[BaseModel] = None,
+            kfold_id: Optional[int] = None,
+            num_splits: Optional[int] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Return data for a given set of parameters."""
+        if kfold_id is None or num_splits is None:
+            raise ValueError(
+                "Traditional pipeline requires kfold_id and num_splits for fold-aware standardization. "
+                f"Got kfold_id={kfold_id}, num_splits={num_splits}."
+            )
+        if kfold_id < 0 or kfold_id >= num_splits:
+            raise ValueError(
+                f"Fold {kfold_id} is out of range [0, {num_splits - 1}]."
+            )
+
         traditional_hyperparameters = self._resolve_traditional_hyperparameters(model, classifier_type)
         baseline_window = traditional_hyperparameters["baseline_window"]
         window_size = traditional_hyperparameters["window_size"]
@@ -1512,7 +1537,34 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     stride, offset, time_start)
         # Feature generation must run for each offset to window GLOC labels
         raw_gloc_labels_numpy = gloc_labels_numpy.copy()
-        gloc_labels_numpy, gloc_data_all_features_numpy, features["All"] = self._feature_generation(
+
+        # Pre-pass: compute windowed labels + trial_ids so we can determine a
+        # fold-aware train_mask BEFORE _feature_generation standardizes. The
+        # pre-pass shares the row-ordering of _feature_generation so the same
+        # mask aligns 1:1 with the post-standardize matrix rows.
+        _y_pre, _trial_id_pre = self._gen_windowed_label_metadata(
+            time_start,
+            offset,
+            stride,
+            window_size,
+            combined_baseline,
+            gloc_labels_numpy,
+            experiment_metadata["trial_id"],
+            experiment_metadata["Time (s)"],
+            combined_baseline_names,
+            output_feature_dtype=output_feature_dtype,
+        )
+
+        # Fold split on the windowed labels (deterministic given random_seed).
+        from sklearn.model_selection import StratifiedKFold
+        skf = StratifiedKFold(n_splits=num_splits, shuffle=True, random_state=self.random_seed)
+        _train_idx_pre, _test_idx_pre = next(
+            islice(skf.split(_y_pre, _y_pre.ravel()), kfold_id, kfold_id + 1)
+        )
+        train_mask_pre = np.zeros(_y_pre.shape[0], dtype=bool)
+        train_mask_pre[_train_idx_pre] = True
+
+        gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], _trial_id_per_row = self._feature_generation(
             time_start,
             offset,
             stride,
@@ -1525,8 +1577,17 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             baseline_names_v0,
             baseline_v0,
             feature_groups_to_analyze,
-            output_feature_dtype
+            train_mask=train_mask_pre,
+            output_feature_dtype=output_feature_dtype
         )
+
+        # Sanity check: _feature_generation produced the same number of rows
+        # (it should, since the pre-pass shares the same windowing code).
+        if gloc_labels_numpy.shape[0] != _y_pre.shape[0]:
+            raise RuntimeError(
+                f"_feature_generation produced {gloc_labels_numpy.shape[0]} rows but "
+                f"pre-pass expected {_y_pre.shape[0]}. Fold-mask alignment is broken."
+            )
 
         ################################################ Feature Reduction ################################################
         logger.info("Performing feature reduction with type: %s", _feature_reduction_type)
@@ -1608,10 +1669,33 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         gloc_data_all_features_numpy, gloc_labels_numpy = self._ready_outputs(gloc_data_all_features_numpy,
                                                                               gloc_labels_numpy)
 
-        if return_feature_names:
-            return gloc_data_all_features_numpy, gloc_labels_numpy, select_features
+        # Remap the pre-pass fold indices through the rows removed by NaN processing.
+        # The pre-pass row count equals the post-_feature_generation row count; further
+        # rows may have been dropped by _process_NaN_temporal. The train_mask_pre is
+        # a boolean array of length _y_pre.shape[0] (== pre-NaN matrix rows); we
+        # subset it by the surviving-rows mask and turn the result back into indices.
+        removed_mask_pre = np.zeros(_y_pre.shape[0], dtype=bool)
+        removed_mask_pre[_removed_ind] = True
+        survivor_mask_pre = ~removed_mask_pre
+        train_mask_post = train_mask_pre[survivor_mask_pre]
+        train_idx = np.where(train_mask_post)[0]
+        test_idx = np.where(~train_mask_post)[0]
 
-        return gloc_data_all_features_numpy, gloc_labels_numpy
+        if train_idx.size == 0 or test_idx.size == 0:
+            raise RuntimeError(
+                f"Fold {kfold_id}/{num_splits} produced an empty train or test split after "
+                f"NaN processing (train={train_idx.size}, test={test_idx.size})."
+            )
+
+        X_train = gloc_data_all_features_numpy[train_idx]
+        X_test = gloc_data_all_features_numpy[test_idx]
+        y_train = gloc_labels_numpy[train_idx]
+        y_test = gloc_labels_numpy[test_idx]
+
+        if return_feature_names:
+            return X_train, X_test, y_train, y_test, select_features
+
+        return X_train, X_test, y_train, y_test
 
     def _resolve_traditional_hyperparameters(
             self,
@@ -1714,6 +1798,52 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         return X_imputed
 
+    def _gen_windowed_label_metadata(
+            self,
+            time_start: float,
+            offset: float,
+            stride: float,
+            window_size: float,
+            combined_baseline: Dict[str, np.ndarray],
+            gloc: np.ndarray,
+            trial_column: np.ndarray,
+            time_column: np.ndarray,
+            combined_baseline_names: List[str],
+            output_feature_dtype: np.dtype = np.dtype(np.float32),
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Pre-pass: produce row-major windowed GLOC labels and trial-id rows.
+
+        Mirrors exactly the row ordering used by ``_feature_generation`` (via
+        ``_sliding_window_mean_calc`` + ``_unpack_dict``), so a fold-aware
+        ``train_mask`` computed from this output can be passed back into
+        ``_feature_generation`` to fit standardization on training rows only.
+
+        Returns ``(y_gloc_labels, trial_id_per_row)``:
+            - ``y_gloc_labels``: shape ``(N, 1)`` per-window binary labels.
+            - ``trial_id_per_row``: shape ``(N,)`` object array mapping each
+              row to its source trial id.
+        """
+        gloc_window, _mean_raw, number_windows, _names_s1, _empty, _names_s2 = (
+            self._sliding_window_mean_calc(
+                time_start, offset, stride, window_size, combined_baseline, gloc,
+                trial_column, time_column, combined_baseline_names,
+            )
+        )
+
+        trial_ids_in_order = list(gloc_window.keys())
+        total_rows = int(sum(int(number_windows[t]) for t in trial_ids_in_order))
+        y_gloc_labels = np.zeros((total_rows, 1), dtype=output_feature_dtype)
+        trial_id_per_row = np.empty(total_rows, dtype=object)
+
+        idx = 0
+        for t in trial_ids_in_order:
+            n = int(number_windows[t])
+            y_gloc_labels[idx:idx + n, :] = gloc_window[t].astype(output_feature_dtype)
+            trial_id_per_row[idx:idx + n] = t
+            idx += n
+
+        return y_gloc_labels, trial_id_per_row
+
     def _feature_generation(
             self,
             time_start: float,
@@ -1728,131 +1858,137 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             baseline_names_v0: Any,
             baseline_v0: Dict[str, np.ndarray],
             feature_groups_to_analyze: Sequence[str],
+            train_mask: Optional[np.ndarray],
             output_feature_dtype: np.dtype = np.dtype(np.float32),
-    ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
-        """Generate temporal engineered features from baseline data."""
-        # Sliding Window Mean
-        gloc_window, sliding_window_mean_s1, number_windows, all_features_mean_s1, sliding_window_mean_s2, all_features_mean_s2 = (
-            self._sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc,
-                                           trial_column,
-                                           time_column, combined_baseline_names))
+    ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
+        """Generate temporal engineered features and apply fold-aware standardization.
 
-        # Sliding Window Standard Deviation, Max, Range
-        (sliding_window_stddev_s1, sliding_window_max_s1, sliding_window_range_s1, all_features_stddev_s1,
-         all_features_max_s1,
-         all_features_range_s1, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2,
-         all_features_stddev_s2, all_features_max_s2,
+        Sliding-window per-trial statics are returned **raw** by the child
+        methods (s1 slot = raw dict, s2 slot = empty dict). The raw matrix
+        ``X_raw`` is unpacked, then:
+
+        - ``TrialAwareStandardizer`` z-scores each row using that row's trial
+          statistics computed on training rows of that trial (or pooled
+          training statistics if the trial never appears in train_mask).
+        - ``GlobalStandardizer`` z-scores each row using a single μ/σ fit on
+          all training rows.
+
+        Both s1 and s2 features share the same name suffixes as before, so
+        downstream cache files remain compatible.
+
+        ``train_mask`` is a boolean array of length ``X_raw.shape[0]``. If
+        ``None``, all rows are treated as training (global standardization
+        only — for backward-compatibility diagnostic calls). This is leaky and
+        emits a warning.
+
+        Returns ``(y_gloc_labels, x_feature_matrix, all_features, trial_id_per_row)``.
+        """
+        # Sliding Window Mean — raw dict goes into the s1 slot, s2 slot is {}.
+        gloc_window, sliding_window_mean_raw, number_windows, all_features_mean_s1, _, all_features_mean_s2 = (
+            self._sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc,
+                                           trial_column, time_column, combined_baseline_names))
+
+        (sliding_window_stddev_raw, sliding_window_max_raw, sliding_window_range_raw, all_features_stddev_s1,
+         all_features_max_s1, all_features_range_s1, _, _, _, all_features_stddev_s2, all_features_max_s2,
          all_features_range_s2) = (
             self._sliding_window_calc(time_start, stride, window_size, combined_baseline, trial_column, time_column,
                                       number_windows, combined_baseline_names))
 
-        # Additional Features
-        (all_features_additional_s1, sliding_window_integral_left_pupil_s1, sliding_window_integral_right_pupil_s1,
-         sliding_window_consecutive_elements_mean_left_pupil_s1,
-         sliding_window_consecutive_elements_mean_right_pupil_s1,
-         sliding_window_consecutive_elements_max_left_pupil_s1, sliding_window_consecutive_elements_max_right_pupil_s1,
-         sliding_window_consecutive_elements_sum_left_pupil_s1, sliding_window_consecutive_elements_sum_right_pupil_s1,
-         sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1,
-         sliding_window_cognitive_ies_s1,
-         all_features_additional_s2, sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
-         sliding_window_consecutive_elements_mean_left_pupil_s2,
-         sliding_window_consecutive_elements_mean_right_pupil_s2,
-         sliding_window_consecutive_elements_max_left_pupil_s2, sliding_window_consecutive_elements_max_right_pupil_s2,
-         sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
-         sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
-         sliding_window_cognitive_ies_s2) = \
-             (self._sliding_window_other_features(time_start, stride, window_size, trial_column, time_column,
+        (all_features_additional_s1, sliding_window_integral_left_pupil_raw,
+         sliding_window_integral_right_pupil_raw,
+         sliding_window_consecutive_elements_mean_left_pupil_raw,
+         sliding_window_consecutive_elements_mean_right_pupil_raw,
+         sliding_window_consecutive_elements_max_left_pupil_raw,
+         sliding_window_consecutive_elements_max_right_pupil_raw,
+         sliding_window_consecutive_elements_sum_left_pupil_raw,
+         sliding_window_consecutive_elements_sum_right_pupil_raw,
+         sliding_window_hrv_sdnn_raw, sliding_window_hrv_rmssd_raw,
+         sliding_window_cognitive_ies_raw,
+          all_features_additional_s2, _, _, _, _, _,
+         _, _, _, _, _, _, _) = (
+            self._sliding_window_other_features(time_start, stride, window_size, trial_column, time_column,
                                                  number_windows,
                                                  baseline_names_v0, baseline_v0, feature_groups_to_analyze))
 
-        # Unpack Dictionary into Array & combine features into one feature array
-        y_gloc_labels, x_feature_matrix = self._unpack_dict(gloc_window, sliding_window_mean_s1, number_windows,
-                                                            sliding_window_stddev_s1,
-                                                            sliding_window_max_s1, sliding_window_range_s1,
-                                                            sliding_window_integral_left_pupil_s1,
-                                                            sliding_window_integral_right_pupil_s1,
-                                                            sliding_window_consecutive_elements_mean_left_pupil_s1,
-                                                            sliding_window_consecutive_elements_mean_right_pupil_s1,
-                                                            sliding_window_consecutive_elements_max_left_pupil_s1,
-                                                            sliding_window_consecutive_elements_max_right_pupil_s1,
-                                                            sliding_window_consecutive_elements_sum_left_pupil_s1,
-                                                            sliding_window_consecutive_elements_sum_right_pupil_s1,
-                                                            sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1,
-                                                            sliding_window_cognitive_ies_s1,
-                                                            sliding_window_mean_s2, sliding_window_stddev_s2,
-                                                            sliding_window_max_s2, sliding_window_range_s2,
-                                                            sliding_window_integral_left_pupil_s2,
-                                                            sliding_window_integral_right_pupil_s2,
-                                                            sliding_window_consecutive_elements_mean_left_pupil_s2,
-                                                            sliding_window_consecutive_elements_mean_right_pupil_s2,
-                                                            sliding_window_consecutive_elements_max_left_pupil_s2,
-                                                            sliding_window_consecutive_elements_max_right_pupil_s2,
-                                                            sliding_window_consecutive_elements_sum_left_pupil_s2,
-                                                            sliding_window_consecutive_elements_sum_right_pupil_s2,
-                                                            sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
-                                                            sliding_window_cognitive_ies_s2,
-                                                            output_feature_dtype)
+        # Unpack the raw dicts into the row-major X_raw matrix. s2 slots stay {}, so X_raw
+        # contains only the raw s1 columns (one block per non-empty dict).
+        if not sliding_window_mean_raw:
+            return (np.zeros((0, 1), dtype=output_feature_dtype),
+                    np.zeros((0, 0), dtype=output_feature_dtype),
+                    [],
+                    np.array([], dtype=object))
 
-        # Combine all features into array
+        y_gloc_labels, x_feature_matrix_raw, trial_id_per_row = self._unpack_dict(
+            gloc_window, sliding_window_mean_raw, number_windows,
+            sliding_window_stddev_raw,
+            sliding_window_max_raw, sliding_window_range_raw,
+            sliding_window_integral_left_pupil_raw,
+            sliding_window_integral_right_pupil_raw,
+            sliding_window_consecutive_elements_mean_left_pupil_raw,
+            sliding_window_consecutive_elements_mean_right_pupil_raw,
+            sliding_window_consecutive_elements_max_left_pupil_raw,
+            sliding_window_consecutive_elements_max_right_pupil_raw,
+            sliding_window_consecutive_elements_sum_left_pupil_raw,
+            sliding_window_consecutive_elements_sum_right_pupil_raw,
+            sliding_window_hrv_sdnn_raw, sliding_window_hrv_rmssd_raw,
+            sliding_window_cognitive_ies_raw,
+            {}, {}, {}, {},  # mean_s2, stddev_s2, max_s2, range_s2
+            {}, {}, {}, {}, {}, {}, {}, {},  # 8 pupil s2
+            {}, {}, {},                  # hrv_sdnn_s2, hrv_rmssd_s2, cog_s2
+            output_feature_dtype)
+
+        if train_mask is None:
+            logger.warning(
+                "_feature_generation called with train_mask=None — folding to a leaky "
+                "global standardization over all rows. Pass an explicit train_mask "
+                "(or call _gen_windowed_label_metadata from the caller) for fold-aware "
+                "standardization."
+            )
+            train_mask = np.ones(x_feature_matrix_raw.shape[0], dtype=bool)
+
+        # Apply fold-aware standardization over the whole raw matrix. Both
+        # standardizers compute per-column statistics, so applying them block-by-block
+        # vs whole-matrix yields identical results — the whole-matrix path is simpler.
+        x_feature_matrix = self._standardize_raw(
+            x_feature_matrix_raw, trial_id_per_row, train_mask
+        )
+
+        # Combine all feature names in the same order as _unpack_dict stacked the columns.
         all_features = (all_features_mean_s1 + all_features_stddev_s1 + all_features_max_s1 + all_features_range_s1 +
                         all_features_additional_s1 + all_features_mean_s2 + all_features_stddev_s2 + all_features_max_s2 +
                         all_features_range_s2 + all_features_additional_s2)
 
-        return y_gloc_labels.astype(output_feature_dtype), x_feature_matrix.astype(output_feature_dtype), all_features
+        return (y_gloc_labels.astype(output_feature_dtype),
+                x_feature_matrix.astype(output_feature_dtype),
+                all_features,
+                trial_id_per_row)
 
-    def _inter_trial_standardization(
+    def _standardize_raw(
             self,
-            feature_dictionary: Dict[str, np.ndarray],
-    ) -> Dict[str, np.ndarray]:
-        """Compute inter-trial z-score standardization for each trial matrix."""
+            x_feature_matrix_raw: np.ndarray,
+            trial_id_per_row: np.ndarray,
+            train_mask: np.ndarray,
+    ) -> np.ndarray:
+        """Apply fold-aware s1 + s2 standardization to a raw feature matrix.
 
-        # Find Unique Trial ID
-        trial_id_in_data = list(feature_dictionary.keys())
+        Output column order is ``[all s1 columns | all s2 columns]`` (the legacy
+        ordering) so the feature-name list returned by ``_feature_generation``
+        aligns 1:1.
+        """
+        x_raw = np.asarray(x_feature_matrix_raw, dtype=np.float64)
+        n_rows, n_raw_cols = x_raw.shape
+        out = np.zeros((n_rows, 2 * n_raw_cols), dtype=np.float64)
+        s1_slice = slice(0, n_raw_cols)
+        s2_slice = slice(n_raw_cols, 2 * n_raw_cols)
 
-        ## FIND INTER TRIAL MEAN AND STD. DEVIATION TO USE FOR INTER TRIAL STANDARDIZATION ##
-        # To do this, I first unpack the combined_baseline dictionary &
-        # Determine total length of new unpacked dictionary items
-        total_rows = 0
-        for i in range(np.size(trial_id_in_data)):
-            total_rows += np.shape(feature_dictionary[trial_id_in_data[i]])[0]
-
-        # Find number of columns (using non-empty dictionaries)
-        num_cols = np.shape(feature_dictionary[trial_id_in_data[0]])[1]
-
-        # Pre-allocate
-        all_data = np.zeros((total_rows, num_cols))
-
-        # Iterate through unique trial_id
-        current_index = 0
-        for i in range(np.size(trial_id_in_data)):
-            # Find number of rows in trial
-            num_rows = np.shape(feature_dictionary[trial_id_in_data[i]])[0]
-
-            # Set rows and columns in x_feature_matrix equal to current dictionary
-            all_data[current_index:num_rows + current_index, :] = feature_dictionary[trial_id_in_data[i]]
-
-            # Increment row index
-            current_index += num_rows
-
-        # Find mean and stand deviation of all data
-        inter_trial_mean = np.nanmean(all_data, axis=0, keepdims=True)
-        inter_trial_standard_deviation = np.nanstd(all_data, axis=0, keepdims=True)
-
-        # Build Dictionary for each trial_id
-        sliding_window_s2 = dict()
-
-        # Iterate through all unique trial_id
-        for i in range(np.size(trial_id_in_data)):
-            # Get data from current trial key
-            current_trial_data = feature_dictionary[trial_id_in_data[i]]
-
-            # Find inter-trial z-score
-            inter_trial_z_score = ((current_trial_data - inter_trial_mean) / inter_trial_standard_deviation)
-
-            # Define dictionary item for trial_id
-            sliding_window_s2[trial_id_in_data[i]] = inter_trial_z_score
-
-        return sliding_window_s2
+        # s1 = per-trial z-score using each trial's own training-row statistics
+        # (or pooled training statistics if the trial never appears in train_mask).
+        out[:, s1_slice] = TrialAwareStandardizer().fit(
+            x_raw, trial_id_per_row, train_mask
+        ).transform(x_raw, trial_id_per_row)
+        # s2 = single global z-score using all training rows' pooled statistics.
+        out[:, s2_slice] = GlobalStandardizer().fit(x_raw[train_mask]).transform(x_raw)
+        return out
 
     def _sliding_window_mean_calc(
             self,
@@ -1874,7 +2010,6 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         # Build Dictionary for each trial_id
         sliding_window_mean = dict()
-        sliding_window_mean_s1 = dict()
         gloc_window = dict()
         number_windows = dict()
 
@@ -1924,41 +2059,20 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 # Adjust iteration_time
                 time_iteration = stride + time_iteration
 
-            # Compute z-score to standardize (intra-trial standardization)
-            # This was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-            # should be removed in separate code or during feature selection.
-            sliding_window_mean_current_z_score = np.zeros(np.shape(sliding_window_mean_current))
-            if np.any(np.nanstd(sliding_window_mean_current, axis=0, keepdims=True) == 0):
-                # Z-score columns that don't have zero standard deviation
-                for col in range(np.shape(sliding_window_mean_current)[1]):
-                    if np.nanstd(sliding_window_mean_current[:, col]) != 0:
-                        sliding_window_mean_current_z_score[:, col] = (
-                                (sliding_window_mean_current[:, col] - np.nanmean(
-                                    sliding_window_mean_current[:, col])) / np.nanstd(
-                            sliding_window_mean_current[:, col]))
-                    else:
-                        sliding_window_mean_current_z_score[:, col] = np.zeros(np.shape(sliding_window_mean_current)[0])
-            else:
-                sliding_window_mean_current_z_score = ((sliding_window_mean_current - np.nanmean(
-                    sliding_window_mean_current, axis=0, keepdims=True))
-                                                       / np.nanstd(sliding_window_mean_current, axis=0, keepdims=True))
-
-            # Define dictionary item for trial_id
-            sliding_window_mean_s1[trial_id_in_data[i]] = sliding_window_mean_current_z_score
+            # Define dictionary item for trial_id (raw per-window mean; standardization
+            # is applied fold-aware by TrialAwareStandardizer / GlobalStandardizer in _feature_generation).
             sliding_window_mean[trial_id_in_data[i]] = sliding_window_mean_current
             gloc_window[trial_id_in_data[i]] = gloc_window_current
             number_windows[trial_id_in_data[i]] = number_windows_current
 
-            # Name all features (s1 (intra-trial) standardization)
-            all_features_mean_s1 = [s + '_mean_s1' for s in combined_baseline_names]
-
-        # Compute inter-trial standardization
-        sliding_window_mean_s2 = self._inter_trial_standardization(sliding_window_mean)
-
         # Name all features (s1 (intra-trial) standardization)
+        all_features_mean_s1 = [s + '_mean_s1' for s in combined_baseline_names]
+
+        # s2 feature names are still emitted for downstream cache compatibility; the s2 dict
+        # is filled by GlobalStandardizer in _feature_generation.
         all_features_mean_s2 = [s + '_mean_s2' for s in combined_baseline_names]
 
-        return gloc_window, sliding_window_mean_s1, number_windows, all_features_mean_s1, sliding_window_mean_s2, all_features_mean_s2
+        return gloc_window, sliding_window_mean, number_windows, all_features_mean_s1, {}, all_features_mean_s2
 
     def _sliding_window_calc(
             self,
@@ -1977,20 +2091,10 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         trial_id_in_data = pd.unique(trial_column)  # order-preserving, matching legacy script behavior
 
         # Build Dictionary for each trial_id
-        # Windowed data (no standardization)
+        # Raw windowed data (no standardization); fold-aware z-scoring is applied in _feature_generation.
         sliding_window_stddev = dict()
         sliding_window_max = dict()
         sliding_window_range = dict()
-
-        # s1 = Intra Trial Standardization
-        sliding_window_stddev_s1 = dict()
-        sliding_window_max_s1 = dict()
-        sliding_window_range_s1 = dict()
-
-        # s2 = Intra Trial Standardization
-        sliding_window_stddev_s2 = dict()
-        sliding_window_max_s2 = dict()
-        sliding_window_range_s2 = dict()
 
         # Iterate through all unique trial_id
         for i in range(np.size(trial_id_in_data)):
@@ -2038,95 +2142,25 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 # Adjust iteration_time
                 time_iteration = stride + time_iteration
 
-            # Compute z-score to standardize
-            # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-            # should be removed in separate code or during feature selection
-            # Standard Deviation
-            sliding_window_stddev_current_z_score_s1 = np.zeros(np.shape(sliding_window_stddev_current))
-            if np.any(np.nanstd(sliding_window_stddev_current, axis=0, keepdims=True) == 0):
-                # Z-score columns that don't have zero standard deviation
-                for col in range(np.shape(sliding_window_stddev_current)[1]):
-                    if np.nanstd(sliding_window_stddev_current[:, col]) != 0:
-                        sliding_window_stddev_current_z_score_s1[:, col] = ((sliding_window_stddev_current[
-                                                                                 :, col] - np.nanmean(
-                            sliding_window_stddev_current[:, col])) /
-                                                                            np.nanstd(
-                                                                                sliding_window_stddev_current[:, col]))
-                    else:
-                        sliding_window_stddev_current_z_score_s1[:, col] = np.zeros(
-                            np.shape(sliding_window_stddev_current)[0])
-            else:
-                sliding_window_stddev_current_z_score_s1 = ((sliding_window_stddev_current - np.nanmean(
-                    sliding_window_stddev_current, axis=0, keepdims=True))
-                                                            / np.nanstd(sliding_window_stddev_current, axis=0,
-                                                                        keepdims=True))
-
-            # Max
-            sliding_window_max_current_z_score_s1 = np.zeros(np.shape(sliding_window_max_current))
-            if np.any(np.nanstd(sliding_window_max_current, axis=0, keepdims=True) == 0):
-                # Find columns with zero standard deviation
-                for col in range(np.shape(sliding_window_max_current)[1]):
-                    if np.nanstd(sliding_window_max_current[:, col]) != 0:
-                        sliding_window_max_current_z_score_s1[:, col] = (
-                                (sliding_window_max_current[:, col] - np.nanmean(
-                                    sliding_window_max_current[:, col])) / np.nanstd(
-                            sliding_window_max_current[:, col]))
-                    else:
-                        sliding_window_max_current_z_score_s1[:, col] = np.zeros(
-                            np.shape(sliding_window_max_current)[0])
-            else:
-                sliding_window_max_current_z_score_s1 = (
-                        (sliding_window_max_current - np.nanmean(sliding_window_max_current, axis=0, keepdims=True))
-                        / np.nanstd(sliding_window_max_current, axis=0, keepdims=True))
-
-            # Range
-            sliding_window_range_current_z_score_s1 = np.zeros(np.shape(sliding_window_range_current))
-            if np.any(np.nanstd(sliding_window_range_current, axis=0, keepdims=True) == 0):
-                # Find columns with zero standard deviation
-                for col in range(np.shape(sliding_window_range_current)[1]):
-                    if np.nanstd(sliding_window_range_current[:, col]) != 0:
-                        sliding_window_range_current_z_score_s1[:, col] = (
-                                (sliding_window_range_current[:, col] - np.nanmean(
-                                    sliding_window_range_current[:, col])) / np.nanstd(
-                            sliding_window_range_current[:, col]))
-                    else:
-                        sliding_window_range_current_z_score_s1[:, col] = np.zeros(
-                            np.shape(sliding_window_range_current)[0])
-            else:
-                sliding_window_range_current_z_score_s1 = ((sliding_window_range_current - np.nanmean(
-                    sliding_window_range_current, axis=0, keepdims=True))
-                                                           / np.nanstd(sliding_window_range_current, axis=0,
-                                                                       keepdims=True))
-
-            # Define dictionary item for trial_id
-            # No standardization
+            # Define dictionary item for trial_id (raw; fold-aware standardization applied in _feature_generation).
             sliding_window_stddev[trial_id_in_data[i]] = sliding_window_stddev_current
             sliding_window_max[trial_id_in_data[i]] = sliding_window_max_current
             sliding_window_range[trial_id_in_data[i]] = sliding_window_range_current
 
-            # Intra-trial standardization
-            sliding_window_stddev_s1[trial_id_in_data[i]] = sliding_window_stddev_current_z_score_s1
-            sliding_window_max_s1[trial_id_in_data[i]] = sliding_window_max_current_z_score_s1
-            sliding_window_range_s1[trial_id_in_data[i]] = sliding_window_range_current_z_score_s1
-
         # Name features
-            all_features_stddev_s1 = [s + '_stddev_s1' for s in combined_baseline_names]
-            all_features_max_s1 = [s + '_max_s1' for s in combined_baseline_names]
-            all_features_range_s1 = [s + '_range_s1' for s in combined_baseline_names]
-
-        # Inter trial standardization
-        sliding_window_stddev_s2 = self._inter_trial_standardization(sliding_window_stddev)
-        sliding_window_max_s2 = self._inter_trial_standardization(sliding_window_max)
-        sliding_window_range_s2 = self._inter_trial_standardization(sliding_window_range)
+        all_features_stddev_s1 = [s + '_stddev_s1' for s in combined_baseline_names]
+        all_features_max_s1 = [s + '_max_s1' for s in combined_baseline_names]
+        all_features_range_s1 = [s + '_range_s1' for s in combined_baseline_names]
 
         all_features_stddev_s2 = [s + '_stddev_s2' for s in combined_baseline_names]
         all_features_max_s2 = [s + '_max_s2' for s in combined_baseline_names]
         all_features_range_s2 = [s + '_range_s2' for s in combined_baseline_names]
 
-        return (sliding_window_stddev_s1, sliding_window_max_s1, sliding_window_range_s1, all_features_stddev_s1,
+        # s1 slots carry the raw dicts here; standardizer in _feature_generation replaces them.
+        # s2 slots are empty {}; GlobalStandardizer in _feature_generation fills them.
+        return (sliding_window_stddev, sliding_window_max, sliding_window_range, all_features_stddev_s1,
                 all_features_max_s1,
-                all_features_range_s1, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2,
-                all_features_stddev_s2,
+                all_features_range_s1, {}, {}, {}, all_features_stddev_s2,
                 all_features_max_s2, all_features_range_s2)
 
     def _sliding_window_other_features(
@@ -2185,8 +2219,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         else:
             cognitive_features = []
 
-        # Build Dictionary for each trial_id
-        # No Standardization
+        # Build Dictionary for each trial_id (raw; fold-aware standardization applied in _feature_generation).
         sliding_window_integral_left_pupil = dict()
         sliding_window_integral_right_pupil = dict()
         sliding_window_consecutive_elements_mean_left_pupil = dict()
@@ -2199,34 +2232,6 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         sliding_window_hrv_rmssd = dict()
         # sliding_window_hrv_pnn50 = dict()
         sliding_window_cognitive_ies = dict()
-
-        # Intra-trial standardization (s1)
-        sliding_window_integral_left_pupil_s1 = dict()
-        sliding_window_integral_right_pupil_s1 = dict()
-        sliding_window_consecutive_elements_mean_left_pupil_s1 = dict()
-        sliding_window_consecutive_elements_mean_right_pupil_s1 = dict()
-        sliding_window_consecutive_elements_max_left_pupil_s1 = dict()
-        sliding_window_consecutive_elements_max_right_pupil_s1 = dict()
-        sliding_window_consecutive_elements_sum_left_pupil_s1 = dict()
-        sliding_window_consecutive_elements_sum_right_pupil_s1 = dict()
-        sliding_window_hrv_sdnn_s1 = dict()
-        sliding_window_hrv_rmssd_s1 = dict()
-        # sliding_window_hrv_pnn50_s1 = dict()
-        sliding_window_cognitive_ies_s1 = dict()
-
-        # Inter-trial standardization (s2)
-        sliding_window_integral_left_pupil_s2 = dict()
-        sliding_window_integral_right_pupil_s2 = dict()
-        sliding_window_consecutive_elements_mean_left_pupil_s2 = dict()
-        sliding_window_consecutive_elements_mean_right_pupil_s2 = dict()
-        sliding_window_consecutive_elements_max_left_pupil_s2 = dict()
-        sliding_window_consecutive_elements_max_right_pupil_s2 = dict()
-        sliding_window_consecutive_elements_sum_left_pupil_s2 = dict()
-        sliding_window_consecutive_elements_sum_right_pupil_s2 = dict()
-        sliding_window_hrv_sdnn_s2 = dict()
-        sliding_window_hrv_rmssd_s2 = dict()
-        # sliding_window_hrv_pnn50_s2 = dict()
-        sliding_window_cognitive_ies_s2 = dict()
 
         # Iterate through all unique trial_id
         for i in range(np.size(trial_id_in_data)):
@@ -2326,308 +2331,8 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 # Adjust iteration_time
                 time_iteration = stride + time_iteration
 
-            # Compute Z-score
+            # Define dictionary item for trial_id (raw; fold-aware standardization applied in _feature_generation).
             if 'eyetracking' in feature_groups_to_analyze:
-                # Compute z-score to standardize integral left pupil
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_integral_left_pupil_current_z_score = np.zeros(
-                    np.shape(sliding_window_integral_left_pupil_current))
-                if np.any(np.nanstd(sliding_window_integral_left_pupil_current, axis=0, keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_integral_left_pupil_current)[1]):
-                        if np.nanstd(sliding_window_integral_left_pupil_current[:, col]) != 0:
-                            sliding_window_integral_left_pupil_current_z_score[:, col] = (
-                                    (sliding_window_integral_left_pupil_current[:, col] - np.nanmean(
-                                        sliding_window_integral_left_pupil_current[:, col])) / np.nanstd(
-                                sliding_window_integral_left_pupil_current[:, col]))
-                        else:
-                            sliding_window_integral_left_pupil_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_integral_left_pupil_current)[0])
-                else:
-                    sliding_window_integral_left_pupil_current_z_score = ((
-                                                                                  sliding_window_integral_left_pupil_current - np.nanmean(
-                                                                              sliding_window_integral_left_pupil_current,
-                                                                              axis=0, keepdims=True))
-                                                                          / np.nanstd(
-                                sliding_window_integral_left_pupil_current, axis=0, keepdims=True))
-
-                # Compute z-score to standardize integral right pupil
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_integral_right_pupil_current_z_score = np.zeros(
-                    np.shape(sliding_window_integral_right_pupil_current))
-                if np.any(np.nanstd(sliding_window_integral_right_pupil_current, axis=0, keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_integral_right_pupil_current)[1]):
-                        if np.nanstd(sliding_window_integral_right_pupil_current[:, col]) != 0:
-                            sliding_window_integral_right_pupil_current_z_score[:, col] = (
-                                    (sliding_window_integral_right_pupil_current[:, col] - np.nanmean(
-                                        sliding_window_integral_right_pupil_current[:, col])) / np.nanstd(
-                                sliding_window_integral_right_pupil_current[:, col]))
-                        else:
-                            sliding_window_integral_right_pupil_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_integral_right_pupil_current)[0])
-                else:
-                    sliding_window_integral_right_pupil_current_z_score = ((
-                                                                                   sliding_window_integral_right_pupil_current - np.nanmean(
-                                                                               sliding_window_integral_right_pupil_current,
-                                                                               axis=0, keepdims=True))
-                                                                           / np.nanstd(
-                                sliding_window_integral_right_pupil_current, axis=0, keepdims=True))
-
-                # Compute z-score to standardize mean of difference of consecutive elements-left pupil
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_consecutive_elements_mean_left_pupil_current_z_score = np.zeros(
-                    np.shape(sliding_window_consecutive_elements_mean_left_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_mean_left_pupil_current, axis=0,
-                                    keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_consecutive_elements_mean_left_pupil_current)[1]):
-                        if np.nanstd(sliding_window_consecutive_elements_mean_left_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_mean_left_pupil_current_z_score[:, col] = ((
-                                                                                                                   sliding_window_consecutive_elements_mean_left_pupil_current[
-                                                                                                                       :, col] - np.nanmean(
-                                                                                                               sliding_window_consecutive_elements_mean_left_pupil_current[
-                                                                                                                   :, col])) / np.nanstd(
-                                sliding_window_consecutive_elements_mean_left_pupil_current[:, col]))
-                        else:
-                            sliding_window_consecutive_elements_mean_left_pupil_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_consecutive_elements_mean_left_pupil_current)[0])
-                else:
-                    sliding_window_consecutive_elements_mean_left_pupil_current_z_score = ((
-                                                                                                   sliding_window_consecutive_elements_mean_left_pupil_current - np.nanmean(
-                                                                                               sliding_window_consecutive_elements_mean_left_pupil_current,
-                                                                                               axis=0,
-                                                                                               keepdims=True))
-                                                                                           / np.nanstd(
-                                sliding_window_consecutive_elements_mean_left_pupil_current, axis=0, keepdims=True))
-
-                # Compute z-score to standardize mean of difference of consecutive elements-right pupil
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_consecutive_elements_mean_right_pupil_current_z_score = np.zeros(
-                    np.shape(sliding_window_consecutive_elements_mean_right_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_mean_right_pupil_current, axis=0,
-                                    keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_consecutive_elements_mean_right_pupil_current)[1]):
-                        if np.nanstd(sliding_window_consecutive_elements_mean_right_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_mean_right_pupil_current_z_score[:, col] = ((
-                                                                                                                    sliding_window_consecutive_elements_mean_right_pupil_current[
-                                                                                                                        :, col] - np.nanmean(
-                                                                                                                sliding_window_consecutive_elements_mean_right_pupil_current[
-                                                                                                                    :, col])) / np.nanstd(
-                                sliding_window_consecutive_elements_mean_right_pupil_current[:, col]))
-                        else:
-                            sliding_window_consecutive_elements_mean_right_pupil_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_consecutive_elements_mean_right_pupil_current)[0])
-                else:
-                    sliding_window_consecutive_elements_mean_right_pupil_current_z_score = ((
-                                                                                                    sliding_window_consecutive_elements_mean_right_pupil_current - np.nanmean(
-                                                                                                sliding_window_consecutive_elements_mean_right_pupil_current,
-                                                                                                axis=0,
-                                                                                                keepdims=True))
-                                                                                            / np.nanstd(
-                                sliding_window_consecutive_elements_mean_right_pupil_current, axis=0, keepdims=True))
-
-                # Compute z-score to standardize max of difference of consecutive elements-left pupil
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_consecutive_elements_max_left_pupil_current_z_score = np.zeros(
-                    np.shape(sliding_window_consecutive_elements_max_left_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_max_left_pupil_current, axis=0,
-                                    keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_consecutive_elements_max_left_pupil_current)[1]):
-                        if np.nanstd(sliding_window_consecutive_elements_max_left_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_max_left_pupil_current_z_score[:, col] = ((
-                                                                                                                  sliding_window_consecutive_elements_max_left_pupil_current[
-                                                                                                                      :, col] - np.nanmean(
-                                                                                                              sliding_window_consecutive_elements_max_left_pupil_current[
-                                                                                                                  :, col])) / np.nanstd(
-                                sliding_window_consecutive_elements_max_left_pupil_current[:, col]))
-                        else:
-                            sliding_window_consecutive_elements_max_left_pupil_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_consecutive_elements_max_left_pupil_current)[0])
-                else:
-                    sliding_window_consecutive_elements_max_left_pupil_current_z_score = ((
-                                                                                                  sliding_window_consecutive_elements_max_left_pupil_current - np.nanmean(
-                                                                                              sliding_window_consecutive_elements_max_left_pupil_current,
-                                                                                              axis=0,
-                                                                                              keepdims=True))
-                                                                                          / np.nanstd(
-                                sliding_window_consecutive_elements_max_left_pupil_current, axis=0, keepdims=True))
-
-                # Compute z-score to standardize max of difference of consecutive elements-right pupil
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature
-                sliding_window_consecutive_elements_max_right_pupil_current_z_score = np.zeros(
-                    np.shape(sliding_window_consecutive_elements_max_right_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_max_right_pupil_current, axis=0,
-                                    keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_consecutive_elements_max_right_pupil_current)[1]):
-                        if np.nanstd(sliding_window_consecutive_elements_max_right_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_max_right_pupil_current_z_score[:, col] = ((
-                                                                                                                   sliding_window_consecutive_elements_max_right_pupil_current[
-                                                                                                                       :, col] - np.nanmean(
-                                                                                                               sliding_window_consecutive_elements_max_right_pupil_current[
-                                                                                                                   :, col])) / np.nanstd(
-                                sliding_window_consecutive_elements_max_right_pupil_current[:, col]))
-                        else:
-                            sliding_window_consecutive_elements_max_right_pupil_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_consecutive_elements_max_right_pupil_current)[0])
-                else:
-                    sliding_window_consecutive_elements_max_right_pupil_current_z_score = ((
-                                                                                                   sliding_window_consecutive_elements_max_right_pupil_current - np.nanmean(
-                                                                                               sliding_window_consecutive_elements_max_right_pupil_current,
-                                                                                               axis=0,
-                                                                                               keepdims=True))
-                                                                                           / np.nanstd(
-                                sliding_window_consecutive_elements_max_right_pupil_current, axis=0, keepdims=True))
-
-                # Compute z-score to standardize sum of difference of consecutive elements-left pupil
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_consecutive_elements_sum_left_pupil_current_z_score = np.zeros(
-                    np.shape(sliding_window_consecutive_elements_sum_left_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_sum_left_pupil_current, axis=0,
-                                    keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_consecutive_elements_sum_left_pupil_current)[1]):
-                        if np.nanstd(sliding_window_consecutive_elements_sum_left_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_sum_left_pupil_current_z_score[:, col] = ((
-                                                                                                                  sliding_window_consecutive_elements_sum_left_pupil_current[
-                                                                                                                      :, col] - np.nanmean(
-                                                                                                              sliding_window_consecutive_elements_sum_left_pupil_current[
-                                                                                                                  :, col])) / np.nanstd(
-                                sliding_window_consecutive_elements_sum_left_pupil_current[:, col]))
-                        else:
-                            sliding_window_consecutive_elements_sum_left_pupil_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_consecutive_elements_sum_left_pupil_current)[0])
-                else:
-                    sliding_window_consecutive_elements_sum_left_pupil_current_z_score = ((
-                                                                                                  sliding_window_consecutive_elements_sum_left_pupil_current - np.nanmean(
-                                                                                              sliding_window_consecutive_elements_sum_left_pupil_current,
-                                                                                              axis=0,
-                                                                                              keepdims=True))
-                                                                                          / np.nanstd(
-                                sliding_window_consecutive_elements_sum_left_pupil_current, axis=0, keepdims=True))
-
-                # Compute z-score to standardize sum of difference of consecutive elements-right pupil
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_consecutive_elements_sum_right_pupil_current_z_score = np.zeros(
-                    np.shape(sliding_window_consecutive_elements_sum_right_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_sum_right_pupil_current, axis=0,
-                                    keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_consecutive_elements_sum_right_pupil_current)[1]):
-                        if np.nanstd(sliding_window_consecutive_elements_sum_right_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_sum_right_pupil_current_z_score[:, col] = ((
-                                                                                                                   sliding_window_consecutive_elements_sum_right_pupil_current[
-                                                                                                                       :, col] - np.nanmean(
-                                                                                                               sliding_window_consecutive_elements_sum_right_pupil_current[
-                                                                                                                   :, col])) / np.nanstd(
-                                sliding_window_consecutive_elements_sum_right_pupil_current[:, col]))
-                        else:
-                            sliding_window_consecutive_elements_sum_right_pupil_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_consecutive_elements_sum_right_pupil_current)[0])
-                else:
-                    sliding_window_consecutive_elements_sum_right_pupil_current_z_score = ((
-                                                                                                   sliding_window_consecutive_elements_sum_right_pupil_current - np.nanmean(
-                                                                                               sliding_window_consecutive_elements_sum_right_pupil_current,
-                                                                                               axis=0,
-                                                                                               keepdims=True))
-                                                                                           / np.nanstd(
-                                sliding_window_consecutive_elements_sum_right_pupil_current, axis=0, keepdims=True))
-            if 'ECG' in feature_groups_to_analyze:
-                # Compute z-score to standardize hrv sdnn
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_hrv_sdnn_current_z_score = np.zeros(np.shape(sliding_window_hrv_sdnn_current))
-                if np.any(np.nanstd(sliding_window_hrv_sdnn_current, axis=0, keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_hrv_sdnn_current)[1]):
-                        if np.nanstd(sliding_window_hrv_sdnn_current[:, col]) != 0:
-                            sliding_window_hrv_sdnn_current_z_score[:, col] = (
-                                    (sliding_window_hrv_sdnn_current[:, col] - np.nanmean(
-                                        sliding_window_hrv_sdnn_current[:, col])) / np.nanstd(
-                                sliding_window_hrv_sdnn_current[:, col]))
-                        else:
-                            sliding_window_hrv_sdnn_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_hrv_sdnn_current)[0])
-                else:
-                    sliding_window_hrv_sdnn_current_z_score = ((sliding_window_hrv_sdnn_current - np.nanmean(
-                        sliding_window_hrv_sdnn_current, axis=0, keepdims=True))
-                                                               / np.nanstd(sliding_window_hrv_sdnn_current, axis=0,
-                                                                           keepdims=True))
-
-                # Compute z-score to standardize hrv rmssd
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_hrv_rmssd_current_z_score = np.zeros(np.shape(sliding_window_hrv_rmssd_current))
-                if np.any(np.nanstd(sliding_window_hrv_rmssd_current, axis=0, keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_hrv_rmssd_current)[1]):
-                        if np.nanstd(sliding_window_hrv_rmssd_current[:, col]) != 0:
-                            sliding_window_hrv_rmssd_current_z_score[:, col] = (
-                                    (sliding_window_hrv_rmssd_current[:, col] - np.nanmean(
-                                        sliding_window_hrv_rmssd_current[:, col])) / np.nanstd(
-                                sliding_window_hrv_rmssd_current[:, col]))
-                        else:
-                            sliding_window_hrv_rmssd_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_hrv_rmssd_current)[0])
-                else:
-                    sliding_window_hrv_rmssd_current_z_score = ((sliding_window_hrv_rmssd_current - np.nanmean(
-                        sliding_window_hrv_rmssd_current, axis=0, keepdims=True))
-                                                                / np.nanstd(sliding_window_hrv_rmssd_current, axis=0,
-                                                                            keepdims=True))
-
-                # # Compute z-score to standardize hrv pnn50
-                # # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # # should be removed in separate code or during feature selection
-                # sliding_window_hrv_pnn50_current_z_score = np.zeros(np.shape(sliding_window_hrv_pnn50_current))
-                # if np.any(np.nanstd(sliding_window_hrv_pnn50_current, axis=0, keepdims=True) == 0):
-                #     # Find columns with zero standard deviation
-                #     for col in range(np.shape(sliding_window_hrv_pnn50_current)[1]):
-                #         if np.nanstd(sliding_window_hrv_pnn50_current[:, col]) != 0:
-                #             sliding_window_hrv_pnn50_current_z_score[:, col] = ((sliding_window_hrv_pnn50_current[:, col] - np.nanmean(
-                #                             sliding_window_hrv_pnn50_current[:, col])) / np.nanstd(sliding_window_hrv_pnn50_current[:, col]))
-                #         else:
-                #             sliding_window_hrv_pnn50_current_z_score[:, col] = np.zeros(
-                #                 np.shape(sliding_window_hrv_pnn50_current)[0])
-                # else:
-                #     sliding_window_hrv_pnn50_current_z_score = ((sliding_window_hrv_pnn50_current - np.nanmean(sliding_window_hrv_pnn50_current, axis=0, keepdims=True))
-                #                                        / np.nanstd(sliding_window_hrv_pnn50_current, axis=0, keepdims=True))
-
-            if 'cognitive' in feature_groups_to_analyze:
-                # Compute z-score to standardize cognitive IES
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_cognitive_IES_current_z_score = np.zeros(np.shape(sliding_window_cognitive_ies_current))
-                if np.any(np.nanstd(sliding_window_cognitive_ies_current, axis=0, keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_cognitive_ies_current)[1]):
-                        if np.nanstd(sliding_window_cognitive_ies_current[:, col]) != 0:
-                            sliding_window_cognitive_IES_current_z_score[:, col] = (
-                                    (sliding_window_cognitive_ies_current[:, col] - np.nanmean(
-                                        sliding_window_cognitive_ies_current[:, col])) / np.nanstd(
-                                sliding_window_cognitive_ies_current[:, col]))
-                        else:
-                            sliding_window_cognitive_IES_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_cognitive_ies_current)[0])
-                else:
-                    sliding_window_cognitive_IES_current_z_score = ((sliding_window_cognitive_ies_current - np.nanmean(
-                        sliding_window_cognitive_ies_current, axis=0, keepdims=True))
-                                                                    / np.nanstd(sliding_window_cognitive_ies_current,
-                                                                                axis=0, keepdims=True))
-
-            # Define dictionary item for trial_id
-            if 'eyetracking' in feature_groups_to_analyze:
-                # No standardization
                 sliding_window_integral_left_pupil[trial_id_in_data[i]] = sliding_window_integral_left_pupil_current
                 sliding_window_integral_right_pupil[trial_id_in_data[i]] = sliding_window_integral_right_pupil_current
                 sliding_window_consecutive_elements_mean_left_pupil[
@@ -2642,91 +2347,33 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                     trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_left_pupil_current
                 sliding_window_consecutive_elements_sum_right_pupil[
                     trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_right_pupil_current
-
-                # Intra-Trial Standardization (s1)
-                sliding_window_integral_left_pupil_s1[
-                    trial_id_in_data[i]] = sliding_window_integral_left_pupil_current_z_score
-                sliding_window_integral_right_pupil_s1[
-                    trial_id_in_data[i]] = sliding_window_integral_right_pupil_current_z_score
-                sliding_window_consecutive_elements_mean_left_pupil_s1[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_left_pupil_current_z_score
-                sliding_window_consecutive_elements_mean_right_pupil_s1[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_right_pupil_current_z_score
-                sliding_window_consecutive_elements_max_left_pupil_s1[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_max_left_pupil_current_z_score
-                sliding_window_consecutive_elements_max_right_pupil_s1[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_max_right_pupil_current_z_score
-                sliding_window_consecutive_elements_sum_left_pupil_s1[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_left_pupil_current_z_score
-                sliding_window_consecutive_elements_sum_right_pupil_s1[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_right_pupil_current_z_score
             if 'ECG' in feature_groups_to_analyze:
-                # No standardization
                 sliding_window_hrv_sdnn[trial_id_in_data[i]] = sliding_window_hrv_sdnn_current
                 sliding_window_hrv_rmssd[trial_id_in_data[i]] = sliding_window_hrv_rmssd_current
                 # sliding_window_hrv_pnn50[trial_id_in_data[i]] = sliding_window_hrv_pnn50_current
-
-                # Intra-Trial Standardization (s1)
-                sliding_window_hrv_sdnn_s1[trial_id_in_data[i]] = sliding_window_hrv_sdnn_current_z_score
-                sliding_window_hrv_rmssd_s1[trial_id_in_data[i]] = sliding_window_hrv_rmssd_current_z_score
-                # sliding_window_hrv_pnn50_s1[trial_id_in_data[i]] = sliding_window_hrv_pnn50_current_z_score
             if 'cognitive' in feature_groups_to_analyze:
-                # No standardization
                 sliding_window_cognitive_ies[trial_id_in_data[i]] = sliding_window_cognitive_ies_current
-
-                # Intra-Trial Standardization (s1)
-                sliding_window_cognitive_ies_s1[trial_id_in_data[i]] = sliding_window_cognitive_IES_current_z_score
 
             # Name all features
             all_features_additional = eye_tracking_features + ecg_features + cognitive_features
             all_features_additional_s1 = [s + '_s1' for s in all_features_additional]
 
-        # Inter-trial standardization (s2)
-        if 'eyetracking' in feature_groups_to_analyze:
-            sliding_window_integral_left_pupil_s2 = self._inter_trial_standardization(
-                sliding_window_integral_left_pupil)
-            sliding_window_integral_right_pupil_s2 = self._inter_trial_standardization(
-                sliding_window_integral_right_pupil)
-            sliding_window_consecutive_elements_mean_left_pupil_s2 = self._inter_trial_standardization(
-                sliding_window_consecutive_elements_mean_left_pupil)
-            sliding_window_consecutive_elements_mean_right_pupil_s2 = self._inter_trial_standardization(
-                sliding_window_consecutive_elements_mean_right_pupil)
-            sliding_window_consecutive_elements_max_left_pupil_s2 = self._inter_trial_standardization(
-                sliding_window_consecutive_elements_max_left_pupil)
-            sliding_window_consecutive_elements_max_right_pupil_s2 = self._inter_trial_standardization(
-                sliding_window_consecutive_elements_max_right_pupil)
-            sliding_window_consecutive_elements_sum_left_pupil_s2 = self._inter_trial_standardization(
-                sliding_window_consecutive_elements_sum_left_pupil)
-            sliding_window_consecutive_elements_sum_right_pupil_s2 = self._inter_trial_standardization(
-                sliding_window_consecutive_elements_sum_right_pupil)
-        if 'ECG' in feature_groups_to_analyze:
-            sliding_window_hrv_sdnn_s2 = self._inter_trial_standardization(sliding_window_hrv_sdnn)
-            sliding_window_hrv_rmssd_s2 = self._inter_trial_standardization(sliding_window_hrv_rmssd)
-            # sliding_window_hrv_pnn50_s2 = self._inter_trial_standardization(sliding_window_hrv_pnn50)
-        if 'cognitive' in feature_groups_to_analyze:
-            sliding_window_cognitive_ies_s2 = self._inter_trial_standardization(sliding_window_cognitive_ies)
-
+        # s2 feature names are still emitted for downstream cache compatibility; the s2 dicts
+        # are filled by GlobalStandardizer in _feature_generation.
         all_features_additional_s2 = [s + '_s2' for s in all_features_additional]
 
-        return (all_features_additional_s1, sliding_window_integral_left_pupil_s1,
-                sliding_window_integral_right_pupil_s1,
-                sliding_window_consecutive_elements_mean_left_pupil_s1,
-                sliding_window_consecutive_elements_mean_right_pupil_s1,
-                sliding_window_consecutive_elements_max_left_pupil_s1,
-                sliding_window_consecutive_elements_max_right_pupil_s1,
-                sliding_window_consecutive_elements_sum_left_pupil_s1,
-                sliding_window_consecutive_elements_sum_right_pupil_s1,
-                sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_cognitive_ies_s1,
-                all_features_additional_s2, sliding_window_integral_left_pupil_s2,
-                sliding_window_integral_right_pupil_s2,
-                sliding_window_consecutive_elements_mean_left_pupil_s2,
-                sliding_window_consecutive_elements_mean_right_pupil_s2,
-                sliding_window_consecutive_elements_max_left_pupil_s2,
-                sliding_window_consecutive_elements_max_right_pupil_s2,
-                sliding_window_consecutive_elements_sum_left_pupil_s2,
-                sliding_window_consecutive_elements_sum_right_pupil_s2,
-                sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
-                sliding_window_cognitive_ies_s2)
+        return (all_features_additional_s1, sliding_window_integral_left_pupil,
+                sliding_window_integral_right_pupil,
+                sliding_window_consecutive_elements_mean_left_pupil,
+                sliding_window_consecutive_elements_mean_right_pupil,
+                sliding_window_consecutive_elements_max_left_pupil,
+                sliding_window_consecutive_elements_max_right_pupil,
+                sliding_window_consecutive_elements_sum_left_pupil,
+                sliding_window_consecutive_elements_sum_right_pupil,
+                sliding_window_hrv_sdnn, sliding_window_hrv_rmssd, sliding_window_cognitive_ies,
+                all_features_additional_s2, {}, {}, {}, {}, {},
+                {}, {}, {}, {}, {}, {},
+                {})
 
     def _unpack_dict(
             self,
@@ -2763,8 +2410,13 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             sliding_window_hrv_rmssd_s2: Dict[str, np.ndarray],
             sliding_window_cognitive_ies_s2: Dict[str, np.ndarray],
             output_feature_dtype: np.dtype = np.dtype(np.float32),
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Unpack per-trial dictionaries into global label and feature matrices."""
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Unpack per-trial dictionaries into global label and feature matrices.
+
+        Returns ``(y_gloc_labels, x_feature_matrix, trial_id_per_row)`` where
+        ``trial_id_per_row`` is a 1-D array of length ``x_feature_matrix.shape[0]``
+        mapping each row back to its source trial id (in insertion order).
+        """
         # Find Unique Trial ID
         trial_id_in_data = list(sliding_window_mean_s1.keys())
 
@@ -2812,6 +2464,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         # Pre-allocate
         x_feature_matrix = np.zeros((total_rows, num_cols), dtype=output_feature_dtype)
         y_gloc_labels = np.zeros((total_rows, 1), dtype=output_feature_dtype)
+        trial_id_per_row = np.empty(total_rows, dtype=object)
 
         # Iterate through unique trial_id
         current_index = 0
@@ -2819,6 +2472,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
             # Find number of rows in trial
             num_rows = np.shape(sliding_window_mean_s1[trial_id_in_data[i]])[0]
+
+            # Tag every row in this block with the current trial id
+            trial_id_per_row[current_index:num_rows + current_index] = trial_id_in_data[i]
 
             # For all non-empty dictionaries, set specific rows equal to the dictionary item corresponding to trial_id
             column_index = 0
@@ -2841,7 +2497,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             # Increment row index
             current_index += num_rows
 
-        return y_gloc_labels, x_feature_matrix
+        return y_gloc_labels, x_feature_matrix, trial_id_per_row
 
     def _reduce_features(
             self,
