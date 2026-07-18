@@ -87,11 +87,12 @@ def test_get_data_for_advanced_model_forwards_fold_arguments(monkeypatch):
             "impute_phase": ImputePhase.PRE_FEATURE,
             "save_impute": False,
             "load_impute": False,
-            "kfold_ID": 3,
             "num_splits": 5,
+            "kfold_ID": 3,
             "n_neighbors": 4,
             "baseline_window": 32.5,
             "horizon": 0,
+            "feature_streams": None,
         }
     ]
 
@@ -116,13 +117,19 @@ def test_get_data_for_traditional_model_applies_sensor_ablation(monkeypatch):
 
     result = pipeline.get_data(
         model=DummyModel(is_traditional=True, name="RF"),
+        kfold_id=0,
+        num_splits=5,
         feature_streams=["g force", "participant", "EEG"],
     )
 
     assert result == "traditional-ok"
     assert backend.calls[0]["model"].get_name() == "RF"
     assert backend.calls[0]["classifier_type"] == "RF"
+    # Sensor ablation runs inside the backend, not the facade, so the facade
+    # forwards the unfiltered features that _resolve_select_features returned.
     assert backend.calls[0]["select_features"] == [
+        "HR (bpm) - Equivital",
+        "Pupil diameter left [mm] - Tobii",
         "magnitude - Centrifuge",
         "participant_age",
         "Fz_alpha - EEG",
@@ -157,7 +164,10 @@ def test_get_data_for_traditional_model_can_return_raw_features_without_cache_lo
 
 
 def test_apply_sensor_ablation_rejects_unknown_stream():
-    pipeline = DataPipeline(_make_config())
+    # _apply_sensor_ablation lives on the backend TraditionalDataPipeline, not
+    # the DataPipeline facade.
+    from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+    pipeline = TraditionalDataPipeline(data_path="/tmp/data", random_seed=42)
     with pytest.raises(ValueError, match="Unknown stream\\(s\\)"):
         pipeline._apply_sensor_ablation(["Fz_alpha - EEG"], ["mystery-stream"])
 
