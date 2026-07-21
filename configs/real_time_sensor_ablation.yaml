@@ -29,7 +29,7 @@ sensor_ablation:
     manual_ablation: true
     random_seed: 42
     num_splits: 10
-    class_weight: balanced
+    class_weight: null
     streams:
       - [ ECG, Centrifuge ]
   review:
