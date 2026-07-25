@@ -14,12 +14,11 @@ This repository contains the current G-LOC prediction pipeline for normal, tempo
 
 ## Setting up the Environment
 
-The project is configured for the using Conda to setup the environment. That environment includes the cuML (
-GPU-enabled sklearn model training) stack used by the current pipeline.
+The project is configured for the using Conda to setup the environment. That environment includes the cuML (GPU-enabled
+sklearn model training) stack used by the current pipeline.
 
 I recommend using [Miniconda](https://www.anaconda.com/docs/getting-started/miniconda/main). Conda helps manage package
-dependencies and versions
-since some developers may make changes that break other packages.
+dependencies and versions since some developers may make changes that break other packages.
 
 Which environment YAML file to use depends on your system.
 
@@ -28,9 +27,8 @@ Which environment YAML file to use depends on your system.
 This section applies if you do not have a NVIDIA GPU on your system. With this setup, model training will be very slow
 but still possible.
 
-I wouldn't recommend performing any model training here, and instead to use a system with a NVIDIA
-GPU to perform model training to utilize the GPU packages. However, this environment can be used for general
-development.
+I wouldn't recommend performing any model training here, and instead to use a system with a NVIDIA GPU to perform model
+training to utilize the GPU packages. However, this environment can be used for general development.
 
 Run the following to setup the environment:
 
@@ -133,7 +131,7 @@ The config file has the following top-level sections:
 - **Mode sections**: Each execution mode has its own enabled/disabled section
 
 ### Root Parameters
-
+  
 #### `data_path`
 
 **Purpose**: Absolute path to the directory containing input CSV files and datasets.
@@ -548,8 +546,8 @@ objective_var: F1
 ##### `trials`
 
 **Purpose**: Number of Optuna HPO trials to run per cross-validation fold. Each trial samples a hyperparameter
-configuration, trains a candidate model, and evaluates it on a validation split. Set to `0` to disable HPO entirely (
-models train with default hyperparameters).
+configuration, trains a candidate model, and evaluates it on a validation split. Set to `0` to disable HPO entirely
+(models train with default hyperparameters).
 
 **Available inputs**: Non-negative integer.
 
@@ -1489,3 +1487,296 @@ multiple modes but selectively enable/disable them without editing the entire co
 - The pipeline installs cuML acceleration after config parsing, so RAPIDS dependencies from `environment.yaml` are
   required for GPU acceleration. If no GPU is available or cuML fails to import, then the package will revert to using
   the CPU.
+
+---
+
+# Getting Setup with CU Research Computing
+
+All the documentation for using the CU Research Computing is
+located [here](https://curc.readthedocs.io/en/latest/index.html), however there is a lot of information and there aren't
+many explanations so the following should help with providing some explanations and guidance.
+
+The ultimate goal of this guide is to successfully be able to run the command
+`python -m src.main --configs <config file>` without any error on the CU research computers.
+
+## Getting Started
+
+First, look through the documentation page [here](https://curc.readthedocs.io/en/latest/getting_started/logging-in.html)
+which is the official CU Research Computing documentation, which contains most of the information you need to get
+started with the research computers. Follow the instructions there to get started. However, there are a couple of things
+to note that may be helpful:
+
+* In this documentation, you only really need to go through the following sections:
+    * Getting a CURC account
+    * Getting access to CURC resources
+* Open OnDemand's web interface is likely the best to use since it also includes access to the terminal. However, you
+  will still need to have Duo MFA setup as the ssh login still requires this.
+
+## Getting the Code on the Computer
+
+The next thing you would likely need to do is to get the code from the Git repository onto the computer. However, there
+is a bit of background that you should know beforehand.
+
+### Filesystems
+
+The CU research computer has three places where you should do your work, where `<identikey>` is a placeholder for your
+identikey. Also see the page [here](https://curc.readthedocs.io/en/latest/compute/filesystems.html) in their
+documentation for additional information:
+
+* `/home/<identikey>`
+    * This is where your personal access keys and other personal things should be stored, since it is recommended that
+      you don't share this with others and because this has very limited storage. You'll likely not do much in this
+      place.
+* `/projects/<identikey>`
+    * This location has a lot of storage space and is the place where you should put all the project files and data.
+      Files here are not deleted at all so feel free to use this place for storage as well.
+* `/scratch/alpine/<identikey>`
+    * This location is similar to the `/projects` directory except that the files here get wiped every 90 days. This is
+      also where you should actually run the code since the I/O performance is better than on the `/projects` directory.
+
+### Get Code into Projects Directory
+
+Now that you hopefully have a rough understanding of the different directories, you'll need to get the code into the
+`/projects/<identikey>` directory. There are a couple of ways you can do this.
+
+#### 1. Clone the Git Repository via SSH
+
+By cloning the git repository via SSH, you can be able to easily pull changes you make on your local computer. The
+setup, however, is not as easy.
+
+##### Terminal Access
+
+The first thing you'll need to do is get access to the terminal. In Open OnDemand, you can go to the **All Apps** tab
+and go to the **Alpine Shell Access** as seen in the image below.
+
+![](assets/Alpine_Shell_Access.png)
+
+The first thing you'll see is to login into login node (one of the many computers which handles logging in and terminal
+access). The password should be your identikey password, and then you'll be prompted for a Duo authentication. If you
+login successfully, you'll see something like this:
+
+![](assets/RC_login_success.png)
+
+You'll start off in the `/home/$USER` directory. Here, you'll need to create Secure Shell (ssh) key. Think of this as a
+string of text that can be used to get authorization to your GitHub accounts (and more). However, this string of text is
+hashed and encrypted so it's not literally just a string.
+
+To generate an ssh key, look at the official GitHub documentation on doing
+so [here](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent?platform=linux)
+(you can ignore the "Generating a new SSH key for a hardware security key" section). This ssh key should live in your
+`/home/$USER` directory, so it definitely shouldn't be shared.
+
+> **NOTE** - Automatic SSH Key Adding to Agent
+>
+> If you followed the documentation linked above, you went through the steps to register your ssh key through the ssh
+> agent. This process is not automatic by default and you must register your ssh key every time.
+>
+> To make this automatic, run the command `cd /home/$USER/.ssh`. This is precisely where your ssh key is stored.
+>
+> There is also a `config` file that we need to edit. To do so, run `nano config` or `vim config` (if you know how to
+> use vim). Then you need to paste in the following to the end of the file:
+> ```aiignore
+> StrictHostKeyChecking no
+> Host *
+>     AddKeysToAgent yes
+>     IdentityFile ~/.ssh/<ssh file name>
+> ```
+> For the `<ssh file name>`, it's likely `id_ed25519` if you didn't change its name.
+>
+> To save and exit: Ctrl + X -> Y (overwrite file contents) -> Enter (save contents to same filename).
+
+Now, go to your projects directory:
+
+```
+cd /projects/$USER
+```
+
+Clone the repository:
+
+```
+git clone git@github.com:aaronallred/G-LOC-Prediction.git
+```
+
+If the command above fails with something related to "you don't have permission" this means that your ssh key isn't
+working. I would first make sure the ssh key has been added to the agent, making sure that you correctly added the ssh
+key to your GitHub account, and then generating a new ssh key as a last resort.
+
+#### 2. Clone the Git Repository via HTTPS
+
+TODO - I recommend going with the SSH route for now. Will update this section when absolutely needed.
+
+#### 3. Copy the Project Files from Local Computer to the Research Computer
+
+Refer to the next section to see how to transfer large files into the computer.
+
+## Getting Data into the Computer
+
+### Globus (Recommended)
+
+Refer to the official CURC documentation page [here](https://curc.readthedocs.io/en/latest/compute/data-transfer.html)
+to get Globus setup. You'll need to setup your own endpoint by
+installing [Globus Connect Personal](https://www.globus.org/globus-connect-personal) and following the instructions on
+that page to get the endpoint setup.
+
+Then, to perform the file transfer on the Globus web app, you need to have `/projects/<your identikey>/G-LOC-Prediction`
+on one side and your local `G-LOC-Prediction` on the other side. Select the `data` folder from your side and press the "
+Start" button.
+
+> If you don't have the `G-LOC-Prediction` folder in `/projects/<your identikey>`, refer to the "Getting the Code on the
+> Computer" section. Alternatively, just transfer the entire `G-LOC-Prediction` folder.
+
+You'll then need to wait until the transfer finishes processing.
+
+### Open OnDemand
+
+If you have a lot of time and patience, you can do all file management through the files tab in Open OnDemand.
+
+To do so, go to the "Files" tab and go to the `/projects/<your identikey>` option.
+
+> You might also see a `/pl` directory. On the official CURC documentation about filesystems, this is a "fee-based
+> compute-capable storage platform" so you don't need to worry about this.
+
+> If you don't have the code in here already, refer to the "Getting the Code on the Computer" section.
+>
+> The third way of getting the code into the computer is to upload the entire G-LOC-Prediction folder from your local
+> computer to this
+> directory (this will take a long time).
+
+You should see the G-LOC-Prediction folder here. Go into it and you'll see that the data folder is not in here. To get
+the data in the folder via Open OnDemand, just upload your local `data` folder into this directory (this will take a
+very long time).
+
+## Setting up the Environment
+
+We need to ensure that we have the conda environment setup on the research computer to run the code properly. As far as
+I know, there is not easy GUI to perform a majority of the work here, so you'll need to use the terminal.
+
+To access the terminal, in Open OnDemand go the **Clusters** -> **Alpine Shell Access** tab and login to the computer.
+The research computer has multiple nodes which are
+described [here](https://curc.readthedocs.io/en/latest/compute/node-types.html).
+
+### CPU Environment
+
+Go to your `/projects/$USER` directory after logging in. We cannot install the environment on the login node because
+there isn't enough resources (and it isn't allowed). So, we need to use a different node. A lot of information on using
+different nodes can be found in the official Alpine Hardware
+guide [here](https://curc.readthedocs.io/en/latest/clusters/alpine/alpine-hardware.html).
+
+To enter the necessary node, run the following command (used for compiling code and such):
+
+```
+acompile
+```
+
+From here, use the command `pwd` and verify that you are in your `/projects/$USER` directory. If not, then go to this
+directory. Then, go into your `G-LOC-Prediction` folder.
+
+Then, run the following commands:
+
+```
+module purge
+```
+
+```
+module load miniforge
+```
+
+> **NOTE:**
+>
+> The research computer uses a modules system, where the documentation for it can be
+> found [here](https://curc.readthedocs.io/en/latest/compute/modules.html).
+>
+> Modules are pieces of software that come pre-installed on the research computers and are recommended to be used since
+> it saves you some sanity of installing the software yourself.
+
+In the repository, there should be a `environment-curc-cpu.yaml` file. If there isn't, make sure your repository is up
+to date and that you are on the correct branch. To install the environment, run the command:
+
+```
+mamba env create -f environment-curc-cpu.yaml
+```
+
+You may be asked a few prompts, so just accept those. Some of those are just accepting terms of use and some others are
+confirmations to install all the packages listed.
+
+After installing, run the following command to verify that the environment was successfully installed:
+
+```
+mamba activate gloc-cpu
+```
+
+### GPU Environment
+
+TODO -> Package installation might be unstable depending on which machine is being used. At a high level, refer to the "
+Special-Purpose GPU Resources" section in the Alpine Hardware documentation page to use the gpu testing node and install
+the `environment-curc-gpu.yaml` file instead.
+
+## Running a Job
+
+### Open OnDemand (Recommended)
+
+In Open OnDemand, go to the **Jobs** -> **Job Composer**. This tab makes it easy to create a bash script and run the
+jobs. To start creating a bash script, press the "New Job" button in the top-left and select "From Default Template".
+
+From here, you could configure a few things in with the "Job Options" button if you want to.
+
+From here, on the right you should be able to see what the bash script looks like. At the bottom, press the "Open
+Editor" button to edit this script.
+
+Here is a better template for this bash script which I recommend using:
+
+```
+#!/bin/bash
+#SBATCH --partition=amilan          # Use standard CPU partition
+#SBATCH --qos=normal                # Use standard CPU QOS
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8           # Request 8 CPU cores
+#SBATCH --mem=64G                   # Request 64 GB of RAM
+#SBATCH --time=23:50:00             # Max walltime (under 24h)
+#SBATCH --job-name=<job name here>
+#SBATCH --output=gloc_ml_%j.log
+
+# Clean existing module path and load miniforge
+module purge
+module load miniforge
+conda activate gloc-cpu
+
+# Define directory variables for readability
+PROJECT_DIR="/projects/$USER/G-LOC-Prediction"
+SCRATCH_DIR="/scratch/alpine/$USER/G-LOC-Prediction"
+
+# Copy files into scratch
+mkdir -p "$SCRATCH_DIR"
+rsync -a "$PROJECT_DIR/" "$SCRATCH_DIR/"
+
+# Execute your python script
+cd "$SCRATCH_DIR"
+python -m src.main --config configs/real_time_sensor_ablation.yaml
+
+# Copy all results back to projects
+rsync -a --delete "$SCRATCH_DIR/" "$PROJECT_DIR/"
+
+# Message to demonstrate that it completed instead of crashed
+echo "Fully completed"
+
+exit
+```
+
+Make sure to fill out the following:
+
+* `<job name here>` with your job name
+* `<your config here>` with your YAML config file
+
+Press the save button in the top-left, then go back to the Job Composer tab. In this tab, select the job you want to
+run, then press the green "Submit" button. This will put it in the queue to run and you can only wait from here.
+
+### Via Terminal
+
+TODO - Need to create your own .sh file and create a job for it in the terminal.
+
+## Getting Stuff Back in Local
+
+Once the job finished, the script should have copied the contents of the repository in the `/scratch` directory back
+into your `/projects` directory. On Open OnDemand, you can go to the **Files** tab and download whatever results or
+other files and folders that were generated after running your job.
