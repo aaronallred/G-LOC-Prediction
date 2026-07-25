@@ -316,3 +316,5 @@ __marimo__/
 *.csv
 *.json
 *.pt
+AFOSR_Trust-main/
+Results/
