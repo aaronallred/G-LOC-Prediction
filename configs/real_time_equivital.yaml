@@ -1,0 +1,30 @@
+data_path: /home/jasper_shen/Projects/G-LOC-Prediction/data
+shared_data_parameters:
+  subject_to_analyze: null
+  trial_to_analyze: null
+  analysis_type: 2
+  remove_NaN_trials: true
+  impute_file_name: imputed_data.pkl
+  save_impute: false
+  load_impute: false
+  impute_phase: pre_feature
+  output_feature_dtype: float32
+advanced_data_parameters:
+  n_neighbors: 4
+  baseline_window: 32.5
+  horizon: 0
+traditional_data_parameters:
+  backstep: 0
+  data_rate: 25
+  offset: 0
+  time_start: 0
+
+real_time_equivital:
+  enabled: true
+  # Mode-specific parameters
+  model_type: !ModelType [ Complete, Explicit ]
+  random_seed: 42
+  models: [ KNN ]
+  # Path to the directory containing previously saved trained models.
+  # Models will be searched/loaded from here based on model name and model_type.
+  saved_models_folder: SavedModels

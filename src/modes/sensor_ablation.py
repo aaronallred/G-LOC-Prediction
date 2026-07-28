@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 
 import numpy as np
+import yaml
 from imblearn.metrics import geometric_mean_score
 from sklearn import metrics
 
@@ -12,7 +13,7 @@ from src.advanced_experiment_utils import (
     get_advanced_predictions_and_targets,
 )
 from src.models.model_factory import ModelFactory
-from src.traditional_experiment_utils import stratified_kfold_split, get_hyperparameters_from_json, \
+from src.traditional_experiment_utils import get_hyperparameters_from_json, \
     plot_f1_violin_with_stream_matrix
 
 
@@ -33,6 +34,9 @@ def run_sensor_ablation_training(
 
     results_root = Path(training_config["save_results_folder"]) / model_type.get_folder_name()
     results_root.mkdir(parents=True, exist_ok=True)
+
+    config_path = _save_run_config(config, results_root)
+    logging.info("Saved run config to %s", config_path)
 
     pipeline.set_random_seed(training_config["random_seed"])
     pipeline.set_model_type(model_type)
@@ -97,18 +101,19 @@ def _run_traditional_ablation(
         random_seed: int,
         output_dir: Path,
 ) -> list[dict]:
-    X, y, select_features = pipeline.get_data(
-        model=model, feature_streams=feature_streams,
-        return_feature_names=True,
-        traditional_feature_selection=feature_group,
-    )
-
     fold_results: list[dict] = []
     ext = ".pkl" if model.is_traditional_model else ".pt"
 
     for kfold_id in range(num_splits):
         logging.info("Running fold %d/%d", kfold_id + 1, num_splits)
-        X_train, X_test, y_train, y_test = stratified_kfold_split(X, y, num_splits, kfold_id, random_seed)
+        X_train, X_test, y_train, y_test, _ = pipeline.get_data(
+            model=model,
+            kfold_id=kfold_id,
+            num_splits=num_splits,
+            feature_streams=feature_streams,
+            return_feature_names=True,
+            traditional_feature_selection=feature_group,
+        )
 
         fold_model = model_factory.create_model(model.name, model_hyperparameters=hyperparameters)
         if class_weight is not None and "class_weight" in fold_model.get_model_parameters():
@@ -200,6 +205,23 @@ def _evaluate_model(y_test: np.ndarray, y_pred: np.ndarray) -> dict:
         "specificity": specificity,
         "g_mean": g_mean,
     }
+
+
+def _save_run_config(config: dict, dest_dir: Path) -> Path:
+    class _SafeDumper(yaml.SafeDumper):
+        pass
+
+    def _represent_object(dumper, obj):
+        if hasattr(obj, "__dict__"):
+            return dumper.represent_mapping("tag:yaml.org,2002:map", obj.__dict__)
+        return dumper.represent_str(str(obj))
+
+    _SafeDumper.add_representer(None, _represent_object)
+
+    config_path = dest_dir / "run_config.yaml"
+    with open(config_path, "w") as handle:
+        yaml.dump(config, handle, Dumper=_SafeDumper, sort_keys=False)
+    return config_path
 
 
 def _save_summary(

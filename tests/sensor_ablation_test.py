@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import yaml
 
 from src.model_type import ModelType
 from src.modes.sensor_ablation import (
@@ -216,6 +217,12 @@ def test_run_sensor_ablation_training_saves_stream_scores(tmp_path):
     assert (results / "EEG-Pupil" / "summary.json").exists()
     assert (results / "ECG" / "fold_0.pkl").exists()
     assert (results / "ECG" / "fold_1.pkl").exists()
+
+    config_path = tmp_path / "Results" / "Sensor_Ablation" / "Complete_Explicit" / "run_config.yaml"
+    assert config_path.exists()
+    with open(config_path) as f:
+        saved_config = yaml.safe_load(f)
+    assert saved_config["sensor_ablation"]["training"]["models"] == ["KNN"]
 
 
 @pytest.mark.integration

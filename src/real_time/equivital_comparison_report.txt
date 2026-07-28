@@ -1,0 +1,67 @@
+================================================================================
+EQUIVITAL DATASET COMPARISON REPORT
+================================================================================
+
+----------------------------------------
+1. DIMENSIONS
+----------------------------------------
+  raw_shape: [1702139, 13]
+  pipeline_shape: [185999, 828]
+  label_shape: [185999]
+  raw_samples: 1702139
+  raw_features: 13
+  pipeline_samples: 185999
+  pipeline_features: 828
+  label_samples: 185999
+  shape_comment: Raw data: 1702139 rows x 13 columns (time-series). Pipeline data: 185999 windows x 828 engineered features.
+
+----------------------------------------
+2. FEATURE NAMES
+----------------------------------------
+  Raw columns: 13
+  Pipeline features: 828
+  Baseline method counts:
+    v0: 192
+    v1: 192
+    v2: 192
+    v5: 126
+    v6: 126
+  Feature type counts:
+    mean: 216
+    stddev: 216
+    max: 216
+    range: 180
+  Standardization counts:
+    s1: 432
+    s2: 396
+  Unmatched: 0
+
+----------------------------------------
+3. LABEL DISTRIBUTION
+----------------------------------------
+  total_windows: 185999
+  class_counts:
+    0: 182562
+    1: 3437
+  class_percentages:
+    0: 98.15
+    1: 1.85
+  gloc_event_rate: 1.85
+
+----------------------------------------
+4. TEMPORAL INFO
+----------------------------------------
+  raw_columns: ['HR (bpm) - Equivital', 'BR (rpm) - Equivital', 'Skin Temperature - IR Thermometer (°C) - Equivital', 'ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital', 'Lateral Acc - Equivital', 'Longitudinal Acc - Equivital', 'Vertical Acc - Equivital', 'magnitude - Equivital', 'Time (s) - Equivital', 'HR_instant - Equivital', 'HR_average - Equivital', 'HR_w_average - Equivital']
+  n_rows: 1702139
+  n_columns: 13
+  first_column: HR (bpm) - Equivital
+  note: Raw dataset is a time-series with ~25 Hz sampling. Pipeline transforms this into sliding windows (~15s windows, 0.25s stride).
+
+----------------------------------------
+5. VALUE DISTRIBUTIONS (Summary)
+----------------------------------------
+  Raw stats: 13 columns.
+  Pipeline stats: 20 columns.
+  See JSON report for full details.
+
+================================================================================

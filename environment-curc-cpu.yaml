@@ -1,0 +1,28 @@
+name: gloc-cpu
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - numpy
+  - pandas
+  - scikit-learn
+  - matplotlib
+  - matplotlib-venn
+  - seaborn
+  - optuna
+  - pytest
+  - ipykernel
+  - openpyxl
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cpu
+      - torch
+      - torchvision
+      - faiss-cpu==1.14.3
+      - scikit-optimize
+      - shap
+      - imbalanced-learn
+      - UpSetPlot==0.9.0
+      - munkres==1.1.4
+      - unicodedata2==17.0.1
