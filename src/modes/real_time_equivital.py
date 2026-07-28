@@ -17,14 +17,8 @@ from typing import Any, Callable, Optional
 import joblib
 import numpy as np
 from imblearn.metrics import geometric_mean_score
+from pylsl import StreamInfo, StreamOutlet, local_clock
 from sklearn import metrics
-
-try:
-    from pylsl import StreamInfo, StreamOutlet, local_clock
-except ImportError:  # pragma: no cover
-    StreamInfo = None  # type: ignore[misc, assignment]
-    StreamOutlet = None  # type: ignore[misc, assignment]
-    local_clock = None  # type: ignore[misc, assignment]
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
 from src.models.model_factory import ModelFactory
@@ -124,12 +118,12 @@ class EquivitalDataStreamer:
     STREAM_RATE_HZ: float = REAL_TIME_STREAM_RATE_HZ
 
     def __init__(
-        self,
-        data_matrix: np.ndarray,
-        labels: Optional[np.ndarray] = None,
-        channel_names: Optional[list[str]] = None,
-        stream_name: str = "GLOC-Equivital",
-        stream_type: str = "PsychoPhys",
+            self,
+            data_matrix: np.ndarray,
+            labels: Optional[np.ndarray] = None,
+            channel_names: Optional[list[str]] = None,
+            stream_name: str = "GLOC-Equivital",
+            stream_type: str = "PsychoPhys",
     ) -> None:
         self.data_matrix = data_matrix
         self.labels = labels
@@ -164,10 +158,10 @@ class EquivitalDataStreamer:
         return StreamOutlet(stream_info)
 
     def stream(
-        self,
-        *,
-        use_real_time_sleep: bool = False,
-        on_sample: Optional[Callable[[np.ndarray, int], None]] = None,
+            self,
+            *,
+            use_real_time_sleep: bool = False,
+            on_sample: Optional[Callable[[np.ndarray, int], None]] = None,
     ) -> None:
         """Push samples one at a time through LSL.
 
@@ -430,7 +424,7 @@ def run_real_time_equivital(
                 })
 
             saved_summary_path = (
-                saved_models_folder / model_type_folder / model_name / stream_str / "summary.json"
+                    saved_models_folder / model_type_folder / model_name / stream_str / "summary.json"
             )
             saved_summary = _load_saved_summary(saved_summary_path)
 
@@ -465,7 +459,7 @@ def run_real_time_equivital(
             }
 
             report_path = (
-                save_results_folder / model_type_folder / model_name / stream_str / "real_time_summary.json"
+                    save_results_folder / model_type_folder / model_name / stream_str / "real_time_summary.json"
             )
             _write_report(report, report_path)
 
