@@ -1,4 +1,4 @@
-data_path: /home/jasper_shen/Projects/G-LOC-Prediction/data
+data_path: data
 shared_data_parameters:
   subject_to_analyze: null
   trial_to_analyze: null
@@ -21,10 +21,15 @@ traditional_data_parameters:
 
 real_time_equivital:
   enabled: true
-  # Mode-specific parameters
+  # Mirrors sensor_ablation.training so saved fold models align with the rebuilt test set.
   model_type: !ModelType [ Complete, Explicit ]
   random_seed: 42
-  models: [ KNN ]
-  # Path to the directory containing previously saved trained models.
-  # Models will be searched/loaded from here based on model name and model_type.
-  saved_models_folder: SavedModels
+  models: [ EGB, KNN, RF ]
+  num_splits: 10
+  streams:
+    - [ ECG, Centrifuge ]
+  manual_ablation: true
+  class_weight: null
+  saved_models_folder: Results/Sensor_Ablation_Real_Time
+  save_results_folder: Results/Real_Time_Prediction_Latency
+  use_real_time_sleep: false

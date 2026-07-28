@@ -98,6 +98,7 @@ def run(config_path: str) -> None:
             bool(config.get("real_time_equivital", {}).get("enabled", False)),
             lambda: run_real_time_equivital(
                 config=config,
+                pipeline=data_pipeline,
                 model_factory=model_factory,
                 project_root_path=project_root_path
             )
