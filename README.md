@@ -131,7 +131,7 @@ The config file has the following top-level sections:
 - **Mode sections**: Each execution mode has its own enabled/disabled section
 
 ### Root Parameters
-  
+
 #### `data_path`
 
 **Purpose**: Absolute path to the directory containing input CSV files and datasets.
@@ -418,7 +418,6 @@ Advanced (PyTorch):
 - `TCN` (Temporal Convolutional Network)
 - `Trans` (Transformer)
 - `LogRegTS` (Time-Series Logistic Regression)
-- `NAM` (Neural Additive Model)
 
 **Example**:
 
