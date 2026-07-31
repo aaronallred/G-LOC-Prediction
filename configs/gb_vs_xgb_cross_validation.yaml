@@ -1,5 +1,12 @@
-data_path: data/
+data_path: C:/Users/savan/G-LOC-Prediction-Keegan-Git/data/
 main_data_file: all_trials_25_hz_stacked_null_str_filled_reduced.csv
+
+runtime:
+  device: cuda
+  require_gpu: true
+  enable_cuml: true
+  timing_output: Results/xgboost_run_timing.json
+
 shared_data_parameters:
   subject_to_analyze: null
   trial_to_analyze: null
@@ -22,14 +29,19 @@ traditional_data_parameters:
 
 cross_validation:
   enabled: true
-  models: [ EGB, XGB ]
+  models: [ XGB ]
   model_type: !ModelType [ Complete, Explicit ]
   random_seed: 42
   num_splits: 2
-  save_results_folder: Results/Cross_Validation_GB_vs_XGB
+  save_results_folder: Results/Cross_Validation_XGB
   class_weight: null
+  traditional_hpo:
+    n_iter: 3
+    cv: 2
+    n_jobs: 1
+    scoring: f1
   advanced_hpo:
     use_sampler: true
     final_early_stop: false
     objective_var: F1
-    trials: 100
+    trials: 20

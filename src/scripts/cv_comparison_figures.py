@@ -2,8 +2,8 @@
 
 Example:
     python -m src.scripts.cv_comparison_figures \
-        --results-root Results/Cross_Validation_Temp/Complete_Explicit \
-        --models EGB XGB
+        --results-root Results/Cross_Validation_XGB/Complete_Explicit \
+        --models XGB
 """
 
 from __future__ import annotations
