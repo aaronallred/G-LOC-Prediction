@@ -30,7 +30,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +43,6 @@ import pandas as pd  # noqa: E402
 import seaborn as sns  # noqa: E402
 from scipy import stats  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -53,7 +51,6 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
-
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -86,6 +83,10 @@ plt.rcParams.update(
 FEATURE_TYPE_ORDER = ["mean", "stddev", "max", "range", "additional"]
 BASELINE_METHOD_ORDER = ["v0", "v1", "v2", "v5", "v6", "none"]
 S1_S2_ORDER = ["s1", "s2"]
+
+# Fixed colour palette for the two standardization types so that s1 / s2 are
+# rendered with the same colour in every plot that uses them as a hue.
+S1_S2_PALETTE = {"s1": "#1f77b4", "s2": "#ff7f0e"}  # blue=s1, orange=s2
 
 # Default severity thresholds (expressed in z-score units). The thresholds
 # classify how much a single test-row's z-score would shift between the old
@@ -346,11 +347,11 @@ def identify_top_offenders(per_feature_df: pd.DataFrame, top_n: int = 20) -> pd.
 
 
 def classify_leakage_severity(
-    stats_df: pd.DataFrame,
-    benign_mean_abs: float,
-    moderate_mean_abs: float,
-    benign_max_abs: float,
-    moderate_max_abs: float,
+        stats_df: pd.DataFrame,
+        benign_mean_abs: float,
+        moderate_mean_abs: float,
+        benign_max_abs: float,
+        moderate_max_abs: float,
 ) -> pd.DataFrame:
     """Apply threshold constants to each model's headline statistics and
     bucket the models into benign / moderate / severe leakage severity.
@@ -549,6 +550,8 @@ def plot_s1_vs_s2_distribution(per_feature_df: pd.DataFrame, out_dir: Path) -> P
         x="model",
         y="mean_abs_delta",
         hue="s1_or_s2",
+        hue_order=S1_S2_ORDER,
+        palette=S1_S2_PALETTE,
         showfliers=False,
         ax=ax,
     )
@@ -593,7 +596,7 @@ def plot_feature_type_heatmap(strat_df: pd.DataFrame, out_dir: Path) -> Path:
             sub = strat_df[
                 (strat_df["model"] == model_name)
                 & (strat_df["s1_or_s2"] == s1_s2)
-            ]
+                ]
             pivot = (
                 sub.groupby(["feature_type", "baseline_method"])["mean_abs_delta"]
                 .mean()
@@ -645,6 +648,8 @@ def plot_top_offenders(top_df: pd.DataFrame, out_dir: Path, top_n: int = 10) -> 
             y=labels,
             x="max_abs_delta",
             hue="s1_or_s2",
+            hue_order=S1_S2_ORDER,
+            palette=S1_S2_PALETTE,
             dodge=False,
             ax=ax,
         )
@@ -699,13 +704,13 @@ def plot_fold_distribution(per_fold_df: pd.DataFrame, out_dir: Path) -> Path:
 # CSV exports
 # ---------------------------------------------------------------------------
 def write_csv_tables(
-    per_fold_df: pd.DataFrame,
-    strat_df: pd.DataFrame,
-    per_feature_df: pd.DataFrame,
-    top_df: pd.DataFrame,
-    stats_df: pd.DataFrame,
-    severity_df: pd.DataFrame,
-    out_dir: Path,
+        per_fold_df: pd.DataFrame,
+        strat_df: pd.DataFrame,
+        per_feature_df: pd.DataFrame,
+        top_df: pd.DataFrame,
+        stats_df: pd.DataFrame,
+        severity_df: pd.DataFrame,
+        out_dir: Path,
 ) -> list[Path]:
     """Persist tidy CSV exports of all the per-model/fold/feature tables."""
     paths: list[Path] = []
@@ -726,13 +731,13 @@ def write_csv_tables(
 
 
 def write_aggregated_json(
-    stats_df: pd.DataFrame,
-    severity_df: pd.DataFrame,
-    wilcoxon: list[dict[str, Any]],
-    fold_stability: list[dict[str, Any]],
-    top_df: pd.DataFrame,
-    config: dict[str, Any],
-    out_path: Path,
+        stats_df: pd.DataFrame,
+        severity_df: pd.DataFrame,
+        wilcoxon: list[dict[str, Any]],
+        fold_stability: list[dict[str, Any]],
+        top_df: pd.DataFrame,
+        config: dict[str, Any],
+        out_path: Path,
 ) -> Path:
     """Compact aggregated JSON containing every number a downstream tool
     (numbered figure, table, etc.) might need without re-parsing raw data.
@@ -784,18 +789,18 @@ def _md_table(df: pd.DataFrame, float_fmt: str = "{:.4f}") -> str:
 
 
 def generate_markdown_report(
-    config: dict[str, Any],
-    per_fold_df: pd.DataFrame,
-    per_feature_df: pd.DataFrame,
-    strat_df: pd.DataFrame,
-    stats_df: pd.DataFrame,
-    severity_df: pd.DataFrame,
-    top_df: pd.DataFrame,
-    wilcoxon: list[dict[str, Any]],
-    fold_stability: list[dict[str, Any]],
-    plot_paths: list[Path],
-    thresholds: dict[str, float],
-    out_path: Path,
+        config: dict[str, Any],
+        per_fold_df: pd.DataFrame,
+        per_feature_df: pd.DataFrame,
+        strat_df: pd.DataFrame,
+        stats_df: pd.DataFrame,
+        severity_df: pd.DataFrame,
+        top_df: pd.DataFrame,
+        wilcoxon: list[dict[str, Any]],
+        fold_stability: list[dict[str, Any]],
+        plot_paths: list[Path],
+        thresholds: dict[str, float],
+        out_path: Path,
 ) -> Path:
     """Assemble the comprehensive Markdown narrative report.
 
@@ -982,7 +987,7 @@ def generate_markdown_report(
         "(max family). Threshold values are z-score units.\n"
     )
     lines.append(_md_table(severity_df[["model", "mean_abs_delta_mean", "max_abs_delta_max",
-                                          "mean_severity", "max_severity", "overall_severity", "triggers"]]))
+                                        "mean_severity", "max_severity", "overall_severity", "triggers"]]))
     lines.append("\n---\n")
 
     # 10. Statistical tests
@@ -1059,12 +1064,12 @@ def generate_markdown_report(
 # Orchestrator
 # ---------------------------------------------------------------------------
 def run_analysis(
-    results_dir: Path,
-    output_dir: Path,
-    top_n: int,
-    no_plots: bool,
-    no_csvs: bool,
-    thresholds: dict[str, float],
+        results_dir: Path,
+        output_dir: Path,
+        top_n: int,
+        no_plots: bool,
+        no_csvs: bool,
+        thresholds: dict[str, float],
 ) -> dict[str, Any]:
     """Top-level orchestrator: load JSON, build tables, classify severity,
     plot, and serialize everything to files.
