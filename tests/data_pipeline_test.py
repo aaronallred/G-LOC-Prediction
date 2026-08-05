@@ -163,13 +163,139 @@ def test_get_data_for_traditional_model_can_return_raw_features_without_cache_lo
     assert "select_features" not in backend.calls[0]
 
 
-def test_apply_sensor_ablation_rejects_unknown_stream():
-    # _apply_sensor_ablation lives on the backend TraditionalDataPipeline, not
-    # the DataPipeline facade.
+def test_resolve_feature_groups_for_streams_passthrough_when_no_streams():
+    # _resolve_feature_groups_for_streams lives on the backend
+    # TraditionalDataPipeline (also on AdvancedDataPipeline via the shared
+    # base class), not the DataPipeline facade.
     from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
     pipeline = TraditionalDataPipeline(data_path="/tmp/data", random_seed=42)
-    with pytest.raises(ValueError, match="Unknown stream\\(s\\)"):
-        pipeline._apply_sensor_ablation(["Fz_alpha - EEG"], ["mystery-stream"])
+    default_groups = ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG",
+                       "processedEEG", "strain", "demographics")
+    filtered, applied, hr_requested = pipeline._resolve_feature_groups_for_streams(
+        None, default_groups
+    )
+    assert filtered == default_groups
+    assert applied is False
+    assert hr_requested is None
+
+
+def test_resolve_feature_groups_for_streams_unknown_stream_skipped(caplog):
+    # Unknown streams are logged and skipped — NOT raised — to keep the
+    # pipeline robust to config typos (see plan rationale). When ALL
+    # requested streams are unknown, the resolver falls back to the default
+    # groups with applied=False.
+    import logging
+    from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+    pipeline = TraditionalDataPipeline(data_path="/tmp/data", random_seed=42)
+    default_groups = ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG",
+                       "processedEEG", "strain", "demographics")
+
+    with caplog.at_level(logging.WARNING, logger="src.Data_Pipeline.data_pipeline"):
+        filtered, applied, hr_requested = pipeline._resolve_feature_groups_for_streams(
+            ["mystery-stream"], default_groups
+        )
+
+    assert filtered == default_groups
+    assert applied is False
+    assert hr_requested is None
+    assert any("Unknown stream" in rec.message or "No usable streams" in rec.message
+               for rec in caplog.records)
+
+
+def test_resolve_feature_groups_for_streams_filters_to_eeg_groups():
+    from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+    pipeline = TraditionalDataPipeline(data_path="/tmp/data", random_seed=42)
+    default_groups = ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG",
+                       "processedEEG", "strain", "demographics")
+    # Stream "EEG" -> {rawEEG, processedEEG}. Default ordering preserved.
+    filtered, applied, hr_requested = pipeline._resolve_feature_groups_for_streams(
+        ["EEG"], default_groups
+    )
+    assert filtered == ("rawEEG", "processedEEG")
+    assert applied is True
+    assert hr_requested is None
+
+
+def test_resolve_feature_groups_for_streams_ecg_preserves_equivital_br_temp():
+    # Stream "ECG" must include the BR and temp groups to preserve today's
+    # accidental ``r"equivital"`` regex behavior (which matched both BR and
+    # Temperature columns). See AGENTS.md / plan rationale.
+    from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+    pipeline = TraditionalDataPipeline(data_path="/tmp/data", random_seed=42)
+    default_groups = ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG",
+                       "processedEEG", "strain", "demographics")
+    filtered, applied, hr_requested = pipeline._resolve_feature_groups_for_streams(
+        ["ECG"], default_groups
+    )
+    assert filtered == ("ECG", "BR", "temp")
+    assert applied is True
+    assert hr_requested is None
+
+
+def test_resolve_feature_groups_for_streams_hr_sets_hr_requested():
+    from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+    pipeline = TraditionalDataPipeline(data_path="/tmp/data", random_seed=42)
+    default_groups = ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG",
+                       "processedEEG", "strain", "demographics")
+    # HR spans the ECG feature group (HR-named columns like
+    # ``HR (bpm) - Equivital*``) AND ``demographics`` (``participant_HR_*``).
+    # Pre-filter expands directly to those feature groups; the sub-stream
+    # column narrowing is delayed to ``_apply_hr_post_filter``.
+    filtered, applied, hr_requested = pipeline._resolve_feature_groups_for_streams(
+        ["HR"], default_groups
+    )
+    assert set(filtered) == {"ECG", "demographics"}
+    assert applied is True
+    assert hr_requested == ["HR"]
+
+
+def test_apply_hr_post_filter_keeps_hr_names_only():
+    from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+    pipeline = TraditionalDataPipeline(data_path="/tmp/data", random_seed=42)
+    names = [
+        "HR (bpm) - Equivital_v0_mean_s1",
+        "ECG Lead 1 - Equivital_v0_mean_s1",
+        "BR (rpm) - Equivital_v0_mean_s1",
+        "HRV (SDNN)_s1",
+        "HRV (RMSSD)_s1",
+        "participant_HR_seated_v0_mean_s1",
+        "participant_age_v0_mean_s1",
+    ]
+    filtered = pipeline._apply_hr_post_filter(names, ["HR"])
+    # Matches ``\bhr\b`` or ``participant_hr`` with re.IGNORECASE, but NOT
+    # ``HRV`` (word boundary after `hr` excludes `hrv`).
+    assert filtered == [
+        "HR (bpm) - Equivital_v0_mean_s1",
+        "participant_HR_seated_v0_mean_s1",
+    ]
+
+
+def test_apply_hr_post_filter_noop_when_hr_not_requested():
+    from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+    pipeline = TraditionalDataPipeline(data_path="/tmp/data", random_seed=42)
+    names = ["HR (bpm) - Equivital_v0_mean_s1", "ECG Lead 1 - Equivital_v0_mean_s1"]
+    # When hr_requested is None, the filter is a no-op.
+    assert pipeline._apply_hr_post_filter(names, None) == names
+
+
+def test_drop_afe_indicator_columns_only_when_filtering_applied():
+    from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+    pipeline = TraditionalDataPipeline(data_path="/tmp/data", random_seed=42)
+    X = np.arange(6).reshape(2, 3).astype(np.float32)
+    names = ["Fz - EEG_v0_mean_s1", "AFE_indicator_windowed", "trial_ints"]
+
+    # No-filter case: AFE column is preserved.
+    X_out, names_out = pipeline._drop_afe_indicator_columns(X, names, applied=False)
+    assert names_out == names
+    assert X_out.shape == X.shape
+
+    # Filter case: AFE column dropped from both matrix and name list.
+    X_out, names_out = pipeline._drop_afe_indicator_columns(X, names, applied=True)
+    assert names_out == ["Fz - EEG_v0_mean_s1", "trial_ints"]
+    assert X_out.shape == (2, 2)
+    # Column values preserved in the surviving columns.
+    np.testing.assert_array_equal(X_out[:, 0], X[:, 0])
+    np.testing.assert_array_equal(X_out[:, 1], X[:, 2])
 
 
 # ---------------------------------------------------------------------------
