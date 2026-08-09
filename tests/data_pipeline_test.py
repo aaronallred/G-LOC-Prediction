@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
+from src.Data_Pipeline.features import FEATURE_REGISTRY, DEMOGRAPHIC_NAMES
 from src.Data_Pipeline.fold_standardizer import GlobalStandardizer, TrialAwareStandardizer
 from src.Data_Pipeline.imputation_config import ImputePhase
 from src.model_type import ModelType
@@ -171,12 +172,12 @@ def test_resolve_feature_groups_for_streams_passthrough_when_no_streams():
     pipeline = TraditionalDataPipeline(data_path="/tmp/data", random_seed=42)
     default_groups = ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG",
                        "processedEEG", "strain", "demographics")
-    filtered, applied, hr_requested = pipeline._resolve_feature_groups_for_streams(
+    filtered, applied, filter_substrings = pipeline._resolve_feature_groups_for_streams(
         None, default_groups
     )
     assert filtered == default_groups
     assert applied is False
-    assert hr_requested is None
+    assert filter_substrings is None
 
 
 def test_resolve_feature_groups_for_streams_unknown_stream_skipped(caplog):
@@ -191,13 +192,13 @@ def test_resolve_feature_groups_for_streams_unknown_stream_skipped(caplog):
                        "processedEEG", "strain", "demographics")
 
     with caplog.at_level(logging.WARNING, logger="src.Data_Pipeline.data_pipeline"):
-        filtered, applied, hr_requested = pipeline._resolve_feature_groups_for_streams(
+        filtered, applied, filter_substrings = pipeline._resolve_feature_groups_for_streams(
             ["mystery-stream"], default_groups
         )
 
     assert filtered == default_groups
     assert applied is False
-    assert hr_requested is None
+    assert filter_substrings is None
     assert any("Unknown stream" in rec.message or "No usable streams" in rec.message
                for rec in caplog.records)
 
@@ -208,31 +209,42 @@ def test_resolve_feature_groups_for_streams_filters_to_eeg_groups():
     default_groups = ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG",
                        "processedEEG", "strain", "demographics")
     # Stream "EEG" -> {rawEEG, processedEEG}. Default ordering preserved.
-    filtered, applied, hr_requested = pipeline._resolve_feature_groups_for_streams(
+    # ``filter_substrings`` is the lowercased user-provided stream keyword
+    # (here ``"eeg"``) emitted for the union-substring post-filter. The
+    # substring matches every column produced by both EEG groups, so the
+    # post-filter is a no-op for EEG-only requests.
+    filtered, applied, filter_substrings = pipeline._resolve_feature_groups_for_streams(
         ["EEG"], default_groups
     )
     assert filtered == ("rawEEG", "processedEEG")
     assert applied is True
-    assert hr_requested is None
+    assert filter_substrings == ["eeg"]
 
 
-def test_resolve_feature_groups_for_streams_ecg_preserves_equivital_br_temp():
-    # Stream "ECG" must include the BR and temp groups to preserve today's
-    # accidental ``r"equivital"`` regex behavior (which matched both BR and
-    # Temperature columns). See AGENTS.md / plan rationale.
+def test_resolve_feature_groups_for_streams_ecg_matches_legacy_substring():
+    # Stream "ECG" must select only the ECG feature group, matching the legacy
+    # ``restrict_feature_space`` substring matcher (which matched columns whose
+    # names contained the "ecg" substring only). BR and Temperature are
+    # independent streams with their own group keys.
+    #
+    # ``filter_substrings == ["ecg"]`` ensures the union-substring post-filter
+    # (``_apply_substring_filter``) drops the ECG group's bundled HR-derived
+    # columns and the ``HRV`` columns emitted by
+    # ``_sliding_window_other_features`` (none of which contain the ``"ecg"``
+    # substring).
     from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
     pipeline = TraditionalDataPipeline(data_path="/tmp/data", random_seed=42)
     default_groups = ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG",
                        "processedEEG", "strain", "demographics")
-    filtered, applied, hr_requested = pipeline._resolve_feature_groups_for_streams(
+    filtered, applied, filter_substrings = pipeline._resolve_feature_groups_for_streams(
         ["ECG"], default_groups
     )
-    assert filtered == ("ECG", "BR", "temp")
+    assert filtered == ("ECG",)
     assert applied is True
-    assert hr_requested is None
+    assert filter_substrings == ["ecg"]
 
 
-def test_resolve_feature_groups_for_streams_hr_sets_hr_requested():
+def test_resolve_feature_groups_for_streams_hr_sets_filter_substrings():
     from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
     pipeline = TraditionalDataPipeline(data_path="/tmp/data", random_seed=42)
     default_groups = ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG",
@@ -240,16 +252,17 @@ def test_resolve_feature_groups_for_streams_hr_sets_hr_requested():
     # HR spans the ECG feature group (HR-named columns like
     # ``HR (bpm) - Equivital*``) AND ``demographics`` (``participant_HR_*``).
     # Pre-filter expands directly to those feature groups; the sub-stream
-    # column narrowing is delayed to ``_apply_hr_post_filter``.
-    filtered, applied, hr_requested = pipeline._resolve_feature_groups_for_streams(
+    # column narrowing is via the union-substring post-filter with the
+    # ``"hr"`` keyword (``_apply_substring_filter``).
+    filtered, applied, filter_substrings = pipeline._resolve_feature_groups_for_streams(
         ["HR"], default_groups
     )
     assert set(filtered) == {"ECG", "demographics"}
     assert applied is True
-    assert hr_requested == ["HR"]
+    assert filter_substrings == ["hr"]
 
 
-def test_apply_hr_post_filter_keeps_hr_names_only():
+def test_apply_substring_filter_keeps_hr_names_only():
     from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
     pipeline = TraditionalDataPipeline(data_path="/tmp/data", random_seed=42)
     names = [
@@ -261,21 +274,274 @@ def test_apply_hr_post_filter_keeps_hr_names_only():
         "participant_HR_seated_v0_mean_s1",
         "participant_age_v0_mean_s1",
     ]
-    filtered = pipeline._apply_hr_post_filter(names, ["HR"])
-    # Matches ``\bhr\b`` or ``participant_hr`` with re.IGNORECASE, but NOT
-    # ``HRV`` (word boundary after `hr` excludes `hrv`).
+    filtered = pipeline._apply_substring_filter(names, ["hr"])
+    # Substring `hr` (case-insensitive) matches every HR-derived name,
+    # including HRV-derived columns the legacy word-boundary regex dropped.
+    # This matches the legacy ``restrict_feature_space(['HR'])`` substring
+    # behavior.
     assert filtered == [
         "HR (bpm) - Equivital_v0_mean_s1",
+        "HRV (SDNN)_s1",
+        "HRV (RMSSD)_s1",
         "participant_HR_seated_v0_mean_s1",
     ]
 
 
-def test_apply_hr_post_filter_noop_when_hr_not_requested():
+def test_apply_substring_filter_union_for_ecg_plus_hr():
+    """Union-substring narrowing reproduces legacy multi-stream union semantics.
+
+    The legacy ``restrict_feature_space(['ECG','HR'])`` matched any column
+    whose name contained ``"ecg"`` OR ``"hr"``. NEW's union-substring filter
+    with ``["ecg", "hr"]`` returns the same union: ECG Lead variants (matched
+    by ``"ecg"``) + HR-derived + HRV + participant_HR_* variants (matched by
+    ``"hr"``).
+    """
+    from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+    pipeline = TraditionalDataPipeline(data_path="/tmp/data", random_seed=42)
+    names = [
+        "HR (bpm) - Equivital_v0_mean_s1",
+        "ECG Lead 1 - Equivital_v0_mean_s1",
+        "ECG Lead 2 - Equivital_v0_mean_s1",
+        "BR (rpm) - Equivital_v0_mean_s1",
+        "HRV (SDNN)_s1",
+        "HRV (RMSSD)_s1",
+        "participant_HR_seated_v0_mean_s1",
+        "participant_age_v0_mean_s1",
+    ]
+    filtered = pipeline._apply_substring_filter(names, ["ecg", "hr"])
+    assert filtered == [
+        "HR (bpm) - Equivital_v0_mean_s1",
+        "ECG Lead 1 - Equivital_v0_mean_s1",
+        "ECG Lead 2 - Equivital_v0_mean_s1",
+        "HRV (SDNN)_s1",
+        "HRV (RMSSD)_s1",
+        "participant_HR_seated_v0_mean_s1",
+    ]
+
+
+def test_apply_substring_filter_noop_when_filter_substrings_none():
     from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
     pipeline = TraditionalDataPipeline(data_path="/tmp/data", random_seed=42)
     names = ["HR (bpm) - Equivital_v0_mean_s1", "ECG Lead 1 - Equivital_v0_mean_s1"]
-    # When hr_requested is None, the filter is a no-op.
-    assert pipeline._apply_hr_post_filter(names, None) == names
+    # When filter_substrings is None (no stream filter in effect), the
+    # filter is a no-op.
+    assert pipeline._apply_substring_filter(names, None) == names
+
+
+# ---------------------------------------------------------------------------
+# Stream-substring parity test: NEW FEATURE_GROUPS-pre-filter + union-substring
+# post-filter vs OLD restrict_feature_space substring matcher.
+# Verifies every supported stream keyword produces the same column set.
+# ---------------------------------------------------------------------------
+
+# Enumerate the engineered variant suffixes applied by the sliding-window feature
+# generation step. Mirrors ``_feature_generation`` / ``_sliding_window_other_features``
+# behavior: every raw column produces 5 (v-methods) x 12 (stats) x 2 (planes) = 120
+# engineered variants.
+_V_METHODS = ("v0", "v1", "v2", "v5", "v6")
+_STATS = (
+    "mean", "stddev", "max", "range",
+    "derivative_mean", "derivative_stddev", "derivative_max", "derivative_range",
+    "2derivative_mean", "2derivative_stddev", "2derivative_max", "2derivative_range",
+)
+_PLANES = ("s1", "s2")
+
+# Eye-tracking special-case features emitted by ``_sliding_window_other_features``.
+# All eight names contain "pupil" so they survive the substring filter for
+# `["Pupil"]` requests.
+_EYETRACKING_SPECIAL_FEATURES = (
+    "Left Pupil Integral (Non-Baseline)",
+    "Right Pupil Integral (Non-Baseline)",
+    "Left Pupil Mean of Consecutive Difference (Non-Baseline)",
+    "Right Pupil Mean of Consecutive Difference (Non-Baseline)",
+    "Left Pupil Max of Consecutive Difference (Non-Baseline)",
+    "Right Pupil Max of Consecutive Difference (Non-Baseline)",
+    "Left Pupil Sum of Consecutive Difference (Non-Baseline)",
+    "Right Pupil Sum of Consecutive Difference (Non-Baseline)",
+)
+
+# ECG-group special-case features emitted by ``_sliding_window_other_features``.
+# Both names contain "hr" so they survive the substring filter for `["HR"]` and
+# `["ECG","HR"]` requests but NOT `["ECG"]` alone (matches legacy matcher).
+_ECG_HRV_FEATURES = ("HRV (SDNN)", "HRV (RMSSD)")
+
+
+def _expand_engineered(raw_names, groups_present):
+    """Build the full set of engineered column names from raw names.
+
+    Mirrors the sliding-window feature generation: each raw column
+    produces ``<raw>_<vN>_<stat>_<plane>`` variants (5 x 12 x 2 = 120 per
+    raw column). Eye-tracking and ECG groups additionally emit per-plane
+    special-case columns whose base names contain no ``_vN_`` infix.
+    """
+    out = []
+    for raw in raw_names:
+        for v in _V_METHODS:
+            for st in _STATS:
+                for pl in _PLANES:
+                    out.append(f"{raw}_{v}_{st}_{pl}")
+    if "eyetracking" in groups_present:
+        for n in _EYETRACKING_SPECIAL_FEATURES:
+            for pl in _PLANES:
+                out.append(f"{n}_{pl}")
+    if "ECG" in groups_present:
+        for n in _ECG_HRV_FEATURES:
+            for pl in _PLANES:
+                out.append(f"{n}_{pl}")
+    return out
+
+
+def _get_group_names(group, model_type):
+    """Get a feature group's raw feature names without requiring process() to run.
+
+    DemographicsGroup stores ``self.demographic_names`` only after ``process()``
+    is invoked on real CSV data, so for tests we use the static
+    ``DEMOGRAPHIC_NAMES`` constant the group writes to that attribute.
+    """
+    if group == "demographics":
+        return list(DEMOGRAPHIC_NAMES)
+    return FEATURE_REGISTRY[group].get_feature_names(model_type)
+
+
+def _legacy_restrict_feature_space(streams, universe):
+    """Reference implementation of the OLD substring matcher (case-insensitive
+    union of stream keywords). Mirrors ``src/scripts/feature_study_main.py``
+    restrict_feature_space at commit 88c9f07."""
+    sl = [s.lower() for s in streams]
+    return {n for n in universe if any(s in n.lower() for s in sl)}
+
+
+# Every supported single-stream keyword used in shipped configs +
+# canonical MISPELL aliases. The parity test covers each individually to
+# guard against regressions in the FEATURE_GROUPS pre-filter or the
+# substring post-filter.
+_SINGLE_STREAMS = (
+    "ECG", "HR", "BR", "Temperature", "Pupil", "Centrifuge", "EEG", "Strain",
+    "Participant",
+)
+
+# Multi-stream combos — covers shipped configs (sensor_ablation_review.yaml,
+# shap_generate.yaml, master.yaml) plus the tricky `['ECG','HR']` / `['HR','ECG']`
+# union cases that motivated the substring-union filter design.
+_MULTI_STREAMS = (
+    ("ECG", "HR"),
+    ("HR", "ECG"),
+    ("ECG", "BR"),
+    ("ECG", "Temperature"),
+    ("EEG", "Pupil"),
+    ("EEG", "Pupil", "Participant"),
+    ("EEG", "HR"),
+    ("EEG", "ECG"),
+    ("EEG", "ECG", "HR"),
+    ("EEG", "Pupil", "ECG"),
+    ("ECG", "EEG", "Centrifuge", "Participant", "Pupil"),
+)
+
+
+def _build_full_universe(default_groups, model_type):
+    """Build the FULL engineered-variant universe across the default feature
+    groups (the universe the legacy substring matcher operated over)."""
+    all_raw = []
+    for g in default_groups:
+        all_raw.extend(_get_group_names(g, model_type))
+    universe = set(_expand_engineered(all_raw, default_groups))
+    # ``AFE_indicator_windowed`` auto-appended for Complete+Explicit model
+    # types by both pipelines; no stream keyword contains "afe" so the legacy
+    # matcher dropped it for any stream ablation request.
+    universe.add("AFE_indicator_windowed")
+    return universe
+
+
+def _run_new_matcher(pipeline, streams, default_groups, model_type):
+    """Run the NEW matcher: pre-filter feature groups + AFE-drop + substring-union.
+
+    Mirrors the three legacy call sites in the pipeline (advanced get_data,
+    traditional cache branch, traditional non-cache branch)."""
+    filtered, applied, filter_substrings = pipeline._resolve_feature_groups_for_streams(
+        list(streams), default_groups
+    )
+    new_raw = []
+    for g in filtered:
+        new_raw.extend(_get_group_names(g, model_type))
+    new_universe = set(_expand_engineered(new_raw, filtered))
+    if "ECG" in filtered:  # auto-append AFE for Complete+Explicit
+        new_universe.add("AFE_indicator_windowed")
+    # Apply AFE drop when stream filter is active — exact parity with both
+    # pipeline branches.
+    if applied:
+        names_list = list(new_universe)
+        X_dummy = np.zeros((2, len(names_list)), dtype=np.float32)
+        _, names_after_drop = pipeline._drop_afe_indicator_columns(
+            X_dummy, names_list, applied
+        )
+        new_universe = set(names_after_drop)
+    if filter_substrings:
+        new_universe = set(
+            pipeline._apply_substring_filter(list(new_universe), filter_substrings)
+        )
+    return new_universe
+
+
+@pytest.mark.parametrize("stream", _SINGLE_STREAMS, ids=lambda s: f"stream={s}")
+def test_each_sensor_stream_matches_legacy_substring(stream):
+    """Per-stream parity: NEW group pre-filter + union-substring narrowing
+    must select exactly the same column set as the legacy
+    ``restrict_feature_space`` substring matcher.
+
+    Covers every single stream keyword shipped in configs (ECG, HR, BR,
+    Temperature, Pupil, Centrifuge, EEG, Strain, Participant). The
+    ECG-without-HR divergence (NEW ECG group bundles HR-derived + HRV
+    columns the legacy ``"ecg"`` substring did not match) is corrected by
+    the union-substring post-filter.
+    """
+    from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline, BaseGLOCDataPipeline
+    pipeline = TraditionalDataPipeline(
+        data_path="/tmp/nonexistent_data_path", random_seed=42
+    )
+    mt = ModelType("Complete", "Explicit")
+    default_groups = BaseGLOCDataPipeline.FEATURE_GROUPS_BY_MODEL_TYPE[mt]
+    universe = _build_full_universe(default_groups, mt)
+
+    old = _legacy_restrict_feature_space([stream], universe)
+    new = _run_new_matcher(pipeline, [stream], default_groups, mt)
+
+    assert new == old, (
+        f"stream={stream!r} parity mismatch: "
+        f"OLD={len(old)}, NEW={len(new)}, "
+        f"OLD-only[:3]={sorted(old - new)[:3]}, "
+        f"NEW-only[:3]={sorted(new - old)[:3]}"
+    )
+
+
+@pytest.mark.parametrize("streams", _MULTI_STREAMS, ids=lambda s: "+".join(s))
+def test_multi_stream_combos_match_legacy_substring_union(streams):
+    """Multi-stream parity: NEW union-substring narrowing reproduces the legacy
+    ``restrict_feature_space`` union semantics (any column whose name contains
+    ANY requested stream keyword).
+
+    Specifically covers the tricky ``['ECG','HR']`` case where the legacy
+    union keeps both ``ECG Lead`` variants (matched by ``"ecg"``) and the
+    ECG-group-bundled HR-derived columns (matched by ``"hr"``); NEW's prior
+    HR-only narrowing approach dropped the ``ECG Lead`` variants (240-column
+    divergence). The union-substring filter resolves this.
+    """
+    from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline, BaseGLOCDataPipeline
+    pipeline = TraditionalDataPipeline(
+        data_path="/tmp/nonexistent_data_path", random_seed=42
+    )
+    mt = ModelType("Complete", "Explicit")
+    default_groups = BaseGLOCDataPipeline.FEATURE_GROUPS_BY_MODEL_TYPE[mt]
+    universe = _build_full_universe(default_groups, mt)
+
+    old = _legacy_restrict_feature_space(list(streams), universe)
+    new = _run_new_matcher(pipeline, streams, default_groups, mt)
+
+    assert new == old, (
+        f"streams={list(streams)} parity mismatch: "
+        f"OLD={len(old)}, NEW={len(new)}, "
+        f"OLD-only[:3]={sorted(old - new)[:3]}, "
+        f"NEW-only[:3]={sorted(new - old)[:3]}"
+    )
 
 
 def test_drop_afe_indicator_columns_only_when_filtering_applied():
