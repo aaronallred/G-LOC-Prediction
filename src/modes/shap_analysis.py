@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
+from src.traditional_experiment_utils import stratified_kfold_split
 from src.modes.shap_grouped_plots import plot_all_grouped_shap_bars
 
 logger = logging.getLogger(__name__)
@@ -191,7 +192,21 @@ def run_shap_analysis(
 
             model_template = model_factory.create_model(model_name)
 
+            X, y, select_features = pipeline.get_data(
+                model=model_template,
+                feature_streams=feature_streams,
+                return_feature_names=True,
+                traditional_feature_selection=feature_group,
+            )
+
             metadata_path = saved_models_dir / model_name / stream_str / "metadata.json"
+            if metadata_path.exists():
+                metadata = _load_model_metadata(metadata_path)
+                _validate_feature_names_match(
+                    current_feature_names=select_features,
+                    saved_feature_names=metadata.get("feature_names", []),
+                    metadata_path=metadata_path,
+                )
 
             for kfold_id in range(num_splits):
                 fold_num = kfold_id + 1
@@ -210,23 +225,6 @@ def run_shap_analysis(
                     )
                     continue
 
-                X_train, X_test, _y_train, _y_test, select_features = pipeline.get_data(
-                    model=model_template,
-                    kfold_id=kfold_id,
-                    num_splits=num_splits,
-                    feature_streams=feature_streams,
-                    return_feature_names=True,
-                    traditional_feature_selection=feature_group,
-                )
-
-                if metadata_path.exists():
-                    metadata = _load_model_metadata(metadata_path)
-                    _validate_feature_names_match(
-                        current_feature_names=select_features,
-                        saved_feature_names=metadata.get("feature_names", []),
-                        metadata_path=metadata_path,
-                    )
-
                 model_path = (
                     saved_models_dir
                     / model_name
@@ -235,10 +233,18 @@ def run_shap_analysis(
                 )
 
                 if not model_path.exists():
-                    raise FileNotFoundError(f"Saved model not found: %s", model_path)
+                    raise FileNotFoundError(f"Saved model not found: {model_path}")
 
                 logger.info("Loading trained model from %s", model_path)
                 trained_model = _load_trained_model(model_path)
+
+                X_train, X_test, _, _ = stratified_kfold_split(
+                    X,
+                    y,
+                    num_splits,
+                    kfold_id,
+                    random_seed,
+                )
 
                 if hasattr(trained_model, "n_features_in_"):
                     if trained_model.n_features_in_ != X_train.shape[1]:
