@@ -1,26 +1,24 @@
+import faiss
 import json
 import logging
+import numpy as np
 import os
+import pandas as pd
 import pickle
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from itertools import islice
 from pathlib import Path
-from typing import Any, Literal
-
-import faiss
-import numpy as np
-import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
-
 from src.Data_Pipeline.baseline import BaselineContext, baseline_data
 from src.Data_Pipeline.features import FEATURE_REGISTRY, ProcessedEEGGroup, RawEEGGroup
 from src.Data_Pipeline.imputation_config import ImputePhase
 from src.model_type import ModelType
 from src.models.base import BaseModel
 from src.models.model_factory import ModelFactory
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 # Keep path resolution behavior consistent with the original module location
@@ -383,52 +381,44 @@ class BaseGLOCDataPipeline(ABC):
 		"Complete": ["v0", "v1", "v2", "v5", "v6"],
 	}
 
-	# Canonical sensor-stream name -> FEATURE_REGISTRY group keys required to
-	# produce it. Pre-filtering limits ``feature_groups_to_analyze`` to these
-	# keys before processing runs, so downstream work operates only on the
-	# requested sensor groups.
-	#
-	# Notes:
-	#   - "ECG" intentionally includes the BR and temp groups.
-	#   - "HR" is intentionally absent from this map. HR columns span the ECG
-	#     feature group (``HR (bpm) - Equivital`` etc.) AND the ``demographics``
-	#     group (``participant_HR_seated/stand/exercise``). Pre-filtering alone
-	#     cannot express the HR-only sub-stream, so HR is handled separately
-	#     via ``_apply_hr_post_filter`` after pre-filtering
-	_STREAM_TO_FEATURE_GROUPS: dict[str, tuple[str, ...]] = {
-		"ECG": ("ECG", "BR", "temp"),
-		"BR": ("BR",),
-		"Temperature": ("temp",),
-		"Pupil": ("eyetracking",),
-		"Centrifuge": ("G",),
-		"EEG": ("rawEEG", "processedEEG"),
-		"Strain": ("strain",),
-		"Demographics": ("demographics",),
-	}
+    # Canonical sensor-stream name -> FEATURE_REGISTRY group keys required to
+    # produce it. Pre-filtering limits ``feature_groups_to_analyze`` to these
+    # keys before processing runs, so downstream work operates only on the
+    # requested sensor groups.
+    _STREAM_TO_FEATURE_GROUPS: dict[str, tuple[str, ...]] = {
+        "ECG": ("ECG",),
+        "BR": ("BR",),
+        "Temperature": ("temp",),
+        "Pupil": ("eyetracking",),
+        "Centrifuge": ("G",),
+        "EEG": ("rawEEG", "processedEEG"),
+        "Strain": ("strain",),
+        "Demographics": ("demographics",),
+    }
 
-	# Lower-cased alias -> canonical stream name. Recognized by
-	# ``_resolve_feature_groups_for_streams``.
-	_STREAM_ALIASES: dict[str, str] = {
-		"demographic": "Demographics",
-		"demographics": "Demographics",
-		"participant": "Demographics",
-		"temp": "Temperature",
-		"temperature": "Temperature",
-		"eyetracking": "Pupil",
-		"pupil": "Pupil",
-		"g": "Centrifuge",
-		"gforce": "Centrifuge",
-		"g force": "Centrifuge",
-		"raweeg": "EEG",
-		"processedeeg": "EEG",
-		"eeg": "EEG",
-		"br": "BR",
-		"ecg": "ECG",
-		"strain": "Strain",
-		# Special sentinel: maps to the HR sub-stream handled via post-hoc
-		# name narrowing (see ``_apply_hr_post_filter``).
-		"hr": "HR",
-	}
+    # Lower-cased alias -> canonical stream name. Recognized by
+    # ``_resolve_feature_groups_for_streams``.
+    _STREAM_ALIASES: dict[str, str] = {
+        "demographic": "Demographics",
+        "demographics": "Demographics",
+        "participant": "Demographics",
+        "temp": "Temperature",
+        "temperature": "Temperature",
+        "eyetracking": "Pupil",
+        "pupil": "Pupil",
+        "g": "Centrifuge",
+        "gforce": "Centrifuge",
+        "g force": "Centrifuge",
+        "raweeg": "EEG",
+        "processedeeg": "EEG",
+        "eeg": "EEG",
+        "br": "BR",
+        "ecg": "ECG",
+        "strain": "Strain",
+        # Special sentinel: maps to the HR sub-stream handled via post-hoc
+        # name narrowing (see ``_apply_substring_filter``).
+        "hr": "HR",
+    }
 
 	# AFE-indicator column names auto-appended for ``Complete + Explicit`` model
 	# types (data_pipeline.py:1301-1305 and 1595-1609). These are stream-
@@ -950,10 +940,28 @@ class BaseGLOCDataPipeline(ABC):
 	) -> tuple[Sequence[str], bool, list[str] | None]:
 		"""Pre-filter feature groups to only those needed by requested streams.
 
-		Pre-filtering ``feature_groups_to_analyze`` means downstream processing
-		(feature generation, baselining, KNN imputation, standardization) only
-		operates on the requested sensor groups, instead of running on the full
-		default set and then column-subsetting at the end.
+        Pre-filtering ``feature_groups_to_analyze`` means downstream processing
+        (feature generation, baselining, KNN imputation, standardization) only
+        operates on the requested sensor groups, instead of running on the full
+        default set and then column-subsetting at the end.
+
+        Pre-filtering alone is insufficient in two cases:
+
+          - The ECG group bundles HR-derived columns (``HR (bpm) - Equivital``,
+            ``HR_instant``, ``HR_average``, ``HR_w_average``) and emits
+            ``HRV (SDNN)``/``HRV (RMSSD)`` columns that the legacy ``"ecg"``
+            substring matcher dropped for ``["ECG"]`` stream requests.
+          - HR columns span the ECG group AND the ``demographics`` group
+            (``participant_HR_*``); pre-filtering by group alone cannot drop
+            the non-HR demographics columns (``participant_age`` etc.).
+
+        A post-hoc union-substring narrowing (``_apply_substring_filter``)
+        resolves both: keeping every column whose name contains any of the
+        requested stream keywords (lowercased) reproduces the legacy union
+        semantics exactly, including multi-stream combinations like
+        ``["ECG", "HR"]`` whose legacy union selects both the ``ECG Lead``
+        columns (matched by ``"ecg"``) and the HR-derived columns (matched by
+        ``"hr"``).
 
 		Args:
 		    feature_streams: Optional list of requested stream names (e.g.
@@ -965,24 +973,26 @@ class BaseGLOCDataPipeline(ABC):
 		        the no-op fallback (when no streams are requested) and as the
 		        ordering reference for the filtered output.
 
-		Returns:
-		    ``(filtered_feature_groups, applied, hr_requested)``:
+        Returns:
+            ``(filtered_feature_groups, applied, filter_substrings)``:
 
-		      - ``filtered_feature_groups``: subset of
-		        ``default_feature_groups`` required to produce the requested
-		        streams. Order preserves ``default_feature_groups``.
-		      - ``applied``: ``True`` if any filtering was applied; ``False``
-		        when ``feature_streams`` was None/empty/unknown (no-op
-		        pass-through).
-		      - ``hr_requested``: ``["HR"]`` if the HR sub-stream was
-		        requested (needs post-hoc name narrowing), else ``None``.
-		"""
-		if not feature_streams:
-			return default_feature_groups, False, None
+              - ``filtered_feature_groups``: subset of
+                ``default_feature_groups`` required to produce the requested
+                streams. Order preserves ``default_feature_groups``.
+              - ``applied``: ``True`` if any filtering was applied; ``False``
+                when ``feature_streams`` was None/empty/unknown (no-op
+                pass-through).
+              - ``filter_substrings``: ``Optional[List[str]]`` of lowercased
+                user-provided stream keywords to use as a union-substring
+                post-filter (see ``_apply_substring_filter``). ``None`` when
+                no stream filtering is in effect.
+        """
+        if not feature_streams:
+            return default_feature_groups, False, None
 
-		needed_groups: set[str] = set()
-		hr_requested: list[str] | None = None
-		recognized_streams: list[str] = []
+        needed_groups: set[str] = set()
+        filter_substrings: list[str] = []
+        recognized_streams: list[str] = []
 
 		for stream in feature_streams:
 			if not isinstance(stream, str):
@@ -996,13 +1006,13 @@ class BaseGLOCDataPipeline(ABC):
 			canonical = self._STREAM_ALIASES.get(candidate.lower(), candidate)
 			recognized_streams.append(canonical)
 
-			if canonical == "HR":
-				# HR spans ECG columns AND demographics.participant_HR_*.
-				# Both groups must be active so the post-hoc name regex in
-				# ``_apply_hr_post_filter`` can narrow to HR-only columns.
-				hr_requested = ["HR"]
-				needed_groups.update(("ECG", "demographics"))
-				continue
+            if canonical == "HR":
+                # HR spans ECG columns AND demographics.participant_HR_*.
+                # Both groups must be active so the post-hoc substring union
+                # in ``_apply_substring_filter`` can narrow to HR-only columns.
+                needed_groups.update(("ECG", "demographics"))
+                filter_substrings.append(candidate.lower())
+                continue
 
 			group_keys = self._STREAM_TO_FEATURE_GROUPS.get(canonical)
 			if group_keys is None:
@@ -1014,7 +1024,8 @@ class BaseGLOCDataPipeline(ABC):
 				)
 				continue
 
-			needed_groups.update(group_keys)
+            needed_groups.update(group_keys)
+            filter_substrings.append(candidate.lower())
 
 		if not needed_groups:
 			logger.info(
@@ -1052,35 +1063,56 @@ class BaseGLOCDataPipeline(ABC):
 		# Preserve the default ordering (FEATURE_GROUPS_BY_MODEL_TYPE)
 		filtered = tuple(g for g in default_feature_groups if g in available_groups)
 
-		logger.info(
-			"Pre-filtered feature_groups_to_analyze for streams=%s: %s -> %s (hr_post_filter=%s).",
-			recognized_streams,
-			list(default_feature_groups),
-			list(filtered),
-			hr_requested is not None,
-		)
-		return filtered, True, hr_requested
+        logger.info(
+            "Pre-filtered feature_groups_to_analyze for streams=%s: %s -> %s "
+            "(substring_filter=%s).",
+            recognized_streams, list(default_feature_groups), list(filtered),
+            filter_substrings,
+        )
+        return filtered, True, filter_substrings
 
-	def _apply_hr_post_filter(
-		self, feature_names: list[str], hr_requested: list[str] | None
-	) -> list[str]:
-		"""Narrow feature names to HR-specific columns.
+    def _apply_substring_filter(
+            self,
+            feature_names: List[str],
+            filter_substrings: Optional[List[str]],
+    ) -> List[str]:
+        """Narrow feature names to those matching any requested stream keyword.
 
-		``_SENSOR_STREAM_PATTERNS["HR"] = (r"\\bhr\\b", r"participant_hr")``
-		with ``re.IGNORECASE`` is preserved verbatim. HRV-derived columns
-		(``HRV (SDNN)``, ``HRV (RMSSD)``) contain ``hrv`` but do NOT satisfy
-		``\\bhr\\b`` due to the word boundary after ``hr``, so they are not
-		kept.
-		"""
-		if not hr_requested:
-			return feature_names
+        For each requested stream keyword (lowercased — e.g. ``"ecg"``,
+        ``"hr"``, ``"eeg"``, ``"pupil"``, etc.) keep every column whose name
+        contains that substring case-insensitively. This union-substring
+        matcher reproduces the legacy ``restrict_feature_space`` behavior
+        exactly for all single- and multi-stream combinations, including:
 
-		patterns = (r"\bhr\b", r"participant_hr")
-		return [
-			name
-			for name in feature_names
-			if any(re.search(pattern, name, flags=re.IGNORECASE) for pattern in patterns)
-		]
+          - ``["ECG"]``: keeps only the two ``ECG Lead`` columns (drops the
+            ECG group's bundled HR-derived columns and ``HRV`` columns).
+          - ``["HR"]``: keeps HR-derived columns (spans ECG and demographics
+            groups) and ``HRV`` columns; drops ``ECG Lead`` and non-HR
+            demographics columns.
+          - ``["ECG", "HR"]``: keeps the union — both ECG-Lead and HR-derived
+            columns — matching the legacy matcher's union semantics.
+          - ``["EEG"]``, ``["Pupil"]``, ``["Participant"]``, ...: substring
+            filter consumes all columns produced by the feature-group
+            pre-filter (no further narrowing), since the user-spelled stream
+            keyword (e.g. ``"eeg"``) appears in every column name produced by
+            the corresponding group(s).
+
+        ``"AFE_indicator_windowed"`` does not contain any stream keyword and
+        is dropped by this filter for stream-filter requests. The pipeline
+        drops AFE columns separately via ``_drop_afe_indicator_columns`` for
+        the advanced pipeline; for the traditional pipeline the AFE column is
+        stripped here as part of the substring narrowing — both paths leave
+        the column absent for stream-filter requests, matching legacy
+        behavior.
+        """
+        if not filter_substrings:
+            return feature_names
+
+        substrings = [s.lower() for s in filter_substrings]
+        return [
+            name for name in feature_names
+            if any(s in name.lower() for s in substrings)
+        ]
 
 	def _drop_afe_indicator_columns(
 		self, x_feature_matrix: np.ndarray, feature_names: list[str], applied: bool
@@ -1178,15 +1210,13 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 		if horizon < 0:
 			raise ValueError(f"horizon must be >= 0, got {horizon}")
 
-		################################################### FEATURES SETUP ###################################################
-		logger.info("Setting up features and baselines for model_type=%s", model_type)
-		feature_groups_to_analyze, baseline_methods_to_use = (
-			self._get_feature_groups_and_baseline_methods(model_type)
-		)
-		# Pre-filter feature groups to only those needed by requested streams
-		feature_groups_to_analyze, _stream_filter_applied, _hr_requested = (
-			self._resolve_feature_groups_for_streams(feature_streams, feature_groups_to_analyze)
-		)
+        ################################################### FEATURES SETUP ###################################################
+        logger.info("Setting up features and baselines for model_type=%s", model_type)
+        feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type)
+        # Pre-filter feature groups to only those needed by requested streams
+        feature_groups_to_analyze, _stream_filter_applied, _filter_substrings = (
+            self._resolve_feature_groups_for_streams(feature_streams, feature_groups_to_analyze)
+        )
 
 		############################################# LOAD AND PROCESS DATA #############################################
 		logger.info(
@@ -1358,50 +1388,55 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 			y_train = self._shift_labels_by_samples(y_train, train_trial_ids, horizon)
 			y_test = self._shift_labels_by_samples(y_test, test_trial_ids, horizon)
 
-		############################################# SENSOR ABLATION / FEATURE FILTER  #############################################
-		# Pre-filtering of ``feature_groups_to_analyze`` already restricts the
-		# generated feature matrix to the requested sensor groups. Two residual
-		# post-steps are required to identical behavior:
-		#   1. Drop the stream-independent AFE_indicator column. The
-		#      Complete+Explicit advanced pipeline appends an AFE_indicator
-		#      column to the feature matrix at ``_feature_clean_and_prep`` but
-		#      does NOT report it in ``features["All"]``
-		#   2. If the HR sub-stream was requested, narrow to HR-named columns
-		#      (HR spans two feature groups and cannot be expressed via group
-		#      pre-filtering alone).
-		if _stream_filter_applied:
-			# 1. Defensive drop of AFE-indicator columns from x_train / x_test.
-			#    The last matrix column is the trial id.
-			x_train_features, x_train_trial = x_train[:, :-1], x_train[:, -1:]
-			x_test_features, x_test_trial = x_test[:, :-1], x_test[:, -1:]
-			x_train_features, features["All"] = self._drop_afe_indicator_columns(
-				x_train_features, features["All"], _stream_filter_applied
-			)
-			x_test_features, _ = self._drop_afe_indicator_columns(
-				x_test_features, list(features["All"]), _stream_filter_applied
-			)
-			x_train = np.hstack([x_train_features, x_train_trial])
-			x_test = np.hstack([x_test_features, x_test_trial])
+        ############################################# SENSOR ABLATION / FEATURE FILTER  #############################################
+        # Pre-filtering of ``feature_groups_to_analyze`` already restricts the
+        # generated feature matrix to the requested sensor groups. Two residual
+        # post-steps are required to reproduce the legacy ``restrict_feature_space``
+        # behavior exactly:
+        #   1. Drop the stream-independent AFE_indicator column. The
+        #      Complete+Explicit advanced pipeline appends an AFE_indicator
+        #      column to the feature matrix at ``_feature_clean_and_prep`` but
+        #      does NOT report it in ``features["All"]``
+        #   2. Drop any column whose name contains none of the requested stream
+        #      keywords (union-substring narrowing — see
+        #      ``_apply_substring_filter``). This handles the two cases that
+        #      group pre-filtering alone cannot express: the ECG group bundles
+        #      HR-derived and ``HRV`` columns (legacy ``["ECG"]`` matcher dropped
+        #      them), and the HR sub-stream spans the ECG + ``demographics``
+        #      groups but only HR-named columns should survive.
+        if _stream_filter_applied:
+            # 1. Defensive drop of AFE-indicator columns from x_train / x_test.
+            #    The last matrix column is the trial id.
+            x_train_features, x_train_trial = x_train[:, :-1], x_train[:, -1:]
+            x_test_features, x_test_trial = x_test[:, :-1], x_test[:, -1:]
+            x_train_features, features["All"] = self._drop_afe_indicator_columns(
+                x_train_features, features["All"], _stream_filter_applied
+            )
+            x_test_features, _ = self._drop_afe_indicator_columns(
+                x_test_features, list(features["All"]), _stream_filter_applied
+            )
+            x_train = np.hstack([x_train_features, x_train_trial])
+            x_test = np.hstack([x_test_features, x_test_trial])
 
-			# 2. HR sub-stream: narrow to HR-named columns only.
-			if _hr_requested is not None:
-				all_feature_names = features["All"]
-				filtered_feature_names = self._apply_hr_post_filter(
-					all_feature_names, _hr_requested
-				)
-				if not filtered_feature_names:
-					raise ValueError(
-						f"HR post-filter removed all features. streams={_hr_requested}"
-					)
-				col_indices = [all_feature_names.index(name) for name in filtered_feature_names]
-				x_train = np.hstack([x_train[:, col_indices], x_train[:, -1:]])
-				x_test = np.hstack([x_test[:, col_indices], x_test[:, -1:]])
-				features["All"] = filtered_feature_names
-				logger.info(
-					"Applied HR post-filter for advanced pipeline: features %d -> %d",
-					len(all_feature_names),
-					len(filtered_feature_names),
-				)
+            # 2. Union-substring narrowing to the requested stream keywords.
+            if _filter_substrings:
+                all_feature_names = features["All"]
+                filtered_feature_names = self._apply_substring_filter(
+                    all_feature_names, _filter_substrings
+                )
+                if not filtered_feature_names:
+                    raise ValueError(
+                        "Stream substring filter removed all features. streams="
+                        f"{feature_streams}"
+                    )
+                col_indices = [all_feature_names.index(name) for name in filtered_feature_names]
+                x_train = np.hstack([x_train[:, col_indices], x_train[:, -1:]])
+                x_test = np.hstack([x_test[:, col_indices], x_test[:, -1:]])
+                features["All"] = filtered_feature_names
+                logger.info(
+                    "Applied stream substring filter for advanced pipeline: features %d -> %d",
+                    len(all_feature_names), len(filtered_feature_names),
+                )
 
 		return x_train, x_test, y_train, y_test, features["All"]
 
@@ -1742,51 +1777,60 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 class TraditionalDataPipeline(BaseGLOCDataPipeline):
 	"""Legacy-compatible data pipeline for temporal/traditional GLOC modeling."""
 
-	def get_data(
-		self,
-		backstep: int,
-		data_rate: int,
-		classifier_type: str,
-		model_type: ModelType,
-		remove_NaN_trials: bool,
-		offset: float,
-		time_start: float,
-		subject_to_analyze: str | None,
-		trial_to_analyze: str | None,
-		analysis_type: int,
-		*,
-		select_features: list[str] | None = None,
-		feature_streams: list[str] | None = None,
-		traditional_feature_selection: Literal["cache", "raw"] = "cache",
-		return_feature_names: bool = False,
-		impute_file_name: str | None = None,
-		impute_phase: Any = None,
-		output_feature_dtype: np.dtype = np.dtype(np.float32),
-		save_impute: bool = False,
-		load_impute: bool = False,
-		model: BaseModel | None = None,
-	) -> tuple[np.ndarray, np.ndarray]:
-		"""Return data for a given set of parameters."""
-		traditional_hyperparameters = self._resolve_traditional_hyperparameters(
-			model, classifier_type
-		)
-		baseline_window = traditional_hyperparameters["baseline_window"]
-		window_size = traditional_hyperparameters["window_size"]
-		stride = traditional_hyperparameters["stride"]
-		_feature_reduction_type = traditional_hyperparameters["feature_reduction_type"]
-		baseline_methods_to_use = traditional_hyperparameters["baseline_methods_to_use"]
-		_imbalance_type = traditional_hyperparameters["imbalance_type"]
-		impute_type = traditional_hyperparameters["impute_type"]
-		n_neighbors = traditional_hyperparameters["n_neighbors"]
-		feature_groups_to_analyze, baseline_methods_to_use = (
-			self._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
-		)
-		# Pre-filter feature groups to only those needed by requested streams;
-		# Note this affects ``_remove_all_nan_trials`` (runs over the pre-filtered
-		# feature set, not the full default set)
-		feature_groups_to_analyze, _stream_filter_applied, _hr_requested = (
-			self._resolve_feature_groups_for_streams(feature_streams, feature_groups_to_analyze)
-		)
+    def get_data(
+            self,
+            backstep: int,
+            data_rate: int,
+            classifier_type: str,
+            model_type: ModelType,
+            remove_NaN_trials: bool,
+            offset: float,
+            time_start: float,
+            subject_to_analyze: Optional[str],
+            trial_to_analyze: Optional[str],
+            analysis_type: int,
+            *,
+            select_features: Optional[List[str]] = None,
+            feature_streams: Optional[List[str]] = None,
+            traditional_feature_selection: Literal["cache", "raw"] = "cache",
+            return_feature_names: bool = False,
+            impute_file_name: Optional[str] = None,
+            impute_phase: Any = None,
+            output_feature_dtype: np.dtype = np.dtype(np.float32),
+            save_impute: bool = False,
+            load_impute: bool = False,
+            model: Optional[BaseModel] = None,
+            kfold_id: Optional[int] = None,
+            num_splits: Optional[int] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Return data for a given set of parameters."""
+        if kfold_id is None or num_splits is None:
+            raise ValueError(
+                "Traditional pipeline requires kfold_id and num_splits for fold-aware standardization. "
+                f"Got kfold_id={kfold_id}, num_splits={num_splits}."
+            )
+        if kfold_id < 0 or kfold_id >= num_splits:
+            raise ValueError(
+                f"Fold {kfold_id} is out of range [0, {num_splits - 1}]."
+            )
+
+        traditional_hyperparameters = self._resolve_traditional_hyperparameters(model, classifier_type)
+        baseline_window = traditional_hyperparameters["baseline_window"]
+        window_size = traditional_hyperparameters["window_size"]
+        stride = traditional_hyperparameters["stride"]
+        _feature_reduction_type = traditional_hyperparameters["feature_reduction_type"]
+        baseline_methods_to_use = traditional_hyperparameters["baseline_methods_to_use"]
+        _imbalance_type = traditional_hyperparameters["imbalance_type"]
+        impute_type = traditional_hyperparameters["impute_type"]
+        n_neighbors = traditional_hyperparameters["n_neighbors"]
+        feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type,
+                                                                                                           baseline_methods_to_use)
+        # Pre-filter feature groups to only those needed by requested streams;
+        # Note this affects ``_remove_all_nan_trials`` (runs over the pre-filtered
+        # feature set, not the full default set)
+        feature_groups_to_analyze, _stream_filter_applied, _filter_substrings = (
+            self._resolve_feature_groups_for_streams(feature_streams, feature_groups_to_analyze)
+        )
 
 		############################################# LOAD AND PROCESS DATA #############################################
 		logger.info(
@@ -1983,13 +2027,17 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 					f for f in available_cache_features if f not in self._AFE_INDICATOR_COLUMN_NAMES
 				]
 
-			# HR sub-stream: narrow to HR-named columns only (HR spans the
-			# ECG and demographics feature groups and cannot be expressed via
-			# group pre-filtering alone).
-			if _hr_requested is not None:
-				available_cache_features = self._apply_hr_post_filter(
-					available_cache_features, _hr_requested
-				)
+            # Union-substring narrowing to the requested stream keywords.
+            # Reproduces the legacy ``restrict_feature_space`` union-substring
+            # matcher for both the ECG-group-bundles-HR-columns case (drops
+            # HR-derived / HRV columns for ``["ECG"]`` requests) and the
+            # HR-spans-two-groups case (drops non-HR demographics columns for
+            # ``["HR"]`` requests). Multi-stream requests take the union of
+            # every stream keyword's matches — see ``_apply_substring_filter``.
+            if _filter_substrings:
+                available_cache_features = self._apply_substring_filter(
+                    available_cache_features, _filter_substrings
+                )
 
 			if not available_cache_features:
 				raise ValueError(
@@ -2020,11 +2068,12 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 					)
 				)
 
-			# HR sub-stream: narrow to HR-named columns only.
-			if _hr_requested is not None:
-				all_available_features = self._apply_hr_post_filter(
-					all_available_features, _hr_requested
-				)
+            # Union-substring narrowing to the requested stream keywords
+            # (mirrors the cache branch).
+            if _filter_substrings:
+                all_available_features = self._apply_substring_filter(
+                    all_available_features, _filter_substrings
+                )
 
 			if not all_available_features:
 				raise ValueError(
