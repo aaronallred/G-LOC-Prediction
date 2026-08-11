@@ -1,25 +1,23 @@
+import faiss
 import json
 import logging
+import numpy as np
 import os
+import pandas as pd
 import pickle
 import re
 from abc import ABC, abstractmethod
 from itertools import islice
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
-
-import faiss
-import numpy as np
-import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
-
 from src.Data_Pipeline.baseline import BaselineContext, baseline_data
 from src.Data_Pipeline.features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
 from src.Data_Pipeline.imputation_config import ImputePhase
 from src.model_type import ModelType
 from src.models.base import BaseModel
 from src.models.model_factory import ModelFactory
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 # Keep path resolution behavior consistent with the original module location
@@ -1609,7 +1607,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                                                                               gloc_labels_numpy)
 
         if return_feature_names:
-            return gloc_data_all_features_numpy, gloc_labels_numpy, select_features
+            return gloc_data_all_features_numpy, gloc_labels_numpy, features["All"]
 
         return gloc_data_all_features_numpy, gloc_labels_numpy
 
@@ -1761,7 +1759,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
          sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
          sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
          sliding_window_cognitive_ies_s2) = \
-             (self._sliding_window_other_features(time_start, stride, window_size, trial_column, time_column,
+            (self._sliding_window_other_features(time_start, stride, window_size, trial_column, time_column,
                                                  number_windows,
                                                  baseline_names_v0, baseline_v0, feature_groups_to_analyze))
 
@@ -2109,7 +2107,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             sliding_window_max_s1[trial_id_in_data[i]] = sliding_window_max_current_z_score_s1
             sliding_window_range_s1[trial_id_in_data[i]] = sliding_window_range_current_z_score_s1
 
-        # Name features
+            # Name features
             all_features_stddev_s1 = [s + '_stddev_s1' for s in combined_baseline_names]
             all_features_max_s1 = [s + '_max_s1' for s in combined_baseline_names]
             all_features_range_s1 = [s + '_range_s1' for s in combined_baseline_names]
