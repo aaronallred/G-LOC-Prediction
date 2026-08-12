@@ -466,7 +466,7 @@ class BaseGLOCDataPipeline(ABC):
         else:  # All Trials for All Subjects
             return gloc_data
 
-        return gloc_data[mask]
+        return gloc_data[mask].reset_index(drop=True)
 
     def _process_and_get_feature_names(
             self,
@@ -1609,7 +1609,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                                                                               gloc_labels_numpy)
 
         if return_feature_names:
-            return gloc_data_all_features_numpy, gloc_labels_numpy, select_features
+            return gloc_data_all_features_numpy, gloc_labels_numpy, features["All"]
 
         return gloc_data_all_features_numpy, gloc_labels_numpy
 
