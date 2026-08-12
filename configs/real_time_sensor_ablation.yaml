@@ -31,7 +31,7 @@ sensor_ablation:
     num_splits: 10
     class_weight: null
     streams:
-      - [ ECG, Centrifuge ]
+      - [ ECG, HR, BR, Temperature, Centrifuge ]
   review:
     enabled: false
     save_results_folder: Results/Sensor_Ablation_Real_Time
