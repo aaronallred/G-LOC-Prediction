@@ -112,7 +112,7 @@ def _run_traditional_ablation(
             "X": X,
             "y": y,
             "select_features": select_features
-        })
+        }, file)
 
     sys.exit()
 
