@@ -6,6 +6,8 @@ import time
 import matplotlib.pyplot as plt
 from matplotlib_venn import venn2, venn3
 from upsetplot import from_contents, UpSet
+import sys
+import pickle
 
 
 from GLOC_data_processing import *
@@ -420,6 +422,15 @@ if preference == 7:
 
             # Always pass offset=0 when generating data
             x, y = data_with_prediction(0, data_rate, classifier, model_type, select_features)
+
+            with open("old_pipeline_old_code.pkl", "wb") as f:
+                pickle.dump({
+                    "X": x,
+                    "y": y,
+                    "select_features": select_features
+                }, f)
+
+            sys.exit()
 
             # Perform stratified k-fold evaluation
             for k in range(num_kfold):
