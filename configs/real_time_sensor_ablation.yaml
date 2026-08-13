@@ -21,8 +21,8 @@ traditional_data_parameters:
 
 sensor_ablation:
   training:
-    enabled: false
-    save_results_folder: Results/Sensor_Ablation_Real_Time
+    enabled: true
+    save_results_folder: Results/Sensor_Ablation_Real_Time_Before_Standardization
     median_hyperparameters_folder: Results/Cross_Validation
     models: [ EGB, KNN, RF ]
     model_type: !ModelType [ Complete, Explicit ]
@@ -31,9 +31,9 @@ sensor_ablation:
     num_splits: 10
     class_weight: balanced
     streams:
-      - [ ECG, Centrifuge ]
+      - [ ECG, HR, BR, Temperature Centrifuge ]
   review:
-    enabled: true
+    enabled: false
     save_results_folder: Results/Sensor_Ablation_Real_Time
     models: [ EGB, KNN, RF ]
     model_type: !ModelType [ Complete, Explicit ]
