@@ -305,7 +305,7 @@ def classify_knn(x_train, x_test, y_train, y_test, random_state,
     print("G-Mean: ", g_mean)
 
     # Create Confusion Matrix
-    create_confusion_matrix(y_test, label_predictions, 'kNN')
+    # create_confusion_matrix(y_test, label_predictions, 'kNN')
 
     # # Save model
     # if retrain:
@@ -865,7 +865,7 @@ def classify_knn_hpo(x_train, x_test, y_train, y_test, random_state,
     print("G-Mean: ", g_mean)
 
     # Create Confusion Matrix
-    create_confusion_matrix(y_test, label_predictions, 'kNN')
+    # create_confusion_matrix(y_test, label_predictions, 'kNN')
 
     # Save model
     if retrain:

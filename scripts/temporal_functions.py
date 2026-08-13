@@ -8,9 +8,9 @@ import joblib  # For saving the model
 from baseline_methods import baseline_data
 from GLOC_data_processing import *
 
-from scripts.features import feature_generation, sliding_window_max, sliding_window_mean_calc
+from features import feature_generation, sliding_window_max, sliding_window_mean_calc
 
-from scripts.imputation import knn_impute, faster_knn_impute, eeg_condition_impute
+from imputation import knn_impute, faster_knn_impute, eeg_condition_impute
 import pickle
 from prediction import y_prediction_offset, process_NaN_temporal
 import matplotlib.pyplot as plt
@@ -22,7 +22,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
       ################################################### USER INPUTS  ###################################################
         ## Data Folder Location
         # datafolder = '../../'
-    datafolder = '../data/'
+    datafolder = '../data_reduced/'
 
         # Random State | 42 - Debug mode
     random_state = 42

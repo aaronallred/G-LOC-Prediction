@@ -9,10 +9,10 @@ from upsetplot import from_contents, UpSet
 
 
 from GLOC_data_processing import *
-from scripts.GLOC_classifier import stratified_kfold_split, classify_logistic_regression, classify_random_forest, \
+from GLOC_classifier import stratified_kfold_split, classify_logistic_regression, classify_random_forest, \
     classify_lda, classify_svm, classify_knn, classify_ensemble_with_gradboost
-from scripts.imbalance_techniques import resample_ros
-from scripts.temporal_functions import plotting_offset_models, data_with_prediction, \
+from imbalance_techniques import resample_ros
+from temporal_functions import plotting_offset_models, data_with_prediction, \
     plot_f1_scores_across_classifiers, get_model_subfolder, \
      get_median_hyperparameters, get_hyperparameters_from_json, \
     plot_metrics_from_cache
@@ -32,7 +32,7 @@ import seaborn as sns
 
 offset_ranges = (0,1,1) # No longer doing any offset (no temporal eval)
 data_rate = 25 # (hz)
-preference = 11 # Which section of the code do we want to run
+preference = 7 # Which section of the code do we want to run
 random_state = 42
 class_weight_imb = None
 
@@ -345,7 +345,7 @@ if preference == 7:
     model_type = ['complete', 'explicit']
 
     # Classifiers to evaluate for each stream combination
-    classifiers_to_test = ['EGB', 'KNN', 'RF']
+    classifiers_to_test = ["KNN"]
 
     # Defines which sensor ablation method to use - OPTIONS: 'manual', 'feature_select'
     ablation_method = 'manual'
@@ -367,22 +367,7 @@ if preference == 7:
     # Each entry is a list of data streams that will be used to restrict the feature space
     # These represent all combinations of the four source groups
     stream_combos = [
-        ['ECG', 'HR', 'BR', 'EEG', 'Pupil', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
-        ['ECG', 'HR', 'BR'], # Source group 1
-        ['EEG'], # Source group 2
-        ['Pupil'], # Source group 3
-        ['Centrifuge', 'Strain', 'Participant', 'Temperature'], # Source group 4
-        ['ECG', 'HR', 'BR', 'EEG'],
-        ['ECG', 'HR', 'BR', 'Pupil'],
-        ['ECG', 'HR', 'BR', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
-        ['EEG', 'Pupil'],
-        ['EEG', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
-        ['Pupil', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
-        ['ECG', 'HR', 'BR', 'EEG', 'Pupil'],
-        ['ECG', 'HR', 'BR', 'EEG', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
-        ['ECG', 'HR', 'BR', 'Pupil', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
-        ['EEG', 'Pupil', 'Centrifuge', 'Strain', 'Participant', 'Temperature'],
-        ['ECG', 'HR', 'BR', 'EEG', 'Pupil', 'Centrifuge', 'Strain', 'Participant', 'Temperature']
+        ["ECG", "HR", "BR", "Temperature", "Centrifuge"]
     ]
 
     # Nested dict: classifier -> stream -> F1 scores
@@ -394,16 +379,16 @@ if preference == 7:
         print(f"\n=== Evaluating streams: {streams_of_interest} ===")
 
         # Restrict features per classifier based on the current stream subset
-        # usable_featuresKNN = restrict_feature_space(select_featuresKNN, streams_of_interest)
-        usable_featuresRF = restrict_feature_space(select_featuresRF, streams_of_interest)
+        usable_featuresKNN = restrict_feature_space(select_featuresKNN, streams_of_interest)
+        # usable_featuresRF = restrict_feature_space(select_featuresRF, streams_of_interest)
         # usable_featuresEGB = restrict_feature_space(select_featuresEGB, streams_of_interest)
         # exit()
 
         # Bundle restricted features for easy lookup
         usable_features_dict = {
             "KNN": usable_featuresKNN,
-            "RF": usable_featuresRF,
-            "EGB": usable_featuresEGB
+            # "RF": usable_featuresRF,
+            # "EGB": usable_featuresEGB
         }
 
         # Convert stream list into a string for filenames and dict keys
