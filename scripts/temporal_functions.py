@@ -22,7 +22,7 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
       ################################################### USER INPUTS  ###################################################
         ## Data Folder Location
         # datafolder = '../../'
-    datafolder = '../data_reduced/'
+    datafolder = '../data/'
 
         # Random State | 42 - Debug mode
     random_state = 42
