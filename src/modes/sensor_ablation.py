@@ -107,14 +107,14 @@ def _run_traditional_ablation(
         traditional_feature_selection=feature_group,
     )
 
-    # with open("../../Results/before_standardization_results.pkl", "wb") as file:
-    #     pickle.dump({
-    #         "X": X,
-    #         "y": y,
-    #         "select_features": select_features
-    #     }, file)
-    #
-    # sys.exit()
+    with open("before_standardization_results.pkl", "wb") as file:
+        pickle.dump({
+            "X": X,
+            "y": y,
+            "select_features": select_features
+        }, file)
+
+    sys.exit()
 
     fold_results: list[dict] = []
     ext = ".pkl" if model.is_traditional_model else ".pt"
