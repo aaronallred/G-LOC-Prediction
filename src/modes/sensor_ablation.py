@@ -1,12 +1,12 @@
 import json
 import logging
-from pathlib import Path
-
 import numpy as np
+import pickle
+import sys
 import yaml
 from imblearn.metrics import geometric_mean_score
+from pathlib import Path
 from sklearn import metrics
-
 from src.Data_Pipeline.data_pipeline import DataPipeline
 from src.advanced_experiment_utils import (
     baseline_down_select,
@@ -106,6 +106,15 @@ def _run_traditional_ablation(
         return_feature_names=True,
         traditional_feature_selection=feature_group,
     )
+
+    with open("../../Results/before_standardization_results.pkl", "wb") as file:
+        pickle.dump({
+            "X": X,
+            "y": y,
+            "select_features": select_features
+        })
+
+    sys.exit()
 
     fold_results: list[dict] = []
     ext = ".pkl" if model.is_traditional_model else ".pt"
