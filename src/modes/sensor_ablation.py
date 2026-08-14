@@ -103,14 +103,14 @@ def _run_traditional_ablation(
 ) -> list[dict]:
     from src.scripts.temporal_functions_traditional import data_with_prediction
     with open("Results/old_pipeline_old_code.pkl", "rb") as file:
-        _, _, select_features = pickle.load(file)
+        loaded_data = pickle.load(file)
 
     X, y = data_with_prediction(
         backstep = 0,
         data_rate = 25,
         classifier_type = "KNN",
         model_type = ["complete", "explicit"],
-        select_features = select_features
+        select_features = loaded_data["select_features"]
     )
 
 
