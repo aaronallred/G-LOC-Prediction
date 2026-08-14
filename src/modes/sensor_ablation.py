@@ -113,6 +113,14 @@ def _run_traditional_ablation(
         select_features = loaded_data["select_features"]
     )
 
+    with open("old_pipeline_with_imputation_fix_new_codebase.pkl", "wb") as file:
+        pickle.dump({
+            "X": X,
+            "y": y,
+            "select_features": loaded_data["select_features"]
+        }, file)
+
+    sys.exit()
 
     # X, y, select_features = pipeline.get_data(
     #     model=model, feature_streams=feature_streams,
