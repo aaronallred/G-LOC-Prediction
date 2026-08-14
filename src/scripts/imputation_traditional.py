@@ -149,6 +149,7 @@ def faster_knn_impute(X, k=5, M=32, efSearch=64):
   Returns:
   - X_imputed: Matrix with missing values imputed
   """
+  X = np.asarray(X, dtype = np.float64)
   mask = np.isnan(X)
   X_imputed = X.copy()
   # Temporarily mean impute missing values
