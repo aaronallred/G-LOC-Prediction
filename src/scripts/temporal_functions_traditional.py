@@ -231,7 +231,12 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
                 ### Impute missing row data
         if impute_type == 1:
             features = faster_knn_impute(features, n_neighbors)
-
+            phys_idx = [all_features.index(n) for n in all_features_phys]
+            ecg_idx = [all_features.index(n) for n in all_features_ecg]
+            eeg_idx = [all_features.index(n) for n in all_features_eeg]
+            features_phys = features[:, phys_idx]
+            features_ecg = features[:, ecg_idx]
+            features_eeg = features[:, eeg_idx]
         ################################################## REDUCE MEMORY ##################################################
 
             # Grab columns from gloc_data_reduced and remove gloc_data_reduced variable from memory
