@@ -101,20 +101,24 @@ def _run_traditional_ablation(
         random_seed: int,
         output_dir: Path,
 ) -> list[dict]:
-    X, y, select_features = pipeline.get_data(
-        model=model, feature_streams=feature_streams,
-        return_feature_names=True,
-        traditional_feature_selection=feature_group,
+    from src.scripts.temporal_functions_traditional import data_with_prediction
+    with open("Results/old_pipeline_old_code.pkl", "rb") as file:
+        _, _, select_features = pickle.load(file)
+
+    X, y = data_with_prediction(
+        backstep = 0,
+        data_rate = 25,
+        classifier_type = "KNN",
+        model_type = ["complete", "explicit"],
+        select_features = select_features
     )
 
-    with open("before_standardization_results.pkl", "wb") as file:
-        pickle.dump({
-            "X": X,
-            "y": y,
-            "select_features": select_features
-        }, file)
 
-    sys.exit()
+    # X, y, select_features = pipeline.get_data(
+    #     model=model, feature_streams=feature_streams,
+    #     return_feature_names=True,
+    #     traditional_feature_selection=feature_group,
+    # )
 
     fold_results: list[dict] = []
     ext = ".pkl" if model.is_traditional_model else ".pt"

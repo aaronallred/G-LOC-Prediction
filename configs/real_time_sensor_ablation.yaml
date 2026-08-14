@@ -22,7 +22,7 @@ traditional_data_parameters:
 sensor_ablation:
   training:
     enabled: true
-    save_results_folder: Results/Sensor_Ablation_Real_Time_Before_Standardization
+    save_results_folder: Results/Sensor_Ablation_Real_Time_Old_Pipeline
     median_hyperparameters_folder: Results/Cross_Validation
     models: [ KNN ]
     model_type: !ModelType [ Complete, Explicit ]
