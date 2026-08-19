@@ -1,24 +1,27 @@
 """Tests for the standardization-metrics data saver.
 
 Validates the per-window imputation reduction, the survivor-mask remap, the
-μ/σ fit helpers (train-only vs all-rows), the per-fold dataset assembly, and
-the .npz + metadata save on synthetic data without exercising the pipeline.
+μ/σ fit helpers (train-only vs all-rows), the per-fold dataset assembly, the
+per-sample raw sensor extraction, and the six-file .npz + metadata save on
+synthetic data without exercising the pipeline.
 """
 
 import json
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from src.real_time.standardization_metrics_analysis.traditional_standardization_metrics import (
     _build_fold_dataset,
+    _build_raw_sample_dataset,
     _per_col_s2_stats,
     _per_row_s1_stats,
     _raw_feature_names,
     _reduce_impute_mask_per_window,
     _remap_through_survivor,
-    _save_fold_npz,
+    _save_fold_files,
     _window_start_times,
 )
 
@@ -36,7 +39,7 @@ def _synthetic_setup(n_trials=2, n_windows_per_trial=10, n_raw_features=5, seed=
     n_rows = n_trials * n_windows_per_trial
 
     raw_feature_names = [f"f{i}_mean_s1" for i in range(n_raw_features)]
-    # Match the column count of _standardize_* output (doubled).
+    # Match the column count of _feature_generation's output (doubled).
     all_features = raw_feature_names + [n.replace("_s1", "_s2") for n in raw_feature_names]
 
     # Per-sample arrays used to drive the impute reduction.
@@ -59,6 +62,9 @@ def _synthetic_setup(n_trials=2, n_windows_per_trial=10, n_raw_features=5, seed=
 
     # Raw feature matrix: Gaussian noise per row.
     X_raw = rng.standard_normal((n_rows, n_raw_features))
+    # Standardized pipeline outputs (full [s1 | s2] width).
+    train_only = rng.standard_normal((n_rows, 2 * n_raw_features))
+    all_rows = rng.standard_normal((n_rows, 2 * n_raw_features))
 
     train_mask = np.ones(n_rows, dtype=bool)
     # Mark the last row of each trial block as a test row.
@@ -79,6 +85,8 @@ def _synthetic_setup(n_trials=2, n_windows_per_trial=10, n_raw_features=5, seed=
         time_start=time_start, offset=offset, stride=stride, window_size=window_size,
         trial_id_per_row=trial_id_per_row,
         X_raw=X_raw,
+        train_only=train_only,
+        all_rows=all_rows,
         train_mask=train_mask,
         y_gloc_labels=y_gloc_labels,
     )
@@ -93,6 +101,31 @@ def _impute_reduced(s):
         window_size=s["window_size"],
         feature_names=[f"raw_{i}" for i in range(s["n_raw_features"])],
         trial_id_per_row=s["trial_id_per_row"],
+    )
+
+
+def _build_dataset(s, trial_id=None, imputed=None, removed=None):
+    n_pre = s["n_rows"]
+    if trial_id is None:
+        trial_id = np.array(
+            [f"S1-T{i}" for i in range(2) for _ in range(s["n_rows"] // 2)]
+        )
+    if imputed is None:
+        imputed = _impute_reduced(s)
+    if removed is not None and removed.size:
+        remap = lambda arr: _remap_through_survivor(arr, removed, n_pre)
+        X_raw, trial_id, train_mask, y_gloc, imputed = (
+            remap(s["X_raw"]), remap(trial_id), remap(s["train_mask"]),
+            remap(s["y_gloc_labels"]), remap(imputed),
+        )
+        train_only, all_rows = remap(s["train_only"]), remap(s["all_rows"])
+    else:
+        X_raw, train_mask, y_gloc = s["X_raw"], s["train_mask"], s["y_gloc_labels"]
+        train_only, all_rows = s["train_only"], s["all_rows"]
+    return _build_fold_dataset(
+        X_raw=X_raw, train_only=train_only, all_rows=all_rows,
+        trial_id=trial_id, train_mask=train_mask, y_gloc=y_gloc, imputed=imputed,
+        all_features=s["all_features"], time_start=0.0, stride=1.0,
     )
 
 
@@ -217,72 +250,58 @@ class TestPerColS2Stats:
 class TestBuildFoldDataset:
     def test_shapes_keys_and_row_alignment(self):
         s = _synthetic_setup(n_trials=2, n_windows_per_trial=4, n_raw_features=3)
-        trial_id = np.array(
-            [f"S1-T{i}" for i in range(2) for _ in range(4)]
-        )
-        imputed = _impute_reduced(s)
-        dataset = _build_fold_dataset(
-            X_raw=s["X_raw"],
-            trial_id=trial_id,
-            train_mask=s["train_mask"],
-            y_gloc=s["y_gloc_labels"],
-            imputed=imputed,
-            all_features=s["all_features"],
-            time_start=0.0,
-            stride=1.0,
-        )
+        trial_id = np.array([f"S1-T{i}" for i in range(2) for _ in range(4)])
+        dataset = _build_dataset(s, trial_id=trial_id)
         n_rows = s["n_rows"]
         n_cols = s["n_raw_features"]
-        assert dataset["raw"].shape == (n_rows, n_cols)
-        for k in ("s1_mean_train", "s1_std_train", "s1_mean_all", "s1_std_all",
-                  "delta_s1_mean", "delta_s1_std"):
+        # Standardized pipeline outputs keep the full doubled width.
+        for k in ("train_only", "all_rows"):
+            assert dataset[k].shape == (n_rows, 2 * n_cols)
+        # s1 deltas are per-row.
+        for k in ("delta_s1_mean", "delta_s1_std"):
             assert dataset[k].shape == (n_rows, n_cols)
-        for k in ("s2_mean_train", "s2_std_train", "s2_mean_all", "s2_std_all",
-                  "delta_s2_mean", "delta_s2_std"):
+        # s2 deltas are per-column.
+        for k in ("delta_s2_mean", "delta_s2_std"):
             assert dataset[k].shape == (n_cols,)
         for k in ("time", "trial_id", "subject", "trial", "y_gloc", "train_mask", "imputed"):
             assert len(dataset[k]) == n_rows
         # All per-row arrays aligned with the raw rows.
         assert np.array_equal(dataset["train_mask"], s["train_mask"])
-        assert np.array_equal(dataset["imputed"], imputed)
         assert np.array_equal(dataset["trial_id"], trial_id)
         # subject/trial split from "S1-T0"/"S1-T1" ids.
         assert dataset["subject"].tolist() == ["S1"] * 8
         assert dataset["trial"].tolist() == ["T0"] * 4 + ["T1"] * 4
         # time = window start within each trial block.
         assert dataset["time"].tolist() == [0.0, 1.0, 2.0, 3.0] * 2
+        # feature_names maps 1:1 to standardized columns; raw_feature_names is
+        # the deduped counterpart for the delta arrays.
+        assert dataset["feature_names"] == s["all_features"]
+        assert dataset["raw_feature_names"] == _raw_feature_names(s["all_features"])
 
-    def test_s2_deltas_constant_per_column(self):
+    def test_s2_deltas_equal_columnwise_fit_differences(self):
         s = _synthetic_setup(n_trials=2, n_windows_per_trial=4, n_raw_features=3)
-        trial_id = np.array([f"S1-T{i}" for i in range(2) for _ in range(4)])
-        dataset = _build_fold_dataset(
-            X_raw=s["X_raw"], trial_id=trial_id, train_mask=s["train_mask"],
-            y_gloc=s["y_gloc_labels"], imputed=np.zeros(s["n_rows"], dtype=bool),
-            all_features=s["all_features"], time_start=0.0, stride=1.0,
+        dataset = _build_dataset(s)
+        s2_mean_train, s2_std_train = _per_col_s2_stats(s["X_raw"], s["train_mask"])
+        s2_mean_all, s2_std_all = _per_col_s2_stats(
+            s["X_raw"], np.ones(s["n_rows"], dtype=bool)
         )
-        # s2 deltas are 1-D and equal to the column-wise μ/σ differences.
-        np.testing.assert_allclose(
-            dataset["delta_s2_mean"], dataset["s2_mean_all"] - dataset["s2_mean_train"]
-        )
+        np.testing.assert_allclose(dataset["delta_s2_mean"], s2_mean_all - s2_mean_train)
+        np.testing.assert_allclose(dataset["delta_s2_std"], s2_std_all - s2_std_train)
 
     def test_survivor_remap_before_build(self):
         s = _synthetic_setup(n_trials=2, n_windows_per_trial=5, n_raw_features=3)
         removed = np.array([1, 7])
-        n_pre = s["n_rows"]
-        X_surv = _remap_through_survivor(s["X_raw"], removed, n_pre)
         trial_pre = np.array([f"S1-T{i}" for i in range(2) for _ in range(5)])
-        trial_surv = _remap_through_survivor(trial_pre, removed, n_pre)
-        mask_surv = _remap_through_survivor(s["train_mask"], removed, n_pre)
-        y_surv = _remap_through_survivor(s["y_gloc_labels"], removed, n_pre)
-        imputed_pre = _impute_reduced(s)
-        imputed_surv = _remap_through_survivor(imputed_pre, removed, n_pre)
+        trial_surv = _remap_through_survivor(trial_pre, removed, s["n_rows"])
+        mask_surv = _remap_through_survivor(s["train_mask"], removed, s["n_rows"])
+        y_surv = _remap_through_survivor(s["y_gloc_labels"], removed, s["n_rows"])
+        imputed_surv = _remap_through_survivor(_impute_reduced(s), removed, s["n_rows"])
 
-        dataset = _build_fold_dataset(
-            X_raw=X_surv, trial_id=trial_surv, train_mask=mask_surv,
-            y_gloc=y_surv, imputed=imputed_surv,
-            all_features=s["all_features"], time_start=0.0, stride=1.0,
-        )
-        assert dataset["raw"].shape[0] == n_pre - len(removed)
+        dataset = _build_dataset(s, trial_id=trial_pre, removed=removed)
+        n_pre = s["n_rows"]
+        assert dataset["train_only"].shape[0] == n_pre - len(removed)
+        assert dataset["all_rows"].shape[0] == n_pre - len(removed)
+        assert dataset["delta_s1_mean"].shape[0] == n_pre - len(removed)
         # Every per-row array agrees with the survivor-remapped source.
         assert np.array_equal(dataset["trial_id"], trial_surv)
         assert np.array_equal(dataset["train_mask"], mask_surv)
@@ -290,45 +309,111 @@ class TestBuildFoldDataset:
         assert np.array_equal(dataset["y_gloc"], y_surv)
 
 
-class TestSaveFoldNpz:
-    def test_writes_npz_and_metadata(self, tmp_path):
-        s = _synthetic_setup(n_trials=1, n_windows_per_trial=3, n_raw_features=2)
-        trial_id = np.array(["S1-T1"] * 3)
-        dataset = _build_fold_dataset(
-            X_raw=s["X_raw"], trial_id=trial_id, train_mask=s["train_mask"],
-            y_gloc=s["y_gloc_labels"], imputed=np.zeros(3, dtype=bool),
-            all_features=s["all_features"], time_start=0.0, stride=1.0,
+class TestBuildRawSampleDataset:
+    def test_filters_to_requested_streams_only(self):
+        gloc_data = pd.DataFrame(
+            {
+                "Time (s)": [0.0, 1.0, 2.0],
+                "trial_id": ["01-01", "01-01", "01-01"],
+                "subject": ["01", "01", "01"],
+                "trial": ["01", "01", "01"],
+                "ECG Lead 1 - Equivital_v0": [1.0, 2.0, 3.0],
+                "HR (bpm) - Equivital_v0": [70.0, 71.0, 72.0],
+                "HRV (SDNN)_v0": [10.0, 11.0, 12.0],
+                "Pupil diameter left [mm] - Tobii_v0": [3.0, 3.1, 3.2],
+                "AFE_indicator": [0, 1, 0],
+            }
         )
+        out = _build_raw_sample_dataset(gloc_data, ["ecg", "hr"])
+        # Only ECG + HR(+HRV) stream columns survive.
+        assert out["raw_column_names"] == [
+            "ECG Lead 1 - Equivital_v0",
+            "HR (bpm) - Equivital_v0",
+            "HRV (SDNN)_v0",
+        ]
+        assert out["sensor"].shape == (3, 3)
+        np.testing.assert_allclose(out["sensor"][:, 1], [70.0, 71.0, 72.0])
+        assert out["trial_id"].tolist() == ["01-01"] * 3
+        assert out["subject"].tolist() == ["01"] * 3
+        assert out["trial"].tolist() == ["01"] * 3
+        assert out["time"].tolist() == [0.0, 1.0, 2.0]
+
+    def test_empty_match_yields_zero_sensor_columns(self):
+        gloc_data = pd.DataFrame(
+            {
+                "Time (s)": [0.0],
+                "trial_id": ["01-01"],
+                "subject": ["01"],
+                "trial": ["01"],
+                "EEG Fz_v0": [1.0],
+            }
+        )
+        out = _build_raw_sample_dataset(gloc_data, ["ecg", "hr"])
+        assert out["raw_column_names"] == []
+        assert out["sensor"].shape == (1, 0)
+
+
+class TestSaveFoldFiles:
+    def _dataset_and_raw(self):
+        s = _synthetic_setup(n_trials=1, n_windows_per_trial=3, n_raw_features=2)
+        dataset = _build_dataset(s, trial_id=np.array(["S1-T1"] * 3))
+        raw_sample = _build_raw_sample_dataset(
+            pd.DataFrame(
+                {
+                    "Time (s)": [0.0, 1.0, 2.0],
+                    "trial_id": ["01-01"] * 3,
+                    "subject": ["01"] * 3,
+                    "trial": ["01"] * 3,
+                    "ECG Lead 1 - Equivital_v0": [1.0, 2.0, 3.0],
+                }
+            ),
+            ["ecg"],
+        )
+        return dataset, raw_sample
+
+    def test_writes_six_npz_files_and_metadata(self, tmp_path):
+        dataset, raw_sample = self._dataset_and_raw()
         fold_dir = tmp_path / "fold_0"
         metadata = {
             "model_name": "TEST",
             "fold_id": 0,
             "feature_names": dataset["feature_names"],
+            "raw_feature_names": dataset["raw_feature_names"],
+            "raw_column_names": raw_sample["raw_column_names"],
             "num_splits": 3,
             "random_seed": 7,
             "model_type_string": "Complete_Explicit",
             "feature_streams": ["ECG", "HR"],
         }
-        _save_fold_npz(dataset, fold_dir, metadata)
+        _save_fold_files(dataset, raw_sample, fold_dir, metadata)
 
-        npz_path = fold_dir / "standardization_data.npz"
-        meta_path = fold_dir / "fold_metadata.json"
-        assert npz_path.exists()
-        assert meta_path.exists()
+        expected_files = {
+            "standardized_data.npz": ("train_only", "all_rows"),
+            "delta_data.npz": ("delta_s1_mean", "delta_s1_std", "delta_s2_mean", "delta_s2_std"),
+            "trial_data.npz": ("trial_id", "subject", "trial"),
+            "time_data.npz": ("time",),
+            "label_data.npz": ("y_gloc", "train_mask", "imputed"),
+            "raw_per_sample_data.npz": ("time", "trial_id", "subject", "trial", "sensor"),
+        }
+        for fname, keys in expected_files.items():
+            path = fold_dir / fname
+            assert path.exists(), f"missing {fname}"
+            loaded = np.load(path)
+            assert set(loaded.files) == set(keys)
 
-        loaded = np.load(npz_path)
-        assert set(loaded.files) == set(dataset.keys()) - {"feature_names"}
-        np.testing.assert_allclose(loaded["raw"], dataset["raw"])
-        np.testing.assert_allclose(loaded["delta_s1_mean"], dataset["delta_s1_mean"])
+        loaded = np.load(fold_dir / "standardized_data.npz")
+        np.testing.assert_allclose(loaded["train_only"], dataset["train_only"])
+        np.testing.assert_allclose(loaded["all_rows"], dataset["all_rows"])
+        loaded_d = np.load(fold_dir / "delta_data.npz")
+        np.testing.assert_allclose(loaded_d["delta_s1_mean"], dataset["delta_s1_mean"])
+        loaded_t = np.load(fold_dir / "trial_data.npz")
+        np.testing.assert_array_equal(loaded_t["subject"], dataset["subject"])
+        loaded_r = np.load(fold_dir / "raw_per_sample_data.npz")
+        np.testing.assert_allclose(loaded_r["sensor"], raw_sample["sensor"])
 
-        saved_meta = json.loads(meta_path.read_text())
+        saved_meta = json.loads((fold_dir / "fold_metadata.json").read_text())
         assert saved_meta["model_name"] == "TEST"
         assert saved_meta["fold_id"] == 0
         assert saved_meta["feature_names"] == dataset["feature_names"]
-
-    def test_reuses_existing_npz_as_resume_marker(self, tmp_path):
-        fold_dir = tmp_path / "fold_1"
-        fold_dir.mkdir(parents=True)
-        npz = fold_dir / "standardization_data.npz"
-        npz.write_bytes(b"placeholder")
-        assert npz.exists()
+        assert saved_meta["raw_feature_names"] == dataset["raw_feature_names"]
+        assert saved_meta["raw_column_names"] == raw_sample["raw_column_names"]

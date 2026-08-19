@@ -1,12 +1,19 @@
-"""Save per-fold train-only vs all-rows (legacy leaky) standardization metrics.
+"""Save per-fold train-only vs all-rows (legacy leaky) standardization data.
 
 For each traditional model in ``configs/real_time_sensor_ablation.yaml``, this
-script re-runs ``TraditionalDataPipeline.get_data`` under five monkey-patches
-that capture the raw per-window feature matrix, trial ids, train mask, GLOC
-labels, per-window imputation flag, and windowing parameters. For each fold it
-then re-fits both standardization styles (fold-aware train-only vs legacy
-all-rows) and saves the raw features plus the μ/σ statistics of each fit as a
-compressed ``.npz`` archive and a ``fold_metadata.json`` sidecar.
+script re-runs ``TraditionalDataPipeline.get_data`` TWICE per fold under five
+monkey-patches that capture the raw per-window feature matrix, trial ids, train
+mask, GLOC labels, per-window imputation flag, windowing parameters, and the
+per-sample raw sensor DataFrame:
+
+- run 1 (``train_only``): the normal fold-aware pipeline — s1/s2 statistics are
+  fit on training rows only.
+- run 2 (``all_rows``): the legacy leaky pipeline — the fold train mask is
+  overridden to all-True so s1/s2 statistics are fit on every row.
+
+Each run's standardized feature matrix (the full ``[s1 | s2]`` output of
+``_feature_generation``) is captured. All per-window arrays are survivor-remapped
+through ``_process_NaN_temporal`` so every file is row-aligned 1:1.
 
 No plots or summary reports are produced — only the raw data is saved; a
 separate script reads it later for interactive visualization.
@@ -14,31 +21,31 @@ separate script reads it later for interactive visualization.
 Per fold::
 
     Results/Traditional_Standardization_Metrics/<ModelType>/<model>/fold_N/
-        standardization_data.npz
+        standardized_data.npz       train_only, all_rows   (n_rows, n_cols_doubled)
+        delta_data.npz              delta_s1_mean, delta_s1_std   (n_rows, n_raw_cols)
+                                    delta_s2_mean, delta_s2_std   (n_raw_cols,)
+        trial_data.npz              trial_id, subject, trial      (n_rows,)
+        time_data.npz               time (window start)           (n_rows,)
+        label_data.npz              y_gloc, train_mask, imputed   (n_rows,)
+        raw_per_sample_data.npz     per-sample raw sensor rows for the configured
+                                    streams: time, trial_id, subject, trial
+                                    (n_samples,) + sensor (n_samples, n_stream_cols)
         fold_metadata.json
 
-The ``.npz`` holds row-aligned arrays (rows surviving ``_process_NaN_temporal``)
-so per-row metadata can be joined with the raw features and the μ/σ of either
-fit:
+``standardized_data.npz`` holds the final standardized feature matrices exactly
+as the pipeline emits them (columns are ``[s1 | s2]``, names in
+``fold_metadata.json`` under ``feature_names``). The delta arrays are the
+all-rows-fit minus train-only-fit μ/σ, computed over ALL surviving rows
+(train + test) for every feature: ``delta_s1_*`` vary per row (s1 is per-trial),
+``delta_s2_*`` are per-column (s2 is a single global fit) and are identical for
+every row.
 
-    raw            (n_rows, n_raw_cols)  unstandardized per-window features
-    s1_mean_train, s1_std_train          per-row s1 μ/σ fit on training rows
-    s1_mean_all,  s1_std_all             per-row s1 μ/σ fit on all rows
-    s2_mean_train, s2_std_train          per-column s2 μ/σ, shape (n_raw_cols,)
-    s2_mean_all,  s2_std_all             per-column s2 μ/σ, shape (n_raw_cols,)
-    delta_s1_mean, delta_s1_std          s1_all - s1_train (per row x feature)
-    delta_s2_mean, delta_s2_std          s2_all - s2_train (per feature)
-    time            (n_rows,)            window start time_start + j*stride
-    trial_id        (n_rows,)
-    subject         (n_rows,)
-    trial           (n_rows,)
-    y_gloc          (n_rows,)
-    train_mask      (n_rows,)
-    imputed         (n_rows,)
-
-s2 is a single per-column μ/σ, so its deltas are identical for every row; s1 is
-per-trial, so its μ/σ (and deltas) vary per row. Saving ``raw`` plus the μ/σ of
-both fits lets z-scores for either standardization be computed later.
+The unstandardized per-window matrix is NOT saved; it is used internally only to
+compute the μ/σ fits. File 6's ``sensor`` matrix holds the raw per-sample values
+(captured at ``_reduce_memory`` time, i.e. after pre-feature KNN imputation,
+before any feature generation or standardization), restricted to the sensor
+streams requested in the YAML ``streams`` section, plus enough ids to subset a
+single subject + trial for plotting.
 
 Usage::
 
@@ -73,11 +80,22 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG = "configs/real_time_sensor_ablation.yaml"
 OUTPUT_DIR_NAME = "Results/Traditional_Standardization_Metrics"
 
+# Standardization modes the orchestrator drives per pipeline run.
+_MODE_TRAIN_ONLY = "train_only"
+_MODE_ALL_ROWS = "all_rows"
+
 # ---------------------------------------------------------------------------
 # monkey-patch machinery
 # ---------------------------------------------------------------------------
+# Which standardization fit the current pipeline run should produce. The
+# orchestrator sets this to _MODE_TRAIN_ONLY / _MODE_ALL_ROWS before each
+# get_data call.
+_CURRENT_STANDARDIZATION_MODE: str = _MODE_TRAIN_ONLY
+
 # Per-fold captures.
 _CapturedStandardization: dict[int, dict[str, np.ndarray]] = {}
+# Standardized pipeline output matrix per mode, keyed by fold id.
+_CapturedPipelineOutputs: dict[int, dict[str, np.ndarray]] = {}
 _CapturedFeatures: dict[int, dict[str, Any]] = {}
 # Per-sample pre-feature KNN imputation mask (shape (n_samples, n_raw_features)),
 # captured at the FIRST _faster_knn_impute call within a fold. Subsequent calls
@@ -87,6 +105,9 @@ _CapturedImputeMask: dict[int, np.ndarray] = {}
 # from _reduce_memory (which runs AFTER pre-feature imputation but BEFORE
 # _feature_generation). Used to reduce the per-sample impute mask per window.
 _CapturedExperimentMetadata: dict[int, dict[str, Any]] = {}
+# Per-sample raw sensor DataFrame (as passed to _reduce_memory), used to build
+# the raw_per_sample_data.npz file.
+_CapturedRawGlocData: dict[int, pd.DataFrame] = {}
 # Indices of post-_process_NaN_temporal row removals, used to remap the
 # pre-removal per-row context flags onto the surviving rows.
 _CapturedRemovedRows: dict[int, np.ndarray] = {}
@@ -102,35 +123,44 @@ _OriginalProcessNaN = TraditionalDataPipeline._process_NaN_temporal
 
 
 def _capturing_standardize_raw(self, x_raw, trial_id_per_row, train_mask):
-    global _CURRENT_FOLD, _CapturedStandardization
-    _CapturedStandardization[_CURRENT_FOLD] = {
-        "X_raw": np.asarray(x_raw, dtype=np.float64).copy(),
-        "trial_id_per_row": np.array(trial_id_per_row, copy=True),
-        "train_mask": np.array(train_mask, dtype=bool, copy=True),
-    }
+    """Capture the raw matrix / trial ids / fold mask, and on the all-rows run
+    override the mask so the standardizers fit on every row."""
+    global _CURRENT_FOLD, _CapturedStandardization, _CURRENT_STANDARDIZATION_MODE
+    if _CURRENT_STANDARDIZATION_MODE == _MODE_ALL_ROWS:
+        train_mask = np.ones_like(train_mask, dtype=bool)
+    else:
+        _CapturedStandardization[_CURRENT_FOLD] = {
+            "X_raw": np.asarray(x_raw, dtype=np.float64).copy(),
+            "trial_id_per_row": np.array(trial_id_per_row, copy=True),
+            "train_mask": np.array(train_mask, dtype=bool, copy=True),
+        }
     return _OriginalStandardizeRaw(self, x_raw, trial_id_per_row, train_mask)
 
 
 def _capturing_feature_generation(self, *args, **kwargs):
     global _CURRENT_FOLD, _CapturedFeatures, _CapturedWindowingParams
+    global _CapturedPipelineOutputs, _CURRENT_STANDARDIZATION_MODE
     result = _OriginalFeatureGeneration(self, *args, **kwargs)
-    _CapturedFeatures[_CURRENT_FOLD] = {
-        "y_gloc_labels": np.array(result[0], copy=True),
-        "x_feature_matrix": np.array(result[1], copy=True),
-        "all_features": list(result[2]),
-        "trial_id_per_row": np.array(result[3], copy=True),
-    }
-    # _feature_generation's positional args unpack to the hyperparameters that
-    # drove windowing: (time_start, offset, stride, window_size, ...). Stash
-    # these so the per-window impute reduction mirrors _sliding_window_mean_calc
-    # exactly.
-    if args:
-        _CapturedWindowingParams[_CURRENT_FOLD] = {
-            "time_start": float(args[0]),
-            "offset": float(args[1]),
-            "stride": float(args[2]),
-            "window_size": float(args[3]),
+    # Standardized pipeline output matrix (post-standardization, float32).
+    _CapturedPipelineOutputs.setdefault(_CURRENT_FOLD, {})[_CURRENT_STANDARDIZATION_MODE] = np.array(
+        result[1], copy=True
+    )
+    if _CURRENT_STANDARDIZATION_MODE == _MODE_TRAIN_ONLY:
+        _CapturedFeatures[_CURRENT_FOLD] = {
+            "y_gloc_labels": np.array(result[0], copy=True),
+            "x_feature_matrix": np.array(result[1], copy=True),
+            "all_features": list(result[2]),
+            "trial_id_per_row": np.array(result[3], copy=True),
         }
+        # _feature_generation's positional args unpack to the hyperparameters
+        # that drove windowing: (time_start, offset, stride, window_size, ...).
+        if args:
+            _CapturedWindowingParams[_CURRENT_FOLD] = {
+                "time_start": float(args[0]),
+                "offset": float(args[1]),
+                "stride": float(args[2]),
+                "window_size": float(args[3]),
+            }
     return result
 
 
@@ -149,20 +179,24 @@ def _capturing_faster_knn_impute(self, X, k=5, M=32, efSearch=64):
 
 
 def _capturing_reduce_memory(self, gloc_data, gloc_labels, features, output_feature_dtype=np.dtype(np.float32)):
-    """Snapshot experiment_metadata (trial_id, Time) and the raw feature names.
+    """Snapshot experiment_metadata (trial_id, Time), the raw feature names,
+    and the raw per-sample DataFrame.
 
     These define the per-sample row order that the captured pre-feature KNN
-    impute mask aligns with, enabling a per-window reduction independent of
-    the production pipeline.
+    impute mask aligns with, and provide the raw sensor values for the
+    per-sample output file.
     """
-    global _CURRENT_FOLD, _CapturedExperimentMetadata
+    global _CURRENT_FOLD, _CapturedExperimentMetadata, _CapturedRawGlocData
+    global _CURRENT_STANDARDIZATION_MODE
     result = _OriginalReduceMemory(self, gloc_data, gloc_labels, features, output_feature_dtype)
-    _, _, experiment_metadata = result
-    _CapturedExperimentMetadata[_CURRENT_FOLD] = {
-        "trial_id": np.array(experiment_metadata["trial_id"], copy=True),
-        "Time (s)": np.array(experiment_metadata["Time (s)"], copy=True),
-        "feature_names": list(features["All"]),
-    }
+    if _CURRENT_STANDARDIZATION_MODE == _MODE_TRAIN_ONLY:
+        _, _, experiment_metadata = result
+        _CapturedExperimentMetadata[_CURRENT_FOLD] = {
+            "trial_id": np.array(experiment_metadata["trial_id"], copy=True),
+            "Time (s)": np.array(experiment_metadata["Time (s)"], copy=True),
+            "feature_names": list(features["All"]),
+        }
+        _CapturedRawGlocData[_CURRENT_FOLD] = gloc_data
     return result
 
 
@@ -172,9 +206,10 @@ def _capturing_process_nan(self, y_gloc_labels, x_feature_matrix, all_features):
     These post-_feature_generation row removals must be mirrored to every
     per-row array so they align with the surviving rows.
     """
-    global _CURRENT_FOLD, _CapturedRemovedRows
+    global _CURRENT_FOLD, _CapturedRemovedRows, _CURRENT_STANDARDIZATION_MODE
     y_noNaN, x_noNaN, all_features_out, removed = _OriginalProcessNaN(self, y_gloc_labels, x_feature_matrix, all_features)
-    _CapturedRemovedRows[_CURRENT_FOLD] = np.array(removed, copy=True)
+    if _CURRENT_STANDARDIZATION_MODE == _MODE_TRAIN_ONLY:
+        _CapturedRemovedRows[_CURRENT_FOLD] = np.array(removed, copy=True)
     return y_noNaN, x_noNaN, all_features_out, removed
 
 
@@ -309,6 +344,8 @@ def _window_start_times(trial_id_per_row: np.ndarray, time_start: float, stride:
 # ---------------------------------------------------------------------------
 def _build_fold_dataset(
     X_raw: np.ndarray,
+    train_only: np.ndarray,
+    all_rows: np.ndarray,
     trial_id: np.ndarray,
     train_mask: np.ndarray,
     y_gloc: np.ndarray,
@@ -320,9 +357,9 @@ def _build_fold_dataset(
     """Assemble the row-aligned per-fold dataset from captured arrays.
 
     All inputs must be survivor-remapped (post ``_process_NaN_temporal``) so
-    the returned arrays are aligned 1:1. s1/s2 μ/σ are computed for both a
-    train-only fit and an all-rows (legacy leaky) fit; deltas are the all-rows
-    minus train-only differences.
+    the returned arrays are aligned 1:1. ``train_only`` / ``all_rows`` are the
+    standardized pipeline outputs; the μ/σ delta arrays are the all-rows fit
+    minus train-only fit, computed over ALL rows (train + test).
     """
     n_rows, n_raw_cols = X_raw.shape
     all_true = np.ones(n_rows, dtype=bool)
@@ -338,38 +375,77 @@ def _build_fold_dataset(
     trial_id = np.asarray(trial_id).astype(str)
 
     return {
-        "raw": X_raw,
-        "s1_mean_train": s1_mean_train,
-        "s1_std_train": s1_std_train,
-        "s1_mean_all": s1_mean_all,
-        "s1_std_all": s1_std_all,
-        "s2_mean_train": s2_mean_train,
-        "s2_std_train": s2_std_train,
-        "s2_mean_all": s2_mean_all,
-        "s2_std_all": s2_std_all,
+        "train_only": train_only,
+        "all_rows": all_rows,
         "delta_s1_mean": s1_mean_all - s1_mean_train,
         "delta_s1_std": s1_std_all - s1_std_train,
         "delta_s2_mean": s2_mean_all - s2_mean_train,
         "delta_s2_std": s2_std_all - s2_std_train,
-        "time": _window_start_times(trial_id, time_start, stride),
         "trial_id": trial_id,
         "subject": subject,
         "trial": trial,
+        "time": _window_start_times(trial_id, time_start, stride),
         "y_gloc": y_gloc,
         "train_mask": train_mask,
         "imputed": imputed,
-        "feature_names": _raw_feature_names(all_features),
+        "feature_names": list(all_features),
+        "raw_feature_names": _raw_feature_names(all_features),
     }
 
 
-def _save_fold_npz(dataset: dict[str, Any], fold_dir: Path, metadata: dict[str, Any]) -> None:
-    """Write ``standardization_data.npz`` (all row-aligned arrays) + metadata json."""
+def _build_raw_sample_dataset(
+    gloc_data: pd.DataFrame,
+    filter_substrings: list[str],
+) -> dict[str, Any]:
+    """Per-sample raw sensor rows restricted to the configured streams.
+
+    ``gloc_data`` is captured at ``_reduce_memory`` time (after pre-feature KNN
+    imputation, before feature generation / standardization). Columns whose
+    lowercased name contains any stream keyword are kept, plus the ids needed
+    to subset a single subject + trial for plotting.
+    """
+    keep = [c for c in gloc_data.columns if any(s in c.lower() for s in filter_substrings)]
+    # Raw sensor columns can hold 'NO VALUE' string placeholders for missing
+    # samples; coerce them to NaN so the matrix stays numeric.
+    sensor = gloc_data[keep].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=np.float32)
+    return {
+        "time": gloc_data["Time (s)"].to_numpy(dtype=np.float64),
+        "trial_id": gloc_data["trial_id"].to_numpy().astype(str),
+        "subject": gloc_data["subject"].to_numpy().astype(str),
+        "trial": gloc_data["trial"].to_numpy().astype(str),
+        "sensor": sensor,
+        "raw_column_names": keep,
+    }
+
+
+def _save_fold_files(
+    dataset: dict[str, Any],
+    raw_sample_dataset: dict[str, Any],
+    fold_dir: Path,
+    metadata: dict[str, Any],
+) -> None:
+    """Write the six per-fold .npz files + fold_metadata.json."""
     fold_dir.mkdir(parents=True, exist_ok=True)
-    arrays = {k: np.asarray(v) for k, v in dataset.items() if k != "feature_names"}
-    np.savez_compressed(fold_dir / "standardization_data.npz", **arrays)
+
+    file_arrays = {
+        "standardized_data.npz": ("train_only", "all_rows"),
+        "delta_data.npz": ("delta_s1_mean", "delta_s1_std", "delta_s2_mean", "delta_s2_std"),
+        "trial_data.npz": ("trial_id", "subject", "trial"),
+        "time_data.npz": ("time",),
+        "label_data.npz": ("y_gloc", "train_mask", "imputed"),
+    }
+    for filename, keys in file_arrays.items():
+        arrays = {k: np.asarray(dataset[k]) for k in keys}
+        np.savez_compressed(fold_dir / filename, **arrays)
+
+    raw_arrays = {
+        k: np.asarray(v) for k, v in raw_sample_dataset.items() if k != "raw_column_names"
+    }
+    np.savez_compressed(fold_dir / "raw_per_sample_data.npz", **raw_arrays)
+
     with open(fold_dir / "fold_metadata.json", "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2, default=str)
-    logger.info("Saved fold data to %s", fold_dir / "standardization_data.npz")
+    logger.info("Saved fold files to %s", fold_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +458,7 @@ def run_standardization_comparison(
     data_path: Path | None = None,
 ) -> dict[str, Any]:
     if project_root is None:
-        project_root = Path(__file__).resolve().parents[2]
+        project_root = Path(__file__).resolve().parents[3]
     if config_path is None:
         config_path = project_root / DEFAULT_CONFIG
     if output_dir is None:
@@ -405,11 +481,27 @@ def run_standardization_comparison(
     pipeline.set_random_seed(random_seed)
     factory = ModelFactory()
 
+    # Resolve the stream-aware sensor-column substrings for the per-sample raw
+    # output. The facade doesn't expose the resolver, so use a throwaway backend
+    # bound to the same config (produces the same lowercased keyword list the
+    # production pipeline applies in _apply_substring_filter).
+    resolver = TraditionalDataPipeline(
+        data_path=config.get("data_path", ""), random_seed=random_seed, config=config,
+    )
+    default_feature_groups = resolver.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
+    _, _, filter_substrings = resolver._resolve_feature_groups_for_streams(
+        feature_streams, default_feature_groups
+    )
+    logger.info(
+        "Stream-aware sensor-column filter substrings (from feature_streams=%s): %s",
+        feature_streams, filter_substrings,
+    )
+
     out_root = output_dir / model_type.get_folder_name()
     out_root.mkdir(parents=True, exist_ok=True)
 
     saved: dict[str, dict[int, str]] = {}
-    global _CURRENT_FOLD
+    global _CURRENT_FOLD, _CURRENT_STANDARDIZATION_MODE
 
     try:
         for model_name in model_names:
@@ -420,26 +512,27 @@ def run_standardization_comparison(
 
             for fold_id in range(num_splits):
                 fold_dir = model_out / f"fold_{fold_id}"
-                npz_path = fold_dir / "standardization_data.npz"
-                if npz_path.exists():
+                resume_path = fold_dir / "standardized_data.npz"
+                if resume_path.exists():
                     logger.info(
                         "Skipping fold %d for model %s (already saved at %s)",
-                        fold_id, model.name, npz_path,
+                        fold_id, model.name, resume_path,
                     )
-                    saved[model.name][fold_id] = str(npz_path)
+                    saved[model.name][fold_id] = str(resume_path)
                     continue
 
                 _CURRENT_FOLD = fold_id
-
                 try:
-                    pipeline.get_data(
-                        model=model,
-                        kfold_id=fold_id,
-                        num_splits=num_splits,
-                        feature_streams=feature_streams,
-                        traditional_feature_selection="raw",
-                        return_feature_names=True,
-                    )
+                    for mode in (_MODE_TRAIN_ONLY, _MODE_ALL_ROWS):
+                        _CURRENT_STANDARDIZATION_MODE = mode
+                        pipeline.get_data(
+                            model=model,
+                            kfold_id=fold_id,
+                            num_splits=num_splits,
+                            feature_streams=feature_streams,
+                            traditional_feature_selection="raw",
+                            return_feature_names=True,
+                        )
                 except Exception:
                     logger.error(
                         "get_data failed for model=%s fold=%d",
@@ -448,8 +541,9 @@ def run_standardization_comparison(
                     # Drop any partial captures from this fold so they don't
                     # leak into subsequent folds.
                     for store in (
-                        _CapturedStandardization, _CapturedFeatures,
-                        _CapturedImputeMask, _CapturedExperimentMetadata,
+                        _CapturedStandardization, _CapturedPipelineOutputs,
+                        _CapturedFeatures, _CapturedImputeMask,
+                        _CapturedExperimentMetadata, _CapturedRawGlocData,
                         _CapturedRemovedRows, _CapturedWindowingParams,
                     ):
                         store.pop(fold_id, None)
@@ -457,7 +551,11 @@ def run_standardization_comparison(
 
                 cap_std = _CapturedStandardization.pop(fold_id, None)
                 cap_feat = _CapturedFeatures.pop(fold_id, None)
-                if cap_std is None or cap_feat is None:
+                pipe_outputs = _CapturedPipelineOutputs.pop(fold_id, None)
+                if (
+                    cap_std is None or cap_feat is None or pipe_outputs is None
+                    or _MODE_TRAIN_ONLY not in pipe_outputs or _MODE_ALL_ROWS not in pipe_outputs
+                ):
                     logger.error(
                         "Missing captured data for model=%s fold=%d",
                         model_name, fold_id,
@@ -478,6 +576,8 @@ def run_standardization_comparison(
                 trial_surv = _remap_if_needed(cap_std["trial_id_per_row"])
                 train_mask_surv = _remap_if_needed(cap_std["train_mask"])
                 y_gloc_surv = _remap_if_needed(cap_feat["y_gloc_labels"].ravel())
+                train_only_surv = _remap_if_needed(pipe_outputs[_MODE_TRAIN_ONLY])
+                all_rows_surv = _remap_if_needed(pipe_outputs[_MODE_ALL_ROWS])
 
                 # Build the per-window impute flag from the pre-feature KNN
                 # snapshot + per-sample trial/time + this fold's windowing params.
@@ -513,23 +613,53 @@ def run_standardization_comparison(
                 stride = cap_win["stride"] if cap_win else 1.0
 
                 dataset = _build_fold_dataset(
-                    X_raw_surv, trial_surv, train_mask_surv, y_gloc_surv, imputed,
+                    X_raw_surv, train_only_surv, all_rows_surv, trial_surv,
+                    train_mask_surv, y_gloc_surv, imputed,
                     cap_feat["all_features"], time_start, stride,
                 )
+
+                gloc_data = _CapturedRawGlocData.pop(fold_id, None)
+                if gloc_data is None:
+                    logger.error(
+                        "Missing raw gloc_data for model=%s fold=%d",
+                        model_name, fold_id,
+                    )
+                    continue
+                raw_sample_dataset = _build_raw_sample_dataset(gloc_data, filter_substrings)
+
                 metadata = {
                     "model_name": model.name,
                     "fold_id": fold_id,
                     "feature_names": dataset["feature_names"],
+                    "raw_feature_names": dataset["raw_feature_names"],
+                    "raw_column_names": raw_sample_dataset["raw_column_names"],
                     "shapes": {
-                        k: list(v.shape) for k, v in dataset.items() if k != "feature_names"
+                        "standardized_data.npz": {
+                            k: list(dataset[k].shape) for k in ("train_only", "all_rows")
+                        },
+                        "delta_data.npz": {
+                            k: list(dataset[k].shape)
+                            for k in ("delta_s1_mean", "delta_s1_std", "delta_s2_mean", "delta_s2_std")
+                        },
+                        "trial_data.npz": {
+                            k: list(dataset[k].shape) for k in ("trial_id", "subject", "trial")
+                        },
+                        "time_data.npz": {"time": list(dataset["time"].shape)},
+                        "label_data.npz": {
+                            k: list(dataset[k].shape) for k in ("y_gloc", "train_mask", "imputed")
+                        },
+                        "raw_per_sample_data.npz": {
+                            k: list(v.shape)
+                            for k, v in raw_sample_dataset.items() if k != "raw_column_names"
+                        },
                     },
                     "num_splits": num_splits,
                     "random_seed": random_seed,
                     "model_type_string": str(model_type),
                     "feature_streams": feature_streams,
                 }
-                _save_fold_npz(dataset, fold_dir, metadata)
-                saved[model.name][fold_id] = str(npz_path)
+                _save_fold_files(dataset, raw_sample_dataset, fold_dir, metadata)
+                saved[model.name][fold_id] = str(resume_path)
 
     finally:
         TraditionalDataPipeline._standardize_raw = _OriginalStandardizeRaw
@@ -551,7 +681,7 @@ if __name__ == "__main__":
     )
 
     parser = argparse.ArgumentParser(
-        description="Save per-fold train-only vs all-rows standardization metrics for traditional models."
+        description="Save per-fold train-only vs all-rows standardization data for traditional models."
     )
     parser.add_argument(
         "--config",
