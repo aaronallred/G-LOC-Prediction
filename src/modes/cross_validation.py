@@ -34,7 +34,6 @@ from src.advanced_experiment_utils import (
 )
 from src.models.base import BaseModel, TraditionalModel, AdvancedModel
 from src.models.model_factory import ModelFactory
-from src.traditional_experiment_utils import stratified_kfold_split
 
 logger = logging.getLogger(__name__)
 
@@ -188,44 +187,34 @@ def _run_advanced_hpo(
 
 def _run_traditional_model_cv_fold(
         model: TraditionalModel,
-        X: np.ndarray,
-        y: np.ndarray,
-        kfold_id: int,
-        num_splits: int,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        X_test: np.ndarray,
+        y_test: np.ndarray,
+        fold_idx: int,
         random_seed: int,
         class_weight: Optional[str] = None,
         feature_names: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
-    Run a single fold of cross-validation for a traditional model to obtain
-    accuracy, precision, recall, f1, specificity, and g_mean metrics.
-    
-    Args:
-        model: The traditional model to evaluate
-        X: Full feature matrix (pre-loaded)
-        y: Full label vector (pre-loaded)
-        kfold_id: Which fold to extract
-        num_splits: Total number of splits
-        random_seed: Seed for reproducibility
-        class_weight: Class weighting strategy
-        feature_names: Raw feature names aligned with X columns
+    Run a single fold of cross-validation for a traditional model.
+
+    X_train, X_test, y_train, y_test are already split and fold-aware
+    standardized by the pipeline — no stratified_kfold_split call needed.
     """
     logger.info(
-        f"Running traditional CV fold {kfold_id} for model {model.name}"
+        f"Running traditional CV fold {fold_idx} for model {model.name}"
     )
 
     # Error checking
     if feature_names is None or len(feature_names) == 0:
         raise ValueError("feature_names must be provided for traditional CV fold.")
-
-    # Do fold splitting using stratified_kfold_split on pre-loaded data
-    X_train, X_test, y_train, y_test = stratified_kfold_split(
-        X, y, num_splits, kfold_id, random_state=random_seed
-    )
+    if X_train.size == 0 or y_train.size == 0:
+        raise ValueError(f"Training fold {fold_idx} is empty")
 
     logger.info(
         "Running traditional fold-local LASSO feature selection for fold %s on %s features",
-        kfold_id,
+        fold_idx,
         X_train.shape[1],
     )
 
@@ -239,7 +228,7 @@ def _run_traditional_model_cv_fold(
 
     logger.info(
         "Running traditional SMOTE resampling for fold %s after LASSO reduced features to %s",
-        kfold_id,
+        fold_idx,
         len(selected_features),
     )
 
@@ -251,7 +240,7 @@ def _run_traditional_model_cv_fold(
 
     logger.info(
         "Running traditional model HPO for fold %s with class_weight = %s",
-        kfold_id,
+        fold_idx,
         class_weight
     )
 
@@ -259,7 +248,7 @@ def _run_traditional_model_cv_fold(
 
     logger.info(
         "Running traditional model evaluation for fold %s",
-        kfold_id
+        fold_idx
     )
 
     preds = search.predict(X_test)
@@ -267,7 +256,7 @@ def _run_traditional_model_cv_fold(
 
     # Build fold result dictionary
     fold_result = _build_fold_result(
-        fold_idx=kfold_id,
+        fold_idx=fold_idx,
         metrics=fold_performance_summary,
         n_train=len(X_train),
         n_val=len(X_test),
@@ -441,14 +430,8 @@ def run_cross_validation(
         fold_cache = None  # For advanced models: cache fold data upfront
 
         if model.is_traditional_model:
-            # Traditional models can load the whole dataset first and then do fold splits
-            X, y, feature_names = pipeline.get_data(
-                model=model,
-                traditional_feature_selection="raw",
-                return_feature_names=True,
-            )
-
-            logger.info(f"Loaded traditional data: X shape {X.shape}, y shape {y.shape}")
+            # Traditional models now call get_data per fold for fold-aware standardization.
+            pass  # Dispatch inside fold loop below
         else:
             # Advanced models: require advanced_hpo config and pre-cache fold data
             # This will raise ValueError if advanced_hpo is missing or invalid
@@ -480,12 +463,21 @@ def run_cross_validation(
             fold_dir.mkdir(parents=True, exist_ok=True)
 
             if model.is_traditional_model:
+                X_train, X_test, y_train, y_test, feature_names = pipeline.get_data(
+                    model=model,
+                    kfold_id=fold_idx,
+                    num_splits=num_splits,
+                    traditional_feature_selection="raw",
+                    return_feature_names=True,
+                )
+
                 fold_result, search = _run_traditional_model_cv_fold(
                     model,
-                    X,
-                    y,
+                    X_train,
+                    y_train,
+                    X_test,
+                    y_test,
                     fold_idx,
-                    num_splits,
                     random_seed,
                     class_weight,
                     feature_names=feature_names,
