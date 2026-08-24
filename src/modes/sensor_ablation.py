@@ -106,6 +106,7 @@ def _run_traditional_ablation(
 
     for kfold_id in range(num_splits):
         logging.info("Running fold %d/%d", kfold_id + 1, num_splits)
+        artifacts_path = str(output_dir / f"preprocessing_artifacts_fold_{kfold_id}.json")
         X_train, X_test, y_train, y_test, _ = pipeline.get_data(
             model=model,
             kfold_id=kfold_id,
@@ -113,6 +114,7 @@ def _run_traditional_ablation(
             feature_streams=feature_streams,
             return_feature_names=True,
             traditional_feature_selection=feature_group,
+            save_preprocessing_artifacts_path=artifacts_path,
         )
 
         fold_model = model_factory.create_model(model.name, model_hyperparameters=hyperparameters)

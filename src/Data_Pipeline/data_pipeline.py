@@ -78,6 +78,7 @@ class DataPipeline:
             feature_streams: Optional[List[str]] = None,
             traditional_feature_selection: Literal["cache", "raw"] = "cache",
             return_feature_names: bool = False,
+            save_preprocessing_artifacts_path: Optional[str] = None,
     ) -> Any:
         """Execute the selected backend data pipeline.
 
@@ -97,6 +98,9 @@ class DataPipeline:
                 standardization can be applied to training rows only).
             num_splits: Number of folds for k-fold splitting (required).
             feature_streams: Feature streams to select (optional)
+            traditional_feature_selection: "cache" or "raw"
+            return_feature_names: Whether to return feature names
+            save_preprocessing_artifacts_path: Optional path to save JSON artifacts
             
         Returns:
             Tuple of split data (and feature names when requested) from the
@@ -149,6 +153,7 @@ class DataPipeline:
             request_kwargs["model"] = model
             request_kwargs["traditional_feature_selection"] = traditional_feature_selection
             request_kwargs["return_feature_names"] = return_feature_names
+            request_kwargs["save_preprocessing_artifacts_path"] = save_preprocessing_artifacts_path
             request_kwargs["feature_streams"] = feature_streams
             if traditional_feature_selection == "cache":
                 selected_features = self._resolve_select_features(request_kwargs)
@@ -1629,6 +1634,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             feature_streams: Optional[List[str]] = None,
             traditional_feature_selection: Literal["cache", "raw"] = "cache",
             return_feature_names: bool = False,
+            save_preprocessing_artifacts_path: Optional[str] = None,
             impute_file_name: Optional[str] = None,
             impute_phase: Any = None,
             output_feature_dtype: np.dtype = np.dtype(np.float32),
@@ -1838,6 +1844,8 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 [gloc_data_all_features_numpy, experiment_metadata["AFE_indicator_windowed"]])
             features["All"].append("AFE_indicator_windowed")
 
+        all_raw_features = list(features["All"])
+
         if traditional_feature_selection == "cache":
             if select_features is None:
                 raise ValueError("select_features is required when traditional_feature_selection='cache'.")
@@ -1981,6 +1989,72 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         y_train = gloc_labels_numpy[train_idx]
         y_test = gloc_labels_numpy[test_idx]
 
+        if save_preprocessing_artifacts_path is not None:
+            active_indices = [all_raw_features.index(f) for f in select_features if f in all_raw_features]
+            dropped_features = [f for f in all_raw_features if f not in set(select_features)]
+
+            s1_pooled_mean = (
+                self._last_trial_standardizer._pooled_mean.tolist()
+                if getattr(self, "_last_trial_standardizer", None) is not None
+                and self._last_trial_standardizer._pooled_mean is not None
+                else []
+            )
+            s1_pooled_std = (
+                self._last_trial_standardizer._pooled_std.tolist()
+                if getattr(self, "_last_trial_standardizer", None) is not None
+                and self._last_trial_standardizer._pooled_std is not None
+                else []
+            )
+            s2_global_mean = (
+                self._last_global_standardizer.mean_.tolist()
+                if getattr(self, "_last_global_standardizer", None) is not None
+                and self._last_global_standardizer.mean_ is not None
+                else []
+            )
+            s2_global_std = (
+                self._last_global_standardizer.std_.tolist()
+                if getattr(self, "_last_global_standardizer", None) is not None
+                and self._last_global_standardizer.std_ is not None
+                else []
+            )
+
+            knn_imputer_state = {
+                "k": int(n_neighbors),
+                "reference_means": (
+                    self._last_knn_reference_means.tolist()
+                    if getattr(self, "_last_knn_reference_means", None) is not None
+                    else []
+                ),
+                "reference_data": (
+                    self._last_knn_reference_data.tolist()
+                    if getattr(self, "_last_knn_reference_data", None) is not None
+                    else []
+                ),
+            }
+
+            artifacts = {
+                "s1_pooled_mean": s1_pooled_mean,
+                "s1_pooled_std": s1_pooled_std,
+                "s2_global_mean": s2_global_mean,
+                "s2_global_std": s2_global_std,
+                "raw_feature_names": all_raw_features,
+                "active_feature_names": select_features,
+                "active_indices": active_indices,
+                "dropped_feature_names": dropped_features,
+                "knn_imputer": knn_imputer_state,
+                "baseline_window": float(baseline_window),
+                "window_size": float(window_size),
+                "stride": float(stride),
+                "feature_streams": list(feature_streams) if feature_streams is not None else [],
+            }
+
+            artifacts_dir = os.path.dirname(os.path.abspath(save_preprocessing_artifacts_path))
+            if artifacts_dir:
+                os.makedirs(artifacts_dir, exist_ok=True)
+            with open(save_preprocessing_artifacts_path, "w") as f:
+                json.dump(artifacts, f, indent=2)
+            logger.info("Saved preprocessing artifacts to %s", save_preprocessing_artifacts_path)
+
         if return_feature_names:
             return X_train, X_test, y_train, y_test, select_features
 
@@ -2060,10 +2134,13 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         X_imputed = X.copy()
 
         # Temporarily mean impute missing values
-        X_temp = np.where(mask, np.nanmean(X, axis=0), X)
+        ref_means = np.nanmean(X, axis=0)
+        X_temp = np.where(mask, ref_means, X)
         X_temp32 = np.ascontiguousarray(
             np.nan_to_num(X_temp, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32, copy=False)
         )
+        self._last_knn_reference_means = ref_means
+        self._last_knn_reference_data = X_temp32
 
         # Build FAISS index (HNSW)
         d = X.shape[1]  # dimension
@@ -2272,11 +2349,15 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
         # s1 = per-trial z-score using each trial's own training-row statistics
         # (or pooled training statistics if the trial never appears in train_mask).
-        out[:, s1_slice] = TrialAwareStandardizer().fit(
+        trial_standardizer = TrialAwareStandardizer().fit(
             x_raw, trial_id_per_row, train_mask
-        ).transform(x_raw, trial_id_per_row)
+        )
+        out[:, s1_slice] = trial_standardizer.transform(x_raw, trial_id_per_row)
         # s2 = single global z-score using all training rows' pooled statistics.
-        out[:, s2_slice] = GlobalStandardizer().fit(x_raw[train_mask]).transform(x_raw)
+        global_standardizer = GlobalStandardizer().fit(x_raw[train_mask])
+        out[:, s2_slice] = global_standardizer.transform(x_raw)
+        self._last_trial_standardizer = trial_standardizer
+        self._last_global_standardizer = global_standardizer
         return out
 
     def _sliding_window_mean_calc(
