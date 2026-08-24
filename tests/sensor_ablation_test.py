@@ -75,7 +75,7 @@ class _FakePipeline:
         pass
 
     def get_data(self, model=None, kfold_id=None, num_splits=None, feature_streams=None, 
-                 traditional_feature_selection="cache", return_feature_names=False):
+                 traditional_feature_selection="cache", return_feature_names=False, **kwargs):
         self.calls.append({
             "model": getattr(model, "name", None), 
             "feature_streams": list(feature_streams or []),
