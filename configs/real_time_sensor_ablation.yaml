@@ -18,11 +18,12 @@ traditional_data_parameters:
   data_rate: 25
   offset: 0
   time_start: 0
+  standardize_s1: false
 
 sensor_ablation:
   training:
     enabled: true
-    save_results_folder: Results/Sensor_Ablation_Real_Time
+    save_results_folder: Results/Sensor_Ablation_Real_Time_No_S1
     median_hyperparameters_folder: Results/Cross_Validation
     models: [ EGB, KNN, RF ]
     model_type: !ModelType [ Complete, Explicit ]

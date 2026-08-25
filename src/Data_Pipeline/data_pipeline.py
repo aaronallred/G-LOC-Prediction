@@ -163,6 +163,7 @@ class DataPipeline:
             request_kwargs["data_rate"] = traditional_config["data_rate"]
             request_kwargs["offset"] = traditional_config["offset"]
             request_kwargs["time_start"] = traditional_config["time_start"]
+            request_kwargs["standardize_s1"] = traditional_config.get("standardize_s1", True)
 
         return backend_data_pipeline.get_data(**request_kwargs)
 
@@ -1063,7 +1064,8 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             remove_NaN_trials: bool = True,
             save_impute: bool = True,
             load_impute: bool = True,
-            feature_streams: Optional[List[str]] = None
+            feature_streams: Optional[List[str]] = None,
+            **kwargs: Any,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, List[str]]:
         """
         Load raw data and prepare predictor / target sets for advanced classifiers.
@@ -1643,6 +1645,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             model: Optional[BaseModel] = None,
             kfold_id: Optional[int] = None,
             num_splits: Optional[int] = None,
+            standardize_s1: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Return data for a given set of parameters."""
         if kfold_id is None or num_splits is None:
@@ -1814,6 +1817,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             baseline_v0,
             feature_groups_to_analyze,
             train_mask=train_mask_pre,
+            standardize_s1=standardize_s1,
             output_feature_dtype=output_feature_dtype
         )
 
@@ -2225,6 +2229,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             baseline_v0: Dict[str, np.ndarray],
             feature_groups_to_analyze: Sequence[str],
             train_mask: Optional[np.ndarray],
+            standardize_s1: bool = True,
             output_feature_dtype: np.dtype = np.dtype(np.float32),
     ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
         """Generate temporal engineered features and apply fold-aware standardization.
@@ -2233,9 +2238,10 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         methods (s1 slot = raw dict, s2 slot = empty dict). The raw matrix
         ``X_raw`` is unpacked, then:
 
-        - ``TrialAwareStandardizer`` z-scores each row using that row's trial
-          statistics computed on training rows of that trial (or pooled
-          training statistics if the trial never appears in train_mask).
+        - When ``standardize_s1`` is True: ``TrialAwareStandardizer`` z-scores
+          each row using that row's trial statistics computed on training rows
+          of that trial (or pooled training statistics if the trial never appears
+          in train_mask).
         - ``GlobalStandardizer`` z-scores each row using a single μ/σ fit on
           all training rows.
 
@@ -2316,13 +2322,17 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         # standardizers compute per-column statistics, so applying them block-by-block
         # vs whole-matrix yields identical results — the whole-matrix path is simpler.
         x_feature_matrix = self._standardize_raw(
-            x_feature_matrix_raw, trial_id_per_row, train_mask
+            x_feature_matrix_raw, trial_id_per_row, train_mask, standardize_s1=standardize_s1
         )
 
-        # Combine all feature names in the same order as _unpack_dict stacked the columns.
-        all_features = (all_features_mean_s1 + all_features_stddev_s1 + all_features_max_s1 + all_features_range_s1 +
-                        all_features_additional_s1 + all_features_mean_s2 + all_features_stddev_s2 + all_features_max_s2 +
-                        all_features_range_s2 + all_features_additional_s2)
+        # Combine feature names according to whether standardize_s1 is enabled.
+        if standardize_s1:
+            all_features = (all_features_mean_s1 + all_features_stddev_s1 + all_features_max_s1 + all_features_range_s1 +
+                            all_features_additional_s1 + all_features_mean_s2 + all_features_stddev_s2 + all_features_max_s2 +
+                            all_features_range_s2 + all_features_additional_s2)
+        else:
+            all_features = (all_features_mean_s2 + all_features_stddev_s2 + all_features_max_s2 +
+                            all_features_range_s2 + all_features_additional_s2)
 
         return (y_gloc_labels.astype(output_feature_dtype),
                 x_feature_matrix.astype(output_feature_dtype),
@@ -2334,30 +2344,35 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             x_feature_matrix_raw: np.ndarray,
             trial_id_per_row: np.ndarray,
             train_mask: np.ndarray,
+            standardize_s1: bool = True,
     ) -> np.ndarray:
-        """Apply fold-aware s1 + s2 standardization to a raw feature matrix.
+        """Apply fold-aware s1 + s2 (or s2-only if standardize_s1 is False) standardization.
 
-        Output column order is ``[all s1 columns | all s2 columns]`` (the legacy
-        ordering) so the feature-name list returned by ``_feature_generation``
-        aligns 1:1.
+        When standardize_s1 is True, output column order is ``[all s1 columns | all s2 columns]``
+        (the legacy ordering) so the feature-name list returned by ``_feature_generation``
+        aligns 1:1. When False, output is ``[all s2 columns]``.
         """
         x_raw = np.asarray(x_feature_matrix_raw, dtype=np.float64)
         n_rows, n_raw_cols = x_raw.shape
-        out = np.zeros((n_rows, 2 * n_raw_cols), dtype=np.float64)
-        s1_slice = slice(0, n_raw_cols)
-        s2_slice = slice(n_raw_cols, 2 * n_raw_cols)
 
-        # s1 = per-trial z-score using each trial's own training-row statistics
-        # (or pooled training statistics if the trial never appears in train_mask).
-        trial_standardizer = TrialAwareStandardizer().fit(
-            x_raw, trial_id_per_row, train_mask
-        )
-        out[:, s1_slice] = trial_standardizer.transform(x_raw, trial_id_per_row)
         # s2 = single global z-score using all training rows' pooled statistics.
         global_standardizer = GlobalStandardizer().fit(x_raw[train_mask])
-        out[:, s2_slice] = global_standardizer.transform(x_raw)
-        self._last_trial_standardizer = trial_standardizer
+        s2_features = global_standardizer.transform(x_raw)
         self._last_global_standardizer = global_standardizer
+
+        if standardize_s1:
+            # s1 = per-trial z-score using each trial's own training-row statistics
+            # (or pooled training statistics if the trial never appears in train_mask).
+            trial_standardizer = TrialAwareStandardizer().fit(
+                x_raw, trial_id_per_row, train_mask
+            )
+            s1_features = trial_standardizer.transform(x_raw, trial_id_per_row)
+            self._last_trial_standardizer = trial_standardizer
+            out = np.hstack([s1_features, s2_features])
+        else:
+            self._last_trial_standardizer = None
+            out = s2_features
+
         return out
 
     def _sliding_window_mean_calc(

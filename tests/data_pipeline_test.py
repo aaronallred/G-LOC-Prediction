@@ -34,7 +34,7 @@ def _make_config() -> dict:
             "output_feature_dtype": "float32",
         },
         "advanced_data_parameters": {"n_neighbors": 4, "baseline_window": 32.5, "horizon": 0},
-        "traditional_data_parameters": {"backstep": 0, "data_rate": 25, "offset": 0, "time_start": 0},
+        "traditional_data_parameters": {"backstep": 0, "data_rate": 25, "offset": 0, "time_start": 0, "standardize_s1": True},
         "sensor_ablation": {
             "training": {
                 "median_hyperparameters_folder": "ModelSave/CV",
@@ -698,3 +698,179 @@ def test_traditional_get_data_forwards_fold_kwargs():
     assert monkeypatch_kwarg is not None
     assert monkeypatch_kwarg["kfold_id"] == 2
     assert monkeypatch_kwarg["num_splits"] == 5
+
+
+def test_traditional_get_data_forwards_standardize_s1():
+    """The facade forwards standardize_s1 from traditional_data_parameters to the backend."""
+    cfg = _make_config()
+    cfg["traditional_data_parameters"]["standardize_s1"] = False
+    pipeline = DataPipeline(cfg)
+    pipeline.set_model_type(ModelType("Complete", "Explicit"))
+
+    received_kwargs = None
+
+    class _RecordingBackend(CapturingBackend):
+        def get_data(self, **kwargs):
+            nonlocal received_kwargs
+            received_kwargs = kwargs
+            return super().get_data(**kwargs)
+
+    pipeline._build_backend = lambda _model: _RecordingBackend("ok")
+    pipeline.get_data(
+        model=DummyModel(is_traditional=True, name="KNN"),
+        kfold_id=0,
+        num_splits=2,
+        traditional_feature_selection="raw",
+    )
+    assert received_kwargs is not None
+    assert received_kwargs["standardize_s1"] is False
+
+
+def test_traditional_get_data_defaults_standardize_s1_to_true():
+    """When standardize_s1 is omitted, the facade defaults it to True."""
+    cfg = _make_config()
+    del cfg["traditional_data_parameters"]["standardize_s1"]
+    pipeline = DataPipeline(cfg)
+    pipeline.set_model_type(ModelType("Complete", "Explicit"))
+
+    received_kwargs = None
+
+    class _RecordingBackend(CapturingBackend):
+        def get_data(self, **kwargs):
+            nonlocal received_kwargs
+            received_kwargs = kwargs
+            return super().get_data(**kwargs)
+
+    pipeline._build_backend = lambda _model: _RecordingBackend("ok")
+    pipeline.get_data(
+        model=DummyModel(is_traditional=True, name="KNN"),
+        kfold_id=0,
+        num_splits=2,
+        traditional_feature_selection="raw",
+    )
+    assert received_kwargs is not None
+    assert received_kwargs["standardize_s1"] is True
+
+
+class TestStandardizeRawBehavior:
+    """Unit tests for TraditionalDataPipeline._standardize_raw with standardize_s1 flag."""
+
+    def test_standardize_raw_s1_enabled_produces_s1_and_s2(self):
+        from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+        pipeline = TraditionalDataPipeline(data_path="/tmp/data", config=_make_config())
+        X_raw = np.array([
+            [1.0, 10.0],
+            [2.0, 20.0],
+            [3.0, 30.0],
+            [4.0, 40.0],
+        ])
+        trial_id = np.array(["t1", "t1", "t2", "t2"])
+        train_mask = np.array([True, True, True, False])
+
+        out = pipeline._standardize_raw(X_raw, trial_id, train_mask, standardize_s1=True)
+        assert out.shape == (4, 4)
+        assert pipeline._last_trial_standardizer is not None
+        assert pipeline._last_global_standardizer is not None
+
+        s1_expected = TrialAwareStandardizer().fit(X_raw, trial_id, train_mask).transform(X_raw, trial_id)
+        s2_expected = GlobalStandardizer().fit(X_raw[train_mask]).transform(X_raw)
+        np.testing.assert_allclose(out[:, :2], s1_expected)
+        np.testing.assert_allclose(out[:, 2:], s2_expected)
+
+    def test_standardize_raw_s1_disabled_produces_only_s2(self):
+        from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+        pipeline = TraditionalDataPipeline(data_path="/tmp/data", config=_make_config())
+        X_raw = np.array([
+            [1.0, 10.0],
+            [2.0, 20.0],
+            [3.0, 30.0],
+            [4.0, 40.0],
+        ])
+        trial_id = np.array(["t1", "t1", "t2", "t2"])
+        train_mask = np.array([True, True, True, False])
+
+        out = pipeline._standardize_raw(X_raw, trial_id, train_mask, standardize_s1=False)
+        assert out.shape == (4, 2)
+        assert pipeline._last_trial_standardizer is None
+        assert pipeline._last_global_standardizer is not None
+
+        s2_expected = GlobalStandardizer().fit(X_raw[train_mask]).transform(X_raw)
+        np.testing.assert_allclose(out, s2_expected)
+
+    def test_feature_generation_returns_only_s2_when_standardize_s1_false(self):
+        from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+        pipeline = TraditionalDataPipeline(data_path="/tmp/data", config=_make_config())
+
+        time_start = 0.0
+        offset = 0.0
+        stride = 1.0
+        window_size = 2.0
+        n_samples = 100
+        combined_baseline = {"t1": np.ones((n_samples, 2))}
+        gloc = np.zeros(n_samples)
+        trial_column = np.array(["t1"] * n_samples)
+        time_column = np.arange(0, n_samples * 0.1, 0.1)
+        combined_baseline_names = ["featA", "featB"]
+
+        # 8 windows produced for t1
+        train_mask = np.ones(8, dtype=bool)
+
+        y_labels, X_feat, all_feats, trial_ids = pipeline._feature_generation(
+            time_start=time_start,
+            offset=offset,
+            stride=stride,
+            window_size=window_size,
+            combined_baseline=combined_baseline,
+            gloc=gloc,
+            trial_column=trial_column,
+            time_column=time_column,
+            combined_baseline_names=combined_baseline_names,
+            baseline_names_v0=combined_baseline_names,
+            baseline_v0=combined_baseline,
+            feature_groups_to_analyze=[],
+            train_mask=train_mask,
+            standardize_s1=False,
+        )
+
+        assert len(all_feats) == X_feat.shape[1]
+        assert len(all_feats) > 0
+        assert all(f.endswith("_s2") for f in all_feats)
+        assert not any(f.endswith("_s1") for f in all_feats)
+
+    def test_feature_generation_returns_s1_and_s2_when_standardize_s1_true(self):
+        from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+        pipeline = TraditionalDataPipeline(data_path="/tmp/data", config=_make_config())
+
+        time_start = 0.0
+        offset = 0.0
+        stride = 1.0
+        window_size = 2.0
+        n_samples = 100
+        combined_baseline = {"t1": np.ones((n_samples, 2))}
+        gloc = np.zeros(n_samples)
+        trial_column = np.array(["t1"] * n_samples)
+        time_column = np.arange(0, n_samples * 0.1, 0.1)
+        combined_baseline_names = ["featA", "featB"]
+
+        train_mask = np.ones(8, dtype=bool)
+
+        y_labels, X_feat, all_feats, trial_ids = pipeline._feature_generation(
+            time_start=time_start,
+            offset=offset,
+            stride=stride,
+            window_size=window_size,
+            combined_baseline=combined_baseline,
+            gloc=gloc,
+            trial_column=trial_column,
+            time_column=time_column,
+            combined_baseline_names=combined_baseline_names,
+            baseline_names_v0=combined_baseline_names,
+            baseline_v0=combined_baseline,
+            feature_groups_to_analyze=[],
+            train_mask=train_mask,
+            standardize_s1=True,
+        )
+
+        assert len(all_feats) == X_feat.shape[1]
+        assert any(f.endswith("_s1") for f in all_feats)
+        assert any(f.endswith("_s2") for f in all_feats)

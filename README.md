@@ -377,6 +377,18 @@ offset: 0
 time_start: 0
 ```
 
+#### `standardize_s1`
+
+**Purpose**: Whether to enable intra-trial (s1) standardization in the traditional feature pipeline. When `true`, features are generated with both intra-trial (`_s1`) and global (`_s2`) standardization. When `false`, only global (`_s2`) standardized features are generated.
+
+**Available inputs**: `true` or `false` (default: `true`).
+
+**Example**:
+
+```yaml
+standardize_s1: true
+```
+
 ### Mode: Cross-Validation
 
 Run systematic k-fold cross-validation with automatic model-type detection and metric aggregation.
@@ -1416,6 +1428,7 @@ traditional_data_parameters:
   data_rate: 25
   offset: 0
   time_start: 0
+  standardize_s1: true
 
 cross_validation:
   enabled: true
