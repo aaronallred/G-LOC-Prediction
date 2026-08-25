@@ -18,6 +18,7 @@ traditional_data_parameters:
   data_rate: 25
   offset: 1
   time_start: 0
+  standardize_s1: true
 cross_validation:
   enabled: true
   # Mode-specific parameters
