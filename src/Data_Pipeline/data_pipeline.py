@@ -1,16 +1,19 @@
-import faiss
 import json
 import logging
-import numpy as np
 import os
-import pandas as pd
 import pickle
 import re
 from abc import ABC, abstractmethod
 from itertools import islice
 from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
+
+import faiss
+import numpy as np
+import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
+
 from src.Data_Pipeline.baseline import BaselineContext, baseline_data
 from src.Data_Pipeline.features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
 from src.Data_Pipeline.fold_standardizer import GlobalStandardizer, TrialAwareStandardizer
@@ -18,7 +21,6 @@ from src.Data_Pipeline.imputation_config import ImputePhase
 from src.model_type import ModelType
 from src.models.base import BaseModel
 from src.models.model_factory import ModelFactory
-from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 # Keep path resolution behavior consistent with the original module location
@@ -2046,10 +2048,6 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 "active_indices": active_indices,
                 "dropped_feature_names": dropped_features,
                 "knn_imputer": knn_imputer_state,
-                "baseline_window": float(baseline_window),
-                "window_size": float(window_size),
-                "stride": float(stride),
-                "feature_streams": list(feature_streams) if feature_streams is not None else [],
             }
 
             artifacts_dir = os.path.dirname(os.path.abspath(save_preprocessing_artifacts_path))
