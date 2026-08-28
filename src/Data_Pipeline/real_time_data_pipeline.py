@@ -98,6 +98,10 @@ class RealTimeTraditionalDataPipeline:
         if self.model is not None and hasattr(self.model, "data_pipeline_hyperparameters"):
             model_hparams = self.model.data_pipeline_hyperparameters or {}
 
+        self.baseline_methods_to_use = list(
+            model_hparams.get("baseline_methods_to_use", ["v0", "v1", "v2", "v5", "v6"])
+        )
+
         # Resolve window settings
         if baseline_window is not None:
             self.baseline_window_s = float(baseline_window)
@@ -321,24 +325,34 @@ class RealTimeTraditionalDataPipeline:
             d2 = np.gradient(d1, time_arr, axis=0)
             return np.hstack([vals, d1, d2])
 
+        blocks = []
         # v0: Raw signals + derivatives
-        b_v0 = get_deriv_stack(win_arr)
+        if "v0" in self.baseline_methods_to_use:
+            blocks.append(get_deriv_stack(win_arr))
 
         # v1: Physical / baseline + derivatives
-        b_v1 = get_deriv_stack(win_arr / self._v1_baseline_mean)
+        if "v1" in self.baseline_methods_to_use:
+            blocks.append(get_deriv_stack(win_arr / self._v1_baseline_mean))
 
         # v2: Physical - baseline + derivatives
-        b_v2 = get_deriv_stack(win_arr - self._v2_baseline_mean)
+        if "v2" in self.baseline_methods_to_use:
+            blocks.append(get_deriv_stack(win_arr - self._v2_baseline_mean))
 
         # v5: ECG / Resting HR + derivatives (ECG channels are index 0..min(6, win_arr.shape[1]))
-        ecg_cols = win_arr[:, :min(6, win_arr.shape[1])]
-        b_v5 = get_deriv_stack(ecg_cols / self.participant_baseline_rhr)
+        if "v5" in self.baseline_methods_to_use:
+            ecg_cols = win_arr[:, :min(6, win_arr.shape[1])]
+            blocks.append(get_deriv_stack(ecg_cols / self.participant_baseline_rhr))
 
         # v6: ECG - Resting HR + derivatives
-        b_v6 = get_deriv_stack(ecg_cols - self.participant_baseline_rhr)
+        if "v6" in self.baseline_methods_to_use:
+            ecg_cols = win_arr[:, :min(6, win_arr.shape[1])]
+            blocks.append(get_deriv_stack(ecg_cols - self.participant_baseline_rhr))
 
-        # Combine all baseline arrays horizontally: [v0, v1, v2, v5, v6]
-        combined_baseline = np.hstack([b_v0, b_v1, b_v2, b_v5, b_v6])
+        if not blocks:
+            blocks.append(get_deriv_stack(win_arr))
+
+        # Combine all requested baseline arrays horizontally
+        combined_baseline = np.hstack(blocks)
 
         # Sliding window summary statistics across window axis=0
         mean_stat = np.nanmean(combined_baseline, axis=0)
