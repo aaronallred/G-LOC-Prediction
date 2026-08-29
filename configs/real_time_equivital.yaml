@@ -27,7 +27,7 @@ real_time_equivital:
   models: [ EGB, KNN, RF ]
   num_splits: 10
   streams:
-    - [ ECG,, HR, BR, Temperature Centrifuge ]
+    - [ ECG,, HR, BR, Temperature, Centrifuge ]
   manual_ablation: true
   class_weight: null
   saved_models_folder: Results/Sensor_Ablation_Real_Time_No_S1
