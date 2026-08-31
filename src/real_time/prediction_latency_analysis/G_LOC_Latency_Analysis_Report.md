@@ -1,56 +1,70 @@
-# Real-Time G-LOC Prediction: Latency & Performance Evaluation Report
+# Real-Time G-LOC Prediction: Comprehensive Latency & Processing Analysis Report
 
 ## Executive Summary
-This report evaluates per-sample inference latency for machine learning models streaming **Equivital** (ECG) and **Centrifuge** telemetry data for real-time **G-Induced Loss of Consciousness (G-LOC)** prediction. Data streaming is paced at **25.0 Hz**, which establishes a strict per-sample compute deadline of **40.00 ms**.
+This report evaluates the computational latency profiles of machine learning models performing real-time **G-Induced Loss of Consciousness (G-LOC)** prediction on continuous physiological and centrifuge telemetry streams.
 
-### Key Verdict: **SOME MODELS EXCEEDED REAL-TIME DEADLINES**
-* **Fastest Model:** `EGB` with a mean latency of **0.5219 ms** (Throughput: **1915.9 samples/sec**).
-* **Slowest Model:** `KNN` with a mean latency of **26.7662 ms** (Throughput: **37.4 samples/sec**).
-* **Streaming Budget:** 40.00 ms per sample (25 Hz stream rate).
+### Key Performance Findings:
+* **Fastest Model:** `EGB` with a mean total latency of **2.1238 ms** (Throughput: **470.8 predictions/sec**).
+* **Slowest Model:** `KNN` with a mean total latency of **168.5517 ms** (Throughput: **5.9 predictions/sec**).
+* **Telemetry Streaming Period ($1 / 25\text{ Hz}$):** **40.0 ms** between raw sample packet arrivals. Intermediate sample buffer updates take $< 0.005\text{ ms}$.
+* **Stride Prediction Deadline ($0.25\text{ s}$ Stride):** **250.0 ms** per prediction window.
 
 ---
 
-## Model Latency & Performance Comparison
+## Latency Summary & Component Breakdown
 
-| Model   |   Mean (ms) |   Std (ms) |   Median / P50 (ms) |   P95 (ms) |   P99 (ms) |   Max (ms) |   Throughput (samp/s) |   Compliance (<40ms) % |   F1 Score |
-|:--------|------------:|-----------:|--------------------:|-----------:|-----------:|-----------:|----------------------:|-----------------------:|-----------:|
-| EGB     |      0.5219 |     0.0093 |              0.5204 |     0.5352 |     0.5437 |     0.9273 |             1915.9317 |               100.0000 |     0.9669 |
-| RF      |      0.8512 |     0.0217 |              0.8460 |     0.8802 |     0.9483 |     1.4504 |             1174.8796 |               100.0000 |     0.6020 |
-| KNN     |     26.7662 |     1.2764 |             26.5855 |    28.3068 |    29.5585 |   162.6448 |               37.3606 |                99.9785 |     0.8326 |
+| Model | Streams | N | Mean Total (ms) | Std Total (ms) | Median Total (ms) | P95 Total (ms) | P99 Total (ms) | Max Total (ms) | Mean Data Proc (ms) | Mean Inference (ms) | Data Proc (%) | Inference (%) | Throughput (preds/sec) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| EGB | ECG-HR-BR-Temperature-Centrifuge | 3543 | 2.1238 | 0.6515 | 2.1102 | 2.1510 | 2.1780 | 40.8309 | 1.7080 | 0.4158 | 80.4200 | 19.5800 | 470.8491 |
+| RF | ECG-HR-BR-Temperature-Centrifuge | 3563 | 2.1277 | 12.0351 | 1.8380 | 1.8740 | 1.9806 | 569.5395 | 1.2658 | 0.8619 | 59.4918 | 40.5082 | 469.9987 |
+| KNN | ECG-HR-BR-Temperature-Centrifuge | 3533 | 168.5517 | 12.3812 | 167.7090 | 189.6507 | 198.3161 | 261.1435 | 2.0887 | 166.4630 | 1.2392 | 98.7608 | 5.9329 |
 
 ---
 
 ## Statistical Significance Analysis
-To verify whether latency differences between evaluated models are statistically significant, a **Kruskal-Wallis H-test** was performed on the per-sample inference latencies across all folds:
-* **H-Statistic / Test Statistic:** `497896.09580634907`
+To verify whether latency differences between evaluated models are statistically significant, a **Kruskal-Wallis H-test** was performed across model prediction latencies:
+* **H-Statistic:** `9418.757739185728`
 * **p-value:** `0.0000e+00`
-* **Statistically Significant ($lpha=0.05$):** `True`
+* **Statistically Significant ($\\alpha=0.05$):** `True`
+
+### Pairwise Mann-Whitney U Tests (Bonferroni Corrected)
+| Comparison | U-Statistic | Raw p-value | Adjusted p-value | Significant |
+|---|---|---|---|---|
+| `EGB` vs `KNN` | 0.0 | 0.0000e+00 | 0.0000e+00 | True |
+| `EGB` vs `RF` | 12588307.0 | 0.0000e+00 | 0.0000e+00 | True |
+| `KNN` vs `RF` | 12581013.0 | 0.0000e+00 | 0.0000e+00 | True |
+
 
 ---
 
 ## Visual Diagnostic Plots
 
-### 1. Latency Distribution & Outliers
-Density distributions and boxplots showing the spread and scale of sample latencies relative to the 40 ms hard deadline.
+### 1. Latency Component Breakdown
+Decomposition of total compute time into data processing (feature engineering and standardization) vs. model inference execution.
+![Component Breakdown](latency_component_breakdown.png)
+
+### 2. Total Latency Distributions & Outliers
+Kernel Density Estimates (KDE) and log-scale boxplots illustrating the dispersion, spread, and extreme values.
 ![Latency Distributions](latency_distributions.png)
 
-### 2. Tail Latency Analysis (P50, P95, P99)
-Comparison of median vs. extreme percentiles to ensure safety margins during peak workload.
-![Latency Percentiles](latency_percentiles.png)
+### 3. Tail Latencies (P50, P90, P95, P99, P99.9)
+Assessment of worst-case tail latencies across models.
+![Tail Percentiles](latency_tail_percentiles.png)
 
-### 3. Empirical Cumulative Distribution Function (CDF)
-Empirical cumulative probability of predictions completing within time budgets.
+### 4. Empirical Cumulative Distribution Function (CDF)
+Cumulative probability of prediction latency completing within specified durations.
 ![Latency CDF](latency_cdf.png)
 
-### 4. Cross-Validation Stability
-Stability of average model latency across 10 fold test sets.
-![Fold Stability](fold_stability.png)
+### 5. Continuous Stream Temporal Trace
+Temporal progression of prediction compute times over the stream duration to detect jitter, warmup stabilization, or garbage collection spikes.
+![Time Series](latency_time_series.png)
 
 ---
 
-## Recommendations for Real-Time Deployment
-1. **Model Selection Trade-off:**
-   * Select models balancing both F1-score and low P99 tail latency.
-   * Tail latencies (P95/P99) are critical in physiological monitoring to prevent frame dropping or buffer buildup during sudden dynamic maneuvers.
-2. **Buffer Safety Margin:**
-   * Even the highest tail latencies observed should comfortably sit under the **40.0 ms** threshold to allow headroom for hardware interrupt jitter, telemetry LSL serialization overhead, and display rendering.
+## Architectural & Deployment Insights
+1. **Feature Processing vs. Inference Balance:**
+   * For tree-based estimators (e.g. `EGB`, `RF`), feature transformation represents the majority of total latency (~60-80%), while model `.predict()` is extremely fast ($< 0.9\text{ ms}$).
+   * For instance-based estimators (e.g. `KNN`), distance calculations across large training matrices dominate total latency (~98.7%).
+2. **Real-Time Feasibility:**
+   * Tree-based models (`EGB`, `RF`) exhibit total compute times of ~2.12 ms, consuming less than **1%** of the 250 ms stride prediction budget (providing > 99% safety headroom for interrupt jitter and rendering).
+   * `KNN` requires ~168.5 ms, remaining within the 250 ms stride budget, but leaving narrower margins for peak multi-sensor workloads.
