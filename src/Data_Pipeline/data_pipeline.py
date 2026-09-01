@@ -120,6 +120,7 @@ class DataPipeline:
             "impute_phase": shared_config.get("impute_phase", "pre_feature"),
             "save_impute": shared_config["save_impute"],
             "load_impute": shared_config["load_impute"],
+            "extended_data": shared_config["extended_data"],
         }
 
         if backend_type == "advanced":
@@ -355,8 +356,15 @@ class BaseGLOCDataPipeline(ABC):
             for band in self._EEG_BASELINE_BANDS
         ]
 
+        """New main data tweak to include extended data"""
+        main_filename = self._resolve_main_data_filename()
+        main_path = os.path.join(self.data_path, main_filename)
+        if not os.path.isfile(main_path):
+            raise FileNotFoundError(f"Configured main dataset file not found: {main_path}")
+        
         self._data_locations = {
-            "main": os.path.join(self.data_path, "all_trials_25_hz_stacked_null_str_filled.csv"),
+            #"main": os.path.join(self.data_path, "all_trials_25_hz_stacked_null_str_filled.csv"),
+            'main': main_path,
             "baseline": os.path.join(self.data_path, "ParticipantBaseline.csv"),
             "demographic": os.path.join(self.data_path, "GLOC_Effectiveness_Final.csv"),
             "eeg_list": list_of_eeg_data_file_paths,
@@ -365,6 +373,17 @@ class BaseGLOCDataPipeline(ABC):
 
         return self._data_locations
 
+    def _resolve_main_data_filename(self) -> str:
+        """Resolve which CSV to treat as the main dataset."""
+        shared_config = self.config.get("shared_data_parameters", {})
+        use_extended_data = shared_config.get("extended_data", False)
+        if not use_extended_data:
+            return "all_trials_25_hz_stacked_null_str_filled.csv"
+        extended_filename = shared_config.get("extended_data_filename")
+        if not extended_filename:
+            raise ValueError("shared_data_parameters.extended_data is true but the filename is missing or empty")
+        return extended_filename
+    
     def _load_data(self, file_paths: Dict[str, Any],
                    output_feature_dtype: np.dtype = np.dtype(np.float32)) -> pd.DataFrame:
         """Load data from CSV or pickle files. If pickle does not exist, create it from CSV."""
