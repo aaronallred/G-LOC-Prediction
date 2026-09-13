@@ -31,5 +31,5 @@ real_time_equivital:
   manual_ablation: true
   class_weight: null
   saved_models_folder: Results/Sensor_Ablation_Real_Time_No_S1
-  save_results_folder: Results/Real_Time_Prediction_Latency
+  save_results_folder: Results/Real_Time_Prediction_Latency_with_Preprocessing
   use_real_time_sleep: false

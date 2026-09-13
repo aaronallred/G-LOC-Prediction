@@ -11,12 +11,16 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import threading
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
+import pylsl
 
 logger = logging.getLogger(__name__)
 
@@ -414,4 +418,594 @@ class RealTimeTraditionalDataPipeline:
 
         for idx, sample in enumerate(stream_arr):
             yield self.ingest_sample(sample, timestamp_s=idx * self.dt)
+
+    def process_lsl_preprocessor(
+        self,
+        preprocessor: RealTimeDataPreprocessor,
+        max_samples: Optional[int] = None,
+        poll_timeout: float = 0.01,
+    ) -> Iterator[Tuple[Optional[np.ndarray], float]]:
+        """Process streaming 25 Hz samples emitted by RealTimeDataPreprocessor.
+
+        Polls the preprocessor for incoming 25 Hz samples from LSL and feeds them
+        into ingest_sample().
+
+        Parameters
+        ----------
+        preprocessor : RealTimeDataPreprocessor
+            Active preprocessor instance connected to LSL streams.
+        max_samples : Optional[int]
+            Maximum number of samples to process before stopping (default: None, infinite).
+        poll_timeout : float
+            Timeout in seconds for polling LSL chunks (default: 0.01s).
+
+        Yields
+        ------
+        Tuple[Optional[np.ndarray], float]
+            (X_processed_row, timestamp_s) for each 25 Hz clock sample.
+        """
+        emitted = 0
+        while max_samples is None or emitted < max_samples:
+            samples = preprocessor.poll_samples(timeout=poll_timeout)
+            for sample_25hz, t_target in samples:
+                x_proc, _ = self.ingest_sample(sample_25hz, timestamp_s=t_target)
+                emitted += 1
+                yield x_proc, t_target
+                if max_samples is not None and emitted >= max_samples:
+                    break
+            if not samples and max_samples is not None:
+                time.sleep(poll_timeout)
+
+
+class SingleSubjectLSLStreamer:
+    """Streams multi-rate telemetry data from a single subject session folder via native pylsl outlets.
+
+    Matches the exact stream names, types, channel counts, and nominal sampling rates of the
+    AFRL centrifuge spin data environment:
+      - 'SA5_SystemData': PDAS, 48 channels @ 100.0 Hz
+      - 'Equivital_ECG': ECG, 1 channel @ 256.0 Hz
+      - 'Equivital_Summary': ECG, 26 channels @ 0.2 Hz (actual sample transmission rate)
+      - 'Equivital_Accel': IMU, 3 channels @ 256.0 Hz
+
+    Parameters
+    ----------
+    session_dir : Union[str, Path]
+        Path to session folder containing CSV stream files and optional export_meta.json.
+        Defaults to 'Extra spin data/100_HSP_Training_HSP_165_20260304_125314'.
+    playback_speed : float
+        Playback speed multiplier. 1.0 corresponds to wall-clock real time.
+        <= 0 indicates as fast as possible (for testing/benchmarks).
+    max_rows_per_stream : Optional[int]
+        Optional row limit when loading stream CSVs (useful for fast testing).
+    source_id_prefix : str
+        Prefix for LSL stream source IDs.
+    """
+
+    def __init__(
+        self,
+        session_dir: Union[str, Path] = "Extra spin data/100_HSP_Training_HSP_165_20260304_125314",
+        playback_speed: float = 0.0,
+        max_rows_per_stream: Optional[int] = None,
+        source_id_prefix: str = "GLOC_STREAMER_",
+    ) -> None:
+        self.session_dir = Path(session_dir)
+        if not self.session_dir.exists():
+            raise FileNotFoundError(f"Session directory not found: {self.session_dir}")
+
+        self.playback_speed = float(playback_speed)
+        self.max_rows = max_rows_per_stream
+        self.source_id_prefix = source_id_prefix
+
+        # Stream descriptors: (key, name_pattern, lsl_name, lsl_type, ch_count, nominal_srate)
+        self.stream_configs = {
+            "system_data": {
+                "pattern": r"SystemData",
+                "default_name": "SA5_SystemData",
+                "type": "PDAS",
+                "ch_count": 48,
+                "nominal_srate": 100.0,
+            },
+            "ecg": {
+                "pattern": r"Equivital_ECG\.csv|ECG_EQ",
+                "default_name": "Equivital_ECG",
+                "type": "ECG",
+                "ch_count": 1,
+                "nominal_srate": 256.0,
+            },
+            "summary": {
+                "pattern": r"Summary",
+                "default_name": "Equivital_Summary",
+                "type": "ECG",
+                "ch_count": 26,
+                "nominal_srate": 0.2,
+            },
+            "accel": {
+                "pattern": r"Accel",
+                "default_name": "Equivital_Accel",
+                "type": "IMU",
+                "ch_count": 3,
+                "nominal_srate": 256.0,
+            },
+        }
+
+        self.outlets: Dict[str, pylsl.StreamOutlet] = {}
+        self.stream_data: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}  # key -> (timestamps, data_array)
+        self.stream_names: Dict[str, str] = {}  # key -> actual lsl stream name
+
+        # Streaming state
+        self._pointers: Dict[str, int] = {}
+        self._is_running = False
+        self._thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._last_streamed_t = 0.0
+        self._wall_start_t = 0.0
+
+        self._load_and_init_outlets()
+
+    def _load_and_init_outlets(self) -> None:
+        """Discover CSV files, synchronize time anchors, and create pylsl outlets."""
+        csv_files = list(self.session_dir.glob("*.csv"))
+
+        meta_file = self.session_dir / "export_meta.json"
+        meta_info: Dict[str, Any] = {}
+        if meta_file.exists():
+            try:
+                with open(meta_file, "r") as f:
+                    meta_info = json.load(f)
+            except Exception as e:
+                logger.warning(f"Could not read {meta_file}: {e}")
+
+        # Locate files for each stream
+        matched_files: Dict[str, Path] = {}
+        if "streams" in meta_info:
+            for s in meta_info["streams"]:
+                lsl_name = s.get("lsl_name", "")
+                csv_name = s.get("csv_file", "")
+                csv_p = self.session_dir / csv_name
+                if not csv_p.exists():
+                    continue
+                for key, cfg in self.stream_configs.items():
+                    if re.search(cfg["pattern"], lsl_name, re.IGNORECASE) or re.search(cfg["pattern"], csv_name, re.IGNORECASE):
+                        if key not in matched_files:
+                            matched_files[key] = csv_p
+                            self.stream_names[key] = lsl_name
+                            cfg["ch_count"] = s.get("channel_count", cfg["ch_count"])
+                            # For summary, actual transmission rate is 0.2 Hz
+                            if key != "summary":
+                                cfg["nominal_srate"] = s.get("nominal_srate", cfg["nominal_srate"])
+
+        # Fallback to directory glob matching
+        for key, cfg in self.stream_configs.items():
+            if key not in matched_files:
+                for f in csv_files:
+                    if re.search(cfg["pattern"], f.name, re.IGNORECASE):
+                        if key == "ecg" and "RR" in f.name:
+                            continue
+                        matched_files[key] = f
+                        self.stream_names[key] = cfg["default_name"]
+                        break
+
+        # Read CSVs and discover earliest UTC anchor
+        raw_dfs: Dict[str, pd.DataFrame] = {}
+        earliest_utc: Optional[pd.Timestamp] = None
+
+        for key, path in matched_files.items():
+            df = pd.read_csv(path, nrows=self.max_rows)
+            raw_dfs[key] = df
+            if "t_utc" in df.columns:
+                t_utc = pd.to_datetime(df["t_utc"], errors="coerce").dropna()
+                if len(t_utc) > 0:
+                    first_t = t_utc.iloc[0]
+                    # Anchor on earliest time among system_data, ecg, accel
+                    if key in ("system_data", "ecg", "accel"):
+                        if earliest_utc is None or first_t < earliest_utc:
+                            earliest_utc = first_t
+
+        # Create outlets and align relative timestamps
+        for key, df in raw_dfs.items():
+            cfg = self.stream_configs[key]
+            lsl_name = self.stream_names.get(key, cfg["default_name"])
+
+            # Compute relative time
+            t_lsl = pd.to_numeric(df["t_lsl"], errors="coerce").to_numpy(dtype=np.float64)
+            t_lsl_rel = t_lsl - t_lsl[0]
+
+            if earliest_utc is not None and "t_utc" in df.columns:
+                t_utc = pd.to_datetime(df["t_utc"], errors="coerce")
+                if len(t_utc) > 0 and not pd.isna(t_utc.iloc[0]):
+                    offset_s = (t_utc.iloc[0] - earliest_utc).total_seconds()
+                    t_lsl_rel = t_lsl_rel + offset_s
+
+            # Ensure non-zero timestamp for liblsl explicit timestamping
+            t_lsl_rel = np.maximum(t_lsl_rel, 1e-6)
+
+            # Data columns (everything except t_lsl and t_utc)
+            non_data_cols = [c for c in ("t_lsl", "t_utc") if c in df.columns]
+            data_cols = [c for c in df.columns if c not in non_data_cols]
+            data_mat = df[data_cols].to_numpy(dtype=np.float32)
+
+            ch_count = data_mat.shape[1]
+            self.stream_data[key] = (t_lsl_rel, data_mat)
+            self._pointers[key] = 0
+
+            # Create LSL outlet
+            sinfo = pylsl.StreamInfo(
+                name=lsl_name,
+                type=cfg["type"],
+                channel_count=ch_count,
+                nominal_srate=float(cfg["nominal_srate"]),
+                channel_format=pylsl.cf_float32,
+                source_id=f"{self.source_id_prefix}{key}",
+            )
+            self.outlets[key] = pylsl.StreamOutlet(sinfo)
+
+        logger.info(
+            f"Initialized SingleSubjectLSLStreamer with {len(self.outlets)} streams from {self.session_dir.name}"
+        )
+
+    def push_next(self) -> bool:
+        """Pushes the next earliest sample chronologically across all streams."""
+        earliest_key: Optional[str] = None
+        earliest_t = float("inf")
+
+        for key, (times, _) in self.stream_data.items():
+            ptr = self._pointers[key]
+            if ptr < len(times):
+                t_val = times[ptr]
+                if t_val < earliest_t:
+                    earliest_t = t_val
+                    earliest_key = key
+
+        if earliest_key is None:
+            return False
+
+        times, data = self.stream_data[earliest_key]
+        ptr = self._pointers[earliest_key]
+        t_sample = float(times[ptr])
+        sample = data[ptr].tolist()
+        self._pointers[earliest_key] += 1
+
+        # Real-time throttle if playback_speed > 0
+        if self.playback_speed > 0:
+            if self._wall_start_t == 0.0:
+                self._wall_start_t = time.perf_counter()
+                self._last_streamed_t = t_sample
+            else:
+                elapsed_stream_s = (t_sample - self._last_streamed_t) / self.playback_speed
+                elapsed_wall_s = time.perf_counter() - self._wall_start_t
+                sleep_s = elapsed_stream_s - elapsed_wall_s
+                if sleep_s > 0:
+                    time.sleep(sleep_s)
+
+        self.outlets[earliest_key].push_sample(sample, timestamp=t_sample)
+        return True
+
+    def push_chunk(self, duration_s: float) -> int:
+        """Pushes samples until relative timestamp advances by duration_s."""
+        start_t: Optional[float] = None
+        count = 0
+
+        while True:
+            next_t = float("inf")
+            for key, (times, _) in self.stream_data.items():
+                ptr = self._pointers[key]
+                if ptr < len(times) and times[ptr] < next_t:
+                    next_t = times[ptr]
+
+            if next_t == float("inf"):
+                break
+
+            if start_t is None:
+                start_t = next_t
+
+            if (next_t - start_t) > duration_s:
+                break
+
+            if not self.push_next():
+                break
+            count += 1
+
+        return count
+
+    def stream_all(self) -> int:
+        """Pushes all remaining samples in the session."""
+        count = 0
+        while self.push_next():
+            count += 1
+        return count
+
+    def _worker(self) -> None:
+        while not self._stop_event.is_set():
+            has_more = self.push_next()
+            if not has_more:
+                break
+
+    def start(self) -> None:
+        """Starts background streaming thread."""
+        if self._is_running:
+            return
+        self._stop_event.clear()
+        self._is_running = True
+        self._thread = threading.Thread(target=self._worker, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        """Stops background streaming thread."""
+        self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+        self._is_running = False
+
+    def close(self) -> None:
+        """Closes streamer and releases resources."""
+        self.stop()
+        self.outlets.clear()
+
+    def __enter__(self) -> SingleSubjectLSLStreamer:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
+
+
+class RealTimeDataPreprocessor:
+    """Ingests multi-rate LSL streams, replicates preprocessing, and emits 25 Hz feature samples.
+
+    Operations:
+      - Hardware time anchoring: Locks session anchor t0 from stream timestamps.
+      - Centrifuge resultant G-magnitude: sqrt(Gx^2 + Gy^2 + Gz^2).
+      - Physiological range checks: HR [30, 220], BR [4, 60], Skin Temp [25, 42], ECG [-5, 5].
+      - Online R-peak detection from raw 256 Hz ECG to compute HR_instant, HR_average, HR_w_average.
+      - 25 Hz clock grid resampling: Linearly interpolates continuous signals and latches vitals
+        to emit samples on a regular Delta t = 0.04s grid.
+    """
+
+    DEFAULT_RAW_FEATURES = [
+        "HR (bpm) - Equivital",
+        "ECG Lead 1 - Equivital",
+        "ECG Lead 2 - Equivital",
+        "HR_instant - Equivital",
+        "HR_average - Equivital",
+        "HR_w_average - Equivital",
+        "BR (rpm) - Equivital",
+        "Skin Temperature - IR Thermometer (°C) - Equivital",
+        "magnitude - Centrifuge",
+    ]
+
+    def __init__(
+        self,
+        raw_feature_names: Optional[Sequence[str]] = None,
+        stream_names: Optional[Dict[str, str]] = None,
+        target_freq: float = 25.0,
+    ) -> None:
+        self.raw_feature_names = list(raw_feature_names or self.DEFAULT_RAW_FEATURES)
+        self.target_freq = float(target_freq)
+        self.dt_target = 1.0 / self.target_freq
+
+        # Stream mapping: modality -> LSL stream name / pattern
+        self.stream_names = stream_names or {
+            "system_data": "SA5_SystemData",
+            "ecg": "Equivital_ECG",
+            "summary": "Equivital_Summary",
+            "accel": "Equivital_Accel",
+        }
+
+        self.inlets: Dict[str, pylsl.StreamInlet] = {}
+
+        # Buffers for continuous signals: deque of (timestamp, value)
+        self._mag_buffer: deque[Tuple[float, float]] = deque()
+        self._ecg_buffer: deque[Tuple[float, float]] = deque()
+
+        # Latched vitals
+        self._latest_hr: float = 80.0
+        self._latest_br: float = 15.0
+        self._latest_skin_temp: float = 33.0
+        self._latest_hr_instant: float = 80.0
+        self._latest_hr_average: float = 80.0
+        self._latest_hr_w_average: float = 80.0
+
+        # R-peak detection state
+        self._last_peak_t: Optional[float] = None
+        self._recent_hrs: deque[float] = deque(maxlen=5)
+        self._recent_ecg_max: float = 0.5
+        self._min_rr_interval: float = 0.25  # Max 240 bpm
+
+        # Clock grid state
+        self._clock_anchor: Optional[float] = None
+        self._target_t: float = 0.0
+        self._accumulated_preproc_s: float = 0.0
+        self._is_connected = False
+
+    def connect(self, timeout: float = 5.0) -> None:
+        """Resolves LSL streams and initializes inlets."""
+        if self._is_connected:
+            return
+
+        for modality, name in self.stream_names.items():
+            streams = pylsl.resolve_byprop("name", name, timeout=timeout)
+            if not streams:
+                all_s = pylsl.resolve_streams(wait_time=0.5)
+                for s in all_s:
+                    if name.lower() in s.name().lower():
+                        streams = [s]
+                        break
+
+            if streams:
+                inlet = pylsl.StreamInlet(streams[0], max_buflen=360, max_chunklen=1024)
+                inlet.open_stream(timeout=timeout)
+                self.inlets[modality] = inlet
+                logger.info(f"Connected LSL inlet for {modality} -> '{streams[0].name()}'")
+            else:
+                logger.warning(f"Could not resolve LSL stream for {modality} ('{name}')")
+
+        self._is_connected = True
+
+    def _update_sa5(self, sample: List[float], ts: float) -> None:
+        """Process SA5 sample: channel 38=Gx, 40=Gy, 42=Gz."""
+        gx = sample[38] if len(sample) > 38 else 0.0
+        gy = sample[40] if len(sample) > 40 else 0.0
+        gz = sample[42] if len(sample) > 42 else 1.0
+        mag = float(np.sqrt(gx * gx + gy * gy + gz * gz))
+        self._mag_buffer.append((ts, mag))
+
+    def _update_ecg(self, sample: List[float], ts: float) -> None:
+        """Process ECG sample and update online R-peak detector."""
+        ecg_val = float(sample[0]) if len(sample) > 0 else 0.0
+        ecg_val = float(np.clip(ecg_val, -5.0, 5.0))
+        self._ecg_buffer.append((ts, ecg_val))
+
+        # Online R-peak detector: refractory threshold check
+        threshold = max(0.3, self._recent_ecg_max * 0.5)
+        if ecg_val > threshold:
+            if self._last_peak_t is None or (ts - self._last_peak_t) >= self._min_rr_interval:
+                if self._last_peak_t is not None:
+                    rri = ts - self._last_peak_t
+                    if 0.25 <= rri <= 2.0:
+                        hr_inst = 60.0 / rri
+                        if 30.0 <= hr_inst <= 220.0:
+                            self._latest_hr_instant = hr_inst
+                            self._recent_hrs.append(hr_inst)
+                            self._latest_hr_average = float(np.mean(self._recent_hrs))
+                            weights = np.arange(1, len(self._recent_hrs) + 1, dtype=float)
+                            self._latest_hr_w_average = float(
+                                np.sum(np.array(self._recent_hrs) * weights) / np.sum(weights)
+                            )
+                self._last_peak_t = ts
+                self._recent_ecg_max = 0.9 * self._recent_ecg_max + 0.1 * ecg_val
+
+    def _update_summary(self, sample: List[float], ts: float) -> None:
+        """Process Equivital Summary vitals: ch0=HR, ch2=BR, ch5=SkinTemp."""
+        if len(sample) > 0:
+            hr = sample[0]
+            if 30.0 <= hr <= 220.0:
+                self._latest_hr = float(hr)
+                if len(self._recent_hrs) == 0:
+                    self._latest_hr_instant = self._latest_hr
+                    self._latest_hr_average = self._latest_hr
+                    self._latest_hr_w_average = self._latest_hr
+
+        if len(sample) > 2:
+            br = sample[2]
+            if 4.0 <= br <= 60.0:
+                self._latest_br = float(br)
+
+        if len(sample) > 5:
+            temp = sample[5]
+            if 25.0 <= temp <= 42.0:
+                self._latest_skin_temp = float(temp)
+
+    def _interpolate_buffer(self, buf: deque[Tuple[float, float]], t_query: float) -> float:
+        """Linear interpolation of query timestamp in buffer."""
+        if not buf:
+            return 0.0
+        if len(buf) == 1 or t_query <= buf[0][0]:
+            return buf[0][1]
+        if t_query >= buf[-1][0]:
+            return buf[-1][1]
+
+        for i in range(len(buf) - 1):
+            t0, v0 = buf[i]
+            t1, v1 = buf[i + 1]
+            if t0 <= t_query <= t1:
+                if t1 == t0:
+                    return v0
+                return v0 + (v1 - v0) * (t_query - t0) / (t1 - t0)
+
+        return buf[-1][1]
+
+    def poll_samples(
+        self, timeout: float = 0.0, return_latency: bool = False
+    ) -> Union[List[Tuple[np.ndarray, float]], List[Tuple[np.ndarray, float, float]]]:
+        """Pulls available chunks from all LSL inlets and emits ready 25 Hz samples."""
+        if not self._is_connected:
+            self.connect(timeout=timeout)
+
+        t0 = time.perf_counter()
+
+        # 1. Ingest chunks from all inlets
+        for modality, inlet in self.inlets.items():
+            samples, timestamps = inlet.pull_chunk(timeout=timeout)
+            if not samples:
+                continue
+
+            for sample, ts in zip(samples, timestamps):
+                if self._clock_anchor is None:
+                    self._clock_anchor = ts
+                    self._target_t = 0.0
+
+                t_rel = ts - self._clock_anchor
+
+                if modality == "system_data":
+                    self._update_sa5(sample, t_rel)
+                elif modality == "ecg":
+                    self._update_ecg(sample, t_rel)
+                elif modality == "summary":
+                    self._update_summary(sample, t_rel)
+
+        # 2. Check maximum available time across fast streams
+        if not self._mag_buffer or not self._ecg_buffer:
+            t1 = time.perf_counter()
+            self._accumulated_preproc_s += (t1 - t0)
+            return []
+
+        latest_available_t = min(self._mag_buffer[-1][0], self._ecg_buffer[-1][0])
+        emitted: List[Tuple[np.ndarray, float]] = []
+
+        # 3. Emit 25 Hz samples
+        while self._target_t <= latest_available_t:
+            mag_val = self._interpolate_buffer(self._mag_buffer, self._target_t)
+            ecg1_val = self._interpolate_buffer(self._ecg_buffer, self._target_t)
+
+            feat_map = {
+                "HR (bpm) - Equivital": self._latest_hr,
+                "ECG Lead 1 - Equivital": ecg1_val,
+                "ECG Lead 2 - Equivital": 0.0,
+                "HR_instant - Equivital": self._latest_hr_instant,
+                "HR_average - Equivital": self._latest_hr_average,
+                "HR_w_average - Equivital": self._latest_hr_w_average,
+                "BR (rpm) - Equivital": self._latest_br,
+                "Skin Temperature - IR Thermometer (°C) - Equivital": self._latest_skin_temp,
+                "magnitude - Centrifuge": mag_val,
+            }
+
+            sample_arr = np.array([feat_map.get(k, 0.0) for k in self.raw_feature_names], dtype=np.float64)
+            emitted.append((sample_arr, self._target_t))
+            self._target_t += self.dt_target
+
+        # 4. Prune old buffer samples (older than target_t - 2.0s)
+        prune_cutoff = self._target_t - 2.0
+        while self._mag_buffer and self._mag_buffer[0][0] < prune_cutoff:
+            self._mag_buffer.popleft()
+        while self._ecg_buffer and self._ecg_buffer[0][0] < prune_cutoff:
+            self._ecg_buffer.popleft()
+
+        t1 = time.perf_counter()
+        self._accumulated_preproc_s += (t1 - t0)
+
+        if not emitted:
+            return []
+
+        per_sample_lat_ms = (self._accumulated_preproc_s * 1000.0) / len(emitted)
+        self._accumulated_preproc_s = 0.0
+
+        if return_latency:
+            return [(sample_arr, t_val, per_sample_lat_ms) for sample_arr, t_val in emitted]
+        return emitted
+
+    def close(self) -> None:
+        """Closes all LSL inlets."""
+        for inlet in list(self.inlets.values()):
+            try:
+                inlet.close_stream()
+            except Exception:
+                pass
+        self.inlets.clear()
+        self._is_connected = False
+
+    def __enter__(self) -> RealTimeDataPreprocessor:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
+
 
