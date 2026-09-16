@@ -12,14 +12,14 @@ from src.Data_Pipeline.real_time_data_pipeline import (
     SingleSubjectLSLStreamer,
 )
 
-SESSION_100_DIR = "Extra spin data/100_HSP_Training_HSP_165_20260304_125314"
+SESSION_142_DIR = "Extra spin data/142_HSP_Training_HSP_135_20260508_115626"
 
 
 @pytest.fixture
 def test_session_dir() -> Path:
-    p = Path(SESSION_100_DIR)
+    p = Path(SESSION_142_DIR)
     if not p.exists():
-        pytest.skip(f"Session 100 directory not found at {SESSION_100_DIR}")
+        pytest.skip(f"Session 142 directory not found at {SESSION_142_DIR}")
     return p
 
 
@@ -39,11 +39,14 @@ def test_single_subject_lsl_streamer_outlets(test_session_dir: Path):
         assert "summary" in streamer.outlets
         assert "accel" in streamer.outlets
 
-        # Verify stream names match Session 100 / deployment
+        # Verify stream names match Session 142
         assert streamer.stream_names["system_data"] == "SA5_SystemData"
-        assert streamer.stream_names["ecg"] == "Equivital_ECG"
-        assert streamer.stream_names["summary"] == "Equivital_Summary"
-        assert streamer.stream_names["accel"] == "Equivital_Accel"
+        assert streamer.stream_names["ecg"] == "ECG_EQ02_3118060"
+        assert streamer.stream_names["summary"] == "Summary_EQ02_3118060"
+        assert streamer.stream_names["accel"] == "Accel_EQ02_3118060"
+
+        # Verify ECG has 2 channels
+        assert streamer.stream_data["ecg"][1].shape[1] == 2
 
         # Push samples
         pushed_any = streamer.push_next()
@@ -62,7 +65,7 @@ def test_real_time_data_preprocessor_resampling_and_features(test_session_dir: P
         max_rows_per_stream=2000,
         source_id_prefix="TEST_STREAMER_2_",
     )
-    preprocessor = RealTimeDataPreprocessor()
+    preprocessor = RealTimeDataPreprocessor(stream_names=streamer.stream_names)
 
     try:
         preprocessor.connect(timeout=2.0)
@@ -91,13 +94,23 @@ def test_real_time_data_preprocessor_resampling_and_features(test_session_dir: P
         mag_val = sample_arr[mag_idx]
         assert 0.8 <= mag_val <= 1.5, f"Expected baseline G-magnitude ~1.0, got {mag_val}"
 
-        # Verify HR and BR physiological limits
+        # Verify HR and BR physiological limits from Session 142 summary data
         hr_idx = preprocessor.raw_feature_names.index("HR (bpm) - Equivital")
         br_idx = preprocessor.raw_feature_names.index("BR (rpm) - Equivital")
         temp_idx = preprocessor.raw_feature_names.index("Skin Temperature - IR Thermometer (°C) - Equivital")
 
-        assert 30.0 <= sample_arr[hr_idx] <= 220.0
-        assert 4.0 <= sample_arr[br_idx] <= 60.0
+        assert 60.0 <= sample_arr[hr_idx] <= 200.0
+        assert 8.0 <= sample_arr[br_idx] <= 35.0
+        assert 25.0 <= sample_arr[temp_idx] <= 42.0
+
+        # Verify Lead 1 and Lead 2 are populated with real dynamic telemetry
+        lead1_idx = preprocessor.raw_feature_names.index("ECG Lead 1 - Equivital")
+        lead2_idx = preprocessor.raw_feature_names.index("ECG Lead 2 - Equivital")
+        assert -2.0 <= sample_arr[lead1_idx] <= 2.0
+        assert -2.0 <= sample_arr[lead2_idx] <= 2.0
+
+        all_lead2 = [s[0][lead2_idx] for s in samples]
+        assert np.any(np.array(all_lead2) != 0.0), "ECG Lead 2 should contain non-zero real telemetry"
         assert 25.0 <= sample_arr[temp_idx] <= 42.0
 
         # Verify derived HR features
@@ -134,7 +147,7 @@ def test_end_to_end_real_time_pipeline_lsl_integration(test_session_dir: Path):
         max_rows_per_stream=10000,
         source_id_prefix="TEST_STREAMER_3_",
     )
-    preprocessor = RealTimeDataPreprocessor()
+    preprocessor = RealTimeDataPreprocessor(stream_names=streamer.stream_names)
 
     artifacts = {
         "s1_pooled_mean": [0.0] * 100,

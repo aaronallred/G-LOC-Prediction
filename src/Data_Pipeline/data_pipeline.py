@@ -1689,6 +1689,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         gloc_data = self._filter_data_by_analysis_type(analysis_type, gloc_data, subject_to_analyze, trial_to_analyze)
         gloc_data, features = self._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type,
                                                                   file_paths, output_feature_dtype)
+        raw_unprocessed_features = [f for f in features["All"] if not f.startswith("participant_")]
+        if _stream_filter_applied:
+            raw_unprocessed_features = self._apply_substring_filter(raw_unprocessed_features, _filter_substrings)
 
         # Create GLOC categorical vector
         gloc_labels = self._label_gloc_events(gloc_data)
@@ -2043,7 +2046,8 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 "s1_pooled_std": s1_pooled_std,
                 "s2_global_mean": s2_global_mean,
                 "s2_global_std": s2_global_std,
-                "raw_feature_names": all_raw_features,
+                "raw_feature_names": raw_unprocessed_features,
+                "engineered_feature_names": all_raw_features,
                 "active_feature_names": select_features,
                 "active_indices": active_indices,
                 "dropped_feature_names": dropped_features,

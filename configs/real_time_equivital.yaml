@@ -22,6 +22,7 @@ traditional_data_parameters:
 
 real_time_equivital:
   enabled: true
+  session_dir: "Extra spin data/142_HSP_Training_HSP_135_20260508_115626"
   model_type: !ModelType [ Complete, Explicit ]
   random_seed: 42
   models: [ EGB, KNN, RF ]

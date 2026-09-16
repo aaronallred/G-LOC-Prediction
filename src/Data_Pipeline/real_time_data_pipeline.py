@@ -167,6 +167,9 @@ class RealTimeTraditionalDataPipeline:
         self.active_indices = np.asarray(self.artifacts.get("active_indices", []), dtype=np.int64)
         self.active_feature_names = self.artifacts.get("active_feature_names", [])
         self.raw_feature_names = self.artifacts.get("raw_feature_names", [])
+        self.engineered_feature_names = self.artifacts.get(
+            "engineered_feature_names", self.artifacts.get("raw_feature_names", [])
+        )
 
         # Buffer sizing
         self.n_baseline_samples = max(1, int(round(self.baseline_window_s * self.stream_rate_hz)))
@@ -359,18 +362,26 @@ class RealTimeTraditionalDataPipeline:
         combined_baseline = np.hstack(blocks)
 
         # Sliding window summary statistics across window axis=0
-        mean_stat = np.nanmean(combined_baseline, axis=0)
-        std_stat = np.nanstd(combined_baseline, axis=0)
-        max_stat = np.nanmax(combined_baseline, axis=0)
-        range_stat = np.nanmax(combined_baseline, axis=0) - np.nanmin(combined_baseline, axis=0)
+        with np.errstate(all="ignore"):
+            mean_stat = np.nan_to_num(np.nanmean(combined_baseline, axis=0), nan=0.0)
+            std_stat = np.nan_to_num(np.nanstd(combined_baseline, axis=0), nan=0.0)
+            max_stat = np.nan_to_num(np.nanmax(combined_baseline, axis=0), nan=0.0)
+            min_stat = np.nan_to_num(np.nanmin(combined_baseline, axis=0), nan=0.0)
+            range_stat = max_stat - min_stat
 
         # Additional HRV features from index 0 (HR in bpm)
         hr_window = win_arr[:, 0]
-        with np.errstate(divide="ignore", invalid="ignore"):
-            rr_interval = 60000.0 / hr_window
-        hrv_sdnn = np.nanstd(rr_interval)
-        diff_rr = np.diff(rr_interval)
-        hrv_rmssd = np.sqrt(np.nanmean(diff_rr ** 2)) if len(diff_rr) > 0 else 0.0
+        valid_hr = (hr_window > 0) & np.isfinite(hr_window)
+        if np.sum(valid_hr) >= 2:
+            with np.errstate(divide="ignore", invalid="ignore"):
+                rr_interval = 60000.0 / hr_window[valid_hr]
+                hrv_sdnn = float(np.nanstd(rr_interval))
+                diff_rr = np.diff(rr_interval)
+                valid_diff = diff_rr[np.isfinite(diff_rr)]
+                hrv_rmssd = float(np.sqrt(np.mean(valid_diff ** 2))) if valid_diff.size > 0 else 0.0
+        else:
+            hrv_sdnn = 0.0
+            hrv_rmssd = 0.0
 
         # Stack raw feature vector X_raw: [mean, std, max, range, hrv_sdnn, hrv_rmssd]
         X_raw = np.hstack([mean_stat, std_stat, max_stat, range_stat, [hrv_sdnn, hrv_rmssd]])
@@ -637,7 +648,7 @@ class SingleSubjectLSLStreamer:
                 channel_format=pylsl.cf_float32,
                 source_id=f"{self.source_id_prefix}{key}",
             )
-            self.outlets[key] = pylsl.StreamOutlet(sinfo)
+            self.outlets[key] = pylsl.StreamOutlet(sinfo, max_buffered=3600)
 
         logger.info(
             f"Initialized SingleSubjectLSLStreamer with {len(self.outlets)} streams from {self.session_dir.name}"
@@ -740,6 +751,7 @@ class SingleSubjectLSLStreamer:
         """Closes streamer and releases resources."""
         self.stop()
         self.outlets.clear()
+        time.sleep(0.05)
 
     def __enter__(self) -> SingleSubjectLSLStreamer:
         return self
@@ -795,6 +807,7 @@ class RealTimeDataPreprocessor:
         # Buffers for continuous signals: deque of (timestamp, value)
         self._mag_buffer: deque[Tuple[float, float]] = deque()
         self._ecg_buffer: deque[Tuple[float, float]] = deque()
+        self._ecg2_buffer: deque[Tuple[float, float]] = deque()
 
         # Latched vitals
         self._latest_hr: float = 80.0
@@ -831,7 +844,7 @@ class RealTimeDataPreprocessor:
                         break
 
             if streams:
-                inlet = pylsl.StreamInlet(streams[0], max_buflen=360, max_chunklen=1024)
+                inlet = pylsl.StreamInlet(streams[0], max_buflen=3600, max_chunklen=1024)
                 inlet.open_stream(timeout=timeout)
                 self.inlets[modality] = inlet
                 logger.info(f"Connected LSL inlet for {modality} -> '{streams[0].name()}'")
@@ -849,14 +862,15 @@ class RealTimeDataPreprocessor:
         self._mag_buffer.append((ts, mag))
 
     def _update_ecg(self, sample: List[float], ts: float) -> None:
-        """Process ECG sample and update online R-peak detector."""
-        ecg_val = float(sample[0]) if len(sample) > 0 else 0.0
-        ecg_val = float(np.clip(ecg_val, -5.0, 5.0))
-        self._ecg_buffer.append((ts, ecg_val))
+        """Process ECG sample (Lead 1 and Lead 2) and update online R-peak detector."""
+        ecg1_val = float(np.clip(sample[0], -5.0, 5.0))
+        ecg2_val = float(np.clip(sample[1], -5.0, 5.0))
+        self._ecg_buffer.append((ts, ecg1_val))
+        self._ecg2_buffer.append((ts, ecg2_val))
 
-        # Online R-peak detector: refractory threshold check
-        threshold = max(0.3, self._recent_ecg_max * 0.5)
-        if ecg_val > threshold:
+        # Online R-peak detector: adaptive refractory threshold check
+        threshold = max(0.02, self._recent_ecg_max * 0.5)
+        if ecg1_val > threshold:
             if self._last_peak_t is None or (ts - self._last_peak_t) >= self._min_rr_interval:
                 if self._last_peak_t is not None:
                     rri = ts - self._last_peak_t
@@ -870,8 +884,10 @@ class RealTimeDataPreprocessor:
                             self._latest_hr_w_average = float(
                                 np.sum(np.array(self._recent_hrs) * weights) / np.sum(weights)
                             )
+                            if self._latest_hr == 80.0:
+                                self._latest_hr = self._latest_hr_average
                 self._last_peak_t = ts
-                self._recent_ecg_max = 0.9 * self._recent_ecg_max + 0.1 * ecg_val
+                self._recent_ecg_max = 0.9 * self._recent_ecg_max + 0.1 * ecg1_val
 
     def _update_summary(self, sample: List[float], ts: float) -> None:
         """Process Equivital Summary vitals: ch0=HR, ch2=BR, ch5=SkinTemp."""
@@ -955,11 +971,12 @@ class RealTimeDataPreprocessor:
         while self._target_t <= latest_available_t:
             mag_val = self._interpolate_buffer(self._mag_buffer, self._target_t)
             ecg1_val = self._interpolate_buffer(self._ecg_buffer, self._target_t)
+            ecg2_val = self._interpolate_buffer(self._ecg2_buffer, self._target_t)
 
             feat_map = {
                 "HR (bpm) - Equivital": self._latest_hr,
                 "ECG Lead 1 - Equivital": ecg1_val,
-                "ECG Lead 2 - Equivital": 0.0,
+                "ECG Lead 2 - Equivital": ecg2_val,
                 "HR_instant - Equivital": self._latest_hr_instant,
                 "HR_average - Equivital": self._latest_hr_average,
                 "HR_w_average - Equivital": self._latest_hr_w_average,
@@ -978,6 +995,8 @@ class RealTimeDataPreprocessor:
             self._mag_buffer.popleft()
         while self._ecg_buffer and self._ecg_buffer[0][0] < prune_cutoff:
             self._ecg_buffer.popleft()
+        while self._ecg2_buffer and self._ecg2_buffer[0][0] < prune_cutoff:
+            self._ecg2_buffer.popleft()
 
         t1 = time.perf_counter()
         self._accumulated_preproc_s += (t1 - t0)
@@ -994,13 +1013,15 @@ class RealTimeDataPreprocessor:
 
     def close(self) -> None:
         """Closes all LSL inlets."""
-        for inlet in list(self.inlets.values()):
+        while self.inlets:
+            _, inlet = self.inlets.popitem()
             try:
                 inlet.close_stream()
             except Exception:
                 pass
-        self.inlets.clear()
+            del inlet
         self._is_connected = False
+        time.sleep(0.05)
 
     def __enter__(self) -> RealTimeDataPreprocessor:
         return self

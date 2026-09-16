@@ -105,7 +105,7 @@ def run_real_time_equivital(
 
     session_dir_cfg = mode_config.get(
         "session_dir",
-        "Extra spin data/100_HSP_Training_HSP_165_20260304_125314",
+        "Extra spin data/142_HSP_Training_HSP_135_20260508_115626",
     )
     session_dir = Path(session_dir_cfg)
     if not session_dir.is_absolute():
@@ -191,6 +191,7 @@ def run_real_time_equivital(
             # 4. Instantiate RealTimeDataPreprocessor
             preprocessor = RealTimeDataPreprocessor(
                 raw_feature_names=rt_pipeline.raw_feature_names,
+                stream_names=streamer.stream_names,
             )
             preprocessor.connect(timeout=2.0)
 
@@ -220,6 +221,15 @@ def run_real_time_equivital(
                             sample_25hz, timestamp_s=t_target
                         )
                         per_sample_data_proc_latencies_ms.append(data_proc_lat_ms)
+
+                        if n_raw_samples % 2500 == 0:
+                            logger.info(
+                                "[%s | %s] Ingested %d samples | %d predictions made",
+                                model_name,
+                                stream_str,
+                                n_raw_samples,
+                                len(predictions),
+                            )
 
                         if X_processed is not None:
                             t_infer_0 = time.perf_counter()
