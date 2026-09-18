@@ -213,7 +213,13 @@ def run_real_time_equivital(
 
             try:
                 while (streamer._thread and streamer._thread.is_alive()) or True:
-                    samples = preprocessor.poll_samples(timeout=0.01, return_latency=True)
+                    samples = preprocessor.poll_samples(timeout=0.0, return_latency=True)
+                    if not samples:
+                        if not streamer._thread or not streamer._thread.is_alive():
+                            break
+                        time.sleep(0.002)
+                        continue
+
                     for sample_25hz, t_target, preproc_lat_ms in samples:
                         n_raw_samples += 1
                         per_sample_preproc_latencies_ms.append(preproc_lat_ms)
@@ -256,9 +262,6 @@ def run_real_time_equivital(
                             break
 
                     if max_stream_samples is not None and n_raw_samples >= max_stream_samples:
-                        break
-
-                    if (not streamer._thread or not streamer._thread.is_alive()) and not samples:
                         break
             finally:
                 preprocessor.close()

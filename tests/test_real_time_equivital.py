@@ -161,3 +161,53 @@ def test_dynamic_model_hyperparameters_different_models():
     assert pipeline_rf.baseline_methods_to_use == ["v0", "v1", "v2", "v5", "v6", "v7", "v8"]
     assert pipeline_rf.window_size_s == 7.5
     assert pipeline_rf.baseline_window_s == 18.75
+
+
+def test_real_time_sleep_latency_tracking():
+    """Verify that when streaming with real-time sleep, preprocessing and data processing latencies are not inflated by wait times."""
+    import time
+    from src.Data_Pipeline.real_time_data_pipeline import (
+        SingleSubjectLSLStreamer,
+        RealTimeDataPreprocessor,
+    )
+
+    session_dir = "Extra spin data/142_HSP_Training_HSP_135_20260508_115626"
+    streamer = SingleSubjectLSLStreamer(
+        session_dir=session_dir,
+        playback_speed=1.0,
+        max_rows_per_stream=600,
+        source_id_prefix="TEST_SLEEP_TRACK_",
+    )
+    raw_feature_names = [
+        "HR (bpm) - Equivital",
+        "ECG Lead 1 - Equivital",
+        "ECG Lead 2 - Equivital",
+        "magnitude - Centrifuge",
+    ]
+    preprocessor = RealTimeDataPreprocessor(
+        raw_feature_names=raw_feature_names,
+        stream_names=streamer.stream_names,
+    )
+    preprocessor.connect(timeout=2.0)
+
+    streamer.start()
+    preproc_latencies = []
+    t_start = time.perf_counter()
+
+    try:
+        # Collect samples over 2 seconds of real-time streaming
+        while time.perf_counter() - t_start < 2.0:
+            samples = preprocessor.poll_samples(timeout=0.0, return_latency=True)
+            for _, _, preproc_lat_ms in samples:
+                preproc_latencies.append(preproc_lat_ms)
+            if not samples:
+                time.sleep(0.002)
+    finally:
+        preprocessor.close()
+        streamer.close()
+
+    assert len(preproc_latencies) > 0, "Expected samples to be emitted during 2 seconds of real-time playback"
+    mean_preproc = sum(preproc_latencies) / len(preproc_latencies)
+
+    # Preprocessing compute latency should be small (< 5 ms), NOT ~40 ms (the inter-arrival wait time)
+    assert mean_preproc < 5.0, f"Preprocessing latency was inflated: {mean_preproc:.3f} ms"

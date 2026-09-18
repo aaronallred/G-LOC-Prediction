@@ -730,6 +730,8 @@ class SingleSubjectLSLStreamer:
             has_more = self.push_next()
             if not has_more:
                 break
+            if self.playback_speed <= 0:
+                time.sleep(0)
 
     def start(self) -> None:
         """Starts background streaming thread."""
@@ -936,14 +938,17 @@ class RealTimeDataPreprocessor:
         if not self._is_connected:
             self.connect(timeout=timeout)
 
+        # 1. Non-blocking drain from all inlets (avoids idle socket wait)
+        pulled_data: Dict[str, Tuple[List[Any], List[float]]] = {}
+        for modality, inlet in self.inlets.items():
+            samples, timestamps = inlet.pull_chunk(timeout=0.0)
+            if samples:
+                pulled_data[modality] = (samples, timestamps)
+
+        # 2. Timing begins strictly for algorithmic computation
         t0 = time.perf_counter()
 
-        # 1. Ingest chunks from all inlets
-        for modality, inlet in self.inlets.items():
-            samples, timestamps = inlet.pull_chunk(timeout=timeout)
-            if not samples:
-                continue
-
+        for modality, (samples, timestamps) in pulled_data.items():
             for sample, ts in zip(samples, timestamps):
                 if self._clock_anchor is None:
                     self._clock_anchor = ts
@@ -958,7 +963,7 @@ class RealTimeDataPreprocessor:
                 elif modality == "summary":
                     self._update_summary(sample, t_rel)
 
-        # 2. Check maximum available time across fast streams
+        # 3. Check maximum available time across fast streams
         if not self._mag_buffer or not self._ecg_buffer:
             t1 = time.perf_counter()
             self._accumulated_preproc_s += (t1 - t0)
@@ -967,7 +972,7 @@ class RealTimeDataPreprocessor:
         latest_available_t = min(self._mag_buffer[-1][0], self._ecg_buffer[-1][0])
         emitted: List[Tuple[np.ndarray, float]] = []
 
-        # 3. Emit 25 Hz samples
+        # 4. Emit 25 Hz samples
         while self._target_t <= latest_available_t:
             mag_val = self._interpolate_buffer(self._mag_buffer, self._target_t)
             ecg1_val = self._interpolate_buffer(self._ecg_buffer, self._target_t)
@@ -989,7 +994,7 @@ class RealTimeDataPreprocessor:
             emitted.append((sample_arr, self._target_t))
             self._target_t += self.dt_target
 
-        # 4. Prune old buffer samples (older than target_t - 2.0s)
+        # 5. Prune old buffer samples (older than target_t - 2.0s)
         prune_cutoff = self._target_t - 2.0
         while self._mag_buffer and self._mag_buffer[0][0] < prune_cutoff:
             self._mag_buffer.popleft()
