@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import multiprocessing as mp
 import re
 import threading
 import time
@@ -468,6 +469,77 @@ class RealTimeTraditionalDataPipeline:
                 time.sleep(poll_timeout)
 
 
+def _streamer_process_worker(
+    stream_configs: Dict[str, Dict[str, Any]],
+    stream_data: Dict[str, Tuple[np.ndarray, np.ndarray]],
+    stream_names: Dict[str, str],
+    source_id_prefix: str,
+    playback_speed: float,
+    ready_event: Any,
+    stop_event: Any,
+) -> None:
+    """Dedicated background process worker that streams multi-rate LSL telemetry."""
+    outlets: Dict[str, pylsl.StreamOutlet] = {}
+    try:
+        for key, (times, data) in stream_data.items():
+            cfg = stream_configs[key]
+            lsl_name = stream_names.get(key, cfg["default_name"])
+            sinfo = pylsl.StreamInfo(
+                name=lsl_name,
+                type=cfg["type"],
+                channel_count=data.shape[1],
+                nominal_srate=float(cfg["nominal_srate"]),
+                channel_format=pylsl.cf_float32,
+                source_id=f"{source_id_prefix}{key}",
+            )
+            outlets[key] = pylsl.StreamOutlet(sinfo, max_buffered=3600)
+
+        ready_event.set()
+
+        pointers = {k: 0 for k in stream_data}
+        wall_start_t = 0.0
+        last_streamed_t = 0.0
+
+        while not stop_event.is_set():
+            earliest_key: Optional[str] = None
+            earliest_t = float("inf")
+
+            for key, (times, _) in stream_data.items():
+                ptr = pointers[key]
+                if ptr < len(times):
+                    t_val = times[ptr]
+                    if t_val < earliest_t:
+                        earliest_t = t_val
+                        earliest_key = key
+
+            if earliest_key is None:
+                break
+
+            times, data = stream_data[earliest_key]
+            ptr = pointers[earliest_key]
+            t_sample = float(times[ptr])
+            sample = data[ptr].tolist()
+            pointers[earliest_key] += 1
+
+            if playback_speed > 0:
+                if wall_start_t == 0.0:
+                    wall_start_t = time.perf_counter()
+                    last_streamed_t = t_sample
+                else:
+                    elapsed_stream_s = (t_sample - last_streamed_t) / playback_speed
+                    elapsed_wall_s = time.perf_counter() - wall_start_t
+                    sleep_s = elapsed_stream_s - elapsed_wall_s
+                    if sleep_s > 0:
+                        time.sleep(sleep_s)
+            elif playback_speed <= 0:
+                time.sleep(0)
+
+            outlets[earliest_key].push_sample(sample, timestamp=t_sample)
+    finally:
+        outlets.clear()
+        ready_event.set()
+
+
 class SingleSubjectLSLStreamer:
     """Streams multi-rate telemetry data from a single subject session folder via native pylsl outlets.
 
@@ -546,8 +618,9 @@ class SingleSubjectLSLStreamer:
         # Streaming state
         self._pointers: Dict[str, int] = {}
         self._is_running = False
-        self._thread: Optional[threading.Thread] = None
-        self._stop_event = threading.Event()
+        self._process: Optional[mp.Process] = None
+        self._stop_event = mp.Event()
+        self._ready_event = mp.Event()
         self._last_streamed_t = 0.0
         self._wall_start_t = 0.0
 
@@ -725,28 +798,52 @@ class SingleSubjectLSLStreamer:
             count += 1
         return count
 
-    def _worker(self) -> None:
-        while not self._stop_event.is_set():
-            has_more = self.push_next()
-            if not has_more:
-                break
-            if self.playback_speed <= 0:
-                time.sleep(0)
+    @property
+    def _thread(self) -> Optional[mp.Process]:
+        """Backward-compatibility alias for legacy callers checking streamer._thread."""
+        return self._process
+
+    def is_alive(self) -> bool:
+        """Checks if the background streaming process is running."""
+        return bool(self._process and self._process.is_alive())
 
     def start(self) -> None:
-        """Starts background streaming thread."""
+        """Starts background streaming in a dedicated OS process."""
         if self._is_running:
             return
+
+        # Release parent outlets so child creates independent C++ networking sockets
+        if self.outlets:
+            self.outlets.clear()
+
         self._stop_event.clear()
+        self._ready_event.clear()
         self._is_running = True
-        self._thread = threading.Thread(target=self._worker, daemon=True)
-        self._thread.start()
+        self._process = mp.Process(
+            target=_streamer_process_worker,
+            args=(
+                self.stream_configs,
+                self.stream_data,
+                self.stream_names,
+                self.source_id_prefix,
+                self.playback_speed,
+                self._ready_event,
+                self._stop_event,
+            ),
+            daemon=True,
+        )
+        self._process.start()
+        # Wait until child process has successfully instantiated the LSL outlets
+        self._ready_event.wait(timeout=5.0)
 
     def stop(self) -> None:
-        """Stops background streaming thread."""
+        """Stops background streaming process."""
         self._stop_event.set()
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=2.0)
+        if self._process and self._process.is_alive():
+            self._process.join(timeout=2.0)
+            if self._process.is_alive():
+                self._process.terminate()
+                self._process.join(timeout=1.0)
         self._is_running = False
 
     def close(self) -> None:

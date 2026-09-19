@@ -184,13 +184,13 @@ def test_real_time_sleep_latency_tracking():
         "ECG Lead 2 - Equivital",
         "magnitude - Centrifuge",
     ]
+    streamer.start()
     preprocessor = RealTimeDataPreprocessor(
         raw_feature_names=raw_feature_names,
         stream_names=streamer.stream_names,
     )
     preprocessor.connect(timeout=2.0)
 
-    streamer.start()
     preproc_latencies = []
     t_start = time.perf_counter()
 

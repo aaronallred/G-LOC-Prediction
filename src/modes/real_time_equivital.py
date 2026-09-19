@@ -188,14 +188,18 @@ def run_real_time_equivital(
                 source_id_prefix=f"RT_{model_name}_{stream_str}_",
             )
 
-            # 4. Instantiate RealTimeDataPreprocessor
+            # 4. Start background streaming process (publishes LSL outlets)
+            rt_pipeline.reset()
+            streamer.start()
+
+            # 5. Instantiate RealTimeDataPreprocessor and connect
             preprocessor = RealTimeDataPreprocessor(
                 raw_feature_names=rt_pipeline.raw_feature_names,
                 stream_names=streamer.stream_names,
             )
             preprocessor.connect(timeout=2.0)
 
-            # 5. Stream and infer
+            # 6. Stream and infer
             per_sample_preproc_latencies_ms: list[float] = []
             per_sample_data_proc_latencies_ms: list[float] = []
             per_prediction_preproc_latencies_ms: list[float] = []
@@ -207,15 +211,13 @@ def run_real_time_equivital(
             per_prediction_pred_to_pred_latencies_ms: list[Optional[float]] = []
             last_prediction_time: Optional[float] = None
 
-            rt_pipeline.reset()
-            streamer.start()
             n_raw_samples = 0
 
             try:
-                while (streamer._thread and streamer._thread.is_alive()) or True:
+                while streamer.is_alive() or True:
                     samples = preprocessor.poll_samples(timeout=0.0, return_latency=True)
                     if not samples:
-                        if not streamer._thread or not streamer._thread.is_alive():
+                        if not streamer.is_alive():
                             break
                         time.sleep(0.002)
                         continue
