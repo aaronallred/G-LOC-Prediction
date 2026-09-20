@@ -26,6 +26,7 @@ from src.Data_Pipeline.real_time_data_pipeline import (
     RealTimeDataPreprocessor,
     RealTimeTraditionalDataPipeline,
     SingleSubjectLSLStreamer,
+    pin_process_to_core,
 )
 from src.models.model_factory import ModelFactory
 
@@ -175,6 +176,15 @@ def run_real_time_equivital(
             logger.info("Loading saved model from %s", saved_model_path)
             loaded_model = joblib.load(saved_model_path)
 
+            orig_affinity = os.sched_getaffinity(0) if hasattr(os, "sched_getaffinity") else None
+            available_cores = sorted(orig_affinity) if orig_affinity is not None else []
+            logger.info(
+                "CPU allocation for %s: %d core(s) available %s",
+                model_name,
+                len(available_cores),
+                available_cores,
+            )
+
             # 2. Instantiate RealTimeTraditionalDataPipeline
             rt_pipeline = RealTimeTraditionalDataPipeline(
                 artifacts=artifacts_path,
@@ -191,14 +201,11 @@ def run_real_time_equivital(
                 source_id_prefix=f"RT_{model_name}_{stream_str}_",
             )
 
-            # 4. Pin consumer process (Process 3) to Core 2
-            os.sched_setaffinity(0, {2})
-
-            # 5. Start background streaming process (Process 1 on Core 0)
+            # 4. Start background streaming process (Process 1)
             rt_pipeline.reset()
             streamer.start(wait_for_trigger=True)
 
-            # 6. Instantiate RealTimeDataPreprocessor and start background worker (Process 2 on Core 1)
+            # 5. Instantiate RealTimeDataPreprocessor and start background worker (Process 2)
             sample_queue: mp.Queue = mp.Queue(maxsize=50000)
             preprocessor = RealTimeDataPreprocessor(
                 raw_feature_names=rt_pipeline.raw_feature_names,
@@ -210,6 +217,9 @@ def run_real_time_equivital(
                 max_stream_samples=max_stream_samples,
             )
             streamer.trigger()
+
+            # 6. Pin consumer process (Process 3) after spawning child workers
+            pin_process_to_core(2)
 
             # 7. Consume and infer sequentially without LSL networking interrupts
             per_sample_preproc_latencies_ms: list[float] = []
@@ -285,6 +295,11 @@ def run_real_time_equivital(
                     sample_queue.cancel_join_thread()
                 except Exception:
                     pass
+                if orig_affinity is not None:
+                    try:
+                        os.sched_setaffinity(0, orig_affinity)
+                    except Exception:
+                        pass
 
             # 6. Aggregate latencies
             preproc_summary = _summarize_latencies(per_sample_preproc_latencies_ms)

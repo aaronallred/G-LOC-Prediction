@@ -470,6 +470,45 @@ class RealTimeTraditionalDataPipeline:
                 time.sleep(poll_timeout)
 
 
+def pin_process_to_core(role_index: int) -> None:
+    """Safely pin the calling process to an available CPU core based on process role.
+
+    Role indices:
+      0 = Streamer (Process 1)
+      1 = Preprocessor (Process 2)
+      2 = Feature extraction & Inference Consumer (Process 3)
+    """
+    role_names = {
+        0: "Streamer (Process 1)",
+        1: "Preprocessor (Process 2)",
+        2: "Consumer/Inference (Process 3)",
+    }
+    role_name = role_names.get(role_index, f"Role {role_index}")
+    try:
+        if not hasattr(os, "sched_getaffinity") or not hasattr(os, "sched_setaffinity"):
+            logger.info("CPU affinity not supported on this platform; %s running on unpinned CPU", role_name)
+            return
+        available = sorted(os.sched_getaffinity(0))
+        if not available:
+            return
+        if len(available) >= 3:
+            target = available[role_index % len(available)]
+        elif len(available) == 2:
+            target = available[1] if role_index == 2 else available[0]
+        else:
+            target = available[0]
+        os.sched_setaffinity(0, {target})
+        logger.info(
+            "CPU affinity: %s pinned to core %d (using %d core(s) available: %s)",
+            role_name,
+            target,
+            len(available),
+            available,
+        )
+    except Exception as exc:
+        logger.warning("Could not set CPU core affinity for %s: %s; continuing unpinned", role_name, exc)
+
+
 def _streamer_process_worker(
     stream_configs: Dict[str, Dict[str, Any]],
     stream_data: Dict[str, Tuple[np.ndarray, np.ndarray]],
@@ -481,7 +520,7 @@ def _streamer_process_worker(
     stream_finished_event: Optional[Any] = None,
     start_event: Optional[Any] = None,
 ) -> None:
-    os.sched_setaffinity(0, {0})
+    pin_process_to_core(0)
 
     outlets: Dict[str, pylsl.StreamOutlet] = {}
     try:
@@ -565,7 +604,7 @@ def _preprocessor_process_worker(
     stream_finished_event: Optional[Any] = None,
     max_stream_samples: Optional[int] = None,
 ) -> None:
-    os.sched_setaffinity(0, {1})
+    pin_process_to_core(1)
 
     preprocessor = RealTimeDataPreprocessor(
         raw_feature_names=raw_feature_names,

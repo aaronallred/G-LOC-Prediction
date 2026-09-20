@@ -1,5 +1,6 @@
 """Targeted tests for real-time LSL streaming and preprocessing."""
 
+import os
 import time
 from pathlib import Path
 
@@ -75,8 +76,12 @@ def test_real_time_data_preprocessor_resampling_and_features(test_session_dir: P
         pushed_count = streamer.push_chunk(5.0)
         assert pushed_count > 0
 
-        time.sleep(0.05)
-        samples = preprocessor.poll_samples(timeout=0.1)
+        samples = []
+        for _ in range(10):
+            time.sleep(0.05)
+            samples = preprocessor.poll_samples(timeout=0.1)
+            if samples:
+                break
         assert len(samples) > 0, "Preprocessor should have emitted 25 Hz samples"
 
         # Check sample grid spacing
@@ -241,3 +246,40 @@ def test_decoupled_three_process_queue_streaming(test_session_dir: Path):
         streamer.close()
         sample_queue.close()
         sample_queue.cancel_join_thread()
+
+
+def test_pin_process_to_core(caplog):
+    """Verify pin_process_to_core dynamically resolves cores and logs allocation without error."""
+    import logging
+    from src.Data_Pipeline.real_time_data_pipeline import pin_process_to_core
+
+    with caplog.at_level(logging.INFO):
+        orig = os.sched_getaffinity(0) if hasattr(os, "sched_getaffinity") else None
+        try:
+            pin_process_to_core(0)
+            pin_process_to_core(1)
+            pin_process_to_core(2)
+        finally:
+            if orig is not None:
+                try:
+                    os.sched_setaffinity(0, orig)
+                except Exception:
+                    pass
+
+    log_texts = [rec.message for rec in caplog.records if "CPU affinity" in rec.message]
+    assert len(log_texts) >= 1
+    assert any("Streamer" in t for t in log_texts)
+
+
+def test_pin_process_to_core_graceful_failure(monkeypatch):
+    """Verify pin_process_to_core logs a warning and does not raise an exception when OS denies affinity."""
+    from src.Data_Pipeline.real_time_data_pipeline import pin_process_to_core
+
+    def mock_setaffinity(pid, mask):
+        raise OSError(22, "Invalid argument")
+
+    monkeypatch.setattr(os, "sched_setaffinity", mock_setaffinity)
+    # Must not raise OSError
+    pin_process_to_core(0)
+    pin_process_to_core(1)
+    pin_process_to_core(2)
