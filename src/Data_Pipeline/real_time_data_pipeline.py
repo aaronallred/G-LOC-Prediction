@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import multiprocessing as mp
+import os
 import re
 import threading
 import time
@@ -477,8 +478,11 @@ def _streamer_process_worker(
     playback_speed: float,
     ready_event: Any,
     stop_event: Any,
+    stream_finished_event: Optional[Any] = None,
+    start_event: Optional[Any] = None,
 ) -> None:
-    """Dedicated background process worker that streams multi-rate LSL telemetry."""
+    os.sched_setaffinity(0, {0})
+
     outlets: Dict[str, pylsl.StreamOutlet] = {}
     try:
         for key, (times, data) in stream_data.items():
@@ -495,6 +499,12 @@ def _streamer_process_worker(
             outlets[key] = pylsl.StreamOutlet(sinfo, max_buffered=3600)
 
         ready_event.set()
+
+        if start_event is not None:
+            while not stop_event.is_set():
+                if start_event.is_set():
+                    break
+                time.sleep(0.001)
 
         pointers = {k: 0 for k in stream_data}
         wall_start_t = 0.0
@@ -513,6 +523,10 @@ def _streamer_process_worker(
                         earliest_key = key
 
             if earliest_key is None:
+                if stream_finished_event is not None:
+                    stream_finished_event.set()
+                while not stop_event.is_set():
+                    time.sleep(0.01)
                 break
 
             times, data = stream_data[earliest_key]
@@ -538,6 +552,70 @@ def _streamer_process_worker(
     finally:
         outlets.clear()
         ready_event.set()
+        if stream_finished_event is not None:
+            stream_finished_event.set()
+
+
+def _preprocessor_process_worker(
+    raw_feature_names: List[str],
+    stream_names: Dict[str, str],
+    sample_queue: mp.Queue,
+    ready_event: Any,
+    stop_event: Any,
+    stream_finished_event: Optional[Any] = None,
+    max_stream_samples: Optional[int] = None,
+) -> None:
+    os.sched_setaffinity(0, {1})
+
+    preprocessor = RealTimeDataPreprocessor(
+        raw_feature_names=raw_feature_names,
+        stream_names=stream_names,
+    )
+    sample_count = 0
+    try:
+        preprocessor.connect(timeout=2.0)
+        ready_event.set()
+
+        while not stop_event.is_set():
+            samples = preprocessor.poll_samples(timeout=0.0, return_latency=True)
+            if not samples:
+                if stream_finished_event is not None and stream_finished_event.is_set():
+                    time.sleep(0.01)
+                    while True:
+                        remaining = preprocessor.poll_samples(timeout=0.0, return_latency=True)
+                        if not remaining:
+                            time.sleep(0.01)
+                            remaining = preprocessor.poll_samples(timeout=0.0, return_latency=True)
+                            if not remaining:
+                                break
+                        for item in remaining:
+                            sample_queue.put(item)
+                            sample_count += 1
+                            if max_stream_samples is not None and sample_count >= max_stream_samples:
+                                break
+                        if max_stream_samples is not None and sample_count >= max_stream_samples:
+                            break
+                    break
+                time.sleep(0.001)
+                continue
+
+            for item in samples:
+                sample_queue.put(item)
+                sample_count += 1
+                if max_stream_samples is not None and sample_count >= max_stream_samples:
+                    break
+
+            if max_stream_samples is not None and sample_count >= max_stream_samples:
+                break
+    except Exception as exc:
+        logger.error("Error in preprocessor worker: %s", exc)
+    finally:
+        ready_event.set()
+        try:
+            sample_queue.put(None)
+        except Exception:
+            pass
+        preprocessor.close()
 
 
 class SingleSubjectLSLStreamer:
@@ -621,10 +699,17 @@ class SingleSubjectLSLStreamer:
         self._process: Optional[mp.Process] = None
         self._stop_event = mp.Event()
         self._ready_event = mp.Event()
+        self._finished_event = mp.Event()
+        self._start_event = mp.Event()
         self._last_streamed_t = 0.0
         self._wall_start_t = 0.0
 
         self._load_and_init_outlets()
+
+    @property
+    def finished_event(self) -> mp.Event:
+        """Event signaled when streamer completes all session data."""
+        return self._finished_event
 
     def _load_and_init_outlets(self) -> None:
         """Discover CSV files, synchronize time anchors, and create pylsl outlets."""
@@ -807,7 +892,7 @@ class SingleSubjectLSLStreamer:
         """Checks if the background streaming process is running."""
         return bool(self._process and self._process.is_alive())
 
-    def start(self) -> None:
+    def start(self, wait_for_trigger: bool = False) -> None:
         """Starts background streaming in a dedicated OS process."""
         if self._is_running:
             return
@@ -818,6 +903,8 @@ class SingleSubjectLSLStreamer:
 
         self._stop_event.clear()
         self._ready_event.clear()
+        self._finished_event.clear()
+        self._start_event.clear()
         self._is_running = True
         self._process = mp.Process(
             target=_streamer_process_worker,
@@ -829,15 +916,24 @@ class SingleSubjectLSLStreamer:
                 self.playback_speed,
                 self._ready_event,
                 self._stop_event,
+                self._finished_event,
+                self._start_event,
             ),
             daemon=True,
         )
         self._process.start()
         # Wait until child process has successfully instantiated the LSL outlets
         self._ready_event.wait(timeout=5.0)
+        if not wait_for_trigger:
+            self._start_event.set()
+
+    def trigger(self) -> None:
+        """Signals the streamer to begin pushing samples (when started with wait_for_trigger=True)."""
+        self._start_event.set()
 
     def stop(self) -> None:
         """Stops background streaming process."""
+        self._start_event.set()
         self._stop_event.set()
         if self._process and self._process.is_alive():
             self._process.join(timeout=2.0)
@@ -927,6 +1023,12 @@ class RealTimeDataPreprocessor:
         self._target_t: float = 0.0
         self._accumulated_preproc_s: float = 0.0
         self._is_connected = False
+
+        # Streaming process state
+        self._process: Optional[mp.Process] = None
+        self._stop_event = mp.Event()
+        self._ready_event = mp.Event()
+        self._is_running = False
 
     def connect(self, timeout: float = 5.0) -> None:
         """Resolves LSL streams and initializes inlets."""
@@ -1113,8 +1215,52 @@ class RealTimeDataPreprocessor:
             return [(sample_arr, t_val, per_sample_lat_ms) for sample_arr, t_val in emitted]
         return emitted
 
+    def start(
+        self,
+        sample_queue: mp.Queue,
+        stream_finished_event: Optional[Any] = None,
+        max_stream_samples: Optional[int] = None,
+    ) -> None:
+        """Starts background preprocessing in a dedicated OS process."""
+        if self._is_running:
+            return
+
+        self._stop_event.clear()
+        self._ready_event.clear()
+        self._is_running = True
+        self._process = mp.Process(
+            target=_preprocessor_process_worker,
+            args=(
+                self.raw_feature_names,
+                self.stream_names,
+                sample_queue,
+                self._ready_event,
+                self._stop_event,
+                stream_finished_event,
+                max_stream_samples,
+            ),
+            daemon=True,
+        )
+        self._process.start()
+        self._ready_event.wait(timeout=5.0)
+
+    def is_alive(self) -> bool:
+        """Checks if the background preprocessing process is running."""
+        return bool(self._process and self._process.is_alive())
+
+    def stop(self) -> None:
+        """Stops background preprocessing process."""
+        self._stop_event.set()
+        if self._process and self._process.is_alive():
+            self._process.join(timeout=2.0)
+            if self._process.is_alive():
+                self._process.terminate()
+                self._process.join(timeout=1.0)
+        self._is_running = False
+
     def close(self) -> None:
-        """Closes all LSL inlets."""
+        """Closes preprocessor and releases resources."""
+        self.stop()
         while self.inlets:
             _, inlet = self.inlets.popitem()
             try:

@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import json
 import logging
+import multiprocessing as mp
+import os
+import queue
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -188,18 +191,27 @@ def run_real_time_equivital(
                 source_id_prefix=f"RT_{model_name}_{stream_str}_",
             )
 
-            # 4. Start background streaming process (publishes LSL outlets)
-            rt_pipeline.reset()
-            streamer.start()
+            # 4. Pin consumer process (Process 3) to Core 2
+            os.sched_setaffinity(0, {2})
 
-            # 5. Instantiate RealTimeDataPreprocessor and connect
+            # 5. Start background streaming process (Process 1 on Core 0)
+            rt_pipeline.reset()
+            streamer.start(wait_for_trigger=True)
+
+            # 6. Instantiate RealTimeDataPreprocessor and start background worker (Process 2 on Core 1)
+            sample_queue: mp.Queue = mp.Queue(maxsize=50000)
             preprocessor = RealTimeDataPreprocessor(
                 raw_feature_names=rt_pipeline.raw_feature_names,
                 stream_names=streamer.stream_names,
             )
-            preprocessor.connect(timeout=2.0)
+            preprocessor.start(
+                sample_queue=sample_queue,
+                stream_finished_event=streamer.finished_event,
+                max_stream_samples=max_stream_samples,
+            )
+            streamer.trigger()
 
-            # 6. Stream and infer
+            # 7. Consume and infer sequentially without LSL networking interrupts
             per_sample_preproc_latencies_ms: list[float] = []
             per_sample_data_proc_latencies_ms: list[float] = []
             per_prediction_preproc_latencies_ms: list[float] = []
@@ -214,62 +226,65 @@ def run_real_time_equivital(
             n_raw_samples = 0
 
             try:
-                while streamer.is_alive() or True:
-                    samples = preprocessor.poll_samples(timeout=0.0, return_latency=True)
-                    if not samples:
-                        if not streamer.is_alive():
+                while True:
+                    try:
+                        item = sample_queue.get(timeout=2.0)
+                    except queue.Empty:
+                        if not preprocessor.is_alive() and not streamer.is_alive():
                             break
-                        time.sleep(0.002)
                         continue
 
-                    for sample_25hz, t_target, preproc_lat_ms in samples:
-                        n_raw_samples += 1
-                        per_sample_preproc_latencies_ms.append(preproc_lat_ms)
-                        X_processed, data_proc_lat_ms = rt_pipeline.ingest_sample(
-                            sample_25hz, timestamp_s=t_target
+                    if item is None:
+                        break
+
+                    sample_25hz, t_target, preproc_lat_ms = item
+                    n_raw_samples += 1
+                    per_sample_preproc_latencies_ms.append(preproc_lat_ms)
+                    X_processed, data_proc_lat_ms = rt_pipeline.ingest_sample(
+                        sample_25hz, timestamp_s=t_target
+                    )
+                    per_sample_data_proc_latencies_ms.append(data_proc_lat_ms)
+
+                    if n_raw_samples % 2500 == 0:
+                        logger.info(
+                            "[%s | %s] Ingested %d samples | %d predictions made",
+                            model_name,
+                            stream_str,
+                            n_raw_samples,
+                            len(predictions),
                         )
-                        per_sample_data_proc_latencies_ms.append(data_proc_lat_ms)
 
-                        if n_raw_samples % 2500 == 0:
-                            logger.info(
-                                "[%s | %s] Ingested %d samples | %d predictions made",
-                                model_name,
-                                stream_str,
-                                n_raw_samples,
-                                len(predictions),
-                            )
+                    if X_processed is not None:
+                        t_infer_0 = time.perf_counter()
+                        pred = loaded_model.predict(X_processed.reshape(1, -1))
+                        t_infer_1 = time.perf_counter()
+                        infer_lat_ms = (t_infer_1 - t_infer_0) * 1000.0
 
-                        if X_processed is not None:
-                            t_infer_0 = time.perf_counter()
-                            pred = loaded_model.predict(X_processed.reshape(1, -1))
-                            t_infer_1 = time.perf_counter()
-                            infer_lat_ms = (t_infer_1 - t_infer_0) * 1000.0
+                        t_now = t_infer_1
+                        if last_prediction_time is not None:
+                            pred_to_pred_ms = (t_now - last_prediction_time) * 1000.0
+                            prediction_to_prediction_latencies_ms.append(pred_to_pred_ms)
+                            per_prediction_pred_to_pred_latencies_ms.append(pred_to_pred_ms)
+                        else:
+                            per_prediction_pred_to_pred_latencies_ms.append(None)
+                        last_prediction_time = t_now
 
-                            t_now = t_infer_1
-                            if last_prediction_time is not None:
-                                pred_to_pred_ms = (t_now - last_prediction_time) * 1000.0
-                                prediction_to_prediction_latencies_ms.append(pred_to_pred_ms)
-                                per_prediction_pred_to_pred_latencies_ms.append(pred_to_pred_ms)
-                            else:
-                                per_prediction_pred_to_pred_latencies_ms.append(None)
-                            last_prediction_time = t_now
-
-                            per_prediction_preproc_latencies_ms.append(preproc_lat_ms)
-                            data_proc_latencies_ms.append(data_proc_lat_ms)
-                            inference_latencies_ms.append(infer_lat_ms)
-                            total_latencies_ms.append(preproc_lat_ms + data_proc_lat_ms + infer_lat_ms)
-                            predictions.append(int(pred[0]))
-
-                        if max_stream_samples is not None and n_raw_samples >= max_stream_samples:
-                            break
+                        per_prediction_preproc_latencies_ms.append(preproc_lat_ms)
+                        data_proc_latencies_ms.append(data_proc_lat_ms)
+                        inference_latencies_ms.append(infer_lat_ms)
+                        total_latencies_ms.append(preproc_lat_ms + data_proc_lat_ms + infer_lat_ms)
+                        predictions.append(int(pred[0]))
 
                     if max_stream_samples is not None and n_raw_samples >= max_stream_samples:
                         break
             finally:
                 preprocessor.close()
-                time.sleep(0.05)
                 streamer.close()
-                time.sleep(0.05)
+                try:
+                    sample_queue.close()
+                    sample_queue.cancel_join_thread()
+                except Exception:
+                    pass
 
             # 6. Aggregate latencies
             preproc_summary = _summarize_latencies(per_sample_preproc_latencies_ms)

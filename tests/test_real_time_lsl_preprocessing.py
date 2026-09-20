@@ -190,3 +190,54 @@ def test_end_to_end_real_time_pipeline_lsl_integration(test_session_dir: Path):
         time.sleep(0.05)
         streamer.close()
         time.sleep(0.05)
+
+
+def test_decoupled_three_process_queue_streaming(test_session_dir: Path):
+    """Verify decoupled 3-process architecture: Streamer -> Preprocessor (Worker) -> Queue Consumer."""
+    import multiprocessing as mp
+    import queue
+
+    streamer = SingleSubjectLSLStreamer(
+        session_dir=test_session_dir,
+        playback_speed=0.0,
+        max_rows_per_stream=1000,
+        source_id_prefix="TEST_DECOUPLED_",
+    )
+    preprocessor = RealTimeDataPreprocessor(stream_names=streamer.stream_names)
+    sample_queue: mp.Queue = mp.Queue(maxsize=10000)
+
+    try:
+        streamer.start(wait_for_trigger=True)
+        assert streamer.is_alive()
+
+        preprocessor.start(
+            sample_queue=sample_queue,
+            stream_finished_event=streamer.finished_event,
+            max_stream_samples=50,
+        )
+        assert preprocessor.is_alive()
+        streamer.trigger()
+
+        consumed_samples = []
+        while True:
+            try:
+                item = sample_queue.get(timeout=2.0)
+            except queue.Empty:
+                if not preprocessor.is_alive() and not streamer.is_alive():
+                    break
+                continue
+
+            if item is None:
+                break
+
+            sample_25hz, t_target, preproc_lat_ms = item
+            assert sample_25hz.shape == (9,)
+            assert preproc_lat_ms > 0.0
+            consumed_samples.append((sample_25hz, t_target))
+
+        assert len(consumed_samples) == 50
+    finally:
+        preprocessor.close()
+        streamer.close()
+        sample_queue.close()
+        sample_queue.cancel_join_thread()
