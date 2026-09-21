@@ -154,20 +154,20 @@ if __name__ == "__main__":
     """
 
     ## Classifier | Pick 'LogRegTS', 'LSTM', 'TCN', 'Trans', or 'all'
-    classifier_type = 'all'
+    classifier_type = 'Trans'
 
     # Model type (determines data subset) | Pick 'noAFE/complete' or 'implicit/explicit'
-    model_type = ['complete', 'implicit']
+    model_type = ['complete', 'explicit']
 
     # Folder name where models and performance metrics will be saved or loaded
-    subFolder = "CrossValidation"
+    subFolder = "CrossValidation-Reduced"
 
     # Naming run and save location for summary  files
-    run_name = "Implicit_Complete_final"
+    run_name = "Explicit_Complete_ReducedFull"
 
 
     # Needed for proper debugging of CUDA errors, normally commented out
-    # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
     # Define folds to loop through
     kfold_IDs = list(range(0, 10))

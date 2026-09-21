@@ -14,6 +14,25 @@ import json
 
 from GLOC_visualization import prediction_time_plot
 from scripts.forecasting_fun import train_test_split_trials_forecast
+from DL_supporting import BalancedUndersampler
+
+import math
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=256, dropout=0.0):
+        super().__init__()
+        self.dropout = nn.Dropout(dropout)
+        pe = torch.zeros(max_len, d_model)
+        pos = torch.arange(max_len, dtype=torch.float).unsqueeze(1)
+        div = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(pos * div)
+        pe[:, 1::2] = torch.cos(pos * div)
+        self.register_buffer('pe', pe.unsqueeze(0), persistent=False)
+
+    def forward(self, x):                      # (B, T, d_model)
+        if x.size(1) > self.pe.size(1):
+            raise ValueError(f"seq_len {x.size(1)} exceeds max_len {self.pe.size(1)}")
+        return self.dropout(x + self.pe[:, :x.size(1)])
 
 
 class TransformerClassifier(nn.Module):
@@ -22,6 +41,11 @@ class TransformerClassifier(nn.Module):
 
         # Input linear projection to d_model (embedding dimension)
         self.input_proj = nn.Linear(input_dim, d_model)
+
+        ## Start new pos encoding ///
+        self.d_model = d_model
+        self.pos_enc = PositionalEncoding(d_model, max_len=256, dropout=dropout)
+        ## end new pos encoding ///
 
         # Transformer encoder layer and stack
         encoder_layer = nn.TransformerEncoderLayer(d_model=d_model,
@@ -37,6 +61,10 @@ class TransformerClassifier(nn.Module):
     def forward(self, x):
         # x shape: (batch_size, seq_len, input_dim)
         x = self.input_proj(x)  # -> (batch_size, seq_len, d_model)
+
+        ## Start new pos encoding ///
+        x = self.pos_enc(x)
+        ## end new pos encoding ///
 
         # Transformer Encoder expects input shape (batch_size, seq_len, d_model) with batch_first=True
         x = self.transformer_encoder(x)  # (batch_size, seq_len, d_model)
@@ -62,7 +90,6 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
     def objective(trial):
         # Hyperparameters
         baseline_method = trial.suggest_categorical("baseline_method", [0, 1, 2, 3, 4, 5])
-        batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
         optimizer_type = trial.suggest_categorical("optimizer_type", ['AdamW'])
         momentum = 0.9 if optimizer_type == "SGD" else None
         learning_rate = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
@@ -72,20 +99,17 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         num_layers = trial.suggest_int("num_layers", 1, 3)
         dim_feedforward = trial.suggest_categorical("dim_feedforward", [128, 256, 512])
         dropout = trial.suggest_float("dropout", 0.1, 0.5) if num_layers > 1 else 0
-        sequence_length = trial.suggest_int("sequence_length", 25, 200)
+        sequence_length = trial.suggest_int("sequence_length", 25, 250)
+        batch_size = trial.suggest_categorical("batch_size", [32, 64])
         step_size = trial.suggest_int("step_size", 25, 75)
         threshold = trial.suggest_float('threshold', 0.1, 0.9)
-
-        # Cap batch size for long sequences
-        if sequence_length > 125:
-            batch_size = min(batch_size, 64)
 
         x_train_ds, _ = baseline_down_select(x_train, all_features, baseline_method)
 
         # Should move this to function, but this is a means of stopping Optuna if the memory of device is not enough
         # Rough GPU memory estimate (float32)
         estimated_bytes = x_train_ds.shape[1] * batch_size * sequence_length * d_model * 4  # 4 bytes per float32
-        if estimated_bytes > 8 * 1024 ** 3:  # ~8 GB threshold, adjust to your GPU
+        if estimated_bytes > 8 * 1024 ** 3:  # ~8 GB threshold, adjust to GPU
             raise optuna.TrialPruned()
 
         # Create training and validation sets from x_train/y_train
@@ -97,6 +121,9 @@ def make_objective(x_train, y_train, class_weights, random_state, save_folder, u
         # Prepare the data for training and evaluation
         workers = get_optimal_workers()
         sampler = build_sampler(train_labels_tensor, class_weights) if use_sampler else None
+
+        sampler = BalancedUndersampler(train_labels_tensor, ratio=1) if use_sampler=='Under' else None
+
         train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=workers)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
 
@@ -167,7 +194,7 @@ def transformer_class(x_train, x_test, y_train, y_test, class_weight_imb, random
         Output: model performance of trained model evaluated on test data
     """
     # User Options
-    use_sampler = True # Optionally use sampler to sample the minority class (ROS)
+    use_sampler = 'Under' # Optionally use sampler to oversample the minority class (ROS)
     final_early_stop = False # Optionally use early stopping for final train (always uses early stop in tuning)
     objective_var = 'F1' # 'F1' 'Acc' or else uses 1-Loss. (used by Optuna and Early Stop during hyperparameter tuning)
     trials = 100  # The number of trials in for the Bayesian Search

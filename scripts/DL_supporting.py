@@ -7,6 +7,25 @@ import numpy as np
 import os
 import torch.optim as optim
 from torch.amp import autocast, GradScaler
+from torch.utils.data import Sampler
+
+class BalancedUndersampler(Sampler):
+    """Keeps all minority windows, redraws a fresh majority subset each epoch."""
+    def __init__(self, labels, ratio=1.0, generator=None):
+        labels = torch.as_tensor(labels).view(-1).long()
+        idx0 = torch.where(labels == 0)[0]
+        idx1 = torch.where(labels == 1)[0]
+        self.min_idx, self.maj_idx = (idx1, idx0) if len(idx1) < len(idx0) else (idx0, idx1)
+        self.n_keep = min(len(self.maj_idx), int(round(ratio * len(self.min_idx))))
+        self.generator = generator
+
+    def __iter__(self):
+        keep = self.maj_idx[torch.randperm(len(self.maj_idx), generator=self.generator)[:self.n_keep]]
+        idx = torch.cat([self.min_idx, keep])
+        return iter(idx[torch.randperm(len(idx), generator=self.generator)].tolist())
+
+    def __len__(self):
+        return len(self.min_idx) + self.n_keep
 
 ### Define Data Handling Functions
 # Baseline down selection

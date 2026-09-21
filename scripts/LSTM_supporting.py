@@ -35,7 +35,7 @@ class LSTMClassifier(nn.Module):
     def forward(self, x):
         lstm_out, _ = self.lstm(x)
         last_out = lstm_out[:, -1, :] # If we were predicting a single output label e.g., traditional learners
-        out = self.fc(last_out)  # (batch, seq_len, 1)
+        out = self.fc(last_out)  # (batch, 1)
 
         return out
 
