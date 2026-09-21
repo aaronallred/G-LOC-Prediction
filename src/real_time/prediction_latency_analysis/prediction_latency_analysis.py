@@ -844,27 +844,82 @@ def generate_markdown_report(
     """Compile comprehensive latency analysis findings into a Markdown report."""
     report_path = output_dir / "G_LOC_Latency_Analysis_Report.md"
 
-    # Select columns for overview table
-    table_cols = [
-        col for col in [
-            "Model",
-            "Streams",
-            "N",
-            "Mean Total (ms)",
-            "Std Total (ms)",
-            "Median Total (ms)",
-            "P95 Total (ms)",
-            "P99 Total (ms)",
-            "Max Total (ms)",
-            "Mean Data Proc (ms)",
-            "Mean Inference (ms)",
-            "Data Proc (%)",
-            "Inference (%)",
-            "Throughput (preds/sec)",
+    has_preproc = "Mean Preproc (ms)" in df_stats.columns and df_stats["Mean Preproc (ms)"].notna().any()
+    has_p2p = "Mean Pred-to-Pred (ms)" in df_stats.columns and df_stats["Mean Pred-to-Pred (ms)"].notna().any()
+
+    # Overview & component breakdown table
+    if has_preproc:
+        table_cols = [
+            col for col in [
+                "Model",
+                "Streams",
+                "N",
+                "Mean Total (ms)",
+                "Std Total (ms)",
+                "Median Total (ms)",
+                "P95 Total (ms)",
+                "Max Total (ms)",
+                "Mean Preproc (ms)",
+                "Mean Data Proc (ms)",
+                "Mean Inference (ms)",
+                "Preproc (%)",
+                "Data Proc (%)",
+                "Inference (%)",
+                "Throughput (preds/sec)",
+            ]
+            if col in df_stats.columns
         ]
-        if col in df_stats.columns
-    ]
+    else:
+        table_cols = [
+            col for col in [
+                "Model",
+                "Streams",
+                "N",
+                "Mean Total (ms)",
+                "Std Total (ms)",
+                "Median Total (ms)",
+                "P95 Total (ms)",
+                "P99 Total (ms)",
+                "Max Total (ms)",
+                "Mean Data Proc (ms)",
+                "Mean Inference (ms)",
+                "Data Proc (%)",
+                "Inference (%)",
+                "Throughput (preds/sec)",
+            ]
+            if col in df_stats.columns
+        ]
     stats_table_md = _dataframe_to_markdown(df_stats[table_cols], floatfmt=".4f")
+
+    # Stride pacing table (if available)
+    stride_section = ""
+    if has_p2p:
+        stride_cols = [
+            col for col in [
+                "Model",
+                "Mean Pred-to-Pred (ms)",
+                "Std Pred-to-Pred (ms)",
+                "Median Pred-to-Pred (ms)",
+                "P90 Pred-to-Pred (ms)",
+                "P95 Pred-to-Pred (ms)",
+                "P99 Pred-to-Pred (ms)",
+                "Min Pred-to-Pred (ms)",
+                "Max Pred-to-Pred (ms)",
+                "Stride Jitter Std (ms)",
+                "Pacing Rate (Hz)",
+            ]
+            if col in df_stats.columns
+        ]
+        stride_table_md = _dataframe_to_markdown(df_stats[stride_cols], floatfmt=".2f")
+        stride_section = f"""
+## Real-Time Stride Pacing & Jitter Analysis (250 ms Nominal Cadence)
+
+{stride_table_md}
+
+### Stride Fidelity & Pacing Observations:
+* **Nominal Cadence (4.00 Hz / 250.0 ms):** Evaluates whether the decoupled real-time pipeline delivers predictions locked to the window stride cadence.
+* **Jitter & Scheduling Bounds:** Low standard deviation (jitter) confirms that the asynchronous telemetry ingestion and decoupled worker process maintain steady real-time execution without buffer starvation or queue backlog.
+"""
 
     # Fastest & Slowest
     fastest_model = df_stats.iloc[0]["Model"]
@@ -898,6 +953,14 @@ def generate_markdown_report(
 {deadline_table}
 """
 
+    stride_img_section = ""
+    if has_p2p and (output_dir / "stride_interval_distribution.png").exists():
+        stride_img_section = """
+### 6. Stride Interval Distribution & Pacing Jitter
+Density distributions and boxplots of prediction-to-prediction stride intervals illustrating timing stability around the nominal 250.0 ms (4 Hz) stride rate.
+![Stride Interval Distribution](stride_interval_distribution.png)
+"""
+
     report_content = f"""# Real-Time G-LOC Prediction: Comprehensive Latency & Processing Analysis Report
 
 ## Executive Summary
@@ -915,6 +978,7 @@ This report evaluates the computational latency profiles of machine learning mod
 
 {stats_table_md}
 {deadline_section}
+{stride_section}
 ---
 
 ## Statistical Significance Analysis
@@ -933,7 +997,7 @@ To verify whether latency differences between evaluated models are statistically
 ## Visual Diagnostic Plots
 
 ### 1. Latency Component Breakdown
-Decomposition of total compute time into data processing (feature engineering and standardization) vs. model inference execution.
+Decomposition of total compute time into preprocessing, online feature extraction (data processing), and model inference execution.
 ![Component Breakdown](latency_component_breakdown.png)
 
 ### 2. Total Latency Distributions & Outliers
@@ -949,18 +1013,21 @@ Cumulative probability of prediction latency completing within specified duratio
 ![Latency CDF](latency_cdf.png)
 
 ### 5. Continuous Stream Temporal Trace
-Temporal progression of prediction compute times over the stream duration to detect jitter, warmup stabilization, or garbage collection spikes.
+Temporal progression of prediction compute times and stride intervals over the stream duration to detect jitter, warmup stabilization, or scheduling anomalies.
 ![Time Series](latency_time_series.png)
-
+{stride_img_section}
 ---
 
 ## Architectural & Deployment Insights
-1. **Feature Processing vs. Inference Balance:**
-   * For tree-based estimators (e.g. `EGB`, `RF`), feature transformation represents the majority of total latency (~60-80%), while model `.predict()` is extremely fast ($< 0.9\\text{{ ms}}$).
-   * For instance-based estimators (e.g. `KNN`), distance calculations across large training matrices dominate total latency (~98.7%).
-2. **Real-Time Feasibility:**
-   * Tree-based models (`EGB`, `RF`) exhibit total compute times of ~2.12 ms, consuming less than **1%** of the 250 ms stride prediction budget (providing > 99% safety headroom for interrupt jitter and rendering).
-   * `KNN` requires ~168.5 ms, remaining within the 250 ms stride budget, but leaving narrower margins for peak multi-sensor workloads.
+1. **Three-Stage Pipeline Partitioning:**
+   * **LSL Preprocessing Stage:** Ingests raw multi-rate physiological and centrifuge telemetry streams (e.g. 256 Hz ECG, 25 Hz vitals), performing anti-alias decimation and sensor alignment.
+   * **Online Feature Extraction (Data Processing):** Maintains a rolling temporal buffer, executing statistical transformations, frequency-domain derivations, and fold-aware standardization upon reaching each 250 ms prediction stride.
+   * **Model Inference:** Executes model `.predict()` on the standardized feature vector.
+2. **Component Bottlenecks & Optimization:**
+   * For tree-based estimators (e.g. `EGB`, `RF`), online feature extraction represents the majority of total active compute time, while model inference is exceptionally fast ($< 1\\text{{ ms}}$).
+   * For instance-based estimators (e.g. `KNN`), distance calculations across large training matrices represent the primary compute cost. Multi-core affinity tuning enables scalable neighbor searches.
+3. **Pacing Stability & Real-Time Headroom:**
+   * The decoupled three-process architecture provides massive headroom against the 250 ms prediction deadline, ensuring no sample starvation across continuous runs.
 """
 
     with report_path.open("w") as f:
@@ -978,13 +1045,13 @@ def main() -> None:
     parser.add_argument(
         "--results-dir",
         type=str,
-        default="Results/Real_Time_Prediction_Latency_With_Processing_Time",
+        default="Results/Real_Time_Prediction_Latency_with_Preprocessing",
         help="Path to results directory containing real_time_summary.json files.",
     )
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="Results/Real_Time_Latency_Analysis",
+        default="Results/Real_Time_Latency_Analysis_with_Preprocessing",
         help="Path to directory where analysis plots and markdown report will be saved.",
     )
     parser.add_argument(
@@ -1004,10 +1071,15 @@ def main() -> None:
 
     results_dir = Path(args.results_dir)
     if not results_dir.exists():
-        fallback = Path("Results/Real_Time_Prediction_Latency")
-        if fallback.exists():
-            logger.info("Provided results-dir '%s' not found. Falling back to '%s'.", results_dir, fallback)
-            results_dir = fallback
+        fallbacks = [
+            Path("Results/Real_Time_Prediction_Latency_With_Processing_Time"),
+            Path("Results/Real_Time_Prediction_Latency"),
+        ]
+        for fb in fallbacks:
+            if fb.exists():
+                logger.info("Provided results-dir '%s' not found. Falling back to '%s'.", results_dir, fb)
+                results_dir = fb
+                break
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -255,3 +255,12 @@ def test_visualizations_with_preprocessing_and_stride(tmp_path: Path):
     assert p3 is not None
     assert p3.exists()
 
+    # 4. Report generation with stride & preprocessing tables
+    stat_results = perform_statistical_tests(df_samples)
+    report = generate_markdown_report(df_stats, stat_results, output_dir, show_deadlines=True, deadline_ms=250.0)
+    assert report.exists()
+    content = report.read_text()
+    assert "Real-Time Stride Pacing & Jitter Analysis" in content
+    assert "Mean Preproc (ms)" in content
+    assert "stride_interval_distribution.png" in content
+
