@@ -120,7 +120,6 @@ class DataPipeline:
             "impute_phase": shared_config.get("impute_phase", "pre_feature"),
             "save_impute": shared_config["save_impute"],
             "load_impute": shared_config["load_impute"],
-            "extended_data": shared_config["extended_data"],
         }
 
         if backend_type == "advanced":
@@ -222,6 +221,7 @@ class BaseGLOCDataPipeline(ABC):
         ModelType("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain",
                                             "demographics"),
         ModelType("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG"),
+        ModelType("noAFE", "Common") : ("ECG", "BR", "temp", "G", "demographics"),
     }
 
     # Mapping of participant -> DC trial numbers for GOR EEG data files
@@ -358,15 +358,20 @@ class BaseGLOCDataPipeline(ABC):
 
         """New main data tweak to include extended data"""
         main_filename = self._resolve_main_data_filename()
+        main_demographic = self._resolve_demographic_filename()
+        demo_path = os.path.join(self.data_path, main_demographic)
         main_path = os.path.join(self.data_path, main_filename)
         if not os.path.isfile(main_path):
             raise FileNotFoundError(f"Configured main dataset file not found: {main_path}")
+        if not os.path.isfile(demo_path):
+            raise FileNotFoundError(f"Configured demographic file not found: {demo_path}")
         
         self._data_locations = {
             #"main": os.path.join(self.data_path, "all_trials_25_hz_stacked_null_str_filled.csv"),
-            'main': main_path,
+            "main": main_path,
             "baseline": os.path.join(self.data_path, "ParticipantBaseline.csv"),
-            "demographic": os.path.join(self.data_path, "GLOC_Effectiveness_Final.csv"),
+            # "demographic": os.path.join(self.data_path, "GLOC_Effectiveness_Final.csv"),
+            "demographic" : demo_path,
             "eeg_list": list_of_eeg_data_file_paths,
             "baseline_eeg_processed_list": list_of_baseline_eeg_processed_file_paths,
         }
@@ -383,6 +388,13 @@ class BaseGLOCDataPipeline(ABC):
         if not extended_filename:
             raise ValueError("shared_data_parameters.extended_data is true but the filename is missing or empty")
         return extended_filename
+
+    def _resolve_demographic_filename(self) -> str:
+        """Resolve which demographic file to use based on shared parameters"""
+        model_type = self._model_type
+        if model_type == "Common":
+            return "GLOC_Effectiveness_Common.csv"
+        return "GLOC_Effectiveness_Final.csv"
     
     def _load_data(self, file_paths: Dict[str, Any],
                    output_feature_dtype: np.dtype = np.dtype(np.float32)) -> pd.DataFrame:
@@ -442,9 +454,10 @@ class BaseGLOCDataPipeline(ABC):
                 continue
             corresponding_trial = f"{match.group(1)}-0{match.group(2)}"
 
-            # Read all band sheets and drop the time column
+            # Read all band sheets and drop the time 
+            print("Current file:" +current_file)
             band_dfs = {
-                band: pd.read_excel(current_file, sheet_name=band).iloc[:, :-1]
+                band: pd.read_excel(current_file, sheet_name=band, engine='openpyxl').iloc[:, :-1]
                 for band in band_names
             }
 
