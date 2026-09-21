@@ -229,6 +229,50 @@ def test_plot_single_trial_imputation(tmp_path: Path):
     assert Path(plot_file).stat().st_size > 0
 
 
+def test_faster_knn_impute_clean_cases_not_mean_plateau():
+    """Verify that _faster_knn_impute builds index on complete rows and does not collapse to global mean."""
+    from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+
+    # Mock minimal pipeline instance
+    pipeline = TraditionalDataPipeline.__new__(TraditionalDataPipeline)
+    pipeline.random_seed = 42
+
+    # Create synthetic dataset with 2 distinct clusters
+    np.random.seed(42)
+    n_clean_per_cluster = 40
+    # Cluster A: col 0 ~ 10, col 1 ~ 10, col 2 ~ 100, col 3 ~ 100
+    cluster_a = np.random.randn(n_clean_per_cluster, 4) + np.array([10.0, 10.0, 100.0, 100.0])
+    # Cluster B: col 0 ~ -10, col 1 ~ -10, col 2 ~ -100, col 3 ~ -100
+    cluster_b = np.random.randn(n_clean_per_cluster, 4) + np.array([-10.0, -10.0, -100.0, -100.0])
+
+    clean_data = np.vstack([cluster_a, cluster_b])
+
+    # Add missing rows belonging to Cluster A (col 0 and 1 observed at ~10, col 2 and 3 missing)
+    missing_a = np.random.randn(10, 4) + np.array([10.0, 10.0, np.nan, np.nan])
+    missing_a[:, 2:] = np.nan
+
+    X = np.vstack([clean_data, missing_a])
+    global_mean_col2 = np.nanmean(X[:, 2])  # Close to 0.0 due to symmetric +100 and -100 clusters
+
+    X_imputed = pipeline._faster_knn_impute(X, k=5)
+
+    # 1. Zero NaNs remain
+    assert np.isnan(X_imputed).sum() == 0
+
+    # 2. Non-missing values are strictly identical
+    non_nan_mask = ~np.isnan(X)
+    np.testing.assert_allclose(X_imputed[non_nan_mask], X[non_nan_mask])
+
+    # 3. Reference data contains strictly clean rows (no NaNs, count == 80)
+    assert pipeline._last_knn_reference_data.shape[0] == 80
+    assert np.isnan(pipeline._last_knn_reference_data).sum() == 0
+
+    # 4. Imputed values for cluster A missing rows are close to +100 (from clean cluster A neighbors), NOT global mean (~0)
+    imputed_col2 = X_imputed[80:, 2]
+    assert np.all(imputed_col2 > 80.0), f"Expected imputed values near 100, got: {imputed_col2}"
+    assert np.all(np.abs(imputed_col2 - global_mean_col2) > 50.0)
+
+
 @pytest.mark.integration
 def test_run_imputation_verification_integration(tmp_path: Path):
     """Integration test verifying full execution of run_imputation_verification on data_reduced."""
