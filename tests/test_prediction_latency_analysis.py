@@ -141,6 +141,44 @@ def test_compute_comprehensive_statistics(tmp_path: Path):
         assert row["Compliance (<250ms) %"] == 100.0
 
 
+def test_compute_comprehensive_statistics_with_preprocessing(tmp_path: Path):
+    results_dir = tmp_path / "Results_Preproc"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    rf_dir = results_dir / "Complete_Explicit" / "RF" / "ECG-Centrifuge"
+    rf_dir.mkdir(parents=True, exist_ok=True)
+
+    rf_data = {
+        "model": "RF",
+        "model_type": "Complete_Explicit",
+        "streams": ["ECG", "Centrifuge"],
+        "trial_id": "trial_01",
+        "n_raw_samples": 500,
+        "n_predictions": 50,
+        "total_latency_ms": {"mean": 20.0},
+        "per_prediction_preprocessing_latency_ms": [2.0] * 50,
+        "per_prediction_data_proc_latency_ms": [16.0] * 50,
+        "per_prediction_inference_latency_ms": [2.0] * 50,
+        "per_prediction_total_latency_ms": [20.0] * 50,
+        "per_prediction_prediction_to_prediction_latency_ms": [None] + [250.0] * 49,
+    }
+    with open(rf_dir / "real_time_summary.json", "w") as f:
+        json.dump(rf_data, f)
+
+    _, _, df_samples = load_realtime_summaries(results_dir)
+    df_stats = compute_comprehensive_statistics(df_samples, deadline_ms=250.0)
+
+    assert "Mean Preproc (ms)" in df_stats.columns
+    assert "Preproc (%)" in df_stats.columns
+    assert "Mean Pred-to-Pred (ms)" in df_stats.columns
+
+    row = df_stats.iloc[0]
+    assert np.isclose(row["Preproc (%)"], 10.0)
+    assert np.isclose(row["Data Proc (%)"], 80.0)
+    assert np.isclose(row["Inference (%)"], 10.0)
+    assert np.isclose(row["Preproc (%)"] + row["Data Proc (%)"] + row["Inference (%)"], 100.0)
+    assert np.isclose(row["Mean Pred-to-Pred (ms)"], 250.0)
+
+
 def test_perform_statistical_tests(tmp_path: Path):
     results_dir = _create_mock_results(tmp_path)
     _, _, df_samples = load_realtime_summaries(results_dir)

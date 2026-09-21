@@ -186,8 +186,10 @@ def compute_comprehensive_statistics(
 
     for (model, streams), group in df_samples.groupby(["model", "streams"]):
         total_lats = group["total_ms"].dropna().values
-        proc_lats = group["data_proc_ms"].dropna().values
-        infer_lats = group["inference_ms"].dropna().values
+        proc_lats = group["data_proc_ms"].dropna().values if "data_proc_ms" in group.columns else np.array([])
+        infer_lats = group["inference_ms"].dropna().values if "inference_ms" in group.columns else np.array([])
+        preproc_lats = group["preproc_ms"].dropna().values if "preproc_ms" in group.columns else np.array([])
+        p2p_lats = group["pred_to_pred_ms"].dropna().values if "pred_to_pred_ms" in group.columns else np.array([])
 
         n_total = len(total_lats)
         if n_total == 0:
@@ -204,7 +206,14 @@ def compute_comprehensive_statistics(
         p99_9_tot = float(np.percentile(total_lats, 99.9))
         min_tot = float(np.min(total_lats))
         max_tot = float(np.max(total_lats))
-        skew_tot = float(stats.skew(total_lats))
+        skew_tot = float(stats.skew(total_lats)) if std_tot > 1e-9 else 0.0
+
+        # Preprocessing stats (if available)
+        has_preproc = len(preproc_lats) > 0
+        mean_preproc = float(np.mean(preproc_lats)) if has_preproc else np.nan
+        std_preproc = float(np.std(preproc_lats)) if has_preproc else np.nan
+        median_preproc = float(np.median(preproc_lats)) if has_preproc else np.nan
+        p95_preproc = float(np.percentile(preproc_lats, 95)) if has_preproc else np.nan
 
         # Data processing stats (if available)
         has_proc = len(proc_lats) > 0
@@ -220,11 +229,30 @@ def compute_comprehensive_statistics(
         median_infer = float(np.median(infer_lats)) if has_infer else np.nan
         p95_infer = float(np.percentile(infer_lats, 95)) if has_infer else np.nan
 
+        # Prediction-to-Prediction (Stride) stats (if available)
+        has_p2p = len(p2p_lats) > 0
+        mean_p2p = float(np.mean(p2p_lats)) if has_p2p else np.nan
+        std_p2p = float(np.std(p2p_lats)) if has_p2p else np.nan
+        median_p2p = float(np.median(p2p_lats)) if has_p2p else np.nan
+        p90_p2p = float(np.percentile(p2p_lats, 90)) if has_p2p else np.nan
+        p95_p2p = float(np.percentile(p2p_lats, 95)) if has_p2p else np.nan
+        p99_p2p = float(np.percentile(p2p_lats, 99)) if has_p2p else np.nan
+        min_p2p = float(np.min(p2p_lats)) if has_p2p else np.nan
+        max_p2p = float(np.max(p2p_lats)) if has_p2p else np.nan
+        stride_jitter_std = std_p2p if has_p2p else np.nan
+        pacing_hz = (1000.0 / mean_p2p) if has_p2p and mean_p2p > 0 else np.nan
+
         # Compute percentage contribution
-        if has_proc and has_infer and mean_tot > 0:
+        if has_preproc and has_proc and has_infer and mean_tot > 0:
+            preproc_pct = (mean_preproc / mean_tot) * 100.0
+            proc_pct = (mean_proc / mean_tot) * 100.0
+            infer_pct = (mean_infer / mean_tot) * 100.0
+        elif has_proc and has_infer and mean_tot > 0:
+            preproc_pct = np.nan
             proc_pct = (mean_proc / mean_tot) * 100.0
             infer_pct = (mean_infer / mean_tot) * 100.0
         else:
+            preproc_pct = np.nan
             proc_pct = np.nan
             infer_pct = np.nan
 
@@ -246,16 +274,31 @@ def compute_comprehensive_statistics(
             "Min Total (ms)": min_tot,
             "Max Total (ms)": max_tot,
             "Skewness": skew_tot,
+            "Mean Preproc (ms)": mean_preproc,
+            "Std Preproc (ms)": std_preproc,
+            "Median Preproc (ms)": median_preproc,
+            "P95 Preproc (ms)": p95_preproc,
+            "Preproc (%)": preproc_pct,
             "Mean Data Proc (ms)": mean_proc,
             "Std Data Proc (ms)": std_proc,
             "Median Data Proc (ms)": median_proc,
             "P95 Data Proc (ms)": p95_proc,
+            "Data Proc (%)": proc_pct,
             "Mean Inference (ms)": mean_infer,
             "Std Inference (ms)": std_infer,
             "Median Inference (ms)": median_infer,
             "P95 Inference (ms)": p95_infer,
-            "Data Proc (%)": proc_pct,
             "Inference (%)": infer_pct,
+            "Mean Pred-to-Pred (ms)": mean_p2p,
+            "Std Pred-to-Pred (ms)": std_p2p,
+            "Median Pred-to-Pred (ms)": median_p2p,
+            "P90 Pred-to-Pred (ms)": p90_p2p,
+            "P95 Pred-to-Pred (ms)": p95_p2p,
+            "P99 Pred-to-Pred (ms)": p99_p2p,
+            "Min Pred-to-Pred (ms)": min_p2p,
+            "Max Pred-to-Pred (ms)": max_p2p,
+            "Stride Jitter Std (ms)": stride_jitter_std,
+            "Pacing Rate (Hz)": pacing_hz,
             "Throughput (preds/sec)": throughput_hz,
         }
 
