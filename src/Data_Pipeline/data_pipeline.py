@@ -10,10 +10,18 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from itertools import islice
 from pathlib import Path
+<<<<<<< HEAD
+=======
+from typing import Any, Literal
+
+import faiss
+import numpy as np
+import pandas as pd
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
 from src.Data_Pipeline.baseline import BaselineContext, baseline_data
-from src.Data_Pipeline.features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
+from src.Data_Pipeline.features import FEATURE_REGISTRY, ProcessedEEGGroup, RawEEGGroup
 from src.Data_Pipeline.fold_standardizer import GlobalStandardizer, TrialAwareStandardizer
 from src.Data_Pipeline.imputation_config import ImputePhase
 from src.model_type import ModelType
@@ -51,6 +59,25 @@ class DataPipeline:
 		self._config = config
 		self._random_seed: int | None = None
 		self._model_type: ModelType | None = None
+<<<<<<< HEAD
+
+	def set_random_seed(self, random_seed: int) -> None:
+		"""Set the random seed for data pipeline operations.
+
+		Args:
+		    random_seed: Random seed value for reproducibility
+		"""
+		self._random_seed = random_seed
+
+	def set_model_type(self, model_type: "ModelType") -> None:
+		"""Set the model type for data pipeline operations.
+
+		Args:
+		    model_type: ModelType instance specifying AFE_filter and feature_set
+		"""
+		self._model_type = model_type
+=======
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 	def set_random_seed(self, random_seed: int) -> None:
 		"""Set the random seed for data pipeline operations.
@@ -68,44 +95,124 @@ class DataPipeline:
 		"""
 		self._model_type = model_type
 
-    def get_data(
-            self,
-            model: BaseModel,
-            kfold_id: Optional[int] = None,
-            num_splits: Optional[int] = None,
-            feature_streams: Optional[List[str]] = None,
-            traditional_feature_selection: Literal["cache", "raw"] = "cache",
-            return_feature_names: bool = False,
-            save_preprocessing_artifacts_path: Optional[str] = None,
-    ) -> Any:
-        """Execute the selected backend data pipeline.
+<<<<<<< HEAD
+		# Use stored model_type - must be set before calling get_data()
+		if self._model_type is None:
+			raise ValueError(
+				"model_type must be set on DataPipeline before calling get_data(). "
+				"Call pipeline.set_model_type() first."
+			)
 
-        For both advanced and traditional pipelines this returns a fold-aware
-        train/test split plus, when ``return_feature_names=True``, the feature
-        name list:
+		shared_config = self._config["shared_data_parameters"]
+		request_kwargs: dict[str, Any] = {
+			"model_type": self._model_type,
+			"remove_NaN_trials": shared_config["remove_NaN_trials"],
+			"subject_to_analyze": shared_config["subject_to_analyze"],
+			"trial_to_analyze": shared_config["trial_to_analyze"],
+			"analysis_type": shared_config["analysis_type"],
+			"output_feature_dtype": shared_config["output_feature_dtype"],
+			"impute_file_name": shared_config["impute_file_name"],
+			"impute_phase": shared_config.get("impute_phase", "pre_feature"),
+			"save_impute": shared_config["save_impute"],
+			"load_impute": shared_config["load_impute"],
+		}
+=======
+	def get_data(
+		self,
+		model: BaseModel,
+		kfold_id: int | None = None,
+		num_splits: int | None = None,
+		feature_streams: list[str] | None = None,
+		traditional_feature_selection: Literal["cache", "raw"] = "cache",
+		return_feature_names: bool = False,
+		save_preprocessing_artifacts_path: str | None = None,
+	) -> Any:
+		"""Execute the selected backend data pipeline.
 
-        - ``return_feature_names=False``:
-          ``(x_train, x_test, y_train, y_test)``
-        - ``return_feature_names=True``:
-          ``(x_train, x_test, y_train, y_test, select_features)``
+		For both advanced and traditional pipelines this returns a fold-aware
+		train/test split plus, when ``return_feature_names=True``, the feature
+		name list:
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
-        Args:
-            model: Model instance
-            kfold_id: Fold index for cross-validation (required for both
-                advanced and traditional backends so that fold-aware
-                standardization can be applied to training rows only).
-            num_splits: Number of folds for k-fold splitting (required).
-            feature_streams: Feature streams to select (optional)
-            traditional_feature_selection: "cache" or "raw"
-            return_feature_names: Whether to return feature names
-            save_preprocessing_artifacts_path: Optional path to save JSON artifacts
-            
-        Returns:
-            Tuple of split data (and feature names when requested) from the
-            backend pipeline.
-        """
-        backend_type = self._resolve_pipeline_kind(model)
-        backend_data_pipeline = self._build_backend(model)
+		- ``return_feature_names=False``:
+		  ``(x_train, x_test, y_train, y_test)``
+		- ``return_feature_names=True``:
+		  ``(x_train, x_test, y_train, y_test, select_features)``
+
+<<<<<<< HEAD
+		return backend_data_pipeline.get_data(**request_kwargs)
+
+	def _build_backend(self, model: BaseModel) -> Any:
+		"""Instantiate the backend pipeline selected by model type."""
+		pipeline_kind = self._resolve_pipeline_kind(model)
+
+		# Use stored random_seed or default to 0 if not set
+		random_seed = self._random_seed if self._random_seed is not None else 0
+
+		if pipeline_kind == "traditional":
+			logger.info("Selected traditional data pipeline based on model type.")
+			return TraditionalDataPipeline(
+				data_path=self._config["data_path"], random_seed=random_seed, config=self._config
+			)
+		else:
+			logger.info("Selected advanced data pipeline based on model type.")
+			return AdvancedDataPipeline(
+				data_path=self._config["data_path"], random_seed=random_seed, config=self._config
+			)
+
+	def _resolve_pipeline_kind(self, model: BaseModel) -> Literal["advanced", "traditional"]:
+		"""Resolve whether the configured model maps to advanced or traditional flow."""
+		# if model is None or not hasattr(model, "is_traditional"):
+		#     raise ValueError("Model does not have 'is_traditional' attribute. Unable to determine pipeline kind.")
+
+		return "traditional" if model.is_traditional_model else "advanced"
+
+	def _resolve_classifier_name(self, model: BaseModel) -> str:
+		"""Resolve classifier name from the configured model."""
+		# if model is None or not hasattr(model, "get_name"):
+		#     raise ValueError("Unable to determine classifier name.")
+
+		return model.name
+
+	def _resolve_select_features(self, current_kwargs: dict[str, Any]) -> list[str]:
+		"""Load selected feature names from the median-hyperparameter cache."""
+
+		# TODO -> This is probably bad to hardcode it to sensor ablation config, but sensor ablation config is the only
+		# one that uses it, so it is fine for now
+		median_hyperparameters_root = self._config["sensor_ablation"]["training"][
+			"median_hyperparameters_folder"
+		]
+		model_type_string = (
+			f"{current_kwargs['model_type'].afe_filter}_{current_kwargs['model_type'].feature_set}"
+		)
+		json_path = os.path.join(
+			median_hyperparameters_root,
+			model_type_string,
+			current_kwargs["classifier_type"],
+			"median_hyperparameters.json",
+		)
+
+		with open(json_path, "r") as f:
+			data = json.load(f)
+
+=======
+		Args:
+		    model: Model instance
+		    kfold_id: Fold index for cross-validation (required for both
+		        advanced and traditional backends so that fold-aware
+		        standardization can be applied to training rows only).
+		    num_splits: Number of folds for k-fold splitting (required).
+		    feature_streams: Feature streams to select (optional)
+		    traditional_feature_selection: "cache" or "raw"
+		    return_feature_names: Whether to return feature names
+		    save_preprocessing_artifacts_path: Optional path to save JSON artifacts
+
+		Returns:
+		    Tuple of split data (and feature names when requested) from the
+		    backend pipeline.
+		"""
+		backend_type = self._resolve_pipeline_kind(model)
+		backend_data_pipeline = self._build_backend(model)
 
 		# Use stored model_type - must be set before calling get_data()
 		if self._model_type is None:
@@ -128,40 +235,40 @@ class DataPipeline:
 			"load_impute": shared_config["load_impute"],
 		}
 
-        if backend_type == "advanced":
-            if kfold_id is None:
-                raise ValueError("kfold_id is required for advanced pipelines.")
-            if num_splits is not None:
-                request_kwargs["num_splits"] = num_splits
-            request_kwargs["kfold_ID"] = kfold_id
-            advanced_config = self._config["advanced_data_parameters"]
-            request_kwargs["n_neighbors"] = advanced_config["n_neighbors"]
-            request_kwargs["baseline_window"] = advanced_config["baseline_window"]
-            request_kwargs["horizon"] = advanced_config.get("horizon", 0)
-            request_kwargs["feature_streams"] = feature_streams
-        else:
-            if kfold_id is None or num_splits is None:
-                raise ValueError(
-                    "Traditional pipeline requires kfold_id and num_splits for fold-aware "
-                    f"standardization. Got kfold_id={kfold_id}, num_splits={num_splits}."
-                )
-            request_kwargs["kfold_id"] = kfold_id
-            request_kwargs["num_splits"] = num_splits
-            request_kwargs["classifier_type"] = self._resolve_classifier_name(model)
-            request_kwargs["model"] = model
-            request_kwargs["traditional_feature_selection"] = traditional_feature_selection
-            request_kwargs["return_feature_names"] = return_feature_names
-            request_kwargs["save_preprocessing_artifacts_path"] = save_preprocessing_artifacts_path
-            request_kwargs["feature_streams"] = feature_streams
-            if traditional_feature_selection == "cache":
-                selected_features = self._resolve_select_features(request_kwargs)
-                request_kwargs["select_features"] = selected_features
-            traditional_config = self._config["traditional_data_parameters"]
-            request_kwargs["backstep"] = traditional_config["backstep"]
-            request_kwargs["data_rate"] = traditional_config["data_rate"]
-            request_kwargs["offset"] = traditional_config["offset"]
-            request_kwargs["time_start"] = traditional_config["time_start"]
-            request_kwargs["standardize_s1"] = traditional_config.get("standardize_s1", True)
+		if backend_type == "advanced":
+			if kfold_id is None:
+				raise ValueError("kfold_id is required for advanced pipelines.")
+			if num_splits is not None:
+				request_kwargs["num_splits"] = num_splits
+			request_kwargs["kfold_ID"] = kfold_id
+			advanced_config = self._config["advanced_data_parameters"]
+			request_kwargs["n_neighbors"] = advanced_config["n_neighbors"]
+			request_kwargs["baseline_window"] = advanced_config["baseline_window"]
+			request_kwargs["horizon"] = advanced_config.get("horizon", 0)
+			request_kwargs["feature_streams"] = feature_streams
+		else:
+			if kfold_id is None or num_splits is None:
+				raise ValueError(
+					"Traditional pipeline requires kfold_id and num_splits for fold-aware "
+					f"standardization. Got kfold_id={kfold_id}, num_splits={num_splits}."
+				)
+			request_kwargs["kfold_id"] = kfold_id
+			request_kwargs["num_splits"] = num_splits
+			request_kwargs["classifier_type"] = self._resolve_classifier_name(model)
+			request_kwargs["model"] = model
+			request_kwargs["traditional_feature_selection"] = traditional_feature_selection
+			request_kwargs["return_feature_names"] = return_feature_names
+			request_kwargs["save_preprocessing_artifacts_path"] = save_preprocessing_artifacts_path
+			request_kwargs["feature_streams"] = feature_streams
+			if traditional_feature_selection == "cache":
+				selected_features = self._resolve_select_features(request_kwargs)
+				request_kwargs["select_features"] = selected_features
+			traditional_config = self._config["traditional_data_parameters"]
+			request_kwargs["backstep"] = traditional_config["backstep"]
+			request_kwargs["data_rate"] = traditional_config["data_rate"]
+			request_kwargs["offset"] = traditional_config["offset"]
+			request_kwargs["time_start"] = traditional_config["time_start"]
+			request_kwargs["standardize_s1"] = traditional_config.get("standardize_s1", True)
 
 		return backend_data_pipeline.get_data(**request_kwargs)
 
@@ -218,6 +325,7 @@ class DataPipeline:
 		with open(json_path, "r") as f:
 			data = json.load(f)
 
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 		return data["selected_features"]
 
 
@@ -400,6 +508,7 @@ class BaseGLOCDataPipeline(ABC):
 		"Complete": ["v0", "v1", "v2", "v5", "v6"],
 	}
 
+<<<<<<< HEAD
     # Canonical sensor-stream name -> FEATURE_REGISTRY group keys required to
     # produce it. Pre-filtering limits ``feature_groups_to_analyze`` to these
     # keys before processing runs, so downstream work operates only on the
@@ -462,6 +571,74 @@ class BaseGLOCDataPipeline(ABC):
         self._data_locations = None
         self.random_seed = random_seed
         self.config = config or {}
+=======
+	# Canonical sensor-stream name -> FEATURE_REGISTRY group keys required to
+	# produce it. Pre-filtering limits ``feature_groups_to_analyze`` to these
+	# keys before processing runs, so downstream work operates only on the
+	# requested sensor groups.
+	_STREAM_TO_FEATURE_GROUPS: dict[str, tuple[str, ...]] = {
+		"ECG": ("ECG",),
+		"BR": ("BR",),
+		"Temperature": ("temp",),
+		"Pupil": ("eyetracking",),
+		"Centrifuge": ("G",),
+		"EEG": ("rawEEG", "processedEEG"),
+		"Strain": ("strain",),
+		"Demographics": ("demographics",),
+	}
+
+	# Lower-cased alias -> canonical stream name. Recognized by
+	# ``_resolve_feature_groups_for_streams``.
+	_STREAM_ALIASES: dict[str, str] = {
+		"demographic": "Demographics",
+		"demographics": "Demographics",
+		"participant": "Demographics",
+		"temp": "Temperature",
+		"temperature": "Temperature",
+		"eyetracking": "Pupil",
+		"pupil": "Pupil",
+		"g": "Centrifuge",
+		"gforce": "Centrifuge",
+		"g force": "Centrifuge",
+		"raweeg": "EEG",
+		"processedeeg": "EEG",
+		"eeg": "EEG",
+		"br": "BR",
+		"ecg": "ECG",
+		"strain": "Strain",
+		# Special sentinel: maps to the HR sub-stream handled via post-hoc
+		# name narrowing (see ``_apply_substring_filter``).
+		"hr": "HR",
+	}
+
+	# AFE-indicator column names auto-appended for ``Complete + Explicit`` model
+	# types (data_pipeline.py:1301-1305 and 1595-1609). These are stream-
+	# independent but were historically dropped by the post-hoc regex filter.
+	# When ablating sensors, they must be dropped explicitly to preserve
+	# output shape.
+	_AFE_INDICATOR_COLUMN_NAMES: tuple[str, ...] = (
+		"AFE_indicator_windowed",  # traditional pipeline
+		"AFE_indicator",  # advanced pipeline
+	)
+
+	def __init__(
+		self,
+		data_path: str = "../data/",
+		random_seed: int = 42,
+		config: dict[str, Any] | None = None,
+	) -> None:
+		"""Initialize shared pipeline state.
+
+		Args:
+		    data_path: Path to data directory
+		    random_seed: Random seed for reproducibility
+		    config: Loaded YAML experiment configuration mapping for accessing config settings
+		"""
+		self.data_path = _resolve_from_source_dir(data_path)
+		self._data_locations = None
+		self.random_seed = random_seed
+		self.config = config or {}
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 	@abstractmethod
 	def get_data(self, **kwargs: Any) -> Any:
@@ -950,6 +1127,7 @@ class BaseGLOCDataPipeline(ABC):
 
 		return x_feature_matrix, select_features
 
+<<<<<<< HEAD
     def _resolve_feature_groups_for_streams(
             self,
             feature_streams: Optional[List[str]],
@@ -1015,11 +1193,77 @@ class BaseGLOCDataPipeline(ABC):
             if not isinstance(stream, str):
                 logger.warning("Ignoring non-string stream request: %r", stream)
                 continue
+=======
+	def _resolve_feature_groups_for_streams(
+		self, feature_streams: list[str] | None, default_feature_groups: Sequence[str]
+	) -> tuple[Sequence[str], bool, list[str] | None]:
+		"""Pre-filter feature groups to only those needed by requested streams.
+
+		Pre-filtering ``feature_groups_to_analyze`` means downstream processing
+		(feature generation, baselining, KNN imputation, standardization) only
+		operates on the requested sensor groups, instead of running on the full
+		default set and then column-subsetting at the end.
+
+		Pre-filtering alone is insufficient in two cases:
+
+		  - The ECG group bundles HR-derived columns (``HR (bpm) - Equivital``,
+		    ``HR_instant``, ``HR_average``, ``HR_w_average``) and emits
+		    ``HRV (SDNN)``/``HRV (RMSSD)`` columns that the legacy ``"ecg"``
+		    substring matcher dropped for ``["ECG"]`` stream requests.
+		  - HR columns span the ECG group AND the ``demographics`` group
+		    (``participant_HR_*``); pre-filtering by group alone cannot drop
+		    the non-HR demographics columns (``participant_age`` etc.).
+
+		A post-hoc union-substring narrowing (``_apply_substring_filter``)
+		resolves both: keeping every column whose name contains any of the
+		requested stream keywords (lowercased) reproduces the legacy union
+		semantics exactly, including multi-stream combinations like
+		``["ECG", "HR"]`` whose legacy union selects both the ``ECG Lead``
+		columns (matched by ``"ecg"``) and the HR-derived columns (matched by
+		``"hr"``).
+
+		Args:
+		    feature_streams: Optional list of requested stream names (e.g.
+		        ``["EEG", "Pupil"]``). Unknown or unsupported streams are
+		        logged and skipped (NOT raised), calling code is responsible
+		        for surfacing configuration typos.
+		    default_feature_groups: The model-type-default feature-group
+		        sequence (from ``FEATURE_GROUPS_BY_MODEL_TYPE``). Used both as
+		        the no-op fallback (when no streams are requested) and as the
+		        ordering reference for the filtered output.
+
+		Returns:
+		    ``(filtered_feature_groups, applied, filter_substrings)``:
+
+		      - ``filtered_feature_groups``: subset of
+		        ``default_feature_groups`` required to produce the requested
+		        streams. Order preserves ``default_feature_groups``.
+		      - ``applied``: ``True`` if any filtering was applied; ``False``
+		        when ``feature_streams`` was None/empty/unknown (no-op
+		        pass-through).
+		      - ``filter_substrings``: ``Optional[List[str]]`` of lowercased
+		        user-provided stream keywords to use as a union-substring
+		        post-filter (see ``_apply_substring_filter``). ``None`` when
+		        no stream filtering is in effect.
+		"""
+		if not feature_streams:
+			return default_feature_groups, False, None
+
+		needed_groups: set[str] = set()
+		filter_substrings: list[str] = []
+		recognized_streams: list[str] = []
+
+		for stream in feature_streams:
+			if not isinstance(stream, str):
+				logger.warning("Ignoring non-string stream request: %r", stream)
+				continue
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 			candidate = stream.strip()
 			if not candidate:
 				continue
 
+<<<<<<< HEAD
             canonical = self._STREAM_ALIASES.get(candidate.lower(), candidate)
             recognized_streams.append(canonical)
 
@@ -1166,6 +1410,149 @@ class BaseGLOCDataPipeline(ABC):
             list(self._AFE_INDICATOR_COLUMN_NAMES),
         )
         return x_feature_matrix, feature_names
+=======
+			canonical = self._STREAM_ALIASES.get(candidate.lower(), candidate)
+			recognized_streams.append(canonical)
+
+			if canonical == "HR":
+				# HR spans ECG columns AND demographics.participant_HR_*.
+				# Both groups must be active so the post-hoc substring union
+				# in ``_apply_substring_filter`` can narrow to HR-only columns.
+				needed_groups.update(("ECG", "demographics"))
+				filter_substrings.append(candidate.lower())
+				continue
+
+			group_keys = self._STREAM_TO_FEATURE_GROUPS.get(canonical)
+			if group_keys is None:
+				logger.warning(
+					"Unknown stream %r (canonical=%s); skipping. Supported streams: %s",
+					stream,
+					canonical,
+					", ".join(sorted(self._STREAM_TO_FEATURE_GROUPS.keys())) + ", HR",
+				)
+				continue
+
+			needed_groups.update(group_keys)
+			filter_substrings.append(candidate.lower())
+
+		if not needed_groups:
+			logger.info(
+				"No usable streams recognized from feature_streams=%s; "
+				"falling back to default feature groups.",
+				feature_streams,
+			)
+			return default_feature_groups, False, None
+
+		# Intersect with the model-type default groups so we never request a
+		# feature group that the current model type can't produce (e.g.
+		# ``processedEEG`` is absent from ``Complete``/``noAFE`` Implicit
+		# model types at FEATURE_GROUPS_BY_MODEL_TYPE).
+		default_set = set(default_feature_groups)
+		available_groups = needed_groups & default_set
+		dropped_groups = needed_groups - default_set
+		if dropped_groups:
+			logger.info(
+				"Stream request %s requires feature groups %s that are not in "
+				"the model type's default groups %s; restricting to %s.",
+				feature_streams,
+				sorted(dropped_groups),
+				sorted(default_set),
+				sorted(available_groups),
+			)
+
+		if not available_groups:
+			logger.warning(
+				"All requested streams %s map to feature groups absent for "
+				"the current model type; falling back to defaults.",
+				feature_streams,
+			)
+			return default_feature_groups, False, None
+
+		# Preserve the default ordering (FEATURE_GROUPS_BY_MODEL_TYPE)
+		filtered = tuple(g for g in default_feature_groups if g in available_groups)
+
+		logger.info(
+			"Pre-filtered feature_groups_to_analyze for streams=%s: %s -> %s "
+			"(substring_filter=%s).",
+			recognized_streams,
+			list(default_feature_groups),
+			list(filtered),
+			filter_substrings,
+		)
+		return filtered, True, filter_substrings
+
+	def _apply_substring_filter(
+		self, feature_names: list[str], filter_substrings: list[str] | None
+	) -> list[str]:
+		"""Narrow feature names to those matching any requested stream keyword.
+
+		For each requested stream keyword (lowercased — e.g. ``"ecg"``,
+		``"hr"``, ``"eeg"``, ``"pupil"``, etc.) keep every column whose name
+		contains that substring case-insensitively. This union-substring
+		matcher reproduces the legacy ``restrict_feature_space`` behavior
+		exactly for all single- and multi-stream combinations, including:
+
+		  - ``["ECG"]``: keeps only the two ``ECG Lead`` columns (drops the
+		    ECG group's bundled HR-derived columns and ``HRV`` columns).
+		  - ``["HR"]``: keeps HR-derived columns (spans ECG and demographics
+		    groups) and ``HRV`` columns; drops ``ECG Lead`` and non-HR
+		    demographics columns.
+		  - ``["ECG", "HR"]``: keeps the union — both ECG-Lead and HR-derived
+		    columns — matching the legacy matcher's union semantics.
+		  - ``["EEG"]``, ``["Pupil"]``, ``["Participant"]``, ...: substring
+		    filter consumes all columns produced by the feature-group
+		    pre-filter (no further narrowing), since the user-spelled stream
+		    keyword (e.g. ``"eeg"``) appears in every column name produced by
+		    the corresponding group(s).
+
+		``"AFE_indicator_windowed"`` does not contain any stream keyword and
+		is dropped by this filter for stream-filter requests. The pipeline
+		drops AFE columns separately via ``_drop_afe_indicator_columns`` for
+		the advanced pipeline; for the traditional pipeline the AFE column is
+		stripped here as part of the substring narrowing — both paths leave
+		the column absent for stream-filter requests, matching legacy
+		behavior.
+		"""
+		if not filter_substrings:
+			return feature_names
+
+		substrings = [s.lower() for s in filter_substrings]
+		return [name for name in feature_names if any(s in name.lower() for s in substrings)]
+
+	def _drop_afe_indicator_columns(
+		self, x_feature_matrix: np.ndarray, feature_names: list[str], applied: bool
+	) -> tuple[np.ndarray, list[str]]:
+		"""If stream filtering is in effect, drop AFE indicator columns.
+
+		The AFE-indicator columns (``AFE_indicator_windowed`` for the
+		traditional pipeline, ``AFE_indicator`` for the advanced pipeline) are
+		auto-appended for ``Complete + Explicit`` model types and are
+		independent of any sensor stream. Historically, the post-hoc regex
+		filter dropped them (no sensor stream pattern matched them). Pre-
+		filtering of feature groups does not touch these columns.
+
+		No-op when ``applied`` is ``False`` (no stream filtering requested).
+		"""
+		if not applied:
+			return x_feature_matrix, feature_names
+
+		drop_idx = [
+			i for i, name in enumerate(feature_names) if name in self._AFE_INDICATOR_COLUMN_NAMES
+		]
+		if not drop_idx:
+			return x_feature_matrix, feature_names
+
+		keep_mask = np.ones(len(feature_names), dtype=bool)
+		keep_mask[drop_idx] = False
+		x_feature_matrix = x_feature_matrix[:, keep_mask]
+		feature_names = [name for name, keep in zip(feature_names, keep_mask) if keep]
+		logger.info(
+			"Dropped %d AFE-indicator column(s) due to stream filtering: %s",
+			len(drop_idx),
+			list(self._AFE_INDICATOR_COLUMN_NAMES),
+		)
+		return x_feature_matrix, feature_names
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 
 class AdvancedDataPipeline(BaseGLOCDataPipeline):
@@ -1183,6 +1570,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 		]
 		return feature_groups_to_analyze, baseline_methods_to_use
 
+<<<<<<< HEAD
     def get_data(
             self,
             model_type: ModelType,
@@ -1205,6 +1593,30 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, List[str]]:
         """
         Load raw data and prepare predictor / target sets for advanced classifiers.
+=======
+	def get_data(
+		self,
+		model_type: ModelType,
+		num_splits: int,
+		kfold_ID: int,
+		impute_file_name: str,
+		output_feature_dtype: np.dtype = np.dtype(np.float32),
+		subject_to_analyze: str | None = None,
+		trial_to_analyze: str | None = None,
+		impute_phase: Any = None,
+		n_neighbors: int = 4,
+		baseline_window: float = 32.5,
+		horizon: int = 0,
+		analysis_type: int = 2,
+		remove_NaN_trials: bool = True,
+		save_impute: bool = True,
+		load_impute: bool = True,
+		feature_streams: list[str] | None = None,
+		**kwargs: Any,
+	) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[str]]:
+		"""
+		Load raw data and prepare predictor / target sets for advanced classifiers.
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 		Parameters:
 		    model_type: ModelType — e.g. ModelType('Complete', 'Explicit')
@@ -1230,6 +1642,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 		if horizon < 0:
 			raise ValueError(f"horizon must be >= 0, got {horizon}")
 
+<<<<<<< HEAD
         ################################################### FEATURES SETUP ###################################################
         logger.info("Setting up features and baselines for model_type=%s", model_type)
         feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type)
@@ -1237,6 +1650,17 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         feature_groups_to_analyze, _stream_filter_applied, _filter_substrings = (
             self._resolve_feature_groups_for_streams(feature_streams, feature_groups_to_analyze)
         )
+=======
+		################################################### FEATURES SETUP ###################################################
+		logger.info("Setting up features and baselines for model_type=%s", model_type)
+		feature_groups_to_analyze, baseline_methods_to_use = (
+			self._get_feature_groups_and_baseline_methods(model_type)
+		)
+		# Pre-filter feature groups to only those needed by requested streams
+		feature_groups_to_analyze, _stream_filter_applied, _filter_substrings = (
+			self._resolve_feature_groups_for_streams(feature_streams, feature_groups_to_analyze)
+		)
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 		############################################# LOAD AND PROCESS DATA #############################################
 		logger.info(
@@ -1408,6 +1832,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 			y_train = self._shift_labels_by_samples(y_train, train_trial_ids, horizon)
 			y_test = self._shift_labels_by_samples(y_test, test_trial_ids, horizon)
 
+<<<<<<< HEAD
         ############################################# SENSOR ABLATION / FEATURE FILTER  #############################################
         # Pre-filtering of ``feature_groups_to_analyze`` already restricts the
         # generated feature matrix to the requested sensor groups. Two residual
@@ -1457,6 +1882,57 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
                     "Applied stream substring filter for advanced pipeline: features %d -> %d",
                     len(all_feature_names), len(filtered_feature_names),
                 )
+=======
+		############################################# SENSOR ABLATION / FEATURE FILTER  #############################################
+		# Pre-filtering of ``feature_groups_to_analyze`` already restricts the
+		# generated feature matrix to the requested sensor groups. Two residual
+		# post-steps are required to reproduce the legacy ``restrict_feature_space``
+		# behavior exactly:
+		#   1. Drop the stream-independent AFE_indicator column. The
+		#      Complete+Explicit advanced pipeline appends an AFE_indicator
+		#      column to the feature matrix at ``_feature_clean_and_prep`` but
+		#      does NOT report it in ``features["All"]``
+		#   2. Drop any column whose name contains none of the requested stream
+		#      keywords (union-substring narrowing — see
+		#      ``_apply_substring_filter``). This handles the two cases that
+		#      group pre-filtering alone cannot express: the ECG group bundles
+		#      HR-derived and ``HRV`` columns (legacy ``["ECG"]`` matcher dropped
+		#      them), and the HR sub-stream spans the ECG + ``demographics``
+		#      groups but only HR-named columns should survive.
+		if _stream_filter_applied:
+			# 1. Defensive drop of AFE-indicator columns from x_train / x_test.
+			#    The last matrix column is the trial id.
+			x_train_features, x_train_trial = x_train[:, :-1], x_train[:, -1:]
+			x_test_features, x_test_trial = x_test[:, :-1], x_test[:, -1:]
+			x_train_features, features["All"] = self._drop_afe_indicator_columns(
+				x_train_features, features["All"], _stream_filter_applied
+			)
+			x_test_features, _ = self._drop_afe_indicator_columns(
+				x_test_features, list(features["All"]), _stream_filter_applied
+			)
+			x_train = np.hstack([x_train_features, x_train_trial])
+			x_test = np.hstack([x_test_features, x_test_trial])
+
+			# 2. Union-substring narrowing to the requested stream keywords.
+			if _filter_substrings:
+				all_feature_names = features["All"]
+				filtered_feature_names = self._apply_substring_filter(
+					all_feature_names, _filter_substrings
+				)
+				if not filtered_feature_names:
+					raise ValueError(
+						f"Stream substring filter removed all features. streams={feature_streams}"
+					)
+				col_indices = [all_feature_names.index(name) for name in filtered_feature_names]
+				x_train = np.hstack([x_train[:, col_indices], x_train[:, -1:]])
+				x_test = np.hstack([x_test[:, col_indices], x_test[:, -1:]])
+				features["All"] = filtered_feature_names
+				logger.info(
+					"Applied stream substring filter for advanced pipeline: features %d -> %d",
+					len(all_feature_names),
+					len(filtered_feature_names),
+				)
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 		return x_train, x_test, y_train, y_test, features["All"]
 
@@ -1562,6 +2038,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 		mask_train = np.isnan(X_train)
 		mask_test = np.isnan(X_test)
 
+<<<<<<< HEAD
 		# Temporary mean imputation for FAISS indexing
 		mean_vals = np.nanmean(X_train, axis=0)
 		X_train_temp = np.where(mask_train, mean_vals, X_train)
@@ -1575,15 +2052,38 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 		)
 		X_test_temp32 = np.ascontiguousarray(
 			np.nan_to_num(X_test_temp, nan=0.0, posinf=0.0, neginf=0.0).astype(
+=======
+		# Isolate complete rows in training set to build FAISS index
+		clean_train_mask = ~mask_train.any(axis=1)
+		X_train_clean = X_train[clean_train_mask]
+
+		if X_train_clean.shape[0] == 0:
+			mean_vals = np.nanmean(X_train, axis=0)
+			X_train_imputed = np.where(mask_train, mean_vals, X_train)
+			X_test_imputed = np.where(mask_test, mean_vals, X_test)
+			X_imputed = X.copy()
+			X_imputed[train_ind] = X_train_imputed
+			X_imputed[test_ind] = X_test_imputed
+			return X_imputed
+
+		mean_vals = np.nanmean(X_train_clean, axis=0)
+		X_train_clean32 = np.ascontiguousarray(
+			np.nan_to_num(X_train_clean, nan=0.0, posinf=0.0, neginf=0.0).astype(
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 				np.float32, copy=False
 			)
 		)
 
+<<<<<<< HEAD
 		# Build FAISS HNSW index on training data
+=======
+		# Build FAISS HNSW index on clean training data only
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 		d = X_train.shape[1]
 		index = faiss.IndexHNSWFlat(d, M)
 		index.hnsw.efSearch = efSearch
 		index.hnsw.rng = faiss.RandomGenerator(self.random_seed)
+<<<<<<< HEAD
 		index.add(X_train_temp32)
 
 		# Impute training data
@@ -1605,6 +2105,46 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 				if mask_test[i, j]:
 					neighbor_values = X_train_temp32[neighbors, j]
 					X_test_imputed[i, j] = np.nanmean(neighbor_values)
+=======
+		index.add(X_train_clean32)
+
+		k_search = min(k, X_train_clean32.shape[0])
+
+		# Impute training data (only rows with NaNs query the index)
+		X_train_imputed = X_train.copy()
+		nan_train_rows = np.flatnonzero(~clean_train_mask)
+		if len(nan_train_rows) > 0:
+			X_train_query = np.where(mask_train[nan_train_rows], mean_vals, X_train[nan_train_rows])
+			X_train_query32 = np.ascontiguousarray(
+				np.nan_to_num(X_train_query, nan=0.0, posinf=0.0, neginf=0.0).astype(
+					np.float32, copy=False
+				)
+			)
+			distances_train, indices_train = index.search(X_train_query32, k_search)
+			for row_idx, orig_i in enumerate(nan_train_rows):
+				missing_cols = np.flatnonzero(mask_train[orig_i])
+				neighbors = indices_train[row_idx]
+				for j in missing_cols:
+					X_train_imputed[orig_i, j] = np.mean(X_train_clean32[neighbors, j])
+
+		# Impute test data
+		X_test_imputed = X_test.copy()
+		clean_test_mask = ~mask_test.any(axis=1)
+		nan_test_rows = np.flatnonzero(~clean_test_mask)
+		if len(nan_test_rows) > 0:
+			X_test_query = np.where(mask_test[nan_test_rows], mean_vals, X_test[nan_test_rows])
+			X_test_query32 = np.ascontiguousarray(
+				np.nan_to_num(X_test_query, nan=0.0, posinf=0.0, neginf=0.0).astype(
+					np.float32, copy=False
+				)
+			)
+			distances_test, indices_test = index.search(X_test_query32, k_search)
+			for row_idx, orig_i in enumerate(nan_test_rows):
+				missing_cols = np.flatnonzero(mask_test[orig_i])
+				neighbors = indices_test[row_idx]
+				for j in missing_cols:
+					X_test_imputed[orig_i, j] = np.mean(X_train_clean32[neighbors, j])
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 		# Rebuild into single array
 		X_imputed = X.copy()
@@ -1797,6 +2337,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 class TraditionalDataPipeline(BaseGLOCDataPipeline):
 	"""Legacy-compatible data pipeline for temporal/traditional GLOC modeling."""
 
+<<<<<<< HEAD
     def get_data(
             self,
             backstep: int,
@@ -1853,6 +2394,65 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         feature_groups_to_analyze, _stream_filter_applied, _filter_substrings = (
             self._resolve_feature_groups_for_streams(feature_streams, feature_groups_to_analyze)
         )
+=======
+	def get_data(
+		self,
+		backstep: int,
+		data_rate: int,
+		classifier_type: str,
+		model_type: ModelType,
+		remove_NaN_trials: bool,
+		offset: float,
+		time_start: float,
+		subject_to_analyze: str | None,
+		trial_to_analyze: str | None,
+		analysis_type: int,
+		*,
+		select_features: list[str] | None = None,
+		feature_streams: list[str] | None = None,
+		traditional_feature_selection: Literal["cache", "raw"] = "cache",
+		return_feature_names: bool = False,
+		save_preprocessing_artifacts_path: str | None = None,
+		impute_file_name: str | None = None,
+		impute_phase: Any = None,
+		output_feature_dtype: np.dtype = np.dtype(np.float32),
+		save_impute: bool = False,
+		load_impute: bool = False,
+		model: BaseModel | None = None,
+		kfold_id: int | None = None,
+		num_splits: int | None = None,
+		standardize_s1: bool = True,
+	) -> tuple[np.ndarray, np.ndarray]:
+		"""Return data for a given set of parameters."""
+		if kfold_id is None or num_splits is None:
+			raise ValueError(
+				"Traditional pipeline requires kfold_id and num_splits for fold-aware standardization. "
+				f"Got kfold_id={kfold_id}, num_splits={num_splits}."
+			)
+		if kfold_id < 0 or kfold_id >= num_splits:
+			raise ValueError(f"Fold {kfold_id} is out of range [0, {num_splits - 1}].")
+
+		traditional_hyperparameters = self._resolve_traditional_hyperparameters(
+			model, classifier_type
+		)
+		baseline_window = traditional_hyperparameters["baseline_window"]
+		window_size = traditional_hyperparameters["window_size"]
+		stride = traditional_hyperparameters["stride"]
+		_feature_reduction_type = traditional_hyperparameters["feature_reduction_type"]
+		baseline_methods_to_use = traditional_hyperparameters["baseline_methods_to_use"]
+		_imbalance_type = traditional_hyperparameters["imbalance_type"]
+		impute_type = traditional_hyperparameters["impute_type"]
+		n_neighbors = traditional_hyperparameters["n_neighbors"]
+		feature_groups_to_analyze, baseline_methods_to_use = (
+			self._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
+		)
+		# Pre-filter feature groups to only those needed by requested streams;
+		# Note this affects ``_remove_all_nan_trials`` (runs over the pre-filtered
+		# feature set, not the full default set)
+		feature_groups_to_analyze, _stream_filter_applied, _filter_substrings = (
+			self._resolve_feature_groups_for_streams(feature_streams, feature_groups_to_analyze)
+		)
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 		############################################# LOAD AND PROCESS DATA #############################################
 		logger.info(
@@ -1869,6 +2469,14 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		gloc_data, features = self._process_and_get_feature_names(
 			gloc_data, feature_groups_to_analyze, model_type, file_paths, output_feature_dtype
 		)
+<<<<<<< HEAD
+=======
+		raw_unprocessed_features = [f for f in features["All"] if not f.startswith("participant_")]
+		if _stream_filter_applied:
+			raw_unprocessed_features = self._apply_substring_filter(
+				raw_unprocessed_features, _filter_substrings
+			)
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 		# Create GLOC categorical vector
 		gloc_labels = self._label_gloc_events(gloc_data)
@@ -1968,6 +2576,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			)
 		)
 
+<<<<<<< HEAD
         ################################# FEATURE GENERATION ########################################
         logger.info("Generating features with window_size=%.2f, stride=%.2f, offset=%.2f, time_start=%.2f", window_size,
                     stride, offset, time_start)
@@ -2025,6 +2634,73 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 f"_feature_generation produced {gloc_labels_numpy.shape[0]} rows but "
                 f"pre-pass expected {_y_pre.shape[0]}. Fold-mask alignment is broken."
             )
+=======
+		################################# FEATURE GENERATION ########################################
+		logger.info(
+			"Generating features with window_size=%.2f, stride=%.2f, offset=%.2f, time_start=%.2f",
+			window_size,
+			stride,
+			offset,
+			time_start,
+		)
+		# Feature generation must run for each offset to window GLOC labels
+		raw_gloc_labels_numpy = gloc_labels_numpy.copy()
+
+		# Pre-pass: compute windowed labels + trial_ids so we can determine a
+		# fold-aware train_mask BEFORE _feature_generation standardizes. The
+		# pre-pass shares the row-ordering of _feature_generation so the same
+		# mask aligns 1:1 with the post-standardize matrix rows.
+		_y_pre, _trial_id_pre = self._gen_windowed_label_metadata(
+			time_start,
+			offset,
+			stride,
+			window_size,
+			combined_baseline,
+			gloc_labels_numpy,
+			experiment_metadata["trial_id"],
+			experiment_metadata["Time (s)"],
+			combined_baseline_names,
+			output_feature_dtype=output_feature_dtype,
+		)
+
+		# Fold split on the windowed labels (deterministic given random_seed).
+		from sklearn.model_selection import StratifiedKFold
+
+		skf = StratifiedKFold(n_splits=num_splits, shuffle=True, random_state=self.random_seed)
+		_train_idx_pre, _test_idx_pre = next(
+			islice(skf.split(_y_pre, _y_pre.ravel()), kfold_id, kfold_id + 1)
+		)
+		train_mask_pre = np.zeros(_y_pre.shape[0], dtype=bool)
+		train_mask_pre[_train_idx_pre] = True
+
+		gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], _trial_id_per_row = (
+			self._feature_generation(
+				time_start,
+				offset,
+				stride,
+				window_size,
+				combined_baseline,
+				gloc_labels_numpy,
+				experiment_metadata["trial_id"],
+				experiment_metadata["Time (s)"],
+				combined_baseline_names,
+				baseline_names_v0,
+				baseline_v0,
+				feature_groups_to_analyze,
+				train_mask=train_mask_pre,
+				standardize_s1=standardize_s1,
+				output_feature_dtype=output_feature_dtype,
+			)
+		)
+
+		# Sanity check: _feature_generation produced the same number of rows
+		# (it should, since the pre-pass shares the same windowing code).
+		if gloc_labels_numpy.shape[0] != _y_pre.shape[0]:
+			raise RuntimeError(
+				f"_feature_generation produced {gloc_labels_numpy.shape[0]} rows but "
+				f"pre-pass expected {_y_pre.shape[0]}. Fold-mask alignment is broken."
+			)
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 		################################################ Feature Reduction ################################################
 		logger.info("Performing feature reduction with type: %s", _feature_reduction_type)
@@ -2046,6 +2722,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			)
 			features["All"].append("AFE_indicator_windowed")
 
+<<<<<<< HEAD
         all_raw_features = list(features["All"])
 
         if traditional_feature_selection == "cache":
@@ -2130,11 +2807,103 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 raise ValueError(
                     f"Stream pre-filter removed all features. requested_streams={feature_streams}"
                 )
+=======
+		all_raw_features = list(features["All"])
+
+		if traditional_feature_selection == "cache":
+			if select_features is None:
+				raise ValueError(
+					"select_features is required when traditional_feature_selection='cache'."
+				)
+
+			# Backward compatibility: legacy feature lists may still reference "condition".
+			translated_select_features = [
+				feature_name.replace("condition", "AFE_indicator")
+				for feature_name in select_features
+			]
+
+			feature_index = {feature_name: i for i, feature_name in enumerate(features["All"])}
+
+			# Drop cached selected-feature names whose source group was
+			# pre-filtered out by stream ablation. These names reference
+			# columns that no longer exist in ``features["All"]`` (because
+			# the corresponding feature group wasn't processed).
+			available_cache_features = [f for f in translated_select_features if f in feature_index]
+			dropped_cached = set(translated_select_features) - set(available_cache_features)
+			if dropped_cached:
+				logger.warning(
+					"Dropped %d cached selected features absent after stream pre-filter: %s",
+					len(dropped_cached),
+					sorted(dropped_cached),
+				)
+
+			# When ablating sensors, drop the stream-independent
+			# ``AFE_indicator_windowed`` column (auto-appended above for
+			# Complete+Explicit).
+			if _stream_filter_applied:
+				available_cache_features = [
+					f for f in available_cache_features if f not in self._AFE_INDICATOR_COLUMN_NAMES
+				]
+
+			# Union-substring narrowing to the requested stream keywords.
+			# Reproduces the legacy ``restrict_feature_space`` union-substring
+			# matcher for both the ECG-group-bundles-HR-columns case (drops
+			# HR-derived / HRV columns for ``["ECG"]`` requests) and the
+			# HR-spans-two-groups case (drops non-HR demographics columns for
+			# ``["HR"]`` requests). Multi-stream requests take the union of
+			# every stream keyword's matches — see ``_apply_substring_filter``.
+			if _filter_substrings:
+				available_cache_features = self._apply_substring_filter(
+					available_cache_features, _filter_substrings
+				)
+
+			if not available_cache_features:
+				raise ValueError(
+					"Stream pre-filter removed all cached selected features. "
+					f"requested_streams={feature_streams}"
+				)
+
+			selected_indices = [
+				feature_index[feature_name] for feature_name in available_cache_features
+			]
+			gloc_data_all_features_numpy = gloc_data_all_features_numpy[:, selected_indices]
+
+			gloc_data_all_features_numpy, select_features = self._remove_constant_columns(
+				gloc_data_all_features_numpy, available_cache_features
+			)
+		else:
+			gloc_data_all_features_numpy, all_available_features = self._remove_constant_columns(
+				gloc_data_all_features_numpy, list(features["All"])
+			)
+
+			# When ablating sensors, drop the stream-independent
+			# ``AFE_indicator_windowed`` column (auto-appended above for
+			# Complete+Explicit).
+			if _stream_filter_applied:
+				gloc_data_all_features_numpy, all_available_features = (
+					self._drop_afe_indicator_columns(
+						gloc_data_all_features_numpy, all_available_features, _stream_filter_applied
+					)
+				)
+
+			# Union-substring narrowing to the requested stream keywords
+			# (mirrors the cache branch).
+			if _filter_substrings:
+				all_available_features = self._apply_substring_filter(
+					all_available_features, _filter_substrings
+				)
+
+			if not all_available_features:
+				raise ValueError(
+					f"Stream pre-filter removed all features. requested_streams={feature_streams}"
+				)
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 			feature_index = {
 				feature_name: i for i, feature_name in enumerate(all_available_features)
 			}
 
+<<<<<<< HEAD
             selected_indices = [
                 feature_index[feature_name]
                 for feature_name in all_available_features
@@ -2142,6 +2911,14 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
             gloc_data_all_features_numpy = gloc_data_all_features_numpy[:, selected_indices]
             select_features = all_available_features
+=======
+			selected_indices = [
+				feature_index[feature_name] for feature_name in all_available_features
+			]
+
+			gloc_data_all_features_numpy = gloc_data_all_features_numpy[:, selected_indices]
+			select_features = all_available_features
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 		################################################ NaN Processing ################################################
 		# Optionally perform post-feature KNN imputation on the reduced numpy matrix
@@ -2155,6 +2932,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 				gloc_data_all_features_numpy, k=n_neighbors
 			)
 
+<<<<<<< HEAD
         logger.info("Processing NaN values temporally")
         gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], _removed_ind = self._process_NaN_temporal(
             gloc_labels_numpy,
@@ -2264,6 +3042,117 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             return X_train, X_test, y_train, y_test, select_features
 
         return X_train, X_test, y_train, y_test
+=======
+		logger.info("Processing NaN values temporally")
+		gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], _removed_ind = (
+			self._process_NaN_temporal(
+				gloc_labels_numpy, gloc_data_all_features_numpy, select_features
+			)
+		)
+		# _process_NaN_temporal may drop all-NaN columns; remap select_features
+		# so the returned list matches the surviving matrix columns.
+		_kept = set(features["All"])
+		select_features = [f for f in select_features if f in _kept]
+
+		################################################ Get Outputs Ready ############################################
+		logger.info("Finalizing outputs and ensuring legacy compatibility in dtypes and shapes.")
+		gloc_data_all_features_numpy, gloc_labels_numpy = self._ready_outputs(
+			gloc_data_all_features_numpy, gloc_labels_numpy
+		)
+
+		# Remap the pre-pass fold indices through the rows removed by NaN processing.
+		# The pre-pass row count equals the post-_feature_generation row count; further
+		# rows may have been dropped by _process_NaN_temporal. The train_mask_pre is
+		# a boolean array of length _y_pre.shape[0] (== pre-NaN matrix rows); we
+		# subset it by the surviving-rows mask and turn the result back into indices.
+		removed_mask_pre = np.zeros(_y_pre.shape[0], dtype=bool)
+		removed_mask_pre[_removed_ind] = True
+		survivor_mask_pre = ~removed_mask_pre
+		train_mask_post = train_mask_pre[survivor_mask_pre]
+		train_idx = np.where(train_mask_post)[0]
+		test_idx = np.where(~train_mask_post)[0]
+
+		if train_idx.size == 0 or test_idx.size == 0:
+			raise RuntimeError(
+				f"Fold {kfold_id}/{num_splits} produced an empty train or test split after "
+				f"NaN processing (train={train_idx.size}, test={test_idx.size})."
+			)
+
+		X_train = gloc_data_all_features_numpy[train_idx]
+		X_test = gloc_data_all_features_numpy[test_idx]
+		y_train = gloc_labels_numpy[train_idx]
+		y_test = gloc_labels_numpy[test_idx]
+
+		if save_preprocessing_artifacts_path is not None:
+			active_indices = [
+				all_raw_features.index(f) for f in select_features if f in all_raw_features
+			]
+			dropped_features = [f for f in all_raw_features if f not in set(select_features)]
+
+			s1_pooled_mean = (
+				self._last_trial_standardizer._pooled_mean.tolist()
+				if getattr(self, "_last_trial_standardizer", None) is not None
+				and self._last_trial_standardizer._pooled_mean is not None
+				else []
+			)
+			s1_pooled_std = (
+				self._last_trial_standardizer._pooled_std.tolist()
+				if getattr(self, "_last_trial_standardizer", None) is not None
+				and self._last_trial_standardizer._pooled_std is not None
+				else []
+			)
+			s2_global_mean = (
+				self._last_global_standardizer.mean_.tolist()
+				if getattr(self, "_last_global_standardizer", None) is not None
+				and self._last_global_standardizer.mean_ is not None
+				else []
+			)
+			s2_global_std = (
+				self._last_global_standardizer.std_.tolist()
+				if getattr(self, "_last_global_standardizer", None) is not None
+				and self._last_global_standardizer.std_ is not None
+				else []
+			)
+
+			knn_imputer_state = {
+				"k": int(n_neighbors),
+				"reference_means": (
+					self._last_knn_reference_means.tolist()
+					if getattr(self, "_last_knn_reference_means", None) is not None
+					else []
+				),
+				"reference_data": (
+					self._last_knn_reference_data.tolist()
+					if getattr(self, "_last_knn_reference_data", None) is not None
+					else []
+				),
+			}
+
+			artifacts = {
+				"s1_pooled_mean": s1_pooled_mean,
+				"s1_pooled_std": s1_pooled_std,
+				"s2_global_mean": s2_global_mean,
+				"s2_global_std": s2_global_std,
+				"raw_feature_names": raw_unprocessed_features,
+				"engineered_feature_names": all_raw_features,
+				"active_feature_names": select_features,
+				"active_indices": active_indices,
+				"dropped_feature_names": dropped_features,
+				"knn_imputer": knn_imputer_state,
+			}
+
+			artifacts_dir = os.path.dirname(os.path.abspath(save_preprocessing_artifacts_path))
+			if artifacts_dir:
+				os.makedirs(artifacts_dir, exist_ok=True)
+			with open(save_preprocessing_artifacts_path, "w") as f:
+				json.dump(artifacts, f, indent=2)
+			logger.info("Saved preprocessing artifacts to %s", save_preprocessing_artifacts_path)
+
+		if return_feature_names:
+			return X_train, X_test, y_train, y_test, select_features
+
+		return X_train, X_test, y_train, y_test
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 	def _resolve_traditional_hyperparameters(
 		self, model: BaseModel | None, classifier_type: str | None
@@ -2333,6 +3222,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 	def _faster_knn_impute(
 		self, X: np.ndarray, k: int = 5, M: int = 32, efSearch: int = 64
 	) -> np.ndarray:
+<<<<<<< HEAD
 		"""Impute missing values with FAISS KNN."""
 		mask = np.isnan(X)
 		X_imputed = X.copy()
@@ -2347,10 +3237,28 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         self._last_knn_reference_data = X_temp32
 
 		# Build FAISS index (HNSW)
+=======
+		"""Impute missing values with FAISS KNN using complete rows as reference."""
+		mask = np.isnan(X)
+		X_imputed = X.copy()
+
+		# Isolate complete rows (all features observed) to feed into FAISS index
+		clean_mask = ~mask.any(axis=1)
+		X_clean = X[clean_mask]
+		X_clean32 = np.ascontiguousarray(
+			np.nan_to_num(X_clean, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32, copy=False)
+		)
+		ref_means = np.nanmean(X_clean, axis=0)
+		self._last_knn_reference_means = ref_means
+		self._last_knn_reference_data = X_clean32
+
+		# Build FAISS index (HNSW) on complete rows only
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 		d = X.shape[1]  # dimension
 		index = faiss.IndexHNSWFlat(d, M)
 		index.hnsw.efSearch = efSearch
 		index.hnsw.rng = faiss.RandomGenerator(self.random_seed)
+<<<<<<< HEAD
 		index.add(X_temp32)
 
 		# Find k nearest neighbors
@@ -2574,6 +3482,332 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             out = s2_features
 
         return out
+=======
+		index.add(X_clean32)
+
+		# Identify rows with missing values that need imputation
+		nan_row_indices = np.flatnonzero(~clean_mask)
+		X_query = np.where(mask[nan_row_indices], ref_means, X[nan_row_indices])
+		X_query32 = np.ascontiguousarray(
+			np.nan_to_num(X_query, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32, copy=False)
+		)
+
+		# Find k nearest clean neighbors
+		k_search = min(k, X_clean32.shape[0])
+		distances, indices = index.search(X_query32, k_search)
+
+		# Impute missing values from clean neighbor observations
+		for row_idx, orig_i in enumerate(nan_row_indices):
+			missing_cols = np.flatnonzero(mask[orig_i])
+			neighbors = indices[row_idx]
+			for j in missing_cols:
+				neighbor_values = X_clean32[neighbors, j]
+				X_imputed[orig_i, j] = np.mean(neighbor_values)
+
+		return X_imputed
+
+	def _gen_windowed_label_metadata(
+		self,
+		time_start: float,
+		offset: float,
+		stride: float,
+		window_size: float,
+		combined_baseline: dict[str, np.ndarray],
+		gloc: np.ndarray,
+		trial_column: np.ndarray,
+		time_column: np.ndarray,
+		combined_baseline_names: list[str],
+		output_feature_dtype: np.dtype = np.dtype(np.float32),
+	) -> tuple[np.ndarray, np.ndarray]:
+		"""Pre-pass: produce row-major windowed GLOC labels and trial-id rows.
+
+		Mirrors exactly the row ordering used by ``_feature_generation`` (via
+		``_sliding_window_mean_calc`` + ``_unpack_dict``), so a fold-aware
+		``train_mask`` computed from this output can be passed back into
+		``_feature_generation`` to fit standardization on training rows only.
+
+		Returns ``(y_gloc_labels, trial_id_per_row)``:
+		    - ``y_gloc_labels``: shape ``(N, 1)`` per-window binary labels.
+		    - ``trial_id_per_row``: shape ``(N,)`` object array mapping each
+		      row to its source trial id.
+		"""
+		gloc_window, _mean_raw, number_windows, _names_s1, _empty, _names_s2 = (
+			self._sliding_window_mean_calc(
+				time_start,
+				offset,
+				stride,
+				window_size,
+				combined_baseline,
+				gloc,
+				trial_column,
+				time_column,
+				combined_baseline_names,
+			)
+		)
+
+		trial_ids_in_order = list(gloc_window.keys())
+		total_rows = int(sum(int(number_windows[t]) for t in trial_ids_in_order))
+		y_gloc_labels = np.zeros((total_rows, 1), dtype=output_feature_dtype)
+		trial_id_per_row = np.empty(total_rows, dtype=object)
+
+		idx = 0
+		for t in trial_ids_in_order:
+			n = int(number_windows[t])
+			y_gloc_labels[idx : idx + n, :] = gloc_window[t].astype(output_feature_dtype)
+			trial_id_per_row[idx : idx + n] = t
+			idx += n
+
+		return y_gloc_labels, trial_id_per_row
+
+	def _feature_generation(
+		self,
+		time_start: float,
+		offset: float,
+		stride: float,
+		window_size: float,
+		combined_baseline: dict[str, np.ndarray],
+		gloc: np.ndarray,
+		trial_column: np.ndarray,
+		time_column: np.ndarray,
+		combined_baseline_names: list[str],
+		baseline_names_v0: Any,
+		baseline_v0: dict[str, np.ndarray],
+		feature_groups_to_analyze: Sequence[str],
+		train_mask: np.ndarray | None,
+		standardize_s1: bool = True,
+		output_feature_dtype: np.dtype = np.dtype(np.float32),
+	) -> tuple[np.ndarray, np.ndarray, list[str], np.ndarray]:
+		"""Generate temporal engineered features and apply fold-aware standardization.
+
+		Sliding-window per-trial statics are returned **raw** by the child
+		methods (s1 slot = raw dict, s2 slot = empty dict). The raw matrix
+		``X_raw`` is unpacked, then:
+
+		- When ``standardize_s1`` is True: ``TrialAwareStandardizer`` z-scores
+		  each row using that row's trial statistics computed on training rows
+		  of that trial (or pooled training statistics if the trial never appears
+		  in train_mask).
+		- ``GlobalStandardizer`` z-scores each row using a single μ/σ fit on
+		  all training rows.
+
+		Both s1 and s2 features share the same name suffixes as before, so
+		downstream cache files remain compatible.
+
+		``train_mask`` is a boolean array of length ``X_raw.shape[0]``. If
+		``None``, all rows are treated as training (global standardization
+		only — for backward-compatibility diagnostic calls). This is leaky and
+		emits a warning.
+
+		Returns ``(y_gloc_labels, x_feature_matrix, all_features, trial_id_per_row)``.
+		"""
+		# Sliding Window Mean — raw dict goes into the s1 slot, s2 slot is {}.
+		(
+			gloc_window,
+			sliding_window_mean_raw,
+			number_windows,
+			all_features_mean_s1,
+			_,
+			all_features_mean_s2,
+		) = self._sliding_window_mean_calc(
+			time_start,
+			offset,
+			stride,
+			window_size,
+			combined_baseline,
+			gloc,
+			trial_column,
+			time_column,
+			combined_baseline_names,
+		)
+
+		(
+			sliding_window_stddev_raw,
+			sliding_window_max_raw,
+			sliding_window_range_raw,
+			all_features_stddev_s1,
+			all_features_max_s1,
+			all_features_range_s1,
+			_,
+			_,
+			_,
+			all_features_stddev_s2,
+			all_features_max_s2,
+			all_features_range_s2,
+		) = self._sliding_window_calc(
+			time_start,
+			stride,
+			window_size,
+			combined_baseline,
+			trial_column,
+			time_column,
+			number_windows,
+			combined_baseline_names,
+		)
+
+		(
+			all_features_additional_s1,
+			sliding_window_integral_left_pupil_raw,
+			sliding_window_integral_right_pupil_raw,
+			sliding_window_consecutive_elements_mean_left_pupil_raw,
+			sliding_window_consecutive_elements_mean_right_pupil_raw,
+			sliding_window_consecutive_elements_max_left_pupil_raw,
+			sliding_window_consecutive_elements_max_right_pupil_raw,
+			sliding_window_consecutive_elements_sum_left_pupil_raw,
+			sliding_window_consecutive_elements_sum_right_pupil_raw,
+			sliding_window_hrv_sdnn_raw,
+			sliding_window_hrv_rmssd_raw,
+			sliding_window_cognitive_ies_raw,
+			all_features_additional_s2,
+			_,
+			_,
+			_,
+			_,
+			_,
+			_,
+			_,
+			_,
+			_,
+			_,
+			_,
+			_,
+		) = self._sliding_window_other_features(
+			time_start,
+			stride,
+			window_size,
+			trial_column,
+			time_column,
+			number_windows,
+			baseline_names_v0,
+			baseline_v0,
+			feature_groups_to_analyze,
+		)
+
+		# Unpack the raw dicts into the row-major X_raw matrix. s2 slots stay {}, so X_raw
+		# contains only the raw s1 columns (one block per non-empty dict).
+		if not sliding_window_mean_raw:
+			return (
+				np.zeros((0, 1), dtype=output_feature_dtype),
+				np.zeros((0, 0), dtype=output_feature_dtype),
+				[],
+				np.array([], dtype=object),
+			)
+
+		y_gloc_labels, x_feature_matrix_raw, trial_id_per_row = self._unpack_dict(
+			gloc_window,
+			sliding_window_mean_raw,
+			number_windows,
+			sliding_window_stddev_raw,
+			sliding_window_max_raw,
+			sliding_window_range_raw,
+			sliding_window_integral_left_pupil_raw,
+			sliding_window_integral_right_pupil_raw,
+			sliding_window_consecutive_elements_mean_left_pupil_raw,
+			sliding_window_consecutive_elements_mean_right_pupil_raw,
+			sliding_window_consecutive_elements_max_left_pupil_raw,
+			sliding_window_consecutive_elements_max_right_pupil_raw,
+			sliding_window_consecutive_elements_sum_left_pupil_raw,
+			sliding_window_consecutive_elements_sum_right_pupil_raw,
+			sliding_window_hrv_sdnn_raw,
+			sliding_window_hrv_rmssd_raw,
+			sliding_window_cognitive_ies_raw,
+			{},
+			{},
+			{},
+			{},  # mean_s2, stddev_s2, max_s2, range_s2
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},  # 8 pupil s2
+			{},
+			{},
+			{},  # hrv_sdnn_s2, hrv_rmssd_s2, cog_s2
+			output_feature_dtype,
+		)
+
+		if train_mask is None:
+			logger.warning(
+				"_feature_generation called with train_mask=None — folding to a leaky "
+				"global standardization over all rows. Pass an explicit train_mask "
+				"(or call _gen_windowed_label_metadata from the caller) for fold-aware "
+				"standardization."
+			)
+			train_mask = np.ones(x_feature_matrix_raw.shape[0], dtype=bool)
+
+		# Apply fold-aware standardization over the whole raw matrix. Both
+		# standardizers compute per-column statistics, so applying them block-by-block
+		# vs whole-matrix yields identical results — the whole-matrix path is simpler.
+		x_feature_matrix = self._standardize_raw(
+			x_feature_matrix_raw, trial_id_per_row, train_mask, standardize_s1=standardize_s1
+		)
+
+		# Combine feature names according to whether standardize_s1 is enabled.
+		if standardize_s1:
+			all_features = (
+				all_features_mean_s1
+				+ all_features_stddev_s1
+				+ all_features_max_s1
+				+ all_features_range_s1
+				+ all_features_additional_s1
+				+ all_features_mean_s2
+				+ all_features_stddev_s2
+				+ all_features_max_s2
+				+ all_features_range_s2
+				+ all_features_additional_s2
+			)
+		else:
+			all_features = (
+				all_features_mean_s2
+				+ all_features_stddev_s2
+				+ all_features_max_s2
+				+ all_features_range_s2
+				+ all_features_additional_s2
+			)
+
+		return (
+			y_gloc_labels.astype(output_feature_dtype),
+			x_feature_matrix.astype(output_feature_dtype),
+			all_features,
+			trial_id_per_row,
+		)
+
+	def _standardize_raw(
+		self,
+		x_feature_matrix_raw: np.ndarray,
+		trial_id_per_row: np.ndarray,
+		train_mask: np.ndarray,
+		standardize_s1: bool = True,
+	) -> np.ndarray:
+		"""Apply fold-aware s1 + s2 (or s2-only if standardize_s1 is False) standardization.
+
+		When standardize_s1 is True, output column order is ``[all s1 columns | all s2 columns]``
+		(the legacy ordering) so the feature-name list returned by ``_feature_generation``
+		aligns 1:1. When False, output is ``[all s2 columns]``.
+		"""
+		x_raw = np.asarray(x_feature_matrix_raw, dtype=np.float64)
+		n_rows, n_raw_cols = x_raw.shape
+
+		# s2 = single global z-score using all training rows' pooled statistics.
+		global_standardizer = GlobalStandardizer().fit(x_raw[train_mask])
+		s2_features = global_standardizer.transform(x_raw)
+		self._last_global_standardizer = global_standardizer
+
+		if standardize_s1:
+			# s1 = per-trial z-score using each trial's own training-row statistics
+			# (or pooled training statistics if the trial never appears in train_mask).
+			trial_standardizer = TrialAwareStandardizer().fit(x_raw, trial_id_per_row, train_mask)
+			s1_features = trial_standardizer.transform(x_raw, trial_id_per_row)
+			self._last_trial_standardizer = trial_standardizer
+			out = np.hstack([s1_features, s2_features])
+		else:
+			self._last_trial_standardizer = None
+			out = s2_features
+
+		return out
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 	def _sliding_window_mean_calc(
 		self,
@@ -2601,10 +3835,17 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			trial_column
 		)  # order-preserving, matching legacy script behavior
 
+<<<<<<< HEAD
         # Build Dictionary for each trial_id
         sliding_window_mean = dict()
         gloc_window = dict()
         number_windows = dict()
+=======
+		# Build Dictionary for each trial_id
+		sliding_window_mean = dict()
+		gloc_window = dict()
+		number_windows = dict()
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 		# Iterate through all unique trial_id
 		for i in range(np.size(trial_id_in_data)):
@@ -2661,6 +3902,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 				# Adjust iteration_time
 				time_iteration = stride + time_iteration
 
+<<<<<<< HEAD
             # Define dictionary item for trial_id (raw per-window mean; standardization
             # is applied fold-aware by TrialAwareStandardizer / GlobalStandardizer in _feature_generation).
             sliding_window_mean[trial_id_in_data[i]] = sliding_window_mean_current
@@ -2675,6 +3917,29 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         all_features_mean_s2 = [s + '_mean_s2' for s in combined_baseline_names]
 
         return gloc_window, sliding_window_mean, number_windows, all_features_mean_s1, {}, all_features_mean_s2
+=======
+			# Define dictionary item for trial_id (raw per-window mean; standardization
+			# is applied fold-aware by TrialAwareStandardizer / GlobalStandardizer in _feature_generation).
+			sliding_window_mean[trial_id_in_data[i]] = sliding_window_mean_current
+			gloc_window[trial_id_in_data[i]] = gloc_window_current
+			number_windows[trial_id_in_data[i]] = number_windows_current
+
+		# Name all features (s1 (intra-trial) standardization)
+		all_features_mean_s1 = [s + "_mean_s1" for s in combined_baseline_names]
+
+		# s2 feature names are still emitted for downstream cache compatibility; the s2 dict
+		# is filled by GlobalStandardizer in _feature_generation.
+		all_features_mean_s2 = [s + "_mean_s2" for s in combined_baseline_names]
+
+		return (
+			gloc_window,
+			sliding_window_mean,
+			number_windows,
+			all_features_mean_s1,
+			{},
+			all_features_mean_s2,
+		)
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 	def _sliding_window_calc(
 		self,
@@ -2694,6 +3959,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			trial_column
 		)  # order-preserving, matching legacy script behavior
 
+<<<<<<< HEAD
         # Build Dictionary for each trial_id
         # Raw windowed data (no standardization); fold-aware z-scoring is applied in _feature_generation.
         sliding_window_stddev = dict()
@@ -2705,6 +3971,18 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
             # Determine index from current trial_id
             current_index = (trial_column == trial_id_in_data[i])
+=======
+		# Build Dictionary for each trial_id
+		# Raw windowed data (no standardization); fold-aware z-scoring is applied in _feature_generation.
+		sliding_window_stddev = dict()
+		sliding_window_max = dict()
+		sliding_window_range = dict()
+
+		# Iterate through all unique trial_id
+		for i in range(np.size(trial_id_in_data)):
+			# Determine index from current trial_id
+			current_index = trial_column == trial_id_in_data[i]
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 			# Create time array based on current_index
 			current_time = np.array(time_column)
@@ -2757,6 +4035,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 				# Adjust iteration_time
 				time_iteration = stride + time_iteration
 
+<<<<<<< HEAD
             # Define dictionary item for trial_id (raw; fold-aware standardization applied in _feature_generation).
             sliding_window_stddev[trial_id_in_data[i]] = sliding_window_stddev_current
             sliding_window_max[trial_id_in_data[i]] = sliding_window_max_current
@@ -2777,6 +4056,38 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
                 all_features_max_s1,
                 all_features_range_s1, {}, {}, {}, all_features_stddev_s2,
                 all_features_max_s2, all_features_range_s2)
+=======
+			# Define dictionary item for trial_id (raw; fold-aware standardization applied in _feature_generation).
+			sliding_window_stddev[trial_id_in_data[i]] = sliding_window_stddev_current
+			sliding_window_max[trial_id_in_data[i]] = sliding_window_max_current
+			sliding_window_range[trial_id_in_data[i]] = sliding_window_range_current
+
+		# Name features
+		all_features_stddev_s1 = [s + "_stddev_s1" for s in combined_baseline_names]
+		all_features_max_s1 = [s + "_max_s1" for s in combined_baseline_names]
+		all_features_range_s1 = [s + "_range_s1" for s in combined_baseline_names]
+
+		all_features_stddev_s2 = [s + "_stddev_s2" for s in combined_baseline_names]
+		all_features_max_s2 = [s + "_max_s2" for s in combined_baseline_names]
+		all_features_range_s2 = [s + "_range_s2" for s in combined_baseline_names]
+
+		# s1 slots carry the raw dicts here; standardizer in _feature_generation replaces them.
+		# s2 slots are empty {}; GlobalStandardizer in _feature_generation fills them.
+		return (
+			sliding_window_stddev,
+			sliding_window_max,
+			sliding_window_range,
+			all_features_stddev_s1,
+			all_features_max_s1,
+			all_features_range_s1,
+			{},
+			{},
+			{},
+			all_features_stddev_s2,
+			all_features_max_s2,
+			all_features_range_s2,
+		)
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 	def _sliding_window_other_features(
 		self,
@@ -2842,6 +4153,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		else:
 			cognitive_features = []
 
+<<<<<<< HEAD
         # Build Dictionary for each trial_id (raw; fold-aware standardization applied in _feature_generation).
         sliding_window_integral_left_pupil = dict()
         sliding_window_integral_right_pupil = dict()
@@ -2861,6 +4173,26 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
             # Determine index from current trial_id
             current_index = (trial_column == trial_id_in_data[i])
+=======
+		# Build Dictionary for each trial_id (raw; fold-aware standardization applied in _feature_generation).
+		sliding_window_integral_left_pupil = dict()
+		sliding_window_integral_right_pupil = dict()
+		sliding_window_consecutive_elements_mean_left_pupil = dict()
+		sliding_window_consecutive_elements_mean_right_pupil = dict()
+		sliding_window_consecutive_elements_max_left_pupil = dict()
+		sliding_window_consecutive_elements_max_right_pupil = dict()
+		sliding_window_consecutive_elements_sum_left_pupil = dict()
+		sliding_window_consecutive_elements_sum_right_pupil = dict()
+		sliding_window_hrv_sdnn = dict()
+		sliding_window_hrv_rmssd = dict()
+		# sliding_window_hrv_pnn50 = dict()
+		sliding_window_cognitive_ies = dict()
+
+		# Iterate through all unique trial_id
+		for i in range(np.size(trial_id_in_data)):
+			# Determine index from current trial_id
+			current_index = trial_column == trial_id_in_data[i]
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 			# Create time array based on current_index
 			current_time = np.array(time_column)
@@ -2981,6 +4313,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 				# Adjust iteration_time
 				time_iteration = stride + time_iteration
 
+<<<<<<< HEAD
             # Define dictionary item for trial_id (raw; fold-aware standardization applied in _feature_generation).
             if 'eyetracking' in feature_groups_to_analyze:
                 sliding_window_integral_left_pupil[trial_id_in_data[i]] = sliding_window_integral_left_pupil_current
@@ -3069,6 +4402,123 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         """
         # Find Unique Trial ID
         trial_id_in_data = list(sliding_window_mean_s1.keys())
+=======
+			# Define dictionary item for trial_id (raw; fold-aware standardization applied in _feature_generation).
+			if "eyetracking" in feature_groups_to_analyze:
+				sliding_window_integral_left_pupil[trial_id_in_data[i]] = (
+					sliding_window_integral_left_pupil_current
+				)
+				sliding_window_integral_right_pupil[trial_id_in_data[i]] = (
+					sliding_window_integral_right_pupil_current
+				)
+				sliding_window_consecutive_elements_mean_left_pupil[trial_id_in_data[i]] = (
+					sliding_window_consecutive_elements_mean_left_pupil_current
+				)
+				sliding_window_consecutive_elements_mean_right_pupil[trial_id_in_data[i]] = (
+					sliding_window_consecutive_elements_mean_right_pupil_current
+				)
+				sliding_window_consecutive_elements_max_left_pupil[trial_id_in_data[i]] = (
+					sliding_window_consecutive_elements_max_left_pupil_current
+				)
+				sliding_window_consecutive_elements_max_right_pupil[trial_id_in_data[i]] = (
+					sliding_window_consecutive_elements_max_right_pupil_current
+				)
+				sliding_window_consecutive_elements_sum_left_pupil[trial_id_in_data[i]] = (
+					sliding_window_consecutive_elements_sum_left_pupil_current
+				)
+				sliding_window_consecutive_elements_sum_right_pupil[trial_id_in_data[i]] = (
+					sliding_window_consecutive_elements_sum_right_pupil_current
+				)
+			if "ECG" in feature_groups_to_analyze:
+				sliding_window_hrv_sdnn[trial_id_in_data[i]] = sliding_window_hrv_sdnn_current
+				sliding_window_hrv_rmssd[trial_id_in_data[i]] = sliding_window_hrv_rmssd_current
+				# sliding_window_hrv_pnn50[trial_id_in_data[i]] = sliding_window_hrv_pnn50_current
+			if "cognitive" in feature_groups_to_analyze:
+				sliding_window_cognitive_ies[trial_id_in_data[i]] = (
+					sliding_window_cognitive_ies_current
+				)
+
+			# Name all features
+			all_features_additional = eye_tracking_features + ecg_features + cognitive_features
+			all_features_additional_s1 = [s + "_s1" for s in all_features_additional]
+
+		# s2 feature names are still emitted for downstream cache compatibility; the s2 dicts
+		# are filled by GlobalStandardizer in _feature_generation.
+		all_features_additional_s2 = [s + "_s2" for s in all_features_additional]
+
+		return (
+			all_features_additional_s1,
+			sliding_window_integral_left_pupil,
+			sliding_window_integral_right_pupil,
+			sliding_window_consecutive_elements_mean_left_pupil,
+			sliding_window_consecutive_elements_mean_right_pupil,
+			sliding_window_consecutive_elements_max_left_pupil,
+			sliding_window_consecutive_elements_max_right_pupil,
+			sliding_window_consecutive_elements_sum_left_pupil,
+			sliding_window_consecutive_elements_sum_right_pupil,
+			sliding_window_hrv_sdnn,
+			sliding_window_hrv_rmssd,
+			sliding_window_cognitive_ies,
+			all_features_additional_s2,
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+		)
+
+	def _unpack_dict(
+		self,
+		gloc_window: dict[str, np.ndarray],
+		sliding_window_mean_s1: dict[str, np.ndarray],
+		number_windows: dict[str, np.int32],
+		sliding_window_stddev_s1: dict[str, np.ndarray],
+		sliding_window_max_s1: dict[str, np.ndarray],
+		sliding_window_range_s1: dict[str, np.ndarray],
+		sliding_window_integral_left_pupil_s1: dict[str, np.ndarray],
+		sliding_window_integral_right_pupil_s1: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_mean_left_pupil_s1: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_mean_right_pupil_s1: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_max_left_pupil_s1: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_max_right_pupil_s1: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_sum_left_pupil_s1: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_sum_right_pupil_s1: dict[str, np.ndarray],
+		sliding_window_hrv_sdnn_s1: dict[str, np.ndarray],
+		sliding_window_hrv_rmssd_s1: dict[str, np.ndarray],
+		sliding_window_cognitive_ies_s1: dict[str, np.ndarray],
+		sliding_window_mean_s2: dict[str, np.ndarray],
+		sliding_window_stddev_s2: dict[str, np.ndarray],
+		sliding_window_max_s2: dict[str, np.ndarray],
+		sliding_window_range_s2: dict[str, np.ndarray],
+		sliding_window_integral_left_pupil_s2: dict[str, np.ndarray],
+		sliding_window_integral_right_pupil_s2: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_mean_left_pupil_s2: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_mean_right_pupil_s2: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_max_left_pupil_s2: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_max_right_pupil_s2: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_sum_left_pupil_s2: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_sum_right_pupil_s2: dict[str, np.ndarray],
+		sliding_window_hrv_sdnn_s2: dict[str, np.ndarray],
+		sliding_window_hrv_rmssd_s2: dict[str, np.ndarray],
+		sliding_window_cognitive_ies_s2: dict[str, np.ndarray],
+		output_feature_dtype: np.dtype = np.dtype(np.float32),
+	) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+		"""Unpack per-trial dictionaries into global label and feature matrices.
+
+		Returns ``(y_gloc_labels, x_feature_matrix, trial_id_per_row)`` where
+		``trial_id_per_row`` is a 1-D array of length ``x_feature_matrix.shape[0]``
+		mapping each row back to its source trial id (in insertion order).
+		"""
+		# Find Unique Trial ID
+		trial_id_in_data = list(sliding_window_mean_s1.keys())
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 		# Determine total length of new unpacked dictionary items
 		total_rows = 0
@@ -3121,6 +4571,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			current_dictionary = non_empty_feature_dictionaries[dictionary]
 			num_cols = num_cols + np.shape(current_dictionary[trial_id_in_data[0]])[1]
 
+<<<<<<< HEAD
         # Pre-allocate
         x_feature_matrix = np.zeros((total_rows, num_cols), dtype=output_feature_dtype)
         y_gloc_labels = np.zeros((total_rows, 1), dtype=output_feature_dtype)
@@ -3141,6 +4592,27 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
             for dictionary in range(len(non_empty_feature_dictionaries)):
                 # Find current dictionary
                 current_dictionary = non_empty_feature_dictionaries[dictionary]
+=======
+		# Pre-allocate
+		x_feature_matrix = np.zeros((total_rows, num_cols), dtype=output_feature_dtype)
+		y_gloc_labels = np.zeros((total_rows, 1), dtype=output_feature_dtype)
+		trial_id_per_row = np.empty(total_rows, dtype=object)
+
+		# Iterate through unique trial_id
+		current_index = 0
+		for i in range(np.size(trial_id_in_data)):
+			# Find number of rows in trial
+			num_rows = np.shape(sliding_window_mean_s1[trial_id_in_data[i]])[0]
+
+			# Tag every row in this block with the current trial id
+			trial_id_per_row[current_index : num_rows + current_index] = trial_id_in_data[i]
+
+			# For all non-empty dictionaries, set specific rows equal to the dictionary item corresponding to trial_id
+			column_index = 0
+			for dictionary in range(len(non_empty_feature_dictionaries)):
+				# Find current dictionary
+				current_dictionary = non_empty_feature_dictionaries[dictionary]
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 				# Set rows and columns in x_feature_matrix equal to current dictionary
 				x_feature_matrix[
@@ -3160,7 +4632,11 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			# Increment row index
 			current_index += num_rows
 
+<<<<<<< HEAD
         return y_gloc_labels, x_feature_matrix, trial_id_per_row
+=======
+		return y_gloc_labels, x_feature_matrix, trial_id_per_row
+>>>>>>> 6d0ad0a (Change FAISS KNN Imputer to use clean data instead of mean imputed data)
 
 	def _reduce_features(
 		self,
