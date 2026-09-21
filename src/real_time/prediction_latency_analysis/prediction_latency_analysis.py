@@ -84,24 +84,37 @@ def load_realtime_summaries(results_dir: Path) -> Tuple[List[Dict[str, Any]], pd
 
             # 1. Check for decomposed single-trial schema
             if "total_latency_ms" in data or "per_prediction_total_latency_ms" in data:
+                per_preproc = data.get("per_prediction_preprocessing_latency_ms", [])
                 per_proc = data.get("per_prediction_data_proc_latency_ms", [])
                 per_infer = data.get("per_prediction_inference_latency_ms", [])
                 per_total = data.get("per_prediction_total_latency_ms", [])
+                per_p2p = data.get("per_prediction_prediction_to_prediction_latency_ms", [])
+                if not per_p2p and "prediction_to_prediction_latencies_ms" in data:
+                    raw_p2p = data.get("prediction_to_prediction_latencies_ms", [])
+                    if len(raw_p2p) == len(per_total) - 1:
+                        per_p2p = [None] + raw_p2p
 
                 has_decomp = len(per_proc) == len(per_total) and len(per_infer) == len(per_total)
+                has_preproc = len(per_preproc) == len(per_total)
+                has_p2p = len(per_p2p) == len(per_total)
 
                 for idx, tot_lat in enumerate(per_total):
+                    preproc_lat = per_preproc[idx] if has_preproc and per_preproc[idx] is not None else np.nan
                     proc_lat = per_proc[idx] if has_decomp else np.nan
                     infer_lat = per_infer[idx] if has_decomp else np.nan
+                    p2p_lat = per_p2p[idx] if has_p2p and per_p2p[idx] is not None else np.nan
+
                     sample_records.append({
                         "model": model_name,
                         "model_type": model_type,
                         "streams": streams_str,
                         "trial_id": trial_id,
                         "sample_idx": idx,
-                        "data_proc_ms": float(proc_lat),
-                        "inference_ms": float(infer_lat),
+                        "preproc_ms": float(preproc_lat) if pd.notna(preproc_lat) else np.nan,
+                        "data_proc_ms": float(proc_lat) if pd.notna(proc_lat) else np.nan,
+                        "inference_ms": float(infer_lat) if pd.notna(infer_lat) else np.nan,
                         "total_ms": float(tot_lat),
+                        "pred_to_pred_ms": float(p2p_lat) if pd.notna(p2p_lat) else np.nan,
                     })
 
                 summary_records.append({
@@ -110,10 +123,15 @@ def load_realtime_summaries(results_dir: Path) -> Tuple[List[Dict[str, Any]], pd
                     "streams": streams_str,
                     "trial_id": trial_id,
                     "n_predictions": data.get("n_predictions", len(per_total)),
+                    "n_raw_samples": data.get("n_raw_samples", np.nan),
+                    "use_real_time_sleep": data.get("use_real_time_sleep", False),
                     "has_decomposition": has_decomp,
+                    "has_preprocessing": has_preproc,
+                    "preproc_summary": data.get("preprocessing_latency_ms", {}),
                     "data_proc_summary": data.get("data_processing_latency_ms", {}),
                     "inference_summary": data.get("inference_latency_ms", {}),
                     "total_summary": data.get("total_latency_ms", {}),
+                    "pred_to_pred_summary": data.get("prediction_to_prediction_latency_ms", {}),
                 })
 
             # 2. Check for multi-fold schema
@@ -130,9 +148,11 @@ def load_realtime_summaries(results_dir: Path) -> Tuple[List[Dict[str, Any]], pd
                             "streams": streams_str,
                             "trial_id": f"fold_{fold_id}",
                             "sample_idx": idx,
+                            "preproc_ms": np.nan,
                             "data_proc_ms": np.nan,
                             "inference_ms": np.nan,
                             "total_ms": float(lat),
+                            "pred_to_pred_ms": np.nan,
                         })
 
                     summary_records.append({
@@ -142,6 +162,7 @@ def load_realtime_summaries(results_dir: Path) -> Tuple[List[Dict[str, Any]], pd
                         "trial_id": f"fold_{fold_id}",
                         "n_predictions": len(samples),
                         "has_decomposition": False,
+                        "has_preprocessing": False,
                         "f1_score": recomputed.get("f1", np.nan),
                         "accuracy": recomputed.get("accuracy", np.nan),
                         "total_summary": fold_info.get("latency_ms", {}),

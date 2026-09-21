@@ -82,6 +82,43 @@ def test_load_realtime_summaries(tmp_path: Path):
     assert set(df_samples["model"].unique()) == {"EGB", "RF"}
 
 
+def test_load_realtime_summaries_with_preprocessing(tmp_path: Path):
+    results_dir = tmp_path / "Results_Preproc"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    rf_dir = results_dir / "Complete_Explicit" / "RF" / "ECG-Centrifuge"
+    rf_dir.mkdir(parents=True, exist_ok=True)
+
+    rf_data = {
+        "model": "RF",
+        "model_type": "Complete_Explicit",
+        "streams": ["ECG", "Centrifuge"],
+        "trial_id": "trial_01",
+        "n_raw_samples": 500,
+        "n_predictions": 50,
+        "use_real_time_sleep": True,
+        "preprocessing_latency_ms": {"mean": 0.5, "median": 0.4},
+        "data_processing_latency_ms": {"mean": 15.0, "median": 14.8},
+        "inference_latency_ms": {"mean": 1.5, "median": 1.4},
+        "total_latency_ms": {"mean": 17.0, "median": 16.6},
+        "prediction_to_prediction_latency_ms": {"mean": 248.0, "median": 249.0},
+        "per_prediction_preprocessing_latency_ms": [0.5] * 50,
+        "per_prediction_data_proc_latency_ms": [15.0] * 50,
+        "per_prediction_inference_latency_ms": [1.5] * 50,
+        "per_prediction_total_latency_ms": [17.0] * 50,
+        "per_prediction_prediction_to_prediction_latency_ms": [None] + [248.0] * 49,
+    }
+    with open(rf_dir / "real_time_summary.json", "w") as f:
+        json.dump(rf_data, f)
+
+    raw_summaries, df_summaries, df_samples = load_realtime_summaries(results_dir)
+    assert "preproc_ms" in df_samples.columns
+    assert "pred_to_pred_ms" in df_samples.columns
+    assert len(df_samples) == 50
+    assert df_samples["preproc_ms"].iloc[0] == 0.5
+    assert np.isnan(df_samples["pred_to_pred_ms"].iloc[0])
+    assert df_samples["pred_to_pred_ms"].iloc[1] == 248.0
+
+
 def test_compute_comprehensive_statistics(tmp_path: Path):
     results_dir = _create_mock_results(tmp_path)
     _, _, df_samples = load_realtime_summaries(results_dir)
