@@ -363,16 +363,39 @@ def plot_latency_component_breakdown(
     show_deadlines: bool = False,
     deadline_ms: Optional[float] = None,
 ) -> Path:
-    """Stacked & grouped bar chart showing Data Processing vs. Inference vs. Total latency."""
-    fig, ax = plt.subplots(figsize=(10, 6))
+    """Stacked & grouped bar chart showing Preprocessing vs Data Processing vs Inference vs Total latency."""
+    fig, ax = plt.subplots(figsize=(11, 6))
 
-    has_decomp = df_stats["Mean Data Proc (ms)"].notna().any()
+    has_preproc = "Mean Preproc (ms)" in df_stats.columns and df_stats["Mean Preproc (ms)"].notna().any()
+    has_decomp = "Mean Data Proc (ms)" in df_stats.columns and df_stats["Mean Data Proc (ms)"].notna().any()
 
     models = df_stats["Model"].tolist()
     x = np.arange(len(models))
     width = 0.55
 
-    if has_decomp:
+    if has_preproc and has_decomp:
+        preproc_means = df_stats["Mean Preproc (ms)"].fillna(0).values
+        proc_means = df_stats["Mean Data Proc (ms)"].fillna(0).values
+        infer_means = df_stats["Mean Inference (ms)"].fillna(0).values
+        total_means = df_stats["Mean Total (ms)"].values
+
+        p0 = ax.bar(x, preproc_means, width, label="LSL Preprocessing Latency", color="#4C72B0", alpha=0.9)
+        p1 = ax.bar(x, proc_means, width, bottom=preproc_means, label="Online Feature Extraction Latency", color="#E1812C", alpha=0.9)
+        p2 = ax.bar(x, infer_means, width, bottom=preproc_means + proc_means, label="Model Inference Latency", color="#55A868", alpha=0.9)
+
+        # Annotations on bars
+        for idx, (prep_val, p_val, i_val, t_val) in enumerate(zip(preproc_means, proc_means, infer_means, total_means)):
+            if t_val > 0:
+                prep_pct = (prep_val / t_val) * 100.0
+                p_pct = (p_val / t_val) * 100.0
+                i_pct = (i_val / t_val) * 100.0
+                ax.text(
+                    idx, t_val + (max(total_means) * 0.02),
+                    f"Total: {t_val:.2f} ms\n(Preproc: {prep_pct:.1f}%, Proc: {p_pct:.1f}%, Infer: {i_pct:.1f}%)",
+                    ha="center", va="bottom", fontsize=8, fontweight="bold",
+                )
+        title_text = "Latency Component Decomposition by Model (Preprocessing vs. Data Processing vs. Inference)"
+    elif has_decomp:
         proc_means = df_stats["Mean Data Proc (ms)"].fillna(0).values
         infer_means = df_stats["Mean Inference (ms)"].fillna(0).values
         total_means = df_stats["Mean Total (ms)"].values
@@ -383,13 +406,14 @@ def plot_latency_component_breakdown(
         # Annotations on bars
         for idx, (p_val, i_val, t_val) in enumerate(zip(proc_means, infer_means, total_means)):
             if t_val > 0:
-                p_pct = (p_val / t_val) * 100.0 if t_val > 0 else 0
-                i_pct = (i_val / t_val) * 100.0 if t_val > 0 else 0
+                p_pct = (p_val / t_val) * 100.0
+                i_pct = (i_val / t_val) * 100.0
                 ax.text(
                     idx, t_val + (max(total_means) * 0.02),
                     f"Total: {t_val:.2f} ms\n(Proc: {p_pct:.1f}%, Infer: {i_pct:.1f}%)",
                     ha="center", va="bottom", fontsize=9, fontweight="bold",
                 )
+        title_text = "Latency Component Decomposition by Model (Data Processing vs. Inference)"
     else:
         total_means = df_stats["Mean Total (ms)"].values
         ax.bar(x, total_means, width, label="Total Latency", color="#4C72B0", alpha=0.9)
@@ -399,6 +423,7 @@ def plot_latency_component_breakdown(
                 f"{t_val:.2f} ms",
                 ha="center", va="bottom", fontsize=10, fontweight="bold",
             )
+        title_text = "Mean Total Prediction Latency by Model"
 
     if show_deadlines and deadline_ms is not None and deadline_ms > 0:
         ax.axhline(
@@ -406,7 +431,7 @@ def plot_latency_component_breakdown(
             label=f"Deadline Threshold ({deadline_ms:.1f} ms)",
         )
 
-    ax.set_title("Latency Component Decomposition by Model (Data Processing vs. Inference)")
+    ax.set_title(title_text)
     ax.set_xlabel("Model")
     ax.set_ylabel("Latency (ms)")
     ax.set_xticks(x)
@@ -450,10 +475,10 @@ def plot_latency_distributions(
             deadline_ms, color="red", linestyle="--", linewidth=1.5,
             label=f"Deadline ({deadline_ms:.1f} ms)",
         )
+        ax_kde.legend(loc="upper right")
     ax_kde.set_title("Total Latency Density Distribution per Model")
     ax_kde.set_xlabel("Prediction Latency (ms)")
     ax_kde.set_ylabel("Density")
-    ax_kde.legend(loc="upper right")
 
     # Box Plot (Log Scale)
     sns.boxplot(
@@ -471,11 +496,11 @@ def plot_latency_distributions(
             deadline_ms, color="red", linestyle="--", linewidth=1.5,
             label=f"Deadline ({deadline_ms:.1f} ms)",
         )
+        ax_box.legend(loc="upper left")
     ax_box.set_title("Latency Distribution & Outliers (Log Scale)")
     ax_box.set_xlabel("Model")
     ax_box.set_ylabel("Prediction Latency (ms)")
     ax_box.set_yscale("log")
-    ax_box.legend(loc="upper left")
 
     plt.tight_layout()
     plot_path = output_dir / "latency_distributions.png"
@@ -581,38 +606,206 @@ def plot_latency_cdf(
     return plot_path
 
 
-def plot_latency_time_series(df_samples: pd.DataFrame, output_dir: Path) -> Path:
-    """Temporal line trace of prediction latencies across the stream sequence to inspect jitter."""
-    fig, ax = plt.subplots(figsize=(12, 5))
+def plot_latency_time_series(
+    df_samples: pd.DataFrame,
+    output_dir: Path,
+    show_deadlines: bool = False,
+    deadline_ms: Optional[float] = None,
+    nominal_stride_ms: float = 250.0,
+) -> Path:
+    """Temporal line trace of prediction latencies across the stream sequence to inspect compute time & jitter."""
+    has_p2p = "pred_to_pred_ms" in df_samples.columns and df_samples["pred_to_pred_ms"].dropna().shape[0] > 0
 
     models = sorted(df_samples["model"].unique())
     palette = sns.color_palette("tab10", n_colors=len(models))
 
-    for idx, model in enumerate(models):
-        sub = df_samples[df_samples["model"] == model].sort_values("sample_idx")
-        # Subsample if too dense for clean rendering
-        if len(sub) > 2000:
-            step = len(sub) // 1000
-            sub = sub.iloc[::step]
-        ax.plot(
-            sub["sample_idx"],
-            sub["total_ms"],
-            label=model,
-            color=palette[idx],
-            alpha=0.8,
-            linewidth=1.2,
+    if has_p2p:
+        fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+
+        for idx, model in enumerate(models):
+            sub = df_samples[df_samples["model"] == model].sort_values("sample_idx")
+            if len(sub) > 2000:
+                step = len(sub) // 1000
+                sub_plot = sub.iloc[::step]
+            else:
+                sub_plot = sub
+
+            ax_top.plot(
+                sub_plot["sample_idx"],
+                sub_plot["total_ms"],
+                label=model,
+                color=palette[idx],
+                alpha=0.85,
+                linewidth=1.2,
+            )
+
+            # For bottom plot (pred to pred stride)
+            sub_p2p = sub.dropna(subset=["pred_to_pred_ms"])
+            if len(sub_p2p) > 2000:
+                step_p2p = len(sub_p2p) // 1000
+                sub_p2p_plot = sub_p2p.iloc[::step_p2p]
+            else:
+                sub_p2p_plot = sub_p2p
+
+            ax_bot.plot(
+                sub_p2p_plot["sample_idx"],
+                sub_p2p_plot["pred_to_pred_ms"],
+                label=model,
+                color=palette[idx],
+                alpha=0.85,
+                linewidth=1.2,
+            )
+
+        if show_deadlines and deadline_ms is not None and deadline_ms > 0:
+            ax_top.axhline(
+                deadline_ms,
+                color="red",
+                linestyle="--",
+                linewidth=1.5,
+                label=f"Compute Deadline ({deadline_ms:.1f} ms)",
+            )
+
+        ax_bot.axhline(
+            nominal_stride_ms,
+            color="crimson",
+            linestyle="--",
+            linewidth=1.5,
+            label=f"Nominal Stride ({nominal_stride_ms:.1f} ms / 4 Hz)",
         )
 
-    ax.set_title("Prediction Latency Temporal Profile Over Continuous Streaming")
-    ax.set_xlabel("Prediction Sequence Index")
-    ax.set_ylabel("Total Latency (ms)")
-    ax.legend(loc="upper right")
+        ax_top.set_title("Total Prediction Compute Latency Over Continuous Streaming")
+        ax_top.set_ylabel("Compute Latency (ms)")
+        ax_top.legend(loc="upper right")
+        ax_top.grid(True, alpha=0.3)
+
+        ax_bot.set_title("Prediction-to-Prediction Stride Intervals (Pacing Stability)")
+        ax_bot.set_xlabel("Prediction Sequence Index")
+        ax_bot.set_ylabel("Stride Interval (ms)")
+        ax_bot.legend(loc="upper right")
+        ax_bot.grid(True, alpha=0.3)
+
+    else:
+        fig, ax = plt.subplots(figsize=(12, 5))
+        for idx, model in enumerate(models):
+            sub = df_samples[df_samples["model"] == model].sort_values("sample_idx")
+            if len(sub) > 2000:
+                step = len(sub) // 1000
+                sub = sub.iloc[::step]
+            ax.plot(
+                sub["sample_idx"],
+                sub["total_ms"],
+                label=model,
+                color=palette[idx],
+                alpha=0.8,
+                linewidth=1.2,
+            )
+
+        if show_deadlines and deadline_ms is not None and deadline_ms > 0:
+            ax.axhline(
+                deadline_ms,
+                color="red",
+                linestyle="--",
+                linewidth=1.5,
+                label=f"Deadline ({deadline_ms:.1f} ms)",
+            )
+
+        ax.set_title("Prediction Latency Temporal Profile Over Continuous Streaming")
+        ax.set_xlabel("Prediction Sequence Index")
+        ax.set_ylabel("Total Latency (ms)")
+        ax.legend(loc="upper right")
+        ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
     plot_path = output_dir / "latency_time_series.png"
     plt.savefig(plot_path, dpi=300)
     plt.close()
     logger.info("Saved time-series plot to %s", plot_path)
+    return plot_path
+
+
+def plot_stride_interval_distribution(
+    df_samples: pd.DataFrame,
+    output_dir: Path,
+    nominal_stride_ms: float = 250.0,
+) -> Optional[Path]:
+    """Plot distribution (histogram and boxplot) of prediction-to-prediction stride intervals across models."""
+    if "pred_to_pred_ms" not in df_samples.columns or df_samples["pred_to_pred_ms"].dropna().empty:
+        logger.info("No pred_to_pred_ms data available; skipping stride interval distribution plot.")
+        return None
+
+    df_valid = df_samples.dropna(subset=["pred_to_pred_ms"]).copy()
+    models = sorted(df_valid["model"].unique())
+    palette = sns.color_palette("muted", n_colors=len(models))
+
+    fig, (ax_hist, ax_box) = plt.subplots(1, 2, figsize=(14, 5.5))
+
+    # Histogram / KDE Plot
+    enable_kde = bool(df_valid["pred_to_pred_ms"].std() > 1e-4)
+    try:
+        sns.histplot(
+            data=df_valid,
+            x="pred_to_pred_ms",
+            hue="model",
+            kde=enable_kde,
+            palette=palette,
+            ax=ax_hist,
+            element="step",
+            stat="density",
+            common_norm=False,
+        )
+    except Exception:
+        sns.histplot(
+            data=df_valid,
+            x="pred_to_pred_ms",
+            hue="model",
+            kde=False,
+            palette=palette,
+            ax=ax_hist,
+            element="step",
+            stat="density",
+            common_norm=False,
+        )
+    ax_hist.axvline(
+        nominal_stride_ms,
+        color="crimson",
+        linestyle="--",
+        linewidth=1.5,
+        label=f"Nominal Stride ({nominal_stride_ms:.1f} ms / {1000.0 / nominal_stride_ms:.1f} Hz)",
+    )
+    ax_hist.set_title("Prediction-to-Prediction Stride Density Distribution")
+    ax_hist.set_xlabel("Stride Interval (ms)")
+    ax_hist.set_ylabel("Density")
+    ax_hist.legend(loc="upper right")
+    ax_hist.grid(True, alpha=0.3)
+
+    # Box Plot of stride intervals
+    sns.boxplot(
+        data=df_valid,
+        x="model",
+        y="pred_to_pred_ms",
+        hue="model",
+        legend=False,
+        ax=ax_box,
+        palette=palette,
+        fliersize=2,
+    )
+    ax_box.axhline(
+        nominal_stride_ms,
+        color="crimson",
+        linestyle="--",
+        linewidth=1.5,
+        label=f"Nominal Stride ({nominal_stride_ms:.1f} ms)",
+    )
+    ax_box.set_title("Stride Pacing Jitter & Outliers by Model")
+    ax_box.set_xlabel("Model")
+    ax_box.set_ylabel("Stride Interval (ms)")
+    ax_box.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plot_path = output_dir / "stride_interval_distribution.png"
+    plt.savefig(plot_path, dpi=300)
+    plt.close()
+    logger.info("Saved stride interval distribution plot to %s", plot_path)
     return plot_path
 
 
@@ -850,7 +1043,8 @@ def main() -> None:
     plot_latency_distributions(df_samples, output_dir, show_deadlines=args.show_deadlines, deadline_ms=args.deadline_ms)
     plot_latency_tail_percentiles(df_stats, output_dir, show_deadlines=args.show_deadlines, deadline_ms=args.deadline_ms)
     plot_latency_cdf(df_samples, output_dir, show_deadlines=args.show_deadlines, deadline_ms=args.deadline_ms)
-    plot_latency_time_series(df_samples, output_dir)
+    plot_latency_time_series(df_samples, output_dir, show_deadlines=args.show_deadlines, deadline_ms=args.deadline_ms)
+    plot_stride_interval_distribution(df_samples, output_dir)
 
     # 5. Generate Markdown Report
     logger.info("Compiling final analysis markdown report...")

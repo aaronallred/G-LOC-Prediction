@@ -17,6 +17,7 @@ from src.real_time.prediction_latency_analysis.prediction_latency_analysis impor
     plot_latency_distributions,
     plot_latency_tail_percentiles,
     plot_latency_time_series,
+    plot_stride_interval_distribution,
 )
 
 
@@ -210,3 +211,47 @@ def test_end_to_end_analysis_generation(tmp_path: Path):
     for p in [p1, p2, p3, p4, p5, report]:
         assert p.exists(), f"Expected artifact {p} was not created"
     assert report.read_text().startswith("# Real-Time G-LOC Prediction")
+
+
+def test_visualizations_with_preprocessing_and_stride(tmp_path: Path):
+    results_dir = tmp_path / "Results_Preproc_Vis"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    rf_dir = results_dir / "Complete_Explicit" / "RF" / "ECG-Centrifuge"
+    rf_dir.mkdir(parents=True, exist_ok=True)
+
+    rf_data = {
+        "model": "RF",
+        "model_type": "Complete_Explicit",
+        "streams": ["ECG", "Centrifuge"],
+        "trial_id": "trial_01",
+        "n_raw_samples": 500,
+        "n_predictions": 50,
+        "total_latency_ms": {"mean": 20.0},
+        "per_prediction_preprocessing_latency_ms": [2.0] * 50,
+        "per_prediction_data_proc_latency_ms": [16.0] * 50,
+        "per_prediction_inference_latency_ms": [2.0] * 50,
+        "per_prediction_total_latency_ms": [20.0] * 50,
+        "per_prediction_prediction_to_prediction_latency_ms": [None] + [250.0] * 49,
+    }
+    with open(rf_dir / "real_time_summary.json", "w") as f:
+        json.dump(rf_data, f)
+
+    output_dir = tmp_path / "Output_Vis"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    _, _, df_samples = load_realtime_summaries(results_dir)
+    df_stats = compute_comprehensive_statistics(df_samples, deadline_ms=250.0)
+
+    # 1. 3-tier component breakdown plot
+    p1 = plot_latency_component_breakdown(df_stats, output_dir, show_deadlines=True, deadline_ms=250.0)
+    assert p1.exists()
+
+    # 2. Dual-panel time-series plot (with stride)
+    p2 = plot_latency_time_series(df_samples, output_dir, show_deadlines=True, deadline_ms=250.0)
+    assert p2.exists()
+
+    # 3. Stride interval distribution plot
+    p3 = plot_stride_interval_distribution(df_samples, output_dir, nominal_stride_ms=250.0)
+    assert p3 is not None
+    assert p3.exists()
+
