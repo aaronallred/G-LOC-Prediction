@@ -269,6 +269,36 @@ def test_pin_process_to_core(caplog):
     log_texts = [rec.message for rec in caplog.records if "CPU affinity" in rec.message]
     assert len(log_texts) >= 1
     assert any("Streamer" in t for t in log_texts)
+    assert any("Consumer/Inference" in t for t in log_texts)
+
+
+def test_pin_process_to_core_allocation_strategy(monkeypatch):
+    """Verify pin_process_to_core assigns 1 core each to roles 0 and 1, and all remaining cores to role 2."""
+    from src.Data_Pipeline.real_time_data_pipeline import pin_process_to_core
+
+    assigned_masks = {}
+
+    def mock_getaffinity(pid):
+        # Simulate an 18-core SLURM allocation (e.g. Alpine supercomputer)
+        return {0, 1, 2, 3, 8, 9, 10, 11, 35, 39, 43, 44, 45, 47, 48, 49, 60, 61}
+
+    def mock_setaffinity(pid, mask):
+        assigned_masks[len(assigned_masks)] = set(mask)
+
+    monkeypatch.setattr(os, "sched_getaffinity", mock_getaffinity)
+    monkeypatch.setattr(os, "sched_setaffinity", mock_setaffinity)
+
+    pin_process_to_core(0)
+    pin_process_to_core(1)
+    pin_process_to_core(2)
+
+    # Role 0 gets first core
+    assert assigned_masks[0] == {0}
+    # Role 1 gets second core
+    assert assigned_masks[1] == {1}
+    # Role 2 gets all remaining 16 cores
+    assert assigned_masks[2] == {2, 3, 8, 9, 10, 11, 35, 39, 43, 44, 45, 47, 48, 49, 60, 61}
+    assert len(assigned_masks[2]) == 16
 
 
 def test_pin_process_to_core_graceful_failure(monkeypatch):
@@ -283,3 +313,4 @@ def test_pin_process_to_core_graceful_failure(monkeypatch):
     pin_process_to_core(0)
     pin_process_to_core(1)
     pin_process_to_core(2)
+

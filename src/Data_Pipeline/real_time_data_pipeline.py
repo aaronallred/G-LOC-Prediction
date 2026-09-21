@@ -492,16 +492,22 @@ def pin_process_to_core(role_index: int) -> None:
         if not available:
             return
         if len(available) >= 3:
-            target = available[role_index % len(available)]
+            if role_index == 0:
+                targets = {available[0]}
+            elif role_index == 1:
+                targets = {available[1]}
+            else:
+                targets = set(available[2:])
         elif len(available) == 2:
-            target = available[1] if role_index == 2 else available[0]
+            targets = {available[1]} if role_index == 2 else {available[0]}
         else:
-            target = available[0]
-        os.sched_setaffinity(0, {target})
+            targets = {available[0]}
+        os.sched_setaffinity(0, targets)
         logger.info(
-            "CPU affinity: %s pinned to core %d (using %d core(s) available: %s)",
+            "CPU affinity: %s pinned to %d core(s) %s (out of %d allocated: %s)",
             role_name,
-            target,
+            len(targets),
+            sorted(targets),
             len(available),
             available,
         )
