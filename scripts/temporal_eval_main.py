@@ -37,7 +37,7 @@ warnings.filterwarnings("ignore", message="Could not find the number of physical
 # 0.04 is the smallest step size we can have (this is 25hz step)
 # Does not work to have a .5 second step size.
 
-offset_ranges = np.arange(0, 21, 1)  # FOR FULL RUNS: (0,21,1)
+offset_ranges = np.arange(0, 1, 1)  # FOR FULL RUNS: (0,21,1) <- Right now this only uses offset 0
 data_rate = 25  # (hz)
 preference = 3  # Which section of the code do we want to run
 random_state = 42
@@ -55,7 +55,7 @@ if preference == 3:
 
 	# Can adjust this as needed to specify what classifiers we want to test
 	# options are: SVM , EGB, KNN, logreg, RF , LDA
-	classifiers_to_test = ["EGB"]
+	classifiers_to_test = ["RF"]
 
 	for m in range(len(classifiers_to_test)):
 		# Initialize the arrays and class type
