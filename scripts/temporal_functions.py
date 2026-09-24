@@ -16,7 +16,7 @@ from prediction import y_prediction_offset, process_NaN_temporal
 import matplotlib.pyplot as plt
 
 
-def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_features):
+def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_features,impute=True,return_indices=False):
     # This script will load data and make corrections to the GLOC labels for prediction.
     # Note for BRADY: This will only work if placed in the entire GLOC repo on Alien
       ################################################### USER INPUTS  ###################################################
@@ -128,6 +128,9 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         # window_size = 12 # ~ 0.1 hit to f1 score
 
 
+    if not impute:
+        impute_type = 0
+
     train_class = True
     class_weight_imb = None
 
@@ -164,7 +167,8 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
     analysis_type = 2
 
     #### Making code more efficient by only running certain sections on first iteration. Data stored in cache
-    cache_folder = os.path.join('./cached_data', classifier_type)
+    cache_tag = classifier_type if impute else f"{classifier_type}_no_impute"
+    cache_folder = os.path.join('./cached_data', cache_tag)
     os.makedirs(cache_folder, exist_ok=True)
 
     # File names to save data .pkl as
@@ -349,13 +353,19 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         x_feature_matrix, select_features = remove_constant_columns(x_feature_matrix, select_features)
 
         ################################################ NaN Processing ################################################
+        n_rows_before = len(y_gloc_labels)
 
         # Remove rows with NaNs and track removed indices
         y_gloc_labels, x_feature_matrix, all_features, removed_ind = process_NaN_temporal(
             y_gloc_labels, x_feature_matrix, select_features)
 
+        mask = np.ones(n_rows_before, dtype=bool)
+        mask[removed_ind] = False
+        surviving_indices = np.where(mask)[0]
+
         save_variables_to_folder(cache_folder, {
-            'removed_ind': removed_ind
+            'removed_ind': removed_ind,
+            'surviving_indices': surviving_indices
         })
 
     else:
@@ -369,9 +379,11 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
         # Trim G-LOC labels using previously removed row indices
         cached_vars2 = load_variables_from_folder(cache_folder, [
             # existing variables...
-            'removed_ind'
+            'removed_ind',
+            'surviving_indices'
         ])
         removed_ind = cached_vars2['removed_ind']
+        surviving_indices = cached_vars2['surviving_indices']
         mask = np.ones(len(y_gloc_labels), dtype=bool)
         mask[removed_ind] = False
         y_gloc_labels = y_gloc_labels[mask]
@@ -419,7 +431,8 @@ def data_with_prediction(backstep,data_rate, classifier_type,model_type,select_f
 
 
     # Function call end
-      #return (x_feature_return, y_return)
+    if return_indices:
+        return (x_feature_return, y_return, surviving_indices)
     return (x_feature_return, y_return)
 
 def plotting_offset_models(offset_ranges,accuracy_model,precision_model,recall_model,f1_model,specificity_model,gmean_model,classifier_name,model_type,subfolder2=None):

@@ -47,9 +47,10 @@ def pre_classification_training_test_split(y_gloc_labels_noNaN, x_feature_matrix
 
 # Training Test Split Using Stratified K-Fold
 # USING RANDOM STATE = 42
-def stratified_kfold_split(Y, X, num_splits, kfold_ID, random_state=42):
+def stratified_kfold_split(Y, X, num_splits, kfold_ID, random_state=42, return_indices=False):
     """
     This function splits the X and y matrix into training and test matrix.
+    If return_indices is True, also returns (train_index, test_index).
     """
 
     # Stratified K-Fold setup
@@ -68,8 +69,19 @@ def stratified_kfold_split(Y, X, num_splits, kfold_ID, random_state=42):
     x_train, y_train = X[train_index], Y[train_index]
     x_test, y_test = X[test_index], Y[test_index]
 
+    if return_indices:
+        return x_train, x_test, y_train, y_test, train_index, test_index
 
     return x_train, x_test, y_train, y_test
+
+
+def split_by_saved_indices(Y, X, survivor_indices, saved_train_indices, saved_test_indices):
+    """
+    Splits X and Y into training and test matrices using saved pre-NaN row indices.
+    """
+    train_mask = np.isin(survivor_indices, saved_train_indices)
+    test_mask = np.isin(survivor_indices, saved_test_indices)
+    return X[train_mask], X[test_mask], Y[train_mask], Y[test_mask]
 
 
 # Logistic Regression Classifier
