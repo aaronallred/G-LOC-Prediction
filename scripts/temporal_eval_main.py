@@ -46,8 +46,8 @@ class_weight_imb = None
 # Pipeline imputation and split matching controls:
 # Run 1 (generate splits with partial imputation): enable_imputation = True, use_saved_splits = False
 # Run 2 (evaluate without imputation using matched splits): enable_imputation = False, use_saved_splits = True
-enable_imputation = True
-use_saved_splits = False
+enable_imputation = False
+use_saved_splits = True
 
 
 if preference == 3:
@@ -63,7 +63,7 @@ if preference == 3:
 		classifier = classifiers_to_test[m]
 		model_type = ["complete", "explicit"]  # specify model type to run
 
-		num_kfold = 3  # Number of kfolds we will use for validation, FOR FULL RUNS 10
+		num_kfold = 10  # Number of kfolds we will use for validation, FOR FULL RUNS 10
 		accuracy_model = np.zeros((len(offset_ranges), num_kfold))
 		precision_model = np.zeros((len(offset_ranges), num_kfold))
 		recall_model = np.zeros((len(offset_ranges), num_kfold))
