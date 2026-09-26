@@ -130,103 +130,103 @@ if preference == 3:
 						"test": survivor_indices[test_idx],
 					}
 
-				if classifier == "RF":
-					(accuracy, precision, recall, f1, tree_depth, specificity, g_mean) = (
-						classify_random_forest(
-							x_train,
-							x_test,
-							y_train,
-							y_test,
-							class_weight_imb,
-							random_state,
-							save_folder,
-							model_name="random_forest_model_temporal.pkl",
-							retrain=False,
-							temporal=True,
-							best_params=hyperparameters,
-						)
-					)
-				if classifier == "LDA":
-					(accuracy, precision, recall, f1, specificity, g_mean) = classify_lda(
-						x_train,
-						x_test,
-						y_train,
-						y_test,
-						random_state,
-						save_folder,
-						model_name="LDA_model_temporal.pkl",
-						retrain=False,
-						temporal=True,
-						best_params=hyperparameters,
-					)
-				if classifier == "logreg":
-					(accuracy, precision, recall, f1, specificity, g_mean) = (
-						classify_logistic_regression(
-							x_train,
-							x_test,
-							y_train,
-							y_test,
-							class_weight_imb,
-							random_state,
-							save_folder,
-							model_name="logistic_regression_model_temporal.pkl",
-							retrain=False,
-							temporal=True,
-							best_params=hyperparameters,
-						)
-					)
-				if classifier == "SVM":
-					(accuracy, precision, recall, f1, specificity, g_mean) = classify_svm(
-						x_train,
-						x_test,
-						y_train,
-						y_test,
-						class_weight_imb,
-						random_state,
-						save_folder,
-						model_name="svm_model_temporal.pkl",
-						retrain=False,
-						temporal=True,
-						best_params=hyperparameters,
-					)
-				if classifier == "KNN":
-					# Implement Imbalance Sampling Technique ONLY FOR KNN. Need to think of better code implementation for this
-					ros_x_train, ros_y_train = resample_ros(x_train, y_train, random_state)
-					(accuracy, precision, recall, f1, specificity, g_mean) = classify_knn(
-						x_train,
-						x_test,
-						y_train,
-						y_test,
-						random_state,
-						save_folder,
-						model_name="knn_model_temporal.pkl",
-						retrain=False,
-						temporal=True,
-						best_params=hyperparameters,
-					)
-				if classifier == "EGB":
-					(accuracy, precision, recall, f1, specificity, g_mean) = (
-						classify_ensemble_with_gradboost(
-							x_train,
-							x_test,
-							y_train,
-							y_test,
-							random_state,
-							save_folder,
-							model_name="ensemble_model_temporal.pkl",
-							retrain=False,
-							temporal=True,
-							best_params=hyperparameters,
-						)
-					)
+				# if classifier == "RF":
+				# 	(accuracy, precision, recall, f1, tree_depth, specificity, g_mean) = (
+				# 		classify_random_forest(
+				# 			x_train,
+				# 			x_test,
+				# 			y_train,
+				# 			y_test,
+				# 			class_weight_imb,
+				# 			random_state,
+				# 			save_folder,
+				# 			model_name="random_forest_model_temporal.pkl",
+				# 			retrain=False,
+				# 			temporal=True,
+				# 			best_params=hyperparameters,
+				# 		)
+				# 	)
+				# if classifier == "LDA":
+				# 	(accuracy, precision, recall, f1, specificity, g_mean) = classify_lda(
+				# 		x_train,
+				# 		x_test,
+				# 		y_train,
+				# 		y_test,
+				# 		random_state,
+				# 		save_folder,
+				# 		model_name="LDA_model_temporal.pkl",
+				# 		retrain=False,
+				# 		temporal=True,
+				# 		best_params=hyperparameters,
+				# 	)
+				# if classifier == "logreg":
+				# 	(accuracy, precision, recall, f1, specificity, g_mean) = (
+				# 		classify_logistic_regression(
+				# 			x_train,
+				# 			x_test,
+				# 			y_train,
+				# 			y_test,
+				# 			class_weight_imb,
+				# 			random_state,
+				# 			save_folder,
+				# 			model_name="logistic_regression_model_temporal.pkl",
+				# 			retrain=False,
+				# 			temporal=True,
+				# 			best_params=hyperparameters,
+				# 		)
+				# 	)
+				# if classifier == "SVM":
+				# 	(accuracy, precision, recall, f1, specificity, g_mean) = classify_svm(
+				# 		x_train,
+				# 		x_test,
+				# 		y_train,
+				# 		y_test,
+				# 		class_weight_imb,
+				# 		random_state,
+				# 		save_folder,
+				# 		model_name="svm_model_temporal.pkl",
+				# 		retrain=False,
+				# 		temporal=True,
+				# 		best_params=hyperparameters,
+				# 	)
+				# if classifier == "KNN":
+				# 	# Implement Imbalance Sampling Technique ONLY FOR KNN. Need to think of better code implementation for this
+				# 	ros_x_train, ros_y_train = resample_ros(x_train, y_train, random_state)
+				# 	(accuracy, precision, recall, f1, specificity, g_mean) = classify_knn(
+				# 		x_train,
+				# 		x_test,
+				# 		y_train,
+				# 		y_test,
+				# 		random_state,
+				# 		save_folder,
+				# 		model_name="knn_model_temporal.pkl",
+				# 		retrain=False,
+				# 		temporal=True,
+				# 		best_params=hyperparameters,
+				# 	)
+				# if classifier == "EGB":
+				# 	(accuracy, precision, recall, f1, specificity, g_mean) = (
+				# 		classify_ensemble_with_gradboost(
+				# 			x_train,
+				# 			x_test,
+				# 			y_train,
+				# 			y_test,
+				# 			random_state,
+				# 			save_folder,
+				# 			model_name="ensemble_model_temporal.pkl",
+				# 			retrain=False,
+				# 			temporal=True,
+				# 			best_params=hyperparameters,
+				# 		)
+				# 	)
 
-				# Storing each value in arrays
-				accuracy_model[i, k] = accuracy
-				precision_model[i, k] = precision
-				recall_model[i, k] = recall
-				f1_model[i, k] = f1
-				specificity_model[i, k] = specificity
-				g_mean_model[i, k] = g_mean
+				# # Storing each value in arrays
+				# accuracy_model[i, k] = accuracy
+				# precision_model[i, k] = precision
+				# recall_model[i, k] = recall
+				# f1_model[i, k] = f1
+				# specificity_model[i, k] = specificity
+				# g_mean_model[i, k] = g_mean
 
 			print("Success for offset of", offset_ranges[i], "using classifier:", classifier)
 
@@ -238,19 +238,19 @@ if preference == 3:
 				pickle.dump(split_indices, f)
 			print(f"Saved split indices to {split_indices_path}")
 
-		# Plotting the results, function also saves the data to a folder for one particular model, outside the loop
-		plotting_offset_models(
-			offset_ranges,
-			accuracy_model,
-			precision_model,
-			recall_model,
-			f1_model,
-			specificity_model,
-			g_mean_model,
-			classifier,
-			model_type,
-			subfolder2=None,
-		)
+		# # Plotting the results, function also saves the data to a folder for one particular model, outside the loop
+		# plotting_offset_models(
+		# 	offset_ranges,
+		# 	accuracy_model,
+		# 	precision_model,
+		# 	recall_model,
+		# 	f1_model,
+		# 	specificity_model,
+		# 	g_mean_model,
+		# 	classifier,
+		# 	model_type,
+		# 	subfolder2=None,
+		# )
 
 		# # Print performance metrics
 		# print(f"\nLogistic Regression Performance Metrics for offset of {offset_ranges[i]}:")
