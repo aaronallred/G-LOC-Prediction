@@ -46,8 +46,8 @@ class_weight_imb = None
 # Pipeline imputation and split matching controls:
 # Run 1 (generate splits with partial imputation): enable_imputation = True, use_saved_splits = False
 # Run 2 (evaluate without imputation using matched splits): enable_imputation = False, use_saved_splits = True
-enable_imputation = False
-use_saved_splits = True
+enable_imputation = True
+use_saved_splits = False
 
 
 if preference == 3:
@@ -55,7 +55,7 @@ if preference == 3:
 
 	# Can adjust this as needed to specify what classifiers we want to test
 	# options are: SVM , EGB, KNN, logreg, RF , LDA
-	classifiers_to_test = ["RF"]
+	classifiers_to_test = ["logreg", "RF", "LDA", "KNN", "SVM"]
 
 	for m in range(len(classifiers_to_test)):
 		# Initialize the arrays and class type
