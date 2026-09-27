@@ -503,7 +503,8 @@ def sliding_window_other_features(time_start, stride, window_size, trial_column,
 
             if 'ECG' in feature_groups_to_analyze:
                 # Compute HRV
-                rr_interval = 60000 / feature_window_no_baseline[:,index_hr]
+                hr_col = np.asarray(feature_window_no_baseline[:, index_hr], dtype=np.float64)
+                rr_interval = 60000 / hr_col
                 sliding_window_hrv_sdnn_current[j] = np.nanstd(rr_interval)
 
                 successive_difference = np.diff(rr_interval)

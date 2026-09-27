@@ -332,6 +332,11 @@ def data_with_prediction(
 		if impute_type == 1:
 			features = faster_knn_impute(features, n_neighbors)
 
+		features = np.asarray(features, dtype=np.float64)
+		features_phys = np.asarray(features_phys, dtype=np.float64)
+		features_ecg = np.asarray(features_ecg, dtype=np.float64)
+		features_eeg = np.asarray(features_eeg, dtype=np.float64)
+
 		################################################## REDUCE MEMORY ##################################################
 
 		# Grab columns from gloc_data_reduced and remove gloc_data_reduced variable from memory
