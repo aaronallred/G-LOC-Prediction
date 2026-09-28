@@ -25,8 +25,6 @@ class XGBoostModel(TraditionalModel):
                 "v0", "v1", "v2", "v5", "v6", "v7", "v8"
             ],
             "imbalance_type": "none",
-            "impute_type": 1,
-            "n_neighbors": 3,
         }
 
     @property

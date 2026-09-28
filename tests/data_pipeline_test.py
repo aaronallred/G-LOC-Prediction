@@ -946,3 +946,92 @@ class TestStandardizeRawBehavior:
 		assert len(all_feats) == X_feat.shape[1]
 		assert any(f.endswith("_s1") for f in all_feats)
 		assert any(f.endswith("_s2") for f in all_feats)
+
+
+def test_traditional_data_pipeline_does_not_have_faster_knn_impute():
+	from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+
+	assert not hasattr(TraditionalDataPipeline, "_faster_knn_impute")
+	assert not hasattr(TraditionalDataPipeline, "_resolve_traditional_impute_path")
+
+
+def test_traditional_preprocessing_artifacts_contain_no_knn_imputer(tmp_path, monkeypatch):
+	import json
+	from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+	from src.models.random_forest import RandomForestModel
+
+	pipeline = TraditionalDataPipeline(data_path="/tmp/data", random_seed=42)
+	monkeypatch.setattr(
+		pipeline,
+		"_gen_windowed_label_metadata",
+		lambda *a, **kw: (np.array([0, 0, 1, 1]), np.array([0, 0, 1, 1])),
+	)
+	monkeypatch.setattr(
+		pipeline, "_load_data", lambda *a, **kw: (None, None, None, None, None, None, ["f1", "f2"])
+	)
+	monkeypatch.setattr(pipeline, "_filter_data_by_analysis_type", lambda a, d, s, t: d)
+	monkeypatch.setattr(
+		pipeline,
+		"_process_and_get_feature_names",
+		lambda *a, **kw: (None, {"All": ["f1_s2", "f2_s2"]}),
+	)
+	monkeypatch.setattr(pipeline, "_label_gloc_events", lambda *a, **kw: np.array([0, 0, 1, 1]))
+	monkeypatch.setattr(pipeline, "_afe_subset", lambda d, l: (d, l))
+	monkeypatch.setattr(pipeline, "_remove_all_nan_trials", lambda *a, **kw: (None, np.array([0, 0, 1, 1]), []))
+	monkeypatch.setattr(
+		pipeline,
+		"_reduce_memory",
+		lambda *a, **kw: (
+			None,
+			np.array([0, 0, 1, 1]),
+			{"trial_id": np.array(["t1", "t1", "t2", "t2"]), "Time (s)": np.array([0, 1, 2, 3])},
+		),
+	)
+	monkeypatch.setattr(
+		pipeline,
+		"_get_combined_baseline_data",
+		lambda *a, **kw: ({"t1": np.zeros((1, 2))}, ["f1", "f2"], {"t1": np.zeros((1, 2))}, ["f1", "f2"]),
+	)
+	monkeypatch.setattr(
+		pipeline,
+		"_feature_generation",
+		lambda *a, **kw: (
+			np.array([0, 0, 1, 1]),
+			np.array([[0.0, 1.0], [1.0, 2.0], [2.0, 3.0], [3.0, 4.0]]),
+			["f1_s2", "f2_s2"],
+			np.array([0, 0, 1, 1]),
+		),
+	)
+	monkeypatch.setattr(
+		pipeline,
+		"_process_NaN_temporal",
+		lambda labels, data, feats: (labels, data, feats, np.array([], dtype=int)),
+	)
+	monkeypatch.setattr(pipeline, "_ready_outputs", lambda data, labels: (data, labels))
+
+	artifact_path = tmp_path / "preprocessing_artifacts.json"
+	pipeline.get_data(
+		backstep=0,
+		data_rate=250,
+		remove_NaN_trials=True,
+		offset=0.0,
+		time_start=0.0,
+		subject_to_analyze=None,
+		trial_to_analyze=None,
+		analysis_type=2,
+		classifier_type="RF",
+		model=RandomForestModel(),
+		model_type=ModelType("noAFE", "Explicit"),
+		kfold_id=0,
+		num_splits=2,
+		traditional_feature_selection="raw",
+		save_preprocessing_artifacts_path=str(artifact_path),
+	)
+
+	with open(artifact_path) as f:
+		artifacts = json.load(f)
+
+	assert "knn_imputer" not in artifacts
+	assert "s2_global_mean" in artifacts
+	assert "active_feature_names" in artifacts
+
