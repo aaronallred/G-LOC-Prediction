@@ -124,10 +124,6 @@ class DataPipeline:
 			"trial_to_analyze": shared_config["trial_to_analyze"],
 			"analysis_type": shared_config["analysis_type"],
 			"output_feature_dtype": shared_config["output_feature_dtype"],
-			"impute_file_name": shared_config["impute_file_name"],
-			"impute_phase": shared_config.get("impute_phase", "pre_feature"),
-			"save_impute": shared_config["save_impute"],
-			"load_impute": shared_config["load_impute"],
 		}
 
 		if backend_type == "advanced":
@@ -136,6 +132,10 @@ class DataPipeline:
 			if num_splits is not None:
 				request_kwargs["num_splits"] = num_splits
 			request_kwargs["kfold_ID"] = kfold_id
+			request_kwargs["impute_file_name"] = shared_config["impute_file_name"]
+			request_kwargs["impute_phase"] = shared_config.get("impute_phase", "pre_feature")
+			request_kwargs["save_impute"] = shared_config["save_impute"]
+			request_kwargs["load_impute"] = shared_config["load_impute"]
 			advanced_config = self._config["advanced_data_parameters"]
 			request_kwargs["n_neighbors"] = advanced_config["n_neighbors"]
 			request_kwargs["baseline_window"] = advanced_config["baseline_window"]
@@ -704,62 +704,7 @@ class BaseGLOCDataPipeline(ABC):
 
 		return gloc_data, gloc_labels
 
-	def _eeg_specific_imputation(
-		self, gloc_data: pd.DataFrame, features: dict[str, list[str]]
-	) -> pd.DataFrame:
-		"""Mean-impute EEG channels that are exclusive to one AFE condition."""
-		self._eeg_condition_impute(gloc_data, features, gloc_data["AFE_indicator"])
-		return gloc_data
 
-	def _eeg_condition_impute(
-		self,
-		gloc_data: pd.DataFrame,
-		features: dict[str, list[str]],
-		afe_indicator_column: pd.Series,
-		verbose: bool = False,
-	) -> None:
-		"""Mean-impute condition-specific EEG columns so both AFE/non-AFE have all features. Modifies gloc_data in-place."""
-		# Create masks for each condition
-		afe_mask = afe_indicator_column == 1
-		nonafe_mask = afe_indicator_column == 0
-
-		# Pull columns that need to be imputed for each type
-		raw_eeg_feature_names = RawEEGGroup.get_separated_feature_names()
-		processed_eeg_feature_names = ProcessedEEGGroup.get_separated_feature_names()
-		all_afe_only_cols = (
-			raw_eeg_feature_names["AFE Only"] + processed_eeg_feature_names["AFE Only"]
-		)
-		all_nonafe_only_cols = (
-			raw_eeg_feature_names["Non-AFE Only"] + processed_eeg_feature_names["Non-AFE Only"]
-		)
-		eeg_feature_set = set(features["EEG"])
-		afe_only_cols = [col for col in all_afe_only_cols if col in eeg_feature_set]
-		nonafe_only_cols = [col for col in all_nonafe_only_cols if col in eeg_feature_set]
-
-		# Mean imputation processing
-		if afe_only_cols:
-			means = gloc_data.loc[afe_mask, afe_only_cols].mean(skipna=True)
-			if verbose:
-				missing_counts = gloc_data.loc[nonafe_mask, afe_only_cols].isna().sum()
-			gloc_data.loc[nonafe_mask, afe_only_cols] = gloc_data.loc[
-				nonafe_mask, afe_only_cols
-			].fillna(means)
-
-			if verbose:
-				for col, n in missing_counts.items():
-					logger.debug("Imputed %d values in '%s' for non-AFE rows.", n, col)
-
-		if nonafe_only_cols:
-			means = gloc_data.loc[nonafe_mask, nonafe_only_cols].mean(skipna=True)
-			if verbose:
-				missing_counts = gloc_data.loc[afe_mask, nonafe_only_cols].isna().sum()
-			gloc_data.loc[afe_mask, nonafe_only_cols] = gloc_data.loc[
-				afe_mask, nonafe_only_cols
-			].fillna(means)
-
-			if verbose:
-				for col, n in missing_counts.items():
-					logger.debug("Imputed %d values in '%s' for AFE rows.", n, col)
 
 	def _remove_all_nan_trials(
 		self,
@@ -1836,11 +1781,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		traditional_feature_selection: Literal["cache", "raw"] = "cache",
 		return_feature_names: bool = False,
 		save_preprocessing_artifacts_path: str | None = None,
-		impute_file_name: str | None = None,
-		impute_phase: Any = None,
 		output_feature_dtype: np.dtype = np.dtype(np.float32),
-		save_impute: bool = False,
-		load_impute: bool = False,
 		model: BaseModel | None = None,
 		kfold_id: int | None = None,
 		num_splits: int | None = None,
@@ -1864,8 +1805,6 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		_feature_reduction_type = traditional_hyperparameters["feature_reduction_type"]
 		baseline_methods_to_use = traditional_hyperparameters["baseline_methods_to_use"]
 		_imbalance_type = traditional_hyperparameters["imbalance_type"]
-		impute_type = traditional_hyperparameters["impute_type"]
-		n_neighbors = traditional_hyperparameters["n_neighbors"]
 		feature_groups_to_analyze, baseline_methods_to_use = (
 			self._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
 		)
@@ -1908,60 +1847,11 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			# Reduce dataset based on AFE/noAFE condition
 			gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
 
-		############################################### DATA CLEAN AND Some Imputation ###############################################
-		# Normalize impute_phase and derive behavior flags (preserve backward compatibility where needed).
-		try:
-			if impute_phase is None:
-				impute_phase = ImputePhase.parse(
-					self.config["shared_data_parameters"].get("impute_phase", "pre_feature")
-				)
-			else:
-				impute_phase = ImputePhase.parse(impute_phase)
-		except Exception:
-			impute_phase = ImputePhase.PRE_FEATURE
-
-		do_pre_feature_impute = impute_phase == ImputePhase.PRE_FEATURE
-		do_post_feature_remove_rows = impute_phase == ImputePhase.POST_FEATURE_REMOVE_ROWS
-		do_post_feature_knn = impute_phase == ImputePhase.POST_FEATURE_KNN
-
-		logger.info(
-			"Cleaning data and performing imputation with impute_phase=%s, pre_feature=%s, post_remove=%s, post_knn=%s, n_neighbors=%d",
-			impute_phase.value,
-			do_pre_feature_impute,
-			do_post_feature_remove_rows,
-			do_post_feature_knn,
-			n_neighbors,
-		)
+		############################################### DATA CLEANING ###############################################
 		if remove_NaN_trials:
 			gloc_data, gloc_labels, _ = self._remove_all_nan_trials(
 				gloc_data, features, gloc_labels
 			)
-
-		if do_pre_feature_impute:
-			if impute_file_name is not None:
-				traditional_impute_path = self._resolve_traditional_impute_path(
-					impute_file_name, classifier_type
-				)
-			else:
-				traditional_impute_path = None
-
-			if load_impute and traditional_impute_path and os.path.exists(traditional_impute_path):
-				with open(traditional_impute_path, "rb") as f:
-					imputed_features = pickle.load(f)
-				logger.info("Loaded traditional imputed data from %s.", traditional_impute_path)
-			else:
-				imputed_features = self._faster_knn_impute(
-					gloc_data[features["All"]].to_numpy(dtype=output_feature_dtype), k=n_neighbors
-				)
-				if save_impute and traditional_impute_path:
-					impute_dir = os.path.dirname(traditional_impute_path)
-					if impute_dir:
-						os.makedirs(impute_dir, exist_ok=True)
-					with open(traditional_impute_path, "wb") as f:
-						pickle.dump(imputed_features, f)
-					logger.info("Saved traditional imputed data to %s.", traditional_impute_path)
-
-			gloc_data[features["All"]] = imputed_features
 
 		################################################## REDUCE MEMORY ##################################################
 		logger.info(
@@ -2183,17 +2073,6 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			select_features = all_available_features
 
 		################################################ NaN Processing ################################################
-		# Optionally perform post-feature KNN imputation on the reduced numpy matrix
-		if do_post_feature_knn:
-			logger.info(
-				"Performing post-feature KNN imputation on traditional feature matrix with n_neighbors=%d",
-				n_neighbors,
-			)
-			# gloc_data_all_features_numpy is already a numpy array; impute missing values across entire dataset
-			gloc_data_all_features_numpy = self._faster_knn_impute(
-				gloc_data_all_features_numpy, k=n_neighbors
-			)
-
 		logger.info("Processing NaN values temporally")
 		gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], _removed_ind = (
 			self._process_NaN_temporal(
@@ -2265,20 +2144,6 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 				else []
 			)
 
-			knn_imputer_state = {
-				"k": int(n_neighbors),
-				"reference_means": (
-					self._last_knn_reference_means.tolist()
-					if getattr(self, "_last_knn_reference_means", None) is not None
-					else []
-				),
-				"reference_data": (
-					self._last_knn_reference_data.tolist()
-					if getattr(self, "_last_knn_reference_data", None) is not None
-					else []
-				),
-			}
-
 			artifacts = {
 				"s1_pooled_mean": s1_pooled_mean,
 				"s1_pooled_std": s1_pooled_std,
@@ -2289,7 +2154,6 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 				"active_feature_names": select_features,
 				"active_indices": active_indices,
 				"dropped_feature_names": dropped_features,
-				"knn_imputer": knn_imputer_state,
 			}
 
 			artifacts_dir = os.path.dirname(os.path.abspath(save_preprocessing_artifacts_path))
@@ -2335,8 +2199,6 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			"feature_reduction_type",
 			"baseline_methods_to_use",
 			"imbalance_type",
-			"impute_type",
-			"n_neighbors",
 		}
 		missing_keys = sorted(required_keys - set(hyperparameters.keys()))
 		if missing_keys:
@@ -2357,62 +2219,6 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 
 		return feature_groups_to_analyze, baseline_methods_to_use
 
-	def _resolve_traditional_impute_path(self, impute_file_name: str, classifier_type: str) -> str:
-		"""Build traditional cache path in data_path/Processed Data with prefix and model-name suffix."""
-		processed_dir = Path(self.data_path) / "Processed Data"
-		base_name = Path(impute_file_name)
-
-		if base_name.suffix:
-			file_name = f"traditional_{base_name.stem}_{classifier_type}{base_name.suffix}"
-		else:
-			file_name = f"traditional_{base_name.name}_{classifier_type}.pkl"
-
-		return str((processed_dir / file_name).resolve())
-
-	def _faster_knn_impute(
-		self, X: np.ndarray, k: int = 5, M: int = 32, efSearch: int = 64
-	) -> np.ndarray:
-		"""Impute missing values with FAISS KNN using complete rows as reference."""
-		mask = np.isnan(X)
-		X_imputed = X.copy()
-
-		# Isolate complete rows (all features observed) to feed into FAISS index
-		clean_mask = ~mask.any(axis=1)
-		X_clean = X[clean_mask]
-		X_clean32 = np.ascontiguousarray(
-			np.nan_to_num(X_clean, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32, copy=False)
-		)
-		ref_means = np.nanmean(X_clean, axis=0)
-		self._last_knn_reference_means = ref_means
-		self._last_knn_reference_data = X_clean32
-
-		# Build FAISS index (HNSW) on complete rows only
-		d = X.shape[1]  # dimension
-		index = faiss.IndexHNSWFlat(d, M)
-		index.hnsw.efSearch = efSearch
-		index.hnsw.rng = faiss.RandomGenerator(self.random_seed)
-		index.add(X_clean32)
-
-		# Identify rows with missing values that need imputation
-		nan_row_indices = np.flatnonzero(~clean_mask)
-		X_query = np.where(mask[nan_row_indices], ref_means, X[nan_row_indices])
-		X_query32 = np.ascontiguousarray(
-			np.nan_to_num(X_query, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32, copy=False)
-		)
-
-		# Find k nearest clean neighbors
-		k_search = min(k, X_clean32.shape[0])
-		distances, indices = index.search(X_query32, k_search)
-
-		# Impute missing values from clean neighbor observations
-		for row_idx, orig_i in enumerate(nan_row_indices):
-			missing_cols = np.flatnonzero(mask[orig_i])
-			neighbors = indices[row_idx]
-			for j in missing_cols:
-				neighbor_values = X_clean32[neighbors, j]
-				X_imputed[orig_i, j] = np.mean(neighbor_values)
-
-		return X_imputed
 
 	def _gen_windowed_label_metadata(
 		self,
