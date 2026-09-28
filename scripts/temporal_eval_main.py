@@ -49,8 +49,8 @@ class_weight_imb = None
 # Pipeline imputation and split matching controls:
 # Run 1 (generate splits with partial imputation): enable_imputation = True, use_saved_splits = False
 # Run 2 (evaluate without imputation using matched splits): enable_imputation = False, use_saved_splits = True
-enable_imputation = True
-use_saved_splits = False
+enable_imputation = False
+use_saved_splits = True
 
 
 if preference == 3:
