@@ -64,7 +64,7 @@ if preference == 3:
 		# Initialize the arrays and class type
 		start_time = time.time()
 		classifier = classifiers_to_test[m]
-		model_type = ["noAFE", "implicit"]  # specify model type to run
+		model_type = ["noAFE", "explicit"]  # specify model type to run
 
 		num_kfold = 10  # Number of kfolds we will use for validation, FOR FULL RUNS 10
 		accuracy_model = np.zeros((len(offset_ranges), num_kfold))
