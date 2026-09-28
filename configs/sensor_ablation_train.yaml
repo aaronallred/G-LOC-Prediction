@@ -1,13 +1,13 @@
-data_path: /home/gloc/G-LOC-Prediction/data/
+data_path: C:\Users\savan\gloc_prediction_wyatt\G-LOC-Prediction\data\
 shared_data_parameters:
   subject_to_analyze: null
   trial_to_analyze: null
   analysis_type: 2
-  remove_NaN_trials: true
+  remove_NaN_trials: false
   impute_file_name: imputed_data.pkl
   save_impute: false
   load_impute: false
-  impute_phase: pre_feature
+  impute_phase: none
   output_feature_dtype: float32
   extended_data: true
   extended_data_filename: new_all_trials_25_hz_stacked_extended.csv
@@ -26,14 +26,16 @@ sensor_ablation:
     enabled: true
     save_results_folder: Results/Sensor_Ablation
     median_hyperparameters_folder: Results/Cross_Validation
+    median_hyperparameters_model_type: !ModelType [ Complete, Explicit ]
     # Mode-specific parameters
     models: [ KNN, EGB ]
-    model_type: !ModelType [ Complete, Explicit ]
-    manual_ablation: false
+    model_type: !ModelType [ noAFE, Common ]
+    manual_ablation: true
     random_seed: 42
     num_splits: 10
     class_weight: null  # null, "balanced", or a dict like {0: 1.0, 1: 2.0}
     streams:
-      - [ EEG ]
-      - [ EEG, Pupil ]
-      - [ EEG, Pupil, Participant ]
+        - [ECG, BR, Temperature, Centrifuge]
+      # - [ EEG ]
+      # - [ EEG, Pupil ]
+      # - [ EEG, Pupil, Participant ]

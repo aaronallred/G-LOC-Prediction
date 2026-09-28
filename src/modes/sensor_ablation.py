@@ -29,6 +29,7 @@ def run_sensor_ablation_training(
     model_names: list[str] = training_config["models"]
     num_splits: int = training_config["num_splits"]
     model_type = training_config["model_type"]
+    hyperparameters_model_type = training_config.get("median_hyperparameters_model_type", model_type)
     manual_ablation = training_config["manual_ablation"]
     class_weight = training_config.get("class_weight", None)
 
@@ -54,8 +55,7 @@ def run_sensor_ablation_training(
             logging.info("Running model: %s", model_name)
             proto_model = model_factory.create_model(model_name)
             hyperparameters, _, _, _ = get_hyperparameters_from_json(
-                Path(project_root / training_config["median_hyperparameters_folder"]), model_type, proto_model.name)
-
+                Path(project_root / training_config["median_hyperparameters_folder"]), hyperparameters_model_type, proto_model.name)
             output_dir = results_root / proto_model.name / stream_str
             output_dir.mkdir(parents=True, exist_ok=True)
 

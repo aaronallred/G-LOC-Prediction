@@ -192,7 +192,9 @@ class DataPipeline:
         # TODO -> This is probably bad to hardcode it to sensor ablation config, but sensor ablation config is the only
         # one that uses it, so it is fine for now
         median_hyperparameters_root = self._config["sensor_ablation"]["training"]["median_hyperparameters_folder"]
-        model_type_string = f"{current_kwargs['model_type'].afe_filter}_{current_kwargs['model_type'].feature_set}"
+        model_type_string = self._config["sensor_ablation"]["training"].get("median_hyperparameters_model_type")
+        if model_type_string is None:
+            model_type_string = f"{current_kwargs['model_type'].afe_filter}_{current_kwargs['model_type'].feature_set}"
         json_path = os.path.join(
             median_hyperparameters_root,
             model_type_string,
@@ -221,7 +223,7 @@ class BaseGLOCDataPipeline(ABC):
         ModelType("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain",
                                             "demographics"),
         ModelType("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG"),
-        ModelType("noAFE", "Common") : ("ECG", "BR", "temp", "G", "demographics"),
+        ModelType("noAFE", "Common") : ("ECG", "BR", "temp", "G"),
     }
 
     # Mapping of participant -> DC trial numbers for GOR EEG data files
@@ -339,7 +341,7 @@ class BaseGLOCDataPipeline(ABC):
         """
         pass
 
-    def _get_data_locations(self) -> Dict[str, Any]:
+    def _get_data_locations(self, model_type: "ModelType") -> Dict[str, Any]:
         """Build and cache filesystem paths used by data loading."""
         if self._data_locations is not None:
             return self._data_locations
@@ -358,7 +360,7 @@ class BaseGLOCDataPipeline(ABC):
 
         """New main data tweak to include extended data"""
         main_filename = self._resolve_main_data_filename()
-        main_demographic = self._resolve_demographic_filename()
+        main_demographic = self._resolve_demographic_filename(model_type)
         demo_path = os.path.join(self.data_path, main_demographic)
         main_path = os.path.join(self.data_path, main_filename)
         if not os.path.isfile(main_path):
@@ -389,15 +391,15 @@ class BaseGLOCDataPipeline(ABC):
             raise ValueError("shared_data_parameters.extended_data is true but the filename is missing or empty")
         return extended_filename
 
-    def _resolve_demographic_filename(self) -> str:
+    def _resolve_demographic_filename(self, model_type: "ModelType") -> str:
         """Resolve which demographic file to use based on shared parameters"""
-        model_type = self._model_type
-        if model_type == "Common":
+        if model_type.feature_set == "Common":
             return "GLOC_Effectiveness_Common.csv"
         return "GLOC_Effectiveness_Final.csv"
     
     def _load_data(self, file_paths: Dict[str, Any],
-                   output_feature_dtype: np.dtype = np.dtype(np.float32)) -> pd.DataFrame:
+                   output_feature_dtype: np.dtype = np.dtype(np.float32),
+                   feature_groups_to_analyze: Optional[Sequence[str]] = None) -> pd.DataFrame:
         """Load data from CSV or pickle files. If pickle does not exist, create it from CSV."""
         main_data_pickle_file = file_paths["main"].replace(".csv", ".pkl")
 
@@ -410,8 +412,9 @@ class BaseGLOCDataPipeline(ABC):
             logger.info("Loading data from pickle at %s.", main_data_pickle_file)
             gloc_data = pd.read_pickle(main_data_pickle_file)
 
-        # Add GOR and EEG data from other files
-        gloc_data = self._process_EEG_GOR(file_paths["eeg_list"], gloc_data, output_feature_dtype)
+        # Add GOR and EEG data from other files - only needed if eeg groups are requested
+        if feature_groups_to_analyze is not None and ("rawEEG" in feature_groups_to_analyze or "processedEEG in feature_groups_to_analyze"):
+            gloc_data = self._process_EEG_GOR(file_paths["eeg_list"], gloc_data, output_feature_dtype)
 
         # Adjust AFE condition column always
         gloc_data["condition"] = gloc_data["condition"].map({"N": 0, "AFE": 1})
@@ -932,7 +935,7 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
             "Loading and processing data with parameters: model_type=%s, subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d",
             model_type, subject_to_analyze, trial_to_analyze, analysis_type)
         file_paths = self._get_data_locations()
-        gloc_data = self._load_data(file_paths, output_feature_dtype)
+        gloc_data = self._load_data(file_paths, output_feature_dtype, feature_groups_to_analyze)
         gloc_data = self._filter_data_by_analysis_type(analysis_type, gloc_data, subject_to_analyze, trial_to_analyze)
         gloc_data, features = self._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type,
                                                                   file_paths, output_feature_dtype)
@@ -1448,7 +1451,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         logger.info(
             "Loading and processing data with parameters: classifier_type=%s, model_type=%s, select_features=%s, remove_NaN_trials=%s, offset=%.2f, time_start=%.2f, subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d", )
         # "Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze"
-        file_paths = self._get_data_locations()
+        file_paths = self._get_data_locations(model_type)
 
         # Load data and slot in GOR EEG features from xlsx files, then filter to specified analysis type and process features based on specified feature groups
         gloc_data = self._load_data(file_paths, output_feature_dtype)
