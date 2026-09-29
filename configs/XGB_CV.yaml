@@ -16,7 +16,7 @@ shared_data_parameters:
   impute_file_name: imputed_data.pkl
   save_impute: false
   load_impute: false
-  impute_phase: pre_feature
+  impute_phase: none
   output_feature_dtype: float32
 
 advanced_data_parameters:
@@ -36,7 +36,7 @@ cross_validation:
   model_type: !ModelType [Complete, Explicit]
   random_seed: 42
   num_splits: 10
-  save_results_folder: Results/XGB_CV
+  save_results_folder: Results/XGB_CV_lasso
   class_weight: null
   traditional_hpo:
     n_iter: 30
