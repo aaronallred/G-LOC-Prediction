@@ -11,6 +11,7 @@ from .lstm import LSTMModel
 from .logistic_regression_ts import LogRegTSModel
 from .tcn import TCNModel
 from .transformer import TransformerModel
+from .xgboost import XGBoostModel
 
 
 
@@ -22,6 +23,7 @@ class ModelFactory:
 		"SVM": SupportVectorMachineModel,
 		"EGB": ExtremeGradientBoostingModel,
 		"KNN": KNearestNeighborsModel,
+		"XGB": XGBoostModel,
 		"LSTM": LSTMModel,
 		"LogRegTS": LogRegTSModel,
 		"TCN": TCNModel,

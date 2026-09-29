@@ -20,8 +20,8 @@ from src.modes.cross_validation import (
     _build_fold_result,
     _cache_fold_data_for_advanced_models,
     _extract_median_hyperparameters,
-    _smote_resampling,
 )
+from src.traditional_experiment_utils import apply_imbalance
 
 
 class _FastBayesSearchCV:
@@ -296,11 +296,24 @@ def test_build_fold_result_without_features():
     assert minimal["best_params"] == {}
 
 
-def test_smote_resampling_changes_shape():
+def test_apply_imbalance_smote_changes_shape():
     X = np.random.randn(40, 6).astype(np.float32)
     y = np.array([0] * 30 + [1] * 10)
-    X_res, y_res = _smote_resampling(X, y, random_seed=42)
-    assert X_res.shape[0] > X.shape[0] or y_res.sum() > y.sum()
+    X_res, y_res = apply_imbalance("smote", X, y, random_seed=42)
+    assert X_res.shape[0] > X.shape[0]
+    assert np.sum(y_res == 0) == np.sum(y_res == 1)
+
+
+def test_apply_imbalance_none_returns_inputs_unchanged():
+    X = np.random.randn(10, 3)
+    y = np.array([0] * 8 + [1] * 2)
+    X_res, y_res = apply_imbalance("none", X, y)
+    assert X_res is X and y_res is y
+
+
+def test_apply_imbalance_rejects_unknown_type():
+    with pytest.raises(ValueError, match="Unsupported imbalance_type"):
+        apply_imbalance("cost_function", np.zeros((4, 2)), np.array([0, 0, 1, 1]))
 
 
 def test_cache_fold_data_for_advanced_models_builds_all_requested_folds():
