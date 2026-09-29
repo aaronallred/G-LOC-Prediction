@@ -20,7 +20,7 @@ class XGBoostModel(TraditionalModel):
             "baseline_window": 46.25,
             "window_size": 12.5,
             "stride": 0.25,
-            "feature_reduction_type": "ridge",
+            "feature_reduction_type": "lasso",
             "feature_reduction_top_percent": 50,
             "baseline_methods_to_use": [
                 "v0", "v1", "v2", "v5", "v6", "v7", "v8"

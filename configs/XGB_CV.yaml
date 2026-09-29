@@ -36,7 +36,7 @@ cross_validation:
   model_type: !ModelType [Complete, Explicit]
   random_seed: 42
   num_splits: 10
-  save_results_folder: Results/XGB_CV_lasso
+  save_results_folder: Results/XGB_CV_lasso_converge
   class_weight: null
   traditional_hpo:
     n_iter: 30
