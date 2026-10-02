@@ -15,9 +15,8 @@ import numpy as np
 import optuna
 import torch
 from imblearn.metrics import geometric_mean_score
-from imblearn.over_sampling import SMOTE
 from sklearn import metrics
-from sklearn.linear_model import Lasso
+from sklearn.linear_model import Lasso, LassoCV, RidgeCV
 from sklearn.utils.class_weight import compute_class_weight
 from skopt import BayesSearchCV
 from skopt.space import Real
@@ -34,6 +33,7 @@ from src.advanced_experiment_utils import (
 )
 from src.models.base import BaseModel, TraditionalModel, AdvancedModel
 from src.models.model_factory import ModelFactory
+from src.traditional_experiment_utils import apply_imbalance
 
 logger = logging.getLogger(__name__)
 
@@ -213,12 +213,14 @@ def _run_traditional_model_cv_fold(
         raise ValueError(f"Training fold {fold_idx} is empty")
 
     logger.info(
-        "Running traditional fold-local LASSO feature selection for fold %s on %s features",
+        "Running traditional model-specific %s feature selection for fold %s on %s features",
+        model.data_pipeline_hyperparameters["feature_reduction_type"],
         fold_idx,
         X_train.shape[1],
     )
 
-    X_train, X_test, selected_features = _lasso_feature_selection(
+    X_train, X_test, selected_features = _feature_selection(
+        model=model,
         X_train=X_train,
         X_test=X_test,
         y_train=y_train,
@@ -226,17 +228,15 @@ def _run_traditional_model_cv_fold(
         random_seed=random_seed,
     )
 
+    imbalance_type = model.data_pipeline_hyperparameters["imbalance_type"]
     logger.info(
-        "Running traditional SMOTE resampling for fold %s after LASSO reduced features to %s",
+        "Applying imbalance_type=%s for fold %s after feature selection reduced features to %s",
+        imbalance_type,
         fold_idx,
         len(selected_features),
     )
 
-    X_train, y_train = _smote_resampling(
-        X_train=X_train,
-        y_train=y_train,
-        random_seed=random_seed,
-    )
+    X_train, y_train = apply_imbalance(imbalance_type, X_train, y_train, random_seed)
 
     logger.info(
         "Running traditional model HPO for fold %s with class_weight = %s",
@@ -267,7 +267,7 @@ def _run_traditional_model_cv_fold(
     return fold_result, search
 
 
-def _lasso_feature_selection(
+def _lasso_feature_selection_bayes(
         X_train: np.ndarray,
         X_test: np.ndarray,
         y_train: np.ndarray,
@@ -277,6 +277,8 @@ def _lasso_feature_selection(
     """
     Find optimal lasso alpha parameter and fits a lasso model to determine
     most important features. This should only see the 'training' data.
+
+    Deemed an old, inefficient method
     """
 
     search = BayesSearchCV(
@@ -296,15 +298,94 @@ def _lasso_feature_selection(
 
     return X_train[:, selected_features_indices], X_test[:, selected_features_indices], selected_features
 
-
-def _smote_resampling(
+def _lasso_feature_selection(
         X_train: np.ndarray,
+        X_test: np.ndarray,
         y_train: np.ndarray,
+        feature_names: List[str],
+        random_seed: int
+) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+    """
+    Find optimal lasso alpha parameter and fits a lasso model to determine
+    most important features. This should only see the 'training' data.
+    """
+
+    lasso = LassoCV(
+        alphas=100,
+        cv=3,
+        max_iter=5000, #was 1k then 3k (getting not converged warning)
+        n_jobs=-1,
+        random_state=random_seed,
+    )
+    lasso.fit(X_train, np.ravel(y_train))
+
+    selected_features_indices = np.where(np.abs(lasso.coef_) != 0)[0]
+    logger.info("LassoCV selected alpha=%.3e, keeping %s of %s features",
+                lasso.alpha_, len(selected_features_indices), X_train.shape[1])
+
+    selected_features = np.array(feature_names)[selected_features_indices].tolist()
+
+    return X_train[:, selected_features_indices], X_test[:, selected_features_indices], selected_features
+
+def _ridge_feature_selection(
+        X_train: np.ndarray,
+        X_test: np.ndarray,
+        y_train: np.ndarray,
+        feature_names: List[str],
+        top_percent: float,
+) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+    """
+    Select the top `top_percent` % of features by absolute RidgeCV coefficient.
+    Alpha is chosen by 3-fold CV on the full training data, which RidgeCV then refits on.
+    This should only see the 'training' data.
+    """
+    ridge = RidgeCV(alphas=np.logspace(2, 7, 10), cv=3)
+    ridge.fit(X_train, np.ravel(y_train))
+
+    ridge_coef = np.abs(np.ravel(ridge.coef_))
+    threshold = np.percentile(ridge_coef, 100 - top_percent)
+    selected_features_indices = np.where(ridge_coef >= threshold)[0]
+    logger.info("RidgeCV selected alpha=%.3e, keeping %s of %s features (top %s%%)",
+                ridge.alpha_, len(selected_features_indices), X_train.shape[1], top_percent)
+
+    selected_features = np.array(feature_names)[selected_features_indices].tolist()
+
+    return X_train[:, selected_features_indices], X_test[:, selected_features_indices], selected_features
+
+def _feature_selection(
+        model: TraditionalModel,
+        X_train: np.ndarray,
+        X_test: np.ndarray,
+        y_train: np.ndarray,
+        feature_names: List[str],
         random_seed: int,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Apply SMOTE resampling to the training data to address class imbalance."""
-    smote_model = SMOTE(random_state=random_seed, k_neighbors=7)
-    return smote_model.fit_resample(X_train, y_train)
+) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+    """
+    Run the feature selection method named by the model's feature_reduction_type.
+
+    Must update when new feature selection methods are incorporated
+    """
+    pipeline_hyperparameters = model.data_pipeline_hyperparameters
+    feature_reduction_type = pipeline_hyperparameters["feature_reduction_type"]
+
+    if feature_reduction_type == "lasso":
+        return _lasso_feature_selection(X_train, X_test, y_train, feature_names, random_seed)
+
+    if feature_reduction_type == "ridge":
+        top_percent = pipeline_hyperparameters.get("feature_reduction_top_percent")
+        if top_percent is None:
+            raise ValueError(
+                f"{model.name} uses feature_reduction_type='ridge' but has no 'feature_reduction_top_percent'."
+            )
+        return _ridge_feature_selection(X_train, X_test, y_train, feature_names, top_percent)
+
+    if feature_reduction_type == "none":
+        return X_train, X_test, list(feature_names)
+
+    raise ValueError(
+        f"Unsupported feature_reduction_type '{feature_reduction_type}'. "
+        f"Supported: 'lasso', 'ridge', 'none'."
+    )
 
 
 def _run_traditional_hpo(

@@ -1,10 +1,10 @@
 from typing import Any, Dict
 
+import torch
 from skopt.space import Integer, Real
 from xgboost import XGBClassifier
 
 from .base import TraditionalModel
-from src.runtime import xgboost_device
 
 
 class XGBoostModel(TraditionalModel):
@@ -21,12 +21,11 @@ class XGBoostModel(TraditionalModel):
             "window_size": 12.5,
             "stride": 0.25,
             "feature_reduction_type": "lasso",
+            "feature_reduction_top_percent": 50,
             "baseline_methods_to_use": [
                 "v0", "v1", "v2", "v5", "v6", "v7", "v8"
             ],
             "imbalance_type": "none",
-            "impute_type": 1,
-            "n_neighbors": 3,
         }
 
     @property
@@ -48,7 +47,7 @@ class XGBoostModel(TraditionalModel):
             "objective": "binary:logistic",
             "eval_metric": "logloss",
             "tree_method": "hist",
-            "device": xgboost_device(),
+            "device": "cuda" if torch.cuda.is_available() else "cpu",
             "n_jobs": -1,
         }
         params.update(model_hyperparameters or {})
