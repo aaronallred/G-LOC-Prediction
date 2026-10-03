@@ -25,12 +25,12 @@ real_time_equivital:
   session_dir: "Extra spin data/142_HSP_Training_HSP_135_20260508_115626"
   model_type: !ModelType [ Complete, Explicit ]
   random_seed: 42
-  models: [ EGB, KNN, RF ]
+  models: [ EGB ]
   num_splits: 10
   streams:
     - [ ECG, HR, BR, Temperature, Centrifuge ]
   manual_ablation: true
   class_weight: null
-  saved_models_folder: Results/Sensor_Ablation_Real_Time_No_S1
-  save_results_folder: Results/Real_Time_Prediction_Latency_with_Preprocessing
+  saved_models_folder: Results/Sensor_Ablation_Real_Time_No_S1_No_Imputation
+  save_results_folder: Results/Real_Time_Prediction_Latency_with_Evaluation
   use_real_time_sleep: true
