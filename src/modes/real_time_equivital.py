@@ -15,11 +15,14 @@ import multiprocessing as mp
 import os
 import queue
 import time
+import warnings
 from pathlib import Path
 from typing import Any, Optional
 
 import joblib
 import numpy as np
+from imblearn.metrics import geometric_mean_score
+from sklearn import metrics
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
 from src.Data_Pipeline.real_time_data_pipeline import (
@@ -67,7 +70,48 @@ def _write_report(report: dict[str, Any], report_path: Path) -> None:
     report_path.parent.mkdir(parents=True, exist_ok=True)
     with report_path.open("w") as handle:
         json.dump(report, handle, indent=2)
-    logger.info("Saved real-time summary report to %s", report_path)
+    logger.info("Saved report to %s", report_path)
+
+
+def _evaluate_real_time_predictions(
+    predictions: list[int],
+) -> tuple[dict[str, float], list[list[int]]]:
+    """Calculate classification performance metrics and confusion matrix assuming all ground truth events are 0."""
+    if not predictions:
+        metrics_dict: dict[str, float] = {
+            "accuracy": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "f1_score": 0.0,
+            "specificity": 0.0,
+            "g_mean": 0.0,
+        }
+        return metrics_dict, [[0, 0], [0, 0]]
+
+    y_true = np.zeros(len(predictions), dtype=int)
+    y_pred = np.asarray(predictions, dtype=int)
+
+    accuracy = float(metrics.accuracy_score(y_true, y_pred))
+    precision = float(metrics.precision_score(y_true, y_pred, zero_division=0.0))
+    recall = float(metrics.recall_score(y_true, y_pred, zero_division=0.0))
+    f1 = float(metrics.f1_score(y_true, y_pred, zero_division=0.0))
+    specificity = float(metrics.recall_score(y_true, y_pred, pos_label=0, zero_division=0.0))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        g_mean = float(geometric_mean_score(y_true, y_pred))
+
+    metrics_dict = {
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "f1_score": f1,
+        "specificity": specificity,
+        "g_mean": g_mean,
+    }
+    confusion_mat = metrics.confusion_matrix(y_true, y_pred, labels=[0, 1]).tolist()
+    return metrics_dict, confusion_mat
 
 
 def run_real_time_equivital(
@@ -301,12 +345,14 @@ def run_real_time_equivital(
                     except Exception:
                         pass
 
-            # 6. Aggregate latencies
+            # 6. Aggregate latencies and evaluate performance
             preproc_summary = _summarize_latencies(per_sample_preproc_latencies_ms)
             data_proc_summary = _summarize_latencies(data_proc_latencies_ms)
             inference_summary = _summarize_latencies(inference_latencies_ms)
             total_latency_summary = _summarize_latencies(total_latencies_ms)
             pred_to_pred_summary = _summarize_latencies(prediction_to_prediction_latencies_ms)
+
+            perf_metrics, confusion_mat = _evaluate_real_time_predictions(predictions)
 
             report = {
                 "model": model_name,
@@ -316,6 +362,15 @@ def run_real_time_equivital(
                 "n_raw_samples": int(n_raw_samples),
                 "n_predictions": int(len(predictions)),
                 "use_real_time_sleep": use_real_time_sleep,
+                "performance": perf_metrics,
+                "accuracy": perf_metrics["accuracy"],
+                "precision": perf_metrics["precision"],
+                "recall": perf_metrics["recall"],
+                "f1": perf_metrics["f1"],
+                "f1_score": perf_metrics["f1_score"],
+                "specificity": perf_metrics["specificity"],
+                "g_mean": perf_metrics["g_mean"],
+                "confusion_matrix": confusion_mat,
                 "preprocessing_latency_ms": preproc_summary,
                 "data_processing_latency_ms": data_proc_summary,
                 "inference_latency_ms": inference_summary,
@@ -331,10 +386,12 @@ def run_real_time_equivital(
                 "per_prediction_prediction_to_prediction_latency_ms": per_prediction_pred_to_pred_latencies_ms,
             }
 
-            report_path = (
-                save_results_folder / model_type_folder / model_name / stream_str / "real_time_summary.json"
-            )
+            model_output_dir = save_results_folder / model_type_folder / model_name / stream_str
+            report_path = model_output_dir / "real_time_summary.json"
             _write_report(report, report_path)
+
+            cm_path = model_output_dir / "confusion_matrix.json"
+            _write_report({"confusion_matrix": confusion_mat, "labels": [0, 1]}, cm_path)
 
             logger.info(
                 "Completed %s | streams=%s | session=%s | predictions=%d | "
@@ -350,6 +407,17 @@ def run_real_time_equivital(
                 total_latency_summary.get("mean", 0.0),
                 total_latency_summary.get("p95", 0.0),
                 pred_to_pred_summary.get("mean", 0.0),
+            )
+            logger.info(
+                "Performance for %s: accuracy=%.4f | precision=%.4f | recall=%.4f | "
+                "f1=%.4f | specificity=%.4f | g_mean=%.4f",
+                model_name,
+                perf_metrics["accuracy"],
+                perf_metrics["precision"],
+                perf_metrics["recall"],
+                perf_metrics["f1"],
+                perf_metrics["specificity"],
+                perf_metrics["g_mean"],
             )
 
     logger.info("real_time_equivital complete.")

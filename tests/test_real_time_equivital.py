@@ -7,7 +7,7 @@ from src.Data_Pipeline.data_pipeline import DataPipeline
 from src.Data_Pipeline.real_time_data_pipeline import RealTimeTraditionalDataPipeline
 from src.model_type import ModelType
 from src.models.model_factory import ModelFactory
-from src.modes.real_time_equivital import run_real_time_equivital
+from src.modes.real_time_equivital import _evaluate_real_time_predictions, run_real_time_equivital
 
 
 def _build_test_config(tmp_path: Path) -> dict:
@@ -133,6 +133,71 @@ def test_run_real_time_equivital_generates_latency_report(tmp_path: Path):
     assert report["per_prediction_prediction_to_prediction_latency_ms"][0] is None
     assert all(x > 0.0 for x in report["prediction_to_prediction_latencies_ms"])
     assert report["per_prediction_prediction_to_prediction_latency_ms"][1:] == report["prediction_to_prediction_latencies_ms"]
+
+    # Check performance metrics
+    assert "performance" in report
+    perf = report["performance"]
+    for metric_name in ["accuracy", "precision", "recall", "f1", "f1_score", "specificity", "g_mean"]:
+        assert metric_name in perf, f"Missing metric {metric_name} in performance report"
+        assert metric_name in report, f"Missing top-level metric {metric_name} in report"
+        assert isinstance(perf[metric_name], float)
+
+    # Check confusion matrix in report
+    assert "confusion_matrix" in report
+    assert len(report["confusion_matrix"]) == 2
+    assert len(report["confusion_matrix"][0]) == 2
+    assert len(report["confusion_matrix"][1]) == 2
+
+    # Check dedicated confusion_matrix.json
+    cm_path = (
+        tmp_path / "Results_Latency" / "Complete_Explicit" / "KNN" / "ECG-Centrifuge" / "confusion_matrix.json"
+    )
+    assert cm_path.exists(), f"Confusion matrix file {cm_path} was not created"
+    with open(cm_path, "r") as f:
+        cm_data = json.load(f)
+    assert "confusion_matrix" in cm_data
+    assert cm_data["confusion_matrix"] == report["confusion_matrix"]
+
+
+def test_evaluate_real_time_predictions_empty():
+    """Verify evaluation handles empty predictions gracefully without raising exceptions."""
+    perf, cm = _evaluate_real_time_predictions([])
+    assert perf["accuracy"] == 0.0
+    assert perf["precision"] == 0.0
+    assert perf["recall"] == 0.0
+    assert perf["f1"] == 0.0
+    assert perf["f1_score"] == 0.0
+    assert perf["specificity"] == 0.0
+    assert perf["g_mean"] == 0.0
+    assert cm == [[0, 0], [0, 0]]
+
+
+def test_evaluate_real_time_predictions_all_zero():
+    """Verify evaluation when all predictions are 0 (perfect match with zero events)."""
+    preds = [0] * 100
+    perf, cm = _evaluate_real_time_predictions(preds)
+    assert perf["accuracy"] == 1.0
+    assert perf["precision"] == 0.0
+    assert perf["recall"] == 0.0
+    assert perf["f1"] == 0.0
+    assert perf["f1_score"] == 0.0
+    assert perf["specificity"] == 1.0
+    assert perf["g_mean"] == 1.0
+    assert cm == [[100, 0], [0, 0]]
+
+
+def test_evaluate_real_time_predictions_mixed():
+    """Verify evaluation when predictions include false alarms (1s)."""
+    preds = [0] * 80 + [1] * 20
+    perf, cm = _evaluate_real_time_predictions(preds)
+    assert perf["accuracy"] == 0.8
+    assert perf["precision"] == 0.0
+    assert perf["recall"] == 0.0
+    assert perf["f1"] == 0.0
+    assert perf["f1_score"] == 0.0
+    assert perf["specificity"] == 0.8
+    assert perf["g_mean"] == 0.0
+    assert cm == [[80, 20], [0, 0]]
 
 
 def test_dynamic_model_hyperparameters_different_models():
