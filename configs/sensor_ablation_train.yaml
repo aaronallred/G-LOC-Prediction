@@ -28,7 +28,7 @@ sensor_ablation:
     median_hyperparameters_folder: Results/Cross_Validation
     median_hyperparameters_model_type: !ModelType [ Complete, Explicit ]
     # Mode-specific parameters
-    models: [ KNN, EGB ]
+    models: [ KNN, EGB, RF]
     model_type: !ModelType [ noAFE, Common ]
     manual_ablation: true
     random_seed: 42
