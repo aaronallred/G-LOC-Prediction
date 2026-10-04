@@ -21,6 +21,7 @@ from typing import Any, Optional
 
 import joblib
 import numpy as np
+import pandas as pd
 from imblearn.metrics import geometric_mean_score
 from sklearn import metrics
 
@@ -36,6 +37,105 @@ from src.models.model_factory import ModelFactory
 logger = logging.getLogger(__name__)
 
 _LATENCY_PERCENTILES: tuple[int, ...] = (50, 95, 99)
+
+
+class EquivitalDataStreamer:
+    """Stream raw sensor telemetry through a local LSL outlet."""
+
+    def __init__(
+        self,
+        channel_names: list[str],
+        stream_name: str = "GLOC-Equivital-Raw",
+        stream_type: str = "PsychoPhys",
+        stream_rate_hz: float = 25.0,
+        source_id: str = "gloc-equivital-raw-01",
+    ) -> None:
+        self.channel_names = channel_names
+        self.stream_name = stream_name
+        self.stream_type = stream_type
+        self.stream_rate_hz = stream_rate_hz
+        self.source_id = source_id
+        self._outlet: Optional[Any] = None
+        self._create_outlet()
+
+    def _create_outlet(self) -> None:
+        try:
+            from pylsl import StreamInfo, StreamOutlet
+        except ImportError:
+            logger.warning("pylsl is not installed. LSL streaming will be disabled.")
+            return
+
+        try:
+            n_channels = len(self.channel_names)
+            stream_info = StreamInfo(
+                name=self.stream_name,
+                type=self.stream_type,
+                channel_count=n_channels,
+                nominal_srate=self.stream_rate_hz,
+                channel_format="float32",
+                source_id=self.source_id,
+            )
+            if self.channel_names:
+                chns = stream_info.desc().append_child("channels")
+                for ch_name in self.channel_names:
+                    ch = chns.append_child("channel")
+                    ch.append_child_value("label", ch_name)
+
+            self._outlet = StreamOutlet(stream_info)
+            logger.info(
+                "Created LSL outlet '%s' (%d channels at %.1f Hz)",
+                self.stream_name,
+                n_channels,
+                self.stream_rate_hz,
+            )
+        except Exception as exc:
+            logger.warning("Could not initialize LSL outlet: %s", exc)
+
+    def push_sample(self, sample: np.ndarray) -> None:
+        """Push a single raw sample to the LSL outlet if active."""
+        if self._outlet is not None:
+            try:
+                self._outlet.push_sample(sample.astype(np.float32, copy=False))
+            except Exception as exc:
+                logger.debug("LSL push_sample error: %s", exc)
+
+    def close(self) -> None:
+        self._outlet = None
+
+
+def _load_single_trial_raw_data(
+    pipeline: DataPipeline,
+    model_instance: Any,
+    model_type: Any,
+    trial_to_select: Optional[str] = None,
+    output_feature_dtype: np.dtype = np.dtype(np.float32),
+) -> tuple[pd.DataFrame, list[str], str]:
+    """Load raw 25 Hz telemetry for a single continuous trial."""
+    backend = pipeline._build_backend(model_instance)
+    file_paths = backend._get_data_locations()
+    gloc_data = backend._load_data(file_paths, output_feature_dtype)
+
+    trad_hparams = backend._resolve_traditional_hyperparameters(model_instance, model_instance.name)
+    baseline_methods_to_use = trad_hparams.get("baseline_methods_to_use", ["v0", "v1", "v2", "v5", "v6"])
+    feature_groups_to_analyze, _ = backend._get_feature_groups_and_baseline_methods(
+        model_type, baseline_methods_to_use
+    )
+    gloc_data, features = backend._process_and_get_feature_names(
+        gloc_data, feature_groups_to_analyze, model_type, file_paths, output_feature_dtype
+    )
+
+    unique_trials = pd.unique(gloc_data["trial_id"])
+    if len(unique_trials) == 0:
+        raise ValueError("No trials found in data.")
+
+    unique_trials_str = [str(t) for t in unique_trials]
+    if trial_to_select is not None and str(trial_to_select) in unique_trials_str:
+        trial_id = str(trial_to_select)
+    else:
+        trial_id = str(unique_trials[0])
+
+    trial_df = gloc_data[gloc_data["trial_id"] == trial_id]
+    return trial_df, list(features["All"]), trial_id
 
 
 def _summarize_latencies(latencies_ms: list[float]) -> dict[str, float]:
@@ -142,6 +242,8 @@ def run_real_time_equivital(
     manual_ablation: bool = bool(mode_config.get("manual_ablation", True))
     use_real_time_sleep: bool = bool(mode_config.get("use_real_time_sleep", False))
     max_stream_samples: Optional[int] = mode_config.get("max_stream_samples", None)
+    use_preprocessor: bool = bool(mode_config.get("use_preprocessor", True))
+    trial_id_cfg: Optional[str] = mode_config.get("trial_id", None)
 
     saved_models_folder = Path(mode_config.get("saved_models_folder", "Results/Sensor_Ablation_Real_Time"))
     if not saved_models_folder.is_absolute():
@@ -163,13 +265,15 @@ def run_real_time_equivital(
             session_dir = session_dir.resolve()
 
     model_type_folder = model_type.get_folder_name()
+    session_label = session_dir.name if use_preprocessor else f"trial={trial_id_cfg or 'first'}"
 
     logger.info(
-        "Starting real_time_equivital: models=%s, streams=%s, model_type=%s, session=%s",
+        "Starting real_time_equivital: models=%s, streams=%s, model_type=%s, source=%s, use_preprocessor=%s",
         model_names,
         stream_groups,
         model_type_folder,
-        session_dir.name,
+        session_label,
+        use_preprocessor,
     )
 
     pipeline.set_random_seed(random_seed)
@@ -237,35 +341,7 @@ def run_real_time_equivital(
                 participant_baseline_rhr=72.0,
             )
 
-            # 3. Instantiate LSL Streamer
-            playback_speed = 1.0 if use_real_time_sleep else 0.0
-            streamer = SingleSubjectLSLStreamer(
-                session_dir=session_dir,
-                playback_speed=playback_speed,
-                source_id_prefix=f"RT_{model_name}_{stream_str}_",
-            )
-
-            # 4. Start background streaming process (Process 1)
-            rt_pipeline.reset()
-            streamer.start(wait_for_trigger=True)
-
-            # 5. Instantiate RealTimeDataPreprocessor and start background worker (Process 2)
-            sample_queue: mp.Queue = mp.Queue(maxsize=50000)
-            preprocessor = RealTimeDataPreprocessor(
-                raw_feature_names=rt_pipeline.raw_feature_names,
-                stream_names=streamer.stream_names,
-            )
-            preprocessor.start(
-                sample_queue=sample_queue,
-                stream_finished_event=streamer.finished_event,
-                max_stream_samples=max_stream_samples,
-            )
-            streamer.trigger()
-
-            # 6. Pin consumer process (Process 3) after spawning child workers
-            pin_process_to_core(2)
-
-            # 7. Consume and infer sequentially without LSL networking interrupts
+            # Common tracking metrics across both multi-rate and 25 Hz direct modes
             per_sample_preproc_latencies_ms: list[float] = []
             per_sample_data_proc_latencies_ms: list[float] = []
             per_prediction_preproc_latencies_ms: list[float] = []
@@ -276,76 +352,177 @@ def run_real_time_equivital(
             prediction_to_prediction_latencies_ms: list[float] = []
             per_prediction_pred_to_pred_latencies_ms: list[Optional[float]] = []
             last_prediction_time: Optional[float] = None
-
             n_raw_samples = 0
 
-            try:
-                while True:
-                    try:
-                        item = sample_queue.get(timeout=2.0)
-                    except queue.Empty:
-                        if not preprocessor.is_alive() and not streamer.is_alive():
-                            break
-                        continue
+            if use_preprocessor:
+                resolved_trial_id = session_dir.name
 
-                    if item is None:
-                        break
+                # 3. Instantiate LSL Streamer
+                playback_speed = 1.0 if use_real_time_sleep else 0.0
+                streamer = SingleSubjectLSLStreamer(
+                    session_dir=session_dir,
+                    playback_speed=playback_speed,
+                    source_id_prefix=f"RT_{model_name}_{stream_str}_",
+                )
 
-                    sample_25hz, t_target, preproc_lat_ms = item
-                    n_raw_samples += 1
-                    per_sample_preproc_latencies_ms.append(preproc_lat_ms)
-                    X_processed, data_proc_lat_ms = rt_pipeline.ingest_sample(
-                        sample_25hz, timestamp_s=t_target
-                    )
-                    per_sample_data_proc_latencies_ms.append(data_proc_lat_ms)
+                # 4. Start background streaming process (Process 1)
+                rt_pipeline.reset()
+                streamer.start(wait_for_trigger=True)
 
-                    if n_raw_samples % 2500 == 0:
-                        logger.info(
-                            "[%s | %s] Ingested %d samples | %d predictions made",
-                            model_name,
-                            stream_str,
-                            n_raw_samples,
-                            len(predictions),
-                        )
+                # 5. Instantiate RealTimeDataPreprocessor and start background worker (Process 2)
+                sample_queue: mp.Queue = mp.Queue(maxsize=50000)
+                preprocessor = RealTimeDataPreprocessor(
+                    raw_feature_names=rt_pipeline.raw_feature_names,
+                    stream_names=streamer.stream_names,
+                )
+                preprocessor.start(
+                    sample_queue=sample_queue,
+                    stream_finished_event=streamer.finished_event,
+                    max_stream_samples=max_stream_samples,
+                )
+                streamer.trigger()
 
-                    if X_processed is not None:
-                        t_infer_0 = time.perf_counter()
-                        pred = loaded_model.predict(X_processed.reshape(1, -1))
-                        t_infer_1 = time.perf_counter()
-                        infer_lat_ms = (t_infer_1 - t_infer_0) * 1000.0
+                # 6. Pin consumer process (Process 3) after spawning child workers
+                pin_process_to_core(2)
 
-                        t_now = t_infer_1
-                        if last_prediction_time is not None:
-                            pred_to_pred_ms = (t_now - last_prediction_time) * 1000.0
-                            prediction_to_prediction_latencies_ms.append(pred_to_pred_ms)
-                            per_prediction_pred_to_pred_latencies_ms.append(pred_to_pred_ms)
-                        else:
-                            per_prediction_pred_to_pred_latencies_ms.append(None)
-                        last_prediction_time = t_now
-
-                        per_prediction_preproc_latencies_ms.append(preproc_lat_ms)
-                        data_proc_latencies_ms.append(data_proc_lat_ms)
-                        inference_latencies_ms.append(infer_lat_ms)
-                        total_latencies_ms.append(preproc_lat_ms + data_proc_lat_ms + infer_lat_ms)
-                        predictions.append(int(pred[0]))
-
-                    if max_stream_samples is not None and n_raw_samples >= max_stream_samples:
-                        break
-            finally:
-                preprocessor.close()
-                streamer.close()
                 try:
-                    sample_queue.close()
-                    sample_queue.cancel_join_thread()
-                except Exception:
-                    pass
-                if orig_affinity is not None:
+                    while True:
+                        try:
+                            item = sample_queue.get(timeout=2.0)
+                        except queue.Empty:
+                            if not preprocessor.is_alive() and not streamer.is_alive():
+                                break
+                            continue
+
+                        if item is None:
+                            break
+
+                        sample_25hz, t_target, preproc_lat_ms = item
+                        n_raw_samples += 1
+                        per_sample_preproc_latencies_ms.append(preproc_lat_ms)
+                        X_processed, data_proc_lat_ms = rt_pipeline.ingest_sample(
+                            sample_25hz, timestamp_s=t_target
+                        )
+                        per_sample_data_proc_latencies_ms.append(data_proc_lat_ms)
+
+                        if n_raw_samples % 2500 == 0:
+                            logger.info(
+                                "[%s | %s] Ingested %d samples | %d predictions made",
+                                model_name,
+                                stream_str,
+                                n_raw_samples,
+                                len(predictions),
+                            )
+
+                        if X_processed is not None:
+                            t_infer_0 = time.perf_counter()
+                            pred = loaded_model.predict(X_processed.reshape(1, -1))
+                            t_infer_1 = time.perf_counter()
+                            infer_lat_ms = (t_infer_1 - t_infer_0) * 1000.0
+
+                            t_now = t_infer_1
+                            if last_prediction_time is not None:
+                                pred_to_pred_ms = (t_now - last_prediction_time) * 1000.0
+                                prediction_to_prediction_latencies_ms.append(pred_to_pred_ms)
+                                per_prediction_pred_to_pred_latencies_ms.append(pred_to_pred_ms)
+                            else:
+                                per_prediction_pred_to_pred_latencies_ms.append(None)
+                            last_prediction_time = t_now
+
+                            per_prediction_preproc_latencies_ms.append(preproc_lat_ms)
+                            data_proc_latencies_ms.append(data_proc_lat_ms)
+                            inference_latencies_ms.append(infer_lat_ms)
+                            total_latencies_ms.append(preproc_lat_ms + data_proc_lat_ms + infer_lat_ms)
+                            predictions.append(int(pred[0]))
+
+                        if max_stream_samples is not None and n_raw_samples >= max_stream_samples:
+                            break
+                finally:
+                    preprocessor.close()
+                    streamer.close()
                     try:
-                        os.sched_setaffinity(0, orig_affinity)
+                        sample_queue.close()
+                        sample_queue.cancel_join_thread()
                     except Exception:
                         pass
+                    if orig_affinity is not None:
+                        try:
+                            os.sched_setaffinity(0, orig_affinity)
+                        except Exception:
+                            pass
+            else:
+                # Direct 25 Hz telemetry streaming workflow
+                trial_df, _, resolved_trial_id = _load_single_trial_raw_data(
+                    pipeline=pipeline,
+                    model_instance=model_instance,
+                    model_type=model_type,
+                    trial_to_select=trial_id_cfg,
+                )
+                raw_samples = trial_df[rt_pipeline.raw_feature_names].to_numpy(dtype=np.float32)
+                timestamps = trial_df["Time (s)"].to_numpy(dtype=np.float64)
+                n_trial_samples = raw_samples.shape[0]
 
-            # 6. Aggregate latencies and evaluate performance
+                streamer_25hz = EquivitalDataStreamer(
+                    channel_names=rt_pipeline.raw_feature_names,
+                    stream_rate_hz=rt_pipeline.stream_rate_hz,
+                    source_id=f"RT_{model_name}_{stream_str}_raw",
+                )
+                rt_pipeline.reset()
+
+                try:
+                    for idx in range(n_trial_samples):
+                        sample_25hz = raw_samples[idx]
+                        t_target = timestamps[idx]
+                        preproc_lat_ms = 0.0
+
+                        n_raw_samples += 1
+                        per_sample_preproc_latencies_ms.append(preproc_lat_ms)
+                        streamer_25hz.push_sample(sample_25hz)
+
+                        X_processed, data_proc_lat_ms = rt_pipeline.ingest_sample(
+                            sample_25hz, timestamp_s=t_target
+                        )
+                        per_sample_data_proc_latencies_ms.append(data_proc_lat_ms)
+
+                        if n_raw_samples % 2500 == 0:
+                            logger.info(
+                                "[%s | %s] Ingested %d samples | %d predictions made",
+                                model_name,
+                                stream_str,
+                                n_raw_samples,
+                                len(predictions),
+                            )
+
+                        if X_processed is not None:
+                            t_infer_0 = time.perf_counter()
+                            pred = loaded_model.predict(X_processed.reshape(1, -1))
+                            t_infer_1 = time.perf_counter()
+                            infer_lat_ms = (t_infer_1 - t_infer_0) * 1000.0
+
+                            t_now = t_infer_1
+                            if last_prediction_time is not None:
+                                pred_to_pred_ms = (t_now - last_prediction_time) * 1000.0
+                                prediction_to_prediction_latencies_ms.append(pred_to_pred_ms)
+                                per_prediction_pred_to_pred_latencies_ms.append(pred_to_pred_ms)
+                            else:
+                                per_prediction_pred_to_pred_latencies_ms.append(None)
+                            last_prediction_time = t_now
+
+                            per_prediction_preproc_latencies_ms.append(preproc_lat_ms)
+                            data_proc_latencies_ms.append(data_proc_lat_ms)
+                            inference_latencies_ms.append(infer_lat_ms)
+                            total_latencies_ms.append(preproc_lat_ms + data_proc_lat_ms + infer_lat_ms)
+                            predictions.append(int(pred[0]))
+
+                        if max_stream_samples is not None and n_raw_samples >= max_stream_samples:
+                            break
+
+                        if use_real_time_sleep:
+                            time.sleep(1.0 / rt_pipeline.stream_rate_hz)
+                finally:
+                    streamer_25hz.close()
+
+            # Aggregate latencies and evaluate performance
             preproc_summary = _summarize_latencies(per_sample_preproc_latencies_ms)
             data_proc_summary = _summarize_latencies(data_proc_latencies_ms)
             inference_summary = _summarize_latencies(inference_latencies_ms)
@@ -358,7 +535,8 @@ def run_real_time_equivital(
                 "model": model_name,
                 "model_type": model_type_folder,
                 "streams": stream_group,
-                "trial_id": session_dir.name,
+                "trial_id": resolved_trial_id,
+                "use_preprocessor": use_preprocessor,
                 "n_raw_samples": int(n_raw_samples),
                 "n_predictions": int(len(predictions)),
                 "use_real_time_sleep": use_real_time_sleep,
@@ -394,12 +572,12 @@ def run_real_time_equivital(
             _write_report({"confusion_matrix": confusion_mat, "labels": [0, 1]}, cm_path)
 
             logger.info(
-                "Completed %s | streams=%s | session=%s | predictions=%d | "
+                "Completed %s | streams=%s | trial=%s | predictions=%d | "
                 "preproc mean=%.4f ms | data_proc mean=%.4f ms | infer mean=%.4f ms | "
                 "total mean=%.4f ms (p95=%.4f ms) | pred_to_pred mean=%.4f ms",
                 model_name,
                 stream_str,
-                session_dir.name,
+                resolved_trial_id,
                 len(predictions),
                 preproc_summary.get("mean", 0.0),
                 data_proc_summary.get("mean", 0.0),

@@ -3,11 +3,18 @@
 import json
 from pathlib import Path
 
+import numpy as np
+
 from src.Data_Pipeline.data_pipeline import DataPipeline
 from src.Data_Pipeline.real_time_data_pipeline import RealTimeTraditionalDataPipeline
 from src.model_type import ModelType
 from src.models.model_factory import ModelFactory
-from src.modes.real_time_equivital import _evaluate_real_time_predictions, run_real_time_equivital
+from src.modes.real_time_equivital import (
+    EquivitalDataStreamer,
+    _evaluate_real_time_predictions,
+    _load_single_trial_raw_data,
+    run_real_time_equivital,
+)
 
 
 def _build_test_config(tmp_path: Path) -> dict:
@@ -77,6 +84,7 @@ def test_run_real_time_equivital_generates_latency_report(tmp_path: Path):
     assert report["model"] == "KNN"
     assert report["model_type"] == "Complete_Explicit"
     assert report["streams"] == ["ECG", "Centrifuge"]
+    assert report.get("use_preprocessor", True) is True
     assert report["n_raw_samples"] > 0
     assert report["n_predictions"] > 0
 
@@ -198,6 +206,110 @@ def test_evaluate_real_time_predictions_mixed():
     assert perf["specificity"] == 0.8
     assert perf["g_mean"] == 0.0
     assert cm == [[80, 20], [0, 0]]
+
+
+def test_equivital_data_streamer_push():
+    """Verify that EquivitalDataStreamer initializes and pushes samples without error."""
+    streamer = EquivitalDataStreamer(
+        channel_names=["ECG Lead 1", "HR"],
+        stream_rate_hz=25.0,
+        source_id="test_streamer_01",
+    )
+    sample = np.array([1.2, 70.0], dtype=np.float32)
+    streamer.push_sample(sample)
+    streamer.close()
+
+
+def test_load_single_trial_raw_data():
+    """Verify that _load_single_trial_raw_data loads a continuous trial and matching timestamps."""
+    config = {
+        "data_path": "data_reduced",
+        "shared_data_parameters": {
+            "analysis_type": 2,
+            "subject_to_analyze": None,
+            "trial_to_analyze": None,
+            "remove_NaN_trials": True,
+            "output_feature_dtype": "float32",
+        },
+        "traditional_data_parameters": {
+            "backstep": 0,
+            "data_rate": 25,
+            "offset": 0,
+            "time_start": 0,
+            "standardize_s1": False,
+        },
+    }
+    pipeline = DataPipeline(config=config)
+    model_type = ModelType("Complete", "Explicit")
+    pipeline.set_random_seed(42)
+    pipeline.set_model_type(model_type)
+    model_factory = ModelFactory()
+    model = model_factory.create_model("KNN")
+
+    trial_df, all_features, trial_id = _load_single_trial_raw_data(
+        pipeline=pipeline,
+        model_instance=model,
+        model_type=model_type,
+    )
+    assert len(trial_id) > 0
+    assert not trial_df.empty
+    assert "Time (s)" in trial_df.columns
+    assert len(all_features) > 0
+
+
+def test_run_real_time_equivital_without_preprocessor(tmp_path: Path):
+    """Test end-to-end execution of real_time_equivital with use_preprocessor=False on 25 Hz data."""
+    config = _build_test_config(tmp_path)
+    config["real_time_equivital"]["use_preprocessor"] = False
+    config["real_time_equivital"]["max_stream_samples"] = 1000
+
+    pipeline = DataPipeline(config=config)
+    model_factory = ModelFactory()
+
+    run_real_time_equivital(
+        config=config,
+        pipeline=pipeline,
+        model_factory=model_factory,
+        project_root_path=tmp_path,
+    )
+
+    report_path = (
+        tmp_path / "Results_Latency" / "Complete_Explicit" / "KNN" / "ECG-Centrifuge" / "real_time_summary.json"
+    )
+    assert report_path.exists(), f"Report file {report_path} was not created"
+
+    with open(report_path, "r") as f:
+        report = json.load(f)
+
+    assert report["use_preprocessor"] is False
+    assert report["n_raw_samples"] == 1000
+    assert report["n_predictions"] > 0
+
+    # Verify identical latency metric structure
+    for key in [
+        "preprocessing_latency_ms",
+        "data_processing_latency_ms",
+        "inference_latency_ms",
+        "total_latency_ms",
+        "prediction_to_prediction_latency_ms",
+    ]:
+        assert key in report, f"Missing key {key} in report"
+        assert "mean" in report[key]
+
+    # Preprocessing latency should be 0.0 in non-preprocessed mode
+    assert report["preprocessing_latency_ms"]["mean"] == 0.0
+
+    # Verify performance metrics and confusion matrix
+    assert "performance" in report
+    assert "confusion_matrix" in report
+    for metric_name in ["accuracy", "precision", "recall", "f1", "f1_score", "specificity", "g_mean"]:
+        assert metric_name in report["performance"]
+        assert metric_name in report
+
+    cm_path = (
+        tmp_path / "Results_Latency" / "Complete_Explicit" / "KNN" / "ECG-Centrifuge" / "confusion_matrix.json"
+    )
+    assert cm_path.exists(), f"Confusion matrix file {cm_path} was not created"
 
 
 def test_dynamic_model_hyperparameters_different_models():
