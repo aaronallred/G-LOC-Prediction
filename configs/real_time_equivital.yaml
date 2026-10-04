@@ -22,7 +22,7 @@ traditional_data_parameters:
 
 real_time_equivital:
   enabled: true
-  use_preprocessor: true
+  use_preprocessor: false
   session_dir: "Extra spin data/142_HSP_Training_HSP_135_20260508_115626"
   trial_id: null
   model_type: !ModelType [ Complete, Explicit ]
