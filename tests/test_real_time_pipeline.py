@@ -70,7 +70,7 @@ def test_traditional_data_pipeline_saves_json_artifacts(tmp_path: Path):
     assert "active_feature_names" in data
     assert "active_indices" in data
     assert "dropped_feature_names" in data
-    assert "knn_imputer" in data
+    assert "knn_imputer" not in data
 
     # Verify lengths
     assert len(data["s1_pooled_mean"]) == len(data["s2_global_mean"])
@@ -203,19 +203,14 @@ def test_real_time_traditional_pipeline_reset():
     assert x_proc is None
 
 
-def test_real_time_traditional_pipeline_knn_imputation():
-    """Test KNN imputation fallback during online sample ingestion."""
+def test_real_time_traditional_pipeline_skips_nan_sample():
+    """Test that samples with missing values (NaN) are skipped without prediction or buffer corruption."""
     artifacts = {
         "s1_pooled_mean": [0.0] * 10,
         "s1_pooled_std": [1.0] * 10,
         "s2_global_mean": [0.0] * 10,
         "s2_global_std": [1.0] * 10,
         "active_indices": list(range(10)),
-        "knn_imputer": {
-            "k": 2,
-            "reference_means": [75.0, 1.2],
-            "reference_data": [[70.0, 1.0], [80.0, 1.4]],
-        },
     }
     rt = RealTimeTraditionalDataPipeline(
         artifacts=artifacts,
@@ -225,10 +220,23 @@ def test_real_time_traditional_pipeline_knn_imputation():
         stream_rate_hz=10.0,
     )
 
+    # 1. Ingest sample containing NaN
     sample_with_nan = np.array([np.nan, 1.2])
-    imputed = rt.impute_sample(sample_with_nan)
-    assert not np.isnan(imputed).any()
-    assert 70.0 <= imputed[0] <= 80.0
+    x_proc, lat = rt.ingest_sample(sample_with_nan)
+    assert x_proc is None
+    assert lat >= 0.0
+    assert len(rt._baseline_buffer) == 0
+    assert len(rt._window_buffer) == 0
+    assert rt._samples_seen == 0
+
+    # 2. Ingest valid sample and verify normal processing
+    valid_sample = np.array([75.0, 1.2])
+    x_proc_valid, lat_valid = rt.ingest_sample(valid_sample)
+    assert x_proc_valid is None  # still in warmup
+    assert lat_valid >= 0.0
+    assert len(rt._baseline_buffer) == 1
+    assert len(rt._window_buffer) == 1
+    assert rt._samples_seen == 1
 
 
 def test_real_time_traditional_pipeline_standardize_s1_disabled():

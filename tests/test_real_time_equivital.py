@@ -261,7 +261,7 @@ def test_run_real_time_equivital_without_preprocessor(tmp_path: Path):
     """Test end-to-end execution of real_time_equivital with use_preprocessor=False on 25 Hz data."""
     config = _build_test_config(tmp_path)
     config["real_time_equivital"]["use_preprocessor"] = False
-    config["real_time_equivital"]["max_stream_samples"] = 1000
+    config["real_time_equivital"]["max_stream_samples"] = 4000
 
     pipeline = DataPipeline(config=config)
     model_factory = ModelFactory()
@@ -282,7 +282,7 @@ def test_run_real_time_equivital_without_preprocessor(tmp_path: Path):
         report = json.load(f)
 
     assert report["use_preprocessor"] is False
-    assert report["n_raw_samples"] == 1000
+    assert report["n_raw_samples"] == 4000
     assert report["n_predictions"] > 0
 
     # Verify identical latency metric structure

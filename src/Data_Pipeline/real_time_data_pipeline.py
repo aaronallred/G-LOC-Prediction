@@ -40,7 +40,7 @@ class RealTimeTraditionalDataPipeline:
     """Online streaming feature extraction pipeline for traditional G-LOC models.
 
     Mimics the exact mathematical processing steps of TraditionalDataPipeline,
-    loading precomputed training states (s1/s2 standardizers, KNN imputer reference data,
+    loading precomputed training states (s1/s2 standardizers,
     active feature indices) and actively applying them sample-by-sample.
 
     Parameters
@@ -178,9 +178,6 @@ class RealTimeTraditionalDataPipeline:
         self.n_window_samples = max(1, int(round(self.window_size_s * self.stream_rate_hz)))
         self.warmup_samples_required = max(self.n_baseline_samples, self.n_window_samples)
 
-        # Setup FAISS KNN Imputer state if present in artifacts
-        self._setup_knn_imputer()
-
         # Buffers and state
         self._samples_seen = 0
         self._baseline_buffer: List[np.ndarray] = []
@@ -195,44 +192,6 @@ class RealTimeTraditionalDataPipeline:
         self._v1_baseline_mean: Optional[np.ndarray] = None
         self._v2_baseline_mean: Optional[np.ndarray] = None
         self._is_warmed_up = False
-
-    def _setup_knn_imputer(self) -> None:
-        knn_info = self.artifacts.get("knn_imputer", {})
-        self.knn_k = int(knn_info.get("k", 5))
-        ref_means = knn_info.get("reference_means", [])
-        ref_data = knn_info.get("reference_data", [])
-
-        self.knn_ref_means = np.asarray(ref_means, dtype=np.float32) if ref_means else None
-        self.knn_ref_data = np.asarray(ref_data, dtype=np.float32) if ref_data else None
-        self._faiss_index = None
-
-        if self.knn_ref_data is not None and self.knn_ref_data.size > 0:
-            try:
-                import faiss
-                d = self.knn_ref_data.shape[1]
-                self._faiss_index = faiss.IndexFlatL2(d)
-                self._faiss_index.add(self.knn_ref_data)
-            except Exception as exc:
-                logger.warning("Could not initialize FAISS index: %s", exc)
-
-    def impute_sample(self, raw_sample: np.ndarray) -> np.ndarray:
-        """Impute missing values in an incoming raw telemetry sample using precomputed KNN reference data."""
-        if not np.isnan(raw_sample).any():
-            return raw_sample
-
-        sample_out = raw_sample.copy()
-        mask = np.isnan(sample_out)
-
-        if self._faiss_index is not None and self.knn_ref_means is not None:
-            # Temporary mean fill for query vector
-            q = np.where(mask, self.knn_ref_means[:len(sample_out)], sample_out).astype(np.float32)
-            distances, indices = self._faiss_index.search(q.reshape(1, -1), self.knn_k)
-            for j in np.flatnonzero(mask):
-                sample_out[j] = np.nanmean(self.knn_ref_data[indices[0], j])
-        elif self.knn_ref_means is not None:
-            sample_out[mask] = self.knn_ref_means[:len(sample_out)][mask]
-
-        return sample_out
 
     def reset(self) -> None:
         """Reset internal buffers when starting a new streaming trial or participant session."""
@@ -274,8 +233,10 @@ class RealTimeTraditionalDataPipeline:
         """
         t0 = time.perf_counter()
 
-        # 1. Impute missing values if needed
-        sample = self.impute_sample(np.asarray(raw_sample, dtype=np.float64))
+        sample = np.asarray(raw_sample, dtype=np.float64)
+        if np.isnan(sample).any():
+            t1 = time.perf_counter()
+            return None, (t1 - t0) * 1000.0
 
         self._samples_seen += 1
         curr_time = float(timestamp_s) if timestamp_s is not None else (self._samples_seen * self.dt)
