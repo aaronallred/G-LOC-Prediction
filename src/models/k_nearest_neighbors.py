@@ -19,8 +19,6 @@ class KNearestNeighborsModel(TraditionalModel):
             "feature_reduction_type": "performance",
             "baseline_methods_to_use": ["v0", "v1", "v2"],
             "imbalance_type": "ros",
-            "impute_type": 1,
-            "n_neighbors": 5,
         }
 
     @property

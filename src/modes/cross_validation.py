@@ -15,9 +15,8 @@ import numpy as np
 import optuna
 import torch
 from imblearn.metrics import geometric_mean_score
-from imblearn.over_sampling import SMOTE
 from sklearn import metrics
-from sklearn.linear_model import Lasso
+from sklearn.linear_model import Lasso, LassoCV, RidgeCV
 from sklearn.utils.class_weight import compute_class_weight
 from skopt import BayesSearchCV
 from skopt.space import Real
@@ -34,7 +33,7 @@ from src.advanced_experiment_utils import (
 )
 from src.models.base import BaseModel, TraditionalModel, AdvancedModel
 from src.models.model_factory import ModelFactory
-from src.traditional_experiment_utils import stratified_kfold_split
+from src.traditional_experiment_utils import apply_imbalance
 
 logger = logging.getLogger(__name__)
 
@@ -188,48 +187,40 @@ def _run_advanced_hpo(
 
 def _run_traditional_model_cv_fold(
         model: TraditionalModel,
-        X: np.ndarray,
-        y: np.ndarray,
-        kfold_id: int,
-        num_splits: int,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        X_test: np.ndarray,
+        y_test: np.ndarray,
+        fold_idx: int,
         random_seed: int,
         class_weight: Optional[str] = None,
         feature_names: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
-    Run a single fold of cross-validation for a traditional model to obtain
-    accuracy, precision, recall, f1, specificity, and g_mean metrics.
-    
-    Args:
-        model: The traditional model to evaluate
-        X: Full feature matrix (pre-loaded)
-        y: Full label vector (pre-loaded)
-        kfold_id: Which fold to extract
-        num_splits: Total number of splits
-        random_seed: Seed for reproducibility
-        class_weight: Class weighting strategy
-        feature_names: Raw feature names aligned with X columns
+    Run a single fold of cross-validation for a traditional model.
+
+    X_train, X_test, y_train, y_test are already split and fold-aware
+    standardized by the pipeline — no stratified_kfold_split call needed.
     """
     logger.info(
-        f"Running traditional CV fold {kfold_id} for model {model.name}"
+        f"Running traditional CV fold {fold_idx} for model {model.name}"
     )
 
     # Error checking
     if feature_names is None or len(feature_names) == 0:
         raise ValueError("feature_names must be provided for traditional CV fold.")
-
-    # Do fold splitting using stratified_kfold_split on pre-loaded data
-    X_train, X_test, y_train, y_test = stratified_kfold_split(
-        X, y, num_splits, kfold_id, random_state=random_seed
-    )
+    if X_train.size == 0 or y_train.size == 0:
+        raise ValueError(f"Training fold {fold_idx} is empty")
 
     logger.info(
-        "Running traditional fold-local LASSO feature selection for fold %s on %s features",
-        kfold_id,
+        "Running traditional model-specific %s feature selection for fold %s on %s features",
+        model.data_pipeline_hyperparameters["feature_reduction_type"],
+        fold_idx,
         X_train.shape[1],
     )
 
-    X_train, X_test, selected_features = _lasso_feature_selection(
+    X_train, X_test, selected_features = _feature_selection(
+        model=model,
         X_train=X_train,
         X_test=X_test,
         y_train=y_train,
@@ -237,21 +228,19 @@ def _run_traditional_model_cv_fold(
         random_seed=random_seed,
     )
 
+    imbalance_type = model.data_pipeline_hyperparameters["imbalance_type"]
     logger.info(
-        "Running traditional SMOTE resampling for fold %s after LASSO reduced features to %s",
-        kfold_id,
+        "Applying imbalance_type=%s for fold %s after feature selection reduced features to %s",
+        imbalance_type,
+        fold_idx,
         len(selected_features),
     )
 
-    X_train, y_train = _smote_resampling(
-        X_train=X_train,
-        y_train=y_train,
-        random_seed=random_seed,
-    )
+    X_train, y_train = apply_imbalance(imbalance_type, X_train, y_train, random_seed)
 
     logger.info(
         "Running traditional model HPO for fold %s with class_weight = %s",
-        kfold_id,
+        fold_idx,
         class_weight
     )
 
@@ -259,7 +248,7 @@ def _run_traditional_model_cv_fold(
 
     logger.info(
         "Running traditional model evaluation for fold %s",
-        kfold_id
+        fold_idx
     )
 
     preds = search.predict(X_test)
@@ -267,7 +256,7 @@ def _run_traditional_model_cv_fold(
 
     # Build fold result dictionary
     fold_result = _build_fold_result(
-        fold_idx=kfold_id,
+        fold_idx=fold_idx,
         metrics=fold_performance_summary,
         n_train=len(X_train),
         n_val=len(X_test),
@@ -278,7 +267,7 @@ def _run_traditional_model_cv_fold(
     return fold_result, search
 
 
-def _lasso_feature_selection(
+def _lasso_feature_selection_bayes(
         X_train: np.ndarray,
         X_test: np.ndarray,
         y_train: np.ndarray,
@@ -288,6 +277,8 @@ def _lasso_feature_selection(
     """
     Find optimal lasso alpha parameter and fits a lasso model to determine
     most important features. This should only see the 'training' data.
+
+    Deemed an old, inefficient method
     """
 
     search = BayesSearchCV(
@@ -307,15 +298,94 @@ def _lasso_feature_selection(
 
     return X_train[:, selected_features_indices], X_test[:, selected_features_indices], selected_features
 
-
-def _smote_resampling(
+def _lasso_feature_selection(
         X_train: np.ndarray,
+        X_test: np.ndarray,
         y_train: np.ndarray,
+        feature_names: List[str],
+        random_seed: int
+) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+    """
+    Find optimal lasso alpha parameter and fits a lasso model to determine
+    most important features. This should only see the 'training' data.
+    """
+
+    lasso = LassoCV(
+        alphas=100,
+        cv=3,
+        max_iter=5000, #was 1k then 3k (getting not converged warning)
+        n_jobs=-1,
+        random_state=random_seed,
+    )
+    lasso.fit(X_train, np.ravel(y_train))
+
+    selected_features_indices = np.where(np.abs(lasso.coef_) != 0)[0]
+    logger.info("LassoCV selected alpha=%.3e, keeping %s of %s features",
+                lasso.alpha_, len(selected_features_indices), X_train.shape[1])
+
+    selected_features = np.array(feature_names)[selected_features_indices].tolist()
+
+    return X_train[:, selected_features_indices], X_test[:, selected_features_indices], selected_features
+
+def _ridge_feature_selection(
+        X_train: np.ndarray,
+        X_test: np.ndarray,
+        y_train: np.ndarray,
+        feature_names: List[str],
+        top_percent: float,
+) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+    """
+    Select the top `top_percent` % of features by absolute RidgeCV coefficient.
+    Alpha is chosen by 3-fold CV on the full training data, which RidgeCV then refits on.
+    This should only see the 'training' data.
+    """
+    ridge = RidgeCV(alphas=np.logspace(2, 7, 10), cv=3)
+    ridge.fit(X_train, np.ravel(y_train))
+
+    ridge_coef = np.abs(np.ravel(ridge.coef_))
+    threshold = np.percentile(ridge_coef, 100 - top_percent)
+    selected_features_indices = np.where(ridge_coef >= threshold)[0]
+    logger.info("RidgeCV selected alpha=%.3e, keeping %s of %s features (top %s%%)",
+                ridge.alpha_, len(selected_features_indices), X_train.shape[1], top_percent)
+
+    selected_features = np.array(feature_names)[selected_features_indices].tolist()
+
+    return X_train[:, selected_features_indices], X_test[:, selected_features_indices], selected_features
+
+def _feature_selection(
+        model: TraditionalModel,
+        X_train: np.ndarray,
+        X_test: np.ndarray,
+        y_train: np.ndarray,
+        feature_names: List[str],
         random_seed: int,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Apply SMOTE resampling to the training data to address class imbalance."""
-    smote_model = SMOTE(random_state=random_seed, k_neighbors=7)
-    return smote_model.fit_resample(X_train, y_train)
+) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+    """
+    Run the feature selection method named by the model's feature_reduction_type.
+
+    Must update when new feature selection methods are incorporated
+    """
+    pipeline_hyperparameters = model.data_pipeline_hyperparameters
+    feature_reduction_type = pipeline_hyperparameters["feature_reduction_type"]
+
+    if feature_reduction_type == "lasso":
+        return _lasso_feature_selection(X_train, X_test, y_train, feature_names, random_seed)
+
+    if feature_reduction_type == "ridge":
+        top_percent = pipeline_hyperparameters.get("feature_reduction_top_percent")
+        if top_percent is None:
+            raise ValueError(
+                f"{model.name} uses feature_reduction_type='ridge' but has no 'feature_reduction_top_percent'."
+            )
+        return _ridge_feature_selection(X_train, X_test, y_train, feature_names, top_percent)
+
+    if feature_reduction_type == "none":
+        return X_train, X_test, list(feature_names)
+
+    raise ValueError(
+        f"Unsupported feature_reduction_type '{feature_reduction_type}'. "
+        f"Supported: 'lasso', 'ridge', 'none'."
+    )
 
 
 def _run_traditional_hpo(
@@ -441,14 +511,8 @@ def run_cross_validation(
         fold_cache = None  # For advanced models: cache fold data upfront
 
         if model.is_traditional_model:
-            # Traditional models can load the whole dataset first and then do fold splits
-            X, y, feature_names = pipeline.get_data(
-                model=model,
-                traditional_feature_selection="raw",
-                return_feature_names=True,
-            )
-
-            logger.info(f"Loaded traditional data: X shape {X.shape}, y shape {y.shape}")
+            # Traditional models now call get_data per fold for fold-aware standardization.
+            pass  # Dispatch inside fold loop below
         else:
             # Advanced models: require advanced_hpo config and pre-cache fold data
             # This will raise ValueError if advanced_hpo is missing or invalid
@@ -480,12 +544,21 @@ def run_cross_validation(
             fold_dir.mkdir(parents=True, exist_ok=True)
 
             if model.is_traditional_model:
+                X_train, X_test, y_train, y_test, feature_names = pipeline.get_data(
+                    model=model,
+                    kfold_id=fold_idx,
+                    num_splits=num_splits,
+                    traditional_feature_selection="raw",
+                    return_feature_names=True,
+                )
+
                 fold_result, search = _run_traditional_model_cv_fold(
                     model,
-                    X,
-                    y,
+                    X_train,
+                    y_train,
+                    X_test,
+                    y_test,
                     fold_idx,
-                    num_splits,
                     random_seed,
                     class_weight,
                     feature_names=feature_names,

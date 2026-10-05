@@ -1,0 +1,59 @@
+# GPU-first cross-validation configuration for the GPU workstation.
+data_path: ./data/
+main_data_file: all_trials_25_hz_stacked_null_str_filled_reduced.csv
+
+runtime:
+  device: cuda
+  require_gpu: true
+  enable_cuml: true
+  timing_output: Results/XGB_CV_timing.json
+
+shared_data_parameters:
+  subject_to_analyze: null
+  trial_to_analyze: null
+  analysis_type: 2
+  remove_NaN_trials: true
+  impute_file_name: imputed_data.pkl
+  save_impute: false
+  load_impute: false
+  impute_phase: none
+  output_feature_dtype: float32
+
+advanced_data_parameters:
+  n_neighbors: 4
+  baseline_window: 32.5
+  horizon: 0
+
+traditional_data_parameters:
+  backstep: 0
+  data_rate: 25
+  offset: 0
+  time_start: 0
+
+cross_validation:
+  enabled: true
+  models: [XGB]
+  model_type: !ModelType [Complete, Explicit]
+  random_seed: 42
+  num_splits: 10
+  save_results_folder: Results/XGB_CV_lasso_converge
+  class_weight: null
+  traditional_hpo:
+    n_iter: 30
+    cv: 3
+    n_jobs: 1
+    scoring: f1
+  advanced_hpo:
+    use_sampler: true
+    final_early_stop: false
+    objective_var: F1
+    trials: 100
+
+sensor_ablation:
+  training:
+    enabled: false
+  review:
+    enabled: false
+
+feature_space_review:
+  enabled: false

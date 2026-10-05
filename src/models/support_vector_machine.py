@@ -21,8 +21,6 @@ class SupportVectorMachineModel(TraditionalModel):
             "feature_reduction_type": "ridge",
             "baseline_methods_to_use": ["v0", "v1", "v2"],
             "imbalance_type": "none",
-            "impute_type": 1,
-            "n_neighbors": 3,
         }
 
     @property

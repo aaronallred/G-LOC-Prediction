@@ -4,9 +4,10 @@ import os
 import pickle
 import re
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from itertools import islice
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
+from typing import Any, Literal
 
 import faiss
 import numpy as np
@@ -15,7 +16,8 @@ from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
 
 from src.Data_Pipeline.baseline import BaselineContext, baseline_data
-from src.Data_Pipeline.features import FEATURE_REGISTRY, RawEEGGroup, ProcessedEEGGroup
+from src.Data_Pipeline.features import FEATURE_REGISTRY, ProcessedEEGGroup, RawEEGGroup
+from src.Data_Pipeline.fold_standardizer import GlobalStandardizer, TrialAwareStandardizer
 from src.Data_Pipeline.imputation_config import ImputePhase
 from src.model_type import ModelType
 from src.models.base import BaseModel
@@ -27,167 +29,178 @@ SOURCE_DIR = Path(__file__).resolve().parents[2]
 
 
 def _resolve_from_source_dir(path_value: str) -> str:
-    """Resolve relative paths against this module's directory."""
-    candidate = Path(path_value).expanduser()
-    if candidate.is_absolute():
-        return str(candidate)
-    return str((SOURCE_DIR / candidate).resolve())
+	"""Resolve relative paths against this module's directory."""
+	candidate = Path(path_value).expanduser()
+	if candidate.is_absolute():
+		return str(candidate)
+	return str((SOURCE_DIR / candidate).resolve())
 
 
 class DataPipeline:
-    """Facade that routes data loading to the advanced or traditional backend.
+	"""Facade that routes data loading to the advanced or traditional backend.
 
-    This class is the single entry point for data preparation. It selects a backend
-    either explicitly based on the model type and routes to the appropriate implementation.
-    
-    Configuration is sourced directly from the loaded YAML mapping.
-    
-    Args:
-        config: Loaded YAML experiment configuration mapping
-    """
+	This class is the single entry point for data preparation. It selects a backend
+	either explicitly based on the model type and routes to the appropriate implementation.
 
-    def __init__(
-            self,
-            config: dict[str, Any],
-    ) -> None:
-        """Initialize the facade with the experiment configuration mapping."""
-        self._config = config
-        self._random_seed: Optional[int] = None
-        self._model_type: Optional["ModelType"] = None
+	Configuration is sourced directly from the loaded YAML mapping.
 
-    def set_random_seed(self, random_seed: int) -> None:
-        """Set the random seed for data pipeline operations.
-        
-        Args:
-            random_seed: Random seed value for reproducibility
-        """
-        self._random_seed = random_seed
+	Args:
+	    config: Loaded YAML experiment configuration mapping
+	"""
 
-    def set_model_type(self, model_type: "ModelType") -> None:
-        """Set the model type for data pipeline operations.
-        
-        Args:
-            model_type: ModelType instance specifying AFE_filter and feature_set
-        """
-        self._model_type = model_type
+	def __init__(self, config: dict[str, Any]) -> None:
+		"""Initialize the facade with the experiment configuration mapping."""
+		self._config = config
+		self._random_seed: int | None = None
+		self._model_type: ModelType | None = None
 
-    def get_data(
-            self,
-            model: BaseModel,
-            kfold_id: Optional[int] = None,
-            num_splits: Optional[int] = None,
-            feature_streams: Optional[List[str]] = None,
-            traditional_feature_selection: Literal["cache", "raw"] = "cache",
-            return_feature_names: bool = False,
-    ) -> Any:
-        """Execute the selected backend data pipeline.
+	def set_random_seed(self, random_seed: int) -> None:
+		"""Set the random seed for data pipeline operations.
 
-        For advanced pipelines this returns:
-        ``x_train, x_test, y_train, y_test, all_features``
+		Args:
+		    random_seed: Random seed value for reproducibility
+		"""
+		self._random_seed = random_seed
 
-        For traditional pipelines this returns:
-        ``x_feature_matrix, y_gloc_labels``
-        
-        Args:
-            model: Model instance
-            kfold_id: Fold index for cross-validation (optional)
-            num_splits: Number of folds for k-fold splitting (optional). If not provided, 
-                        modes must handle k-fold splitting themselves.
-            feature_streams: Feature streams to select (optional)
-            
-        Returns:
-            Tuple or data from the backend pipeline
-        """
-        backend_type = self._resolve_pipeline_kind(model)
-        backend_data_pipeline = self._build_backend(model)
+	def set_model_type(self, model_type: "ModelType") -> None:
+		"""Set the model type for data pipeline operations.
 
-        # Use stored model_type - must be set before calling get_data()
-        if self._model_type is None:
-            raise ValueError(
-                "model_type must be set on DataPipeline before calling get_data(). "
-                "Call pipeline.set_model_type() first."
-            )
+		Args:
+		    model_type: ModelType instance specifying AFE_filter and feature_set
+		"""
+		self._model_type = model_type
 
-        shared_config = self._config["shared_data_parameters"]
-        request_kwargs: dict[str, Any] = {
-            "model_type": self._model_type,
-            "remove_NaN_trials": shared_config["remove_NaN_trials"],
-            "subject_to_analyze": shared_config["subject_to_analyze"],
-            "trial_to_analyze": shared_config["trial_to_analyze"],
-            "analysis_type": shared_config["analysis_type"],
-            "output_feature_dtype": shared_config["output_feature_dtype"],
-            "impute_file_name": shared_config["impute_file_name"],
-            "impute_phase": shared_config.get("impute_phase", "pre_feature"),
-            "save_impute": shared_config["save_impute"],
-            "load_impute": shared_config["load_impute"],
-        }
+	def get_data(
+		self,
+		model: BaseModel,
+		kfold_id: int | None = None,
+		num_splits: int | None = None,
+		feature_streams: list[str] | None = None,
+		traditional_feature_selection: Literal["cache", "raw"] = "cache",
+		return_feature_names: bool = False,
+		save_preprocessing_artifacts_path: str | None = None,
+	) -> Any:
+		"""Execute the selected backend data pipeline.
 
-        if backend_type == "advanced":
-            if kfold_id is None:
-                raise ValueError("kfold_id is required for advanced pipelines.")
-            if num_splits is not None:
-                request_kwargs["num_splits"] = num_splits
-            request_kwargs["kfold_ID"] = kfold_id
-            advanced_config = self._config["advanced_data_parameters"]
-            request_kwargs["n_neighbors"] = advanced_config["n_neighbors"]
-            request_kwargs["baseline_window"] = advanced_config["baseline_window"]
-            request_kwargs["horizon"] = advanced_config.get("horizon", 0)
-            request_kwargs["feature_streams"] = feature_streams
-        else:
-            request_kwargs["classifier_type"] = self._resolve_classifier_name(model)
-            request_kwargs["model"] = model
-            request_kwargs["traditional_feature_selection"] = traditional_feature_selection
-            request_kwargs["return_feature_names"] = return_feature_names
-            request_kwargs["feature_streams"] = feature_streams
-            if traditional_feature_selection == "cache":
-                selected_features = self._resolve_select_features(request_kwargs)
-                request_kwargs["select_features"] = selected_features
-            traditional_config = self._config["traditional_data_parameters"]
-            request_kwargs["backstep"] = traditional_config["backstep"]
-            request_kwargs["data_rate"] = traditional_config["data_rate"]
-            request_kwargs["offset"] = traditional_config["offset"]
-            request_kwargs["time_start"] = traditional_config["time_start"]
+		For both advanced and traditional pipelines this returns a fold-aware
+		train/test split plus, when ``return_feature_names=True``, the feature
+		name list:
 
-        return backend_data_pipeline.get_data(**request_kwargs)
+		- ``return_feature_names=False``:
+		  ``(x_train, x_test, y_train, y_test)``
+		- ``return_feature_names=True``:
+		  ``(x_train, x_test, y_train, y_test, select_features)``
 
-    def _build_backend(self, model: BaseModel) -> Any:
-        """Instantiate the backend pipeline selected by model type."""
-        pipeline_kind = self._resolve_pipeline_kind(model)
+		Args:
+		    model: Model instance
+		    kfold_id: Fold index for cross-validation (required for both
+		        advanced and traditional backends so that fold-aware
+		        standardization can be applied to training rows only).
+		    num_splits: Number of folds for k-fold splitting (required).
+		    feature_streams: Feature streams to select (optional)
+		    traditional_feature_selection: "cache" or "raw"
+		    return_feature_names: Whether to return feature names
+		    save_preprocessing_artifacts_path: Optional path to save JSON artifacts
 
-        # Use stored random_seed or default to 0 if not set
-        random_seed = self._random_seed if self._random_seed is not None else 0
+		Returns:
+		    Tuple of split data (and feature names when requested) from the
+		    backend pipeline.
+		"""
+		backend_type = self._resolve_pipeline_kind(model)
+		backend_data_pipeline = self._build_backend(model)
 
-        if pipeline_kind == "traditional":
-            logger.info("Selected traditional data pipeline based on model type.")
-            return TraditionalDataPipeline(
-                data_path=self._config["data_path"],
-                random_seed=random_seed,
-                config=self._config
-            )
-        else:
-            logger.info("Selected advanced data pipeline based on model type.")
-            return AdvancedDataPipeline(
-                data_path=self._config["data_path"],
-                random_seed=random_seed,
-                config=self._config
-            )
+		# Use stored model_type - must be set before calling get_data()
+		if self._model_type is None:
+			raise ValueError(
+				"model_type must be set on DataPipeline before calling get_data(). "
+				"Call pipeline.set_model_type() first."
+			)
 
-    def _resolve_pipeline_kind(self, model: BaseModel) -> Literal["advanced", "traditional"]:
-        """Resolve whether the configured model maps to advanced or traditional flow."""
-        # if model is None or not hasattr(model, "is_traditional"):
-        #     raise ValueError("Model does not have 'is_traditional' attribute. Unable to determine pipeline kind.")
+		shared_config = self._config["shared_data_parameters"]
+		request_kwargs: dict[str, Any] = {
+			"model_type": self._model_type,
+			"remove_NaN_trials": shared_config["remove_NaN_trials"],
+			"subject_to_analyze": shared_config["subject_to_analyze"],
+			"trial_to_analyze": shared_config["trial_to_analyze"],
+			"analysis_type": shared_config["analysis_type"],
+			"output_feature_dtype": shared_config["output_feature_dtype"],
+		}
 
-        return "traditional" if model.is_traditional_model else "advanced"
+		if backend_type == "advanced":
+			if kfold_id is None:
+				raise ValueError("kfold_id is required for advanced pipelines.")
+			if num_splits is not None:
+				request_kwargs["num_splits"] = num_splits
+			request_kwargs["kfold_ID"] = kfold_id
+			request_kwargs["impute_file_name"] = shared_config["impute_file_name"]
+			request_kwargs["impute_phase"] = shared_config.get("impute_phase", "pre_feature")
+			request_kwargs["save_impute"] = shared_config["save_impute"]
+			request_kwargs["load_impute"] = shared_config["load_impute"]
+			advanced_config = self._config["advanced_data_parameters"]
+			request_kwargs["n_neighbors"] = advanced_config["n_neighbors"]
+			request_kwargs["baseline_window"] = advanced_config["baseline_window"]
+			request_kwargs["horizon"] = advanced_config.get("horizon", 0)
+			request_kwargs["feature_streams"] = feature_streams
+		else:
+			if kfold_id is None or num_splits is None:
+				raise ValueError(
+					"Traditional pipeline requires kfold_id and num_splits for fold-aware "
+					f"standardization. Got kfold_id={kfold_id}, num_splits={num_splits}."
+				)
+			request_kwargs["kfold_id"] = kfold_id
+			request_kwargs["num_splits"] = num_splits
+			request_kwargs["classifier_type"] = self._resolve_classifier_name(model)
+			request_kwargs["model"] = model
+			request_kwargs["traditional_feature_selection"] = traditional_feature_selection
+			request_kwargs["return_feature_names"] = return_feature_names
+			request_kwargs["save_preprocessing_artifacts_path"] = save_preprocessing_artifacts_path
+			request_kwargs["feature_streams"] = feature_streams
+			if traditional_feature_selection == "cache":
+				selected_features = self._resolve_select_features(request_kwargs)
+				request_kwargs["select_features"] = selected_features
+			traditional_config = self._config["traditional_data_parameters"]
+			request_kwargs["backstep"] = traditional_config["backstep"]
+			request_kwargs["data_rate"] = traditional_config["data_rate"]
+			request_kwargs["offset"] = traditional_config["offset"]
+			request_kwargs["time_start"] = traditional_config["time_start"]
+			request_kwargs["standardize_s1"] = traditional_config.get("standardize_s1", True)
 
-    def _resolve_classifier_name(self, model: BaseModel) -> str:
-        """Resolve classifier name from the configured model."""
-        # if model is None or not hasattr(model, "get_name"):
-        #     raise ValueError("Unable to determine classifier name.")
+		return backend_data_pipeline.get_data(**request_kwargs)
 
-        return model.name
+	def _build_backend(self, model: BaseModel) -> Any:
+		"""Instantiate the backend pipeline selected by model type."""
+		pipeline_kind = self._resolve_pipeline_kind(model)
 
-    def _resolve_select_features(self, current_kwargs: dict[str, Any]) -> list[str]:
-        """Load selected feature names from the median-hyperparameter cache."""
+		# Use stored random_seed or default to 0 if not set
+		random_seed = self._random_seed if self._random_seed is not None else 0
+
+		if pipeline_kind == "traditional":
+			logger.info("Selected traditional data pipeline based on model type.")
+			return TraditionalDataPipeline(
+				data_path=self._config["data_path"], random_seed=random_seed, config=self._config
+			)
+		else:
+			logger.info("Selected advanced data pipeline based on model type.")
+			return AdvancedDataPipeline(
+				data_path=self._config["data_path"], random_seed=random_seed, config=self._config
+			)
+
+	def _resolve_pipeline_kind(self, model: BaseModel) -> Literal["advanced", "traditional"]:
+		"""Resolve whether the configured model maps to advanced or traditional flow."""
+		# if model is None or not hasattr(model, "is_traditional"):
+		#     raise ValueError("Model does not have 'is_traditional' attribute. Unable to determine pipeline kind.")
+
+		return "traditional" if model.is_traditional_model else "advanced"
+
+	def _resolve_classifier_name(self, model: BaseModel) -> str:
+		"""Resolve classifier name from the configured model."""
+		# if model is None or not hasattr(model, "get_name"):
+		#     raise ValueError("Unable to determine classifier name.")
+
+		return model.name
+
+	def _resolve_select_features(self, current_kwargs: dict[str, Any]) -> list[str]:
+		"""Load selected feature names from the median-hyperparameter cache."""
 
         # TODO -> This is probably bad to hardcode it to sensor ablation config, but sensor ablation config is the only
         # one that uses it, so it is fine for now
@@ -202,18 +215,18 @@ class DataPipeline:
             "median_hyperparameters.json",
         )
 
-        with open(json_path, 'r') as f:
-            data = json.load(f)
+		with open(json_path, "r") as f:
+			data = json.load(f)
 
-        return data['selected_features']
+		return data["selected_features"]
 
 
 class BaseGLOCDataPipeline(ABC):
-    """Abstract base class for GLOC data pipelines (advanced and traditional).
-    
-    Contains all shared methods and constants for data loading, processing, and feature engineering.
-    Subclasses must implement the abstract get_data() method with pipeline-specific logic.
-    """
+	"""Abstract base class for GLOC data pipelines (advanced and traditional).
+
+	Contains all shared methods and constants for data loading, processing, and feature engineering.
+	Subclasses must implement the abstract get_data() method with pipeline-specific logic.
+	"""
 
     # Shared constants: Feature groups by model type
     FEATURE_GROUPS_BY_MODEL_TYPE = {
@@ -226,132 +239,227 @@ class BaseGLOCDataPipeline(ABC):
         ModelType("noAFE", "Common") : ("ECG", "BR", "temp", "G"),
     }
 
-    # Mapping of participant -> DC trial numbers for GOR EEG data files
-    _EEG_PARTICIPANT_TRIALS = {
-        1: [1, 2, 3], 2: [1, 2, 3], 3: [1, 2, 3], 4: [1, 2, 3], 5: [1, 2, 3],
-        6: [1, 4, 6], 7: [2, 4, 6], 8: [1, 3], 9: [2, 5, 6],
-        10: [2, 4, 5], 11: [1], 12: [1, 5], 13: [1, 3, 6],
-    }
+	# Mapping of participant -> DC trial numbers for GOR EEG data files
+	_EEG_PARTICIPANT_TRIALS = {
+		1: [1, 2, 3],
+		2: [1, 2, 3],
+		3: [1, 2, 3],
+		4: [1, 2, 3],
+		5: [1, 2, 3],
+		6: [1, 4, 6],
+		7: [2, 4, 6],
+		8: [1, 3],
+		9: [2, 5, 6],
+		10: [2, 4, 5],
+		11: [1],
+		12: [1, 5],
+		13: [1, 3, 6],
+	}
 
-    _EEG_BASELINE_BANDS = ["delta", "theta", "alpha", "beta"]
+	_EEG_BASELINE_BANDS = ["delta", "theta", "alpha", "beta"]
 
-    # 32 raw EEG channel names (without " - EEG" suffix)
-    _RAW_EEG_CHANNELS = [
-        'F1', 'Fz', 'F3', 'C3', 'C4', 'CP1', 'CP2',
-        'T8', 'TP9', 'TP10', 'P7', 'P8', 'AFz', 'AF4',
-        'FT9', 'FT10', 'FC5', 'FC3', 'FC1', 'FC2', 'FC4',
-        'FC6', 'C5', 'Cz', 'CP5', 'CP6', 'P5', 'P3',
-        'P1', 'Pz', 'P4', 'P6',
-    ]
+	# 32 raw EEG channel names (without " - EEG" suffix)
+	_RAW_EEG_CHANNELS = [
+		"F1",
+		"Fz",
+		"F3",
+		"C3",
+		"C4",
+		"CP1",
+		"CP2",
+		"T8",
+		"TP9",
+		"TP10",
+		"P7",
+		"P8",
+		"AFz",
+		"AF4",
+		"FT9",
+		"FT10",
+		"FC5",
+		"FC3",
+		"FC1",
+		"FC2",
+		"FC4",
+		"FC6",
+		"C5",
+		"Cz",
+		"CP5",
+		"CP6",
+		"P5",
+		"P3",
+		"P1",
+		"Pz",
+		"P4",
+		"P6",
+	]
 
-    # Unengineered data streams used for feature selection
-    _UNENGINEERED_STREAMS = frozenset(
-        [
-            'HR (bpm) - Equivital',
-            'ECG Lead 1 - Equivital', 'ECG Lead 2 - Equivital',
-            'HR_instant - Equivital', 'HR_average - Equivital', 'HR_w_average - Equivital',
-            'BR (rpm) - Equivital',
-            'Skin Temperature - IR Thermometer (°C) - Equivital',
-            'Pupil position left X [HUCS mm] - Tobii', 'Pupil position left Y [HUCS mm] - Tobii',
-            'Pupil position left Z [HUCS mm] - Tobii', 'Pupil position right X [HUCS mm] - Tobii',
-            'Pupil position right Y [HUCS mm] - Tobii', 'Pupil position right Z [HUCS mm] - Tobii',
-            'Pupil diameter left [mm] - Tobii', 'Pupil diameter right [mm] - Tobii',
-            'magnitude - Centrifuge',
-            'Strain [0/1]',
-            'participant_gender', 'participant_age', 'participant_height',
-            'participant_weight', 'participant_BMI', 'participant_blood_volume',
-            'participant_SBP_seated', 'participant_SBP_stand', 'participant_SBP_exercise',
-            'participant_DBP_seated', 'participant_DBP_stand', 'participant_DBP_exercise',
-            'participant_MAP_seated', 'participant_MAP_stand', 'participant_MAP_exercise',
-            'participant_HR_seated', 'participant_HR_stand', 'participant_HR_exercise',
-            'participant_max_leg_strength', 'participant_largest_leg_circumference',
-            'participant_lower_leg_volume', 'participant_skinfolds_chest_avg',
-            'participant_skinfolds_abd_avg', 'participant_skinfolds_thigh_avg',
-            'participant_skinfolds_midax_avg', 'participant_skinfolds_subscap_avg',
-            'participant_skinfolds_tri_avg', 'participant_skinfolds_supra_avg',
-            'participant_skinfolds_sum', 'participant_percent_fat', 'participant_leg_length',
-            'participant_arm_length', 'participant_midline_neck_length',
-            'participant_lateral_neck_length', 'participant_torso_length_post',
-            'participant_torso_length_ax', 'participant_head_to_heart', 'participant_head_girth',
-            'participant_neck_girth', 'participant_chest_upper_girth', 'participant_chest_under_girth',
-            'participant_waist_girth', 'participant_hip_girth', 'participant_thigh_girth',
-            'participant_calf_girth', 'participant_biceps_girth_flex', 'participant_biceps_girth_relax',
-            'participant_neck_flexion', 'participant_neck_extension', 'participant_neck_right_rotation',
-            'participant_neck_left_rotation', 'participant_neck_left_lat_flex',
-            'participant_neck_right_lat_flex', 'participant_pred_vo2',
-        ]
-        + [f'{ch} - EEG' for ch in _RAW_EEG_CHANNELS]
-        + [f'{ch}_{band} - EEG' for ch in _RAW_EEG_CHANNELS for band in ["delta", "theta", "alpha", "beta"]]
-    )
+	# Unengineered data streams used for feature selection
+	_UNENGINEERED_STREAMS = frozenset(
+		[
+			"HR (bpm) - Equivital",
+			"ECG Lead 1 - Equivital",
+			"ECG Lead 2 - Equivital",
+			"HR_instant - Equivital",
+			"HR_average - Equivital",
+			"HR_w_average - Equivital",
+			"BR (rpm) - Equivital",
+			"Skin Temperature - IR Thermometer (°C) - Equivital",
+			"Pupil position left X [HUCS mm] - Tobii",
+			"Pupil position left Y [HUCS mm] - Tobii",
+			"Pupil position left Z [HUCS mm] - Tobii",
+			"Pupil position right X [HUCS mm] - Tobii",
+			"Pupil position right Y [HUCS mm] - Tobii",
+			"Pupil position right Z [HUCS mm] - Tobii",
+			"Pupil diameter left [mm] - Tobii",
+			"Pupil diameter right [mm] - Tobii",
+			"magnitude - Centrifuge",
+			"Strain [0/1]",
+			"participant_gender",
+			"participant_age",
+			"participant_height",
+			"participant_weight",
+			"participant_BMI",
+			"participant_blood_volume",
+			"participant_SBP_seated",
+			"participant_SBP_stand",
+			"participant_SBP_exercise",
+			"participant_DBP_seated",
+			"participant_DBP_stand",
+			"participant_DBP_exercise",
+			"participant_MAP_seated",
+			"participant_MAP_stand",
+			"participant_MAP_exercise",
+			"participant_HR_seated",
+			"participant_HR_stand",
+			"participant_HR_exercise",
+			"participant_max_leg_strength",
+			"participant_largest_leg_circumference",
+			"participant_lower_leg_volume",
+			"participant_skinfolds_chest_avg",
+			"participant_skinfolds_abd_avg",
+			"participant_skinfolds_thigh_avg",
+			"participant_skinfolds_midax_avg",
+			"participant_skinfolds_subscap_avg",
+			"participant_skinfolds_tri_avg",
+			"participant_skinfolds_supra_avg",
+			"participant_skinfolds_sum",
+			"participant_percent_fat",
+			"participant_leg_length",
+			"participant_arm_length",
+			"participant_midline_neck_length",
+			"participant_lateral_neck_length",
+			"participant_torso_length_post",
+			"participant_torso_length_ax",
+			"participant_head_to_heart",
+			"participant_head_girth",
+			"participant_neck_girth",
+			"participant_chest_upper_girth",
+			"participant_chest_under_girth",
+			"participant_waist_girth",
+			"participant_hip_girth",
+			"participant_thigh_girth",
+			"participant_calf_girth",
+			"participant_biceps_girth_flex",
+			"participant_biceps_girth_relax",
+			"participant_neck_flexion",
+			"participant_neck_extension",
+			"participant_neck_right_rotation",
+			"participant_neck_left_rotation",
+			"participant_neck_left_lat_flex",
+			"participant_neck_right_lat_flex",
+			"participant_pred_vo2",
+		]
+		+ [f"{ch} - EEG" for ch in _RAW_EEG_CHANNELS]
+		+ [
+			f"{ch}_{band} - EEG"
+			for ch in _RAW_EEG_CHANNELS
+			for band in ["delta", "theta", "alpha", "beta"]
+		]
+	)
 
-    BASELINING_CHARACTERISTICS_BY_MODEL_TYPE = {
-        "noAFE": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
-        "Complete": ["v0", "v1", "v2", "v5", "v6"],
-    }
+	BASELINING_CHARACTERISTICS_BY_MODEL_TYPE = {
+		"noAFE": ["v0", "v1", "v2", "v5", "v6", "v7", "v8"],
+		"Complete": ["v0", "v1", "v2", "v5", "v6"],
+	}
 
-    _SENSOR_STREAM_PATTERNS: dict[str, tuple[str, ...]] = {
-        # Equivital streams
-        "ECG": (r"ecg", r"equivital", r"hrv"),
-        "HR": (r"\bhr\b", r"participant_hr"),
-        "BR": (r"\bbr\b",),
-        "Temperature": (r"temp", r"temperature"),
-        # Other device streams
-        "Pupil": (r"pupil",),
-        "Centrifuge": (r"centrifuge",),
-        "EEG": (r"eeg",),
-        "Strain": (r"strain",),
-        # Demographics
-        "Participant": (r"participant_",),
-        "Demographics": (r"participant_",),
-    }
+	# Lower-cased alias -> canonical stream name. Recognized by
+	# ``_normalize_feature_streams``.
+	_STREAM_ALIASES: dict[str, str] = {
+		"demographic": "Demographics",
+		"demographics": "Demographics",
+		"participant": "Demographics",
+		"temp": "Temperature",
+		"temperature": "Temperature",
+		"eyetracking": "Pupil",
+		"pupil": "Pupil",
+		"g": "Centrifuge",
+		"gforce": "Centrifuge",
+		"g force": "Centrifuge",
+		"raweeg": "EEG",
+		"processedeeg": "EEG",
+		"eeg": "EEG",
+		"br": "BR",
+		"ecg": "ECG",
+		"strain": "Strain",
+		"hr": "HR",
+	}
 
-    _SENSOR_STREAM_ALIASES: dict[str, str] = {
-        "demographic": "Demographics",
-        "demographics": "Demographics",
-        "participant": "Participant",
-        "gforce": "Centrifuge",
-        "g force": "Centrifuge",
-    }
+	_STREAM_KEYWORDS: dict[str, tuple[str, ...]] = {
+		"ECG": ("ecg",),
+		"HR": ("hr",),
+		"BR": ("br",),
+		"Temperature": ("temp", "temperature"),
+		"Pupil": ("pupil",),
+		"Centrifuge": ("centrifuge",),
+		"EEG": ("eeg",),
+		"Strain": ("strain",),
+		"Participant": ("participant_",),
+		"Demographics": ("participant_",),
+	}
 
-    def __init__(self, data_path: str = "../data/", random_seed: int = 42,
-                 config: Optional[dict[str, Any]] = None) -> None:
-        """Initialize shared pipeline state.
-        
-        Args:
-            data_path: Path to data directory
-            random_seed: Random seed for reproducibility
-            config: Loaded YAML experiment configuration mapping for accessing config settings
-        """
-        self.data_path = _resolve_from_source_dir(data_path)
-        self._data_locations = None
-        self.random_seed = random_seed
-        self.config = config or {}
+	def __init__(
+		self,
+		data_path: str = "../data/",
+		random_seed: int = 42,
+		config: dict[str, Any] | None = None,
+	) -> None:
+		"""Initialize shared pipeline state.
 
-    @abstractmethod
-    def get_data(self, **kwargs: Any) -> Any:
-        """Execute the data pipeline with specified parameters.
-        
-        Must be implemented by subclasses.
-        
-        Args:
-            **kwargs: Pipeline-specific keyword arguments
-            
-        Returns:
-            Processed data in pipeline-specific format
-        """
-        pass
+		Args:
+		    data_path: Path to data directory
+		    random_seed: Random seed for reproducibility
+		    config: Loaded YAML experiment configuration mapping for accessing config settings
+		"""
+		self.data_path = _resolve_from_source_dir(data_path)
+		self._data_locations = None
+		self.random_seed = random_seed
+		self.config = config or {}
+
+	@abstractmethod
+	def get_data(self, **kwargs: Any) -> Any:
+		"""Execute the data pipeline with specified parameters.
+
+		Must be implemented by subclasses.
+
+		Args:
+		    **kwargs: Pipeline-specific keyword arguments
+
+		Returns:
+		    Processed data in pipeline-specific format
+		"""
 
     def _get_data_locations(self, model_type: "ModelType") -> Dict[str, Any]:
         """Build and cache filesystem paths used by data loading."""
         if self._data_locations is not None:
             return self._data_locations
 
-        eeg_dir = "GLOC_GOR_EEG_data_participants_1-13"
-        list_of_eeg_data_file_paths = [
-            os.path.join(self.data_path, eeg_dir, f"GLOC_{p:02d}_DC{t}_25Hz_EEG_power_wMAR.xlsx")
-            for p, trials in self._EEG_PARTICIPANT_TRIALS.items()
-            for t in trials
-        ]
+		eeg_dir = "GLOC_GOR_EEG_data_participants_1-13"
+		list_of_eeg_data_file_paths = [
+			os.path.join(self.data_path, eeg_dir, f"GLOC_{p:02d}_DC{t}_25Hz_EEG_power_wMAR.xlsx")
+			for p, trials in self._EEG_PARTICIPANT_TRIALS.items()
+			for t in trials
+		]
 
         list_of_baseline_eeg_processed_file_paths = [
             os.path.join(self.data_path, f"GLOC_EEG_baseline_{band}_noAFE1.csv")
@@ -403,59 +511,65 @@ class BaseGLOCDataPipeline(ABC):
         """Load data from CSV or pickle files. If pickle does not exist, create it from CSV."""
         main_data_pickle_file = file_paths["main"].replace(".csv", ".pkl")
 
-        # Check if pickle exists, if not create it then save it
-        if not os.path.isfile(main_data_pickle_file):
-            logger.info("Pickle not found at %s. Loading from CSV and caching.", main_data_pickle_file)
-            gloc_data = pd.read_csv(file_paths["main"])
-            gloc_data.to_pickle(main_data_pickle_file)
-        else:
-            logger.info("Loading data from pickle at %s.", main_data_pickle_file)
-            gloc_data = pd.read_pickle(main_data_pickle_file)
+		# Check if pickle exists, if not create it then save it
+		if not os.path.isfile(main_data_pickle_file):
+			logger.info(
+				"Pickle not found at %s. Loading from CSV and caching.", main_data_pickle_file
+			)
+			gloc_data = pd.read_csv(file_paths["main"])
+			gloc_data.to_pickle(main_data_pickle_file)
+		else:
+			logger.info("Loading data from pickle at %s.", main_data_pickle_file)
+			gloc_data = pd.read_pickle(main_data_pickle_file)
 
         # Add GOR and EEG data from other files - only needed if eeg groups are requested
         if feature_groups_to_analyze is not None and ("rawEEG" in feature_groups_to_analyze or "processedEEG in feature_groups_to_analyze"):
             gloc_data = self._process_EEG_GOR(file_paths["eeg_list"], gloc_data, output_feature_dtype)
 
-        # Adjust AFE condition column always
-        gloc_data["condition"] = gloc_data["condition"].map({"N": 0, "AFE": 1})
-        gloc_data = gloc_data.rename(columns={"condition": "AFE_indicator"})
+		# Adjust AFE condition column always
+		gloc_data["condition"] = gloc_data["condition"].map({"N": 0, "AFE": 1})
+		gloc_data = gloc_data.rename(columns={"condition": "AFE_indicator"})
 
-        float64_cols = gloc_data.select_dtypes(include="float64").columns
-        if len(float64_cols) > 0:
-            gloc_data = gloc_data.astype({col: output_feature_dtype for col in float64_cols}).copy()
+		float64_cols = gloc_data.select_dtypes(include="float64").columns
+		if len(float64_cols) > 0:
+			gloc_data = gloc_data.astype({col: output_feature_dtype for col in float64_cols}).copy()
 
-        # Extracting subject and trial into separate columns
-        trial_ids = gloc_data["trial_id"].to_numpy().astype("str")
-        trial_ids = np.array(np.char.split(trial_ids, "-").tolist())
-        gloc_data["subject"] = trial_ids[:, 0]
-        gloc_data["trial"] = trial_ids[:, 1]
+		# Extracting subject and trial into separate columns
+		trial_ids = gloc_data["trial_id"].to_numpy().astype("str")
+		trial_ids = np.array(np.char.split(trial_ids, "-").tolist())
+		gloc_data["subject"] = trial_ids[:, 0]
+		gloc_data["trial"] = trial_ids[:, 1]
 
-        # Decouple from original dataframe to prevent unwanted modifications later on
-        return gloc_data
+		# Decouple from original dataframe to prevent unwanted modifications later on
+		return gloc_data
 
-    def _process_EEG_GOR(self, list_of_eeg_data_files: List[str], gloc_data: pd.DataFrame,
-                         output_feature_dtype: np.dtype = np.dtype(np.float32)) -> pd.DataFrame:
-        """Slot in GOR EEG band power data from xlsx files, replacing NaNs in the main CSV."""
-        trial_indices_map = gloc_data.groupby("trial_id", sort=False).indices
-        event_validated = gloc_data["event_validated"].to_numpy()
-        trial_ids = gloc_data["trial_id"].to_numpy()
-        begin_mask = event_validated == "begin GOR"
-        begin_idx_map = (
-            pd.Series(np.flatnonzero(begin_mask), index=trial_ids[begin_mask])
-            .groupby(level=0, sort=False)
-            .first()
-            .to_dict()
-        )
+	def _process_EEG_GOR(
+		self,
+		list_of_eeg_data_files: list[str],
+		gloc_data: pd.DataFrame,
+		output_feature_dtype: np.dtype = np.dtype(np.float32),
+	) -> pd.DataFrame:
+		"""Slot in GOR EEG band power data from xlsx files, replacing NaNs in the main CSV."""
+		trial_indices_map = gloc_data.groupby("trial_id", sort=False).indices
+		event_validated = gloc_data["event_validated"].to_numpy()
+		trial_ids = gloc_data["trial_id"].to_numpy()
+		begin_mask = event_validated == "begin GOR"
+		begin_idx_map = (
+			pd.Series(np.flatnonzero(begin_mask), index=trial_ids[begin_mask])
+			.groupby(level=0, sort=False)
+			.first()
+			.to_dict()
+		)
 
-        band_names = ["delta", "theta", "alpha", "beta"]
+		band_names = ["delta", "theta", "alpha", "beta"]
 
-        for current_file in list_of_eeg_data_files:
-            # Parse trial ID from filename: e.g. "GLOC_01_DC1_..." -> "01-01"
-            match = re.search(r'GLOC_(\d{2})_DC(\d+)', os.path.basename(current_file))
-            if not match:
-                logger.warning("Could not parse trial ID from filename: %s", current_file)
-                continue
-            corresponding_trial = f"{match.group(1)}-0{match.group(2)}"
+		for current_file in list_of_eeg_data_files:
+			# Parse trial ID from filename: e.g. "GLOC_01_DC1_..." -> "01-01"
+			match = re.search(r"GLOC_(\d{2})_DC(\d+)", os.path.basename(current_file))
+			if not match:
+				logger.warning("Could not parse trial ID from filename: %s", current_file)
+				continue
+			corresponding_trial = f"{match.group(1)}-0{match.group(2)}"
 
             # Read all band sheets and drop the time 
             print("Current file:" +current_file)
@@ -464,471 +578,454 @@ class BaseGLOCDataPipeline(ABC):
                 for band in band_names
             }
 
-            trial_indices = trial_indices_map.get(corresponding_trial)
-            if trial_indices is None:
-                logger.warning("Could not find trial %s in data.", corresponding_trial)
-                continue
-
-            index_begin_GOR = begin_idx_map.get(corresponding_trial)
-            if index_begin_GOR is None:
-                logger.warning("Could not find 'begin GOR' for trial %s.", corresponding_trial)
-                continue
-
-            start_pos = np.searchsorted(trial_indices, index_begin_GOR)
-            n_rows = len(band_dfs["delta"])
-            trial_indexer = trial_indices[start_pos: start_pos + n_rows]
-
-            # Build column names and assign values for each band
-            column_names = band_dfs["delta"].columns
-            for band in band_names:
-                cols = [f"{c}_{band} - EEG" for c in column_names]
-                gloc_data.loc[trial_indexer, cols] = band_dfs[band].to_numpy(dtype=output_feature_dtype)
-
-        return gloc_data
-
-    def _filter_data_by_analysis_type(
-            self,
-            analysis_type: int,
-            gloc_data: pd.DataFrame,
-            subject_to_analyze: Optional[str] = None,
-            trial_to_analyze: Optional[str] = None,
-    ) -> pd.DataFrame:
-        """Analyze only section of gloc_data specified using analysis_type."""
-        if analysis_type == 0:  # One Trial / One Subject
-            mask = (gloc_data["subject"] == subject_to_analyze) & (gloc_data["trial"] == trial_to_analyze)
-        elif analysis_type == 1:  # All Trials for One Subject
-            mask = (gloc_data["subject"] == subject_to_analyze)
-        else:  # All Trials for All Subjects
-            return gloc_data
-
-        return gloc_data[mask]
-
-    def _process_and_get_feature_names(
-            self,
-            gloc_data: pd.DataFrame,
-            feature_groups_to_analyze: Sequence[str],
-            model_type: ModelType,
-            file_names: Dict[str, Any],
-            output_feature_dtype: np.dtype = np.dtype(np.float32),
-    ) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
-        """Process data and extract feature names based on specified feature groups."""
-        GROUPS_OF_FEATURE_GROUPS = {
-            "Phys": {"ECG", "BR", "temp", "fnirs", "eyetracking", "rawEEG", "processedEEG"},
-            "ECG": {"ECG"},
-            "EEG": {"processedEEG"}
-            # Adding rawEEG does not change anything (rawEEG ignored during baseline v7 and v8 calculations)
-        }
-
-        features = {
-            "All": [],
-            "Phys": [],
-            "ECG": [],
-            "EEG": []
-        }
-        features_all = features["All"]
-        features_phys = features["Phys"]
-        features_ecg = features["ECG"]
-        features_eeg = features["EEG"]
-
-        for group_name in feature_groups_to_analyze:
-            if group_name not in FEATURE_REGISTRY:
-                logger.warning("Feature group '%s' not recognized. Skipping.", group_name)
-                continue
-
-            processor = FEATURE_REGISTRY[group_name]
-
-            # Process data for the feature group
-            gloc_data = processor.process(gloc_data, file_names)
-            feature_names = processor.get_feature_names(model_type)
-
-            # Adding features to relevant groups
-            if group_name in GROUPS_OF_FEATURE_GROUPS["Phys"]:
-                features_phys.extend(feature_names)
-
-            if group_name in GROUPS_OF_FEATURE_GROUPS["ECG"]:
-                features_ecg.extend(feature_names)
-
-            if group_name in GROUPS_OF_FEATURE_GROUPS["EEG"]:
-                features_eeg.extend(feature_names)
-
-            features_all.extend(feature_names)
-
-        return gloc_data, features
-
-    def _label_gloc_events(self, gloc_data: pd.DataFrame) -> np.ndarray:
-        """Create a GLOC label vector based on event_validated column.
-        
-        Labels are 1 between GLOC and Return to Consciousness events.
-        """
-        event_validated = gloc_data["event_validated"]
-
-        # Find all GLOC and RTC indices, pair them in order, and label between each pair
-        gloc_indices = np.where(event_validated.to_numpy() == "GLOC")[0]
-        rtc_indices = np.where(event_validated.to_numpy() == "return to consciousness")[0]
-
-        trial_ids = gloc_data["trial_id"].to_numpy()
-        gloc_labels = np.zeros(len(gloc_data))
-
-        for i in range(len(gloc_indices)):
-            start = gloc_indices[i]
-            end = rtc_indices[i]
-            if trial_ids[start] == trial_ids[end]:
-                gloc_labels[start:end] = 1
-
-        return gloc_labels
-
-    def _afe_subset(self, gloc_data: pd.DataFrame, gloc_labels: np.ndarray) -> Tuple[pd.DataFrame, np.ndarray]:
-        """Remove any trial that contains AFE condition (AFE indicator == 1)."""
-        trial_has_afe = gloc_data.groupby(["subject", "trial"])["AFE_indicator"].transform("max")
-        keep_mask = trial_has_afe != 1
-
-        gloc_data = gloc_data.loc[keep_mask].reset_index(drop=True)
-        gloc_labels = gloc_labels[keep_mask]
-
-        return gloc_data, gloc_labels
-
-    def _eeg_specific_imputation(self, gloc_data: pd.DataFrame, features: Dict[str, List[str]]) -> pd.DataFrame:
-        """Mean-impute EEG channels that are exclusive to one AFE condition."""
-        self._eeg_condition_impute(gloc_data, features, gloc_data["AFE_indicator"])
-        return gloc_data
-
-    def _eeg_condition_impute(self, gloc_data: pd.DataFrame, features: Dict[str, List[str]],
-                              afe_indicator_column: pd.Series, verbose: bool = False) -> None:
-        """Mean-impute condition-specific EEG columns so both AFE/non-AFE have all features. Modifies gloc_data in-place."""
-        # Create masks for each condition
-        afe_mask = afe_indicator_column == 1
-        nonafe_mask = afe_indicator_column == 0
-
-        # Pull columns that need to be imputed for each type
-        raw_eeg_feature_names = RawEEGGroup.get_separated_feature_names()
-        processed_eeg_feature_names = ProcessedEEGGroup.get_separated_feature_names()
-        all_afe_only_cols = raw_eeg_feature_names["AFE Only"] + processed_eeg_feature_names["AFE Only"]
-        all_nonafe_only_cols = raw_eeg_feature_names["Non-AFE Only"] + processed_eeg_feature_names["Non-AFE Only"]
-        eeg_feature_set = set(features["EEG"])
-        afe_only_cols = [col for col in all_afe_only_cols if col in eeg_feature_set]
-        nonafe_only_cols = [col for col in all_nonafe_only_cols if col in eeg_feature_set]
-
-        # Mean imputation processing
-        if afe_only_cols:
-            means = gloc_data.loc[afe_mask, afe_only_cols].mean(skipna=True)
-            if verbose:
-                missing_counts = gloc_data.loc[nonafe_mask, afe_only_cols].isna().sum()
-            gloc_data.loc[nonafe_mask, afe_only_cols] = gloc_data.loc[nonafe_mask, afe_only_cols].fillna(means)
-
-            if verbose:
-                for col, n in missing_counts.items():
-                    logger.debug("Imputed %d values in '%s' for non-AFE rows.", n, col)
-
-        if nonafe_only_cols:
-            means = gloc_data.loc[nonafe_mask, nonafe_only_cols].mean(skipna=True)
-            if verbose:
-                missing_counts = gloc_data.loc[afe_mask, nonafe_only_cols].isna().sum()
-            gloc_data.loc[afe_mask, nonafe_only_cols] = gloc_data.loc[afe_mask, nonafe_only_cols].fillna(means)
-
-            if verbose:
-                for col, n in missing_counts.items():
-                    logger.debug("Imputed %d values in '%s' for AFE rows.", n, col)
-
-    def _remove_all_nan_trials(
-            self,
-            gloc_data: pd.DataFrame,
-            features: Dict[str, List[str]],
-            gloc_labels: np.ndarray,
-            verbose: bool = False,
-    ) -> Tuple[pd.DataFrame, np.ndarray, pd.DataFrame]:
-        """Remove trials where at least one feature is entirely NaN. Returns NaN proportion table."""
-        # All features and subject trial info to be put into a reduced dataframe from gloc_data
-        all_features = features["All"]
-        all_features_with_ids = all_features + ["subject", "trial"]
-        reduced_data_frame = gloc_data[all_features_with_ids]
-
-        nan_flags = reduced_data_frame[all_features].isna()
-        group_keys = [reduced_data_frame["subject"], reduced_data_frame["trial"]]
-        grouped = nan_flags.groupby(group_keys, sort=False)
-
-        nan_proportion_df = grouped.mean()
-        all_nan_cols_df = grouped.all()
-        bad_trials = all_nan_cols_df.any(axis=1)
-
-        if verbose and bad_trials.any():
-            for (subject, trial), is_bad in bad_trials.items():
-                if is_bad:
-                    nan_features = all_nan_cols_df.columns[all_nan_cols_df.loc[(subject, trial)]].tolist()
-                    logger.info("Subject %s, Trial %s: features entirely NaN → %s", subject, trial, nan_features)
-
-        nan_proportion_df.insert(
-            0,
-            "subject-trial",
-            [f"{subject}-{trial}" for subject, trial in nan_proportion_df.index],
-        )
-        nan_proportion_df.reset_index(drop=True, inplace=True)
-
-        group_ids = reduced_data_frame.groupby(["subject", "trial"], sort=False).ngroup().to_numpy()
-        keep_mask = ~bad_trials.to_numpy()[group_ids]
-
-        rows_to_remove = gloc_data.index[~keep_mask]
-        gloc_data.drop(rows_to_remove, inplace=True)
-        gloc_data.reset_index(drop=True, inplace=True)
-
-        kept_labels = gloc_labels[keep_mask]
-        gloc_labels.resize(kept_labels.shape, refcheck=False)
-        gloc_labels[:] = kept_labels
-
-        N = int(bad_trials.shape[0])
-        M = int(bad_trials.sum())
-
-        logger.info("%d trials with all NaNs for at least one feature out of %d trials. %d remaining.", M, N, N - M)
-
-        return gloc_data, gloc_labels, nan_proportion_df
-
-    def _reduce_memory(
-            self,
-            gloc_data: pd.DataFrame,
-            gloc_labels: np.ndarray,
-            features: Dict[str, List[str]],
-            output_feature_dtype: np.dtype = np.dtype(np.float32),
-    ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
-        """Extract numpy arrays from DataFrame and free the DataFrame to reduce memory usage."""
-        trial_id_arr = gloc_data["trial_id"].to_numpy()
-        experiment_metadata = {
-            "trial_id": trial_id_arr,
-            "trial_ints": self._convert_to_unique_ordered_integers(trial_id_arr),
-            "Time (s)": gloc_data["Time (s)"].to_numpy(dtype=output_feature_dtype),
-            "event_validated": gloc_data["event_validated"].to_numpy(dtype=str),
-            "subject": gloc_data["subject"].to_numpy(dtype=str),
-            "AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype=np.bool_).reshape(-1, 1),
-        }
-
-        gloc_data_all_features_numpy = np.asarray(gloc_data[features["All"]].to_numpy(dtype=output_feature_dtype),
-                                                  dtype=output_feature_dtype)
-        gloc_labels_numpy = gloc_labels.astype(np.bool_)
-
-        del gloc_data, gloc_labels
-        return gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata
-
-    def _convert_to_unique_ordered_integers(self, strings: np.ndarray) -> np.ndarray:
-        """Convert strings to 1-based integers preserving first-appearance order."""
-        codes, _ = pd.factorize(strings, sort=False)
-        return (codes + 1).astype(np.uint8)
-
-    def _get_combined_baseline_data(
-            self,
-            gloc_data_all_features_imputed_numpy: np.ndarray,
-            experiment_metadata: Dict[str, Any],
-            baseline_window: float,
-            baseline_methods_to_use: List[str],
-            features: Dict[str, List[str]],
-            file_paths: Dict[str, Any],
-            model_type: ModelType,
-    ) -> Tuple[Dict[str, np.ndarray], List[str], Dict[str, np.ndarray], List[str]]:
-        """Compute baselines and return combined outputs plus v0 baseline data/names."""
-        participant_baseline = pd.read_csv(file_paths["baseline"])
-        participant_baseline_rhr = participant_baseline["resting HR [seated]"][:-1]
-        participant_baseline_rhr.index = [f"{i:02d}" for i in range(1, 14)]
-
-        eeg_baseline_data = {}
-        for filepath in file_paths["baseline_eeg_processed_list"]:
-            df = pd.read_csv(filepath)
-            df.index = [f"{i:02d}" for i in range(1, 14)]
-            # Extract band name from filename pattern: GLOC_EEG_baseline_{band}_noAFE1.csv
-            band = os.path.basename(filepath).split("_")[3]
-            eeg_baseline_data[band] = df
-
-        # Build feature-group index arrays using set lookups for O(1) membership
-        phys_set, ecg_set, eeg_set = set(features["Phys"]), set(features["ECG"]), set(features["EEG"])
-        phys_indices = [i for i, f in enumerate(features["All"]) if f in phys_set]
-        ecg_indices = [i for i, f in enumerate(features["All"]) if f in ecg_set]
-        eeg_indices = [i for i, f in enumerate(features["All"]) if f in eeg_set]
-
-        context = BaselineContext(
-            trial_column=experiment_metadata["trial_id"],
-            time_column=experiment_metadata["Time (s)"],
-            event_validated_column=experiment_metadata["event_validated"],
-            subject_column=experiment_metadata["subject"],
-            data_by_features={
-                "All": gloc_data_all_features_imputed_numpy,
-                "Phys": gloc_data_all_features_imputed_numpy[:, phys_indices],
-                "ECG": gloc_data_all_features_imputed_numpy[:, ecg_indices],
-                "EEG": gloc_data_all_features_imputed_numpy[:, eeg_indices],
-            },
-            features=features,
-            baseline_window=baseline_window,
-            model_type=model_type,
-            participant_baseline_data=participant_baseline_rhr,
-            eeg_baseline_data=eeg_baseline_data,
-        )
-
-        combined_baseline, combined_names, baseline_v0, baseline_names_v0, trial_order = baseline_data(
-            baseline_methods_to_use, context)
-        experiment_metadata["trial_order"] = trial_order
-
-        return combined_baseline, combined_names, baseline_v0, baseline_names_v0
-
-    def _shift_labels_by_samples(
-            self,
-            y: np.ndarray,
-            trial_ids: np.ndarray,
-            n_samples: int,
-    ) -> np.ndarray:
-        """Shift labels left by ``n_samples`` within each trial, padding with zeros.
-
-        This is the core label-shifting logic shared by both the traditional
-        and advanced (via ``horizon``) pipelines.
-        """
-        y = np.asarray(y).copy()
-
-        if n_samples <= 0:
-            return y
-
-        for trial in np.unique(trial_ids):
-            trial_indices = np.nonzero(trial_ids == trial)[0]
-            current_y = y[trial_indices]
-
-            if not np.any(current_y):
-                continue
-
-            if n_samples >= current_y.shape[0]:
-                y[trial_indices] = np.zeros_like(current_y)
-                continue
-
-            y_shifted = current_y[n_samples:]
-            y[trial_indices] = np.concatenate([y_shifted, np.zeros(n_samples, dtype=current_y.dtype)])[
-                : current_y.shape[0]]
-
-        return y
-
-    def _remove_constant_columns(
-            self,
-            x_feature_matrix: np.ndarray,
-            select_features: List[str],
-    ) -> Tuple[np.ndarray, List[str]]:
-        """Remove zero-variance columns from a feature matrix."""
-        constant_columns = np.all(x_feature_matrix == x_feature_matrix[0, :], axis=0)
-        keep_columns = ~constant_columns
-
-        x_feature_matrix = x_feature_matrix[:, keep_columns]
-        select_features = [feature for feature, keep in zip(select_features, keep_columns) if keep]
-
-        return x_feature_matrix, select_features
-
-    def _apply_sensor_ablation(self, selected_features: list[str], feature_streams: Optional[List[str]]) -> list[str]:
-        """Restrict selected features to usable features for requested streams."""
-        requested_streams = self._normalize_feature_streams(feature_streams)
-        if len(requested_streams) == 0:
-            return selected_features
-
-        unknown_streams = [s for s in requested_streams if s not in self._SENSOR_STREAM_PATTERNS]
-        if unknown_streams:
-            supported = ", ".join(sorted(self._SENSOR_STREAM_PATTERNS.keys()))
-            raise ValueError(
-                f"Unknown stream(s): {unknown_streams}. Supported streams: {supported}."
-            )
-
-        matched_features: list[str] = [
-            feature_name
-            for feature_name in selected_features
-            if any(
-                re.search(pattern, feature_name, flags=re.IGNORECASE)
-                for stream in requested_streams
-                for pattern in self._SENSOR_STREAM_PATTERNS[stream]
-            )
-        ]
-
-        if len(matched_features) == 0:
-            raise ValueError(
-                "Stream filtering removed all selected features. "
-                f"Requested streams={requested_streams}. "
-                "Check stream names and feature naming conventions."
-            )
-
-        logger.info(
-            "Applied sensor ablation for streams=%s. Selected features reduced from %d to %d.",
-            requested_streams,
-            len(selected_features),
-            len(matched_features)
-        )
-        return matched_features
-
-    def _normalize_feature_streams(self, feature_streams: Optional[List[str]]) -> list[str]:
-        """Normalize stream names and de-duplicate while preserving order."""
-        if not feature_streams:
-            return []
-
-        normalized_streams: list[str] = []
-        for stream in feature_streams:
-            if not isinstance(stream, str):
-                continue
-
-            candidate = stream.strip()
-            if not candidate:
-                continue
-
-            canonical = self._SENSOR_STREAM_ALIASES.get(candidate.lower(), candidate)
-            normalized_streams.append(canonical)
-
-        return list(dict.fromkeys(normalized_streams))
+			trial_indices = trial_indices_map.get(corresponding_trial)
+			if trial_indices is None:
+				logger.warning("Could not find trial %s in data.", corresponding_trial)
+				continue
+
+			index_begin_GOR = begin_idx_map.get(corresponding_trial)
+			if index_begin_GOR is None:
+				logger.warning("Could not find 'begin GOR' for trial %s.", corresponding_trial)
+				continue
+
+			start_pos = np.searchsorted(trial_indices, index_begin_GOR)
+			n_rows = len(band_dfs["delta"])
+			trial_indexer = trial_indices[start_pos : start_pos + n_rows]
+
+			# Build column names and assign values for each band
+			column_names = band_dfs["delta"].columns
+			for band in band_names:
+				cols = [f"{c}_{band} - EEG" for c in column_names]
+				gloc_data.loc[trial_indexer, cols] = band_dfs[band].to_numpy(
+					dtype=output_feature_dtype
+				)
+
+		return gloc_data
+
+	def _filter_data_by_analysis_type(
+		self,
+		analysis_type: int,
+		gloc_data: pd.DataFrame,
+		subject_to_analyze: str | None = None,
+		trial_to_analyze: str | None = None,
+	) -> pd.DataFrame:
+		"""Analyze only section of gloc_data specified using analysis_type."""
+		if analysis_type == 0:  # One Trial / One Subject
+			mask = (gloc_data["subject"] == subject_to_analyze) & (
+				gloc_data["trial"] == trial_to_analyze
+			)
+		elif analysis_type == 1:  # All Trials for One Subject
+			mask = gloc_data["subject"] == subject_to_analyze
+		else:  # All Trials for All Subjects
+			return gloc_data
+
+		return gloc_data[mask]
+
+	def _process_and_get_feature_names(
+		self,
+		gloc_data: pd.DataFrame,
+		feature_groups_to_analyze: Sequence[str],
+		model_type: ModelType,
+		file_names: dict[str, Any],
+		output_feature_dtype: np.dtype = np.dtype(np.float32),
+	) -> tuple[pd.DataFrame, dict[str, list[str]]]:
+		"""Process data and extract feature names based on specified feature groups."""
+		GROUPS_OF_FEATURE_GROUPS = {
+			"Phys": {"ECG", "BR", "temp", "fnirs", "eyetracking", "rawEEG", "processedEEG"},
+			"ECG": {"ECG"},
+			"EEG": {"processedEEG"},
+			# Adding rawEEG does not change anything (rawEEG ignored during baseline v7 and v8 calculations)
+		}
+
+		features = {"All": [], "Phys": [], "ECG": [], "EEG": []}
+		features_all = features["All"]
+		features_phys = features["Phys"]
+		features_ecg = features["ECG"]
+		features_eeg = features["EEG"]
+
+		for group_name in feature_groups_to_analyze:
+			if group_name not in FEATURE_REGISTRY:
+				logger.warning("Feature group '%s' not recognized. Skipping.", group_name)
+				continue
+
+			processor = FEATURE_REGISTRY[group_name]
+
+			# Process data for the feature group
+			gloc_data = processor.process(gloc_data, file_names)
+			feature_names = processor.get_feature_names(model_type)
+
+			# Adding features to relevant groups
+			if group_name in GROUPS_OF_FEATURE_GROUPS["Phys"]:
+				features_phys.extend(feature_names)
+
+			if group_name in GROUPS_OF_FEATURE_GROUPS["ECG"]:
+				features_ecg.extend(feature_names)
+
+			if group_name in GROUPS_OF_FEATURE_GROUPS["EEG"]:
+				features_eeg.extend(feature_names)
+
+			features_all.extend(feature_names)
+
+		return gloc_data, features
+
+	def _label_gloc_events(self, gloc_data: pd.DataFrame) -> np.ndarray:
+		"""Create a GLOC label vector based on event_validated column.
+
+		Labels are 1 between GLOC and Return to Consciousness events.
+		"""
+		event_validated = gloc_data["event_validated"]
+
+		# Find all GLOC and RTC indices, pair them in order, and label between each pair
+		gloc_indices = np.where(event_validated.to_numpy() == "GLOC")[0]
+		rtc_indices = np.where(event_validated.to_numpy() == "return to consciousness")[0]
+
+		trial_ids = gloc_data["trial_id"].to_numpy()
+		gloc_labels = np.zeros(len(gloc_data))
+
+		for i in range(len(gloc_indices)):
+			start = gloc_indices[i]
+			end = rtc_indices[i]
+			if trial_ids[start] == trial_ids[end]:
+				gloc_labels[start:end] = 1
+
+		return gloc_labels
+
+	def _afe_subset(
+		self, gloc_data: pd.DataFrame, gloc_labels: np.ndarray
+	) -> tuple[pd.DataFrame, np.ndarray]:
+		"""Remove any trial that contains AFE condition (AFE indicator == 1)."""
+		trial_has_afe = gloc_data.groupby(["subject", "trial"])["AFE_indicator"].transform("max")
+		keep_mask = trial_has_afe != 1
+
+		gloc_data = gloc_data.loc[keep_mask].reset_index(drop=True)
+		gloc_labels = gloc_labels[keep_mask]
+
+		return gloc_data, gloc_labels
+
+
+
+	def _remove_all_nan_trials(
+		self,
+		gloc_data: pd.DataFrame,
+		features: dict[str, list[str]],
+		gloc_labels: np.ndarray,
+		verbose: bool = False,
+	) -> tuple[pd.DataFrame, np.ndarray, pd.DataFrame]:
+		"""Remove trials where at least one feature is entirely NaN. Returns NaN proportion table."""
+		# All features and subject trial info to be put into a reduced dataframe from gloc_data
+		all_features = features["All"]
+		all_features_with_ids = all_features + ["subject", "trial"]
+		reduced_data_frame = gloc_data[all_features_with_ids]
+
+		nan_flags = reduced_data_frame[all_features].isna()
+		group_keys = [reduced_data_frame["subject"], reduced_data_frame["trial"]]
+		grouped = nan_flags.groupby(group_keys, sort=False)
+
+		nan_proportion_df = grouped.mean()
+		all_nan_cols_df = grouped.all()
+		bad_trials = all_nan_cols_df.any(axis=1)
+
+		if verbose and bad_trials.any():
+			for (subject, trial), is_bad in bad_trials.items():
+				if is_bad:
+					nan_features = all_nan_cols_df.columns[
+						all_nan_cols_df.loc[(subject, trial)]
+					].tolist()
+					logger.info(
+						"Subject %s, Trial %s: features entirely NaN → %s",
+						subject,
+						trial,
+						nan_features,
+					)
+
+		nan_proportion_df.insert(
+			0, "subject-trial", [f"{subject}-{trial}" for subject, trial in nan_proportion_df.index]
+		)
+		nan_proportion_df.reset_index(drop=True, inplace=True)
+
+		group_ids = reduced_data_frame.groupby(["subject", "trial"], sort=False).ngroup().to_numpy()
+		keep_mask = ~bad_trials.to_numpy()[group_ids]
+
+		rows_to_remove = gloc_data.index[~keep_mask]
+		gloc_data.drop(rows_to_remove, inplace=True)
+		gloc_data.reset_index(drop=True, inplace=True)
+
+		kept_labels = gloc_labels[keep_mask]
+		gloc_labels.resize(kept_labels.shape, refcheck=False)
+		gloc_labels[:] = kept_labels
+
+		N = int(bad_trials.shape[0])
+		M = int(bad_trials.sum())
+
+		logger.info(
+			"%d trials with all NaNs for at least one feature out of %d trials. %d remaining.",
+			M,
+			N,
+			N - M,
+		)
+
+		return gloc_data, gloc_labels, nan_proportion_df
+
+	def _reduce_memory(
+		self,
+		gloc_data: pd.DataFrame,
+		gloc_labels: np.ndarray,
+		features: dict[str, list[str]],
+		output_feature_dtype: np.dtype = np.dtype(np.float32),
+	) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+		"""Extract numpy arrays from DataFrame and free the DataFrame to reduce memory usage."""
+		trial_id_arr = gloc_data["trial_id"].to_numpy()
+		experiment_metadata = {
+			"trial_id": trial_id_arr,
+			"trial_ints": self._convert_to_unique_ordered_integers(trial_id_arr),
+			"Time (s)": gloc_data["Time (s)"].to_numpy(dtype=output_feature_dtype),
+			"event_validated": gloc_data["event_validated"].to_numpy(dtype=str),
+			"subject": gloc_data["subject"].to_numpy(dtype=str),
+			"AFE_indicator": gloc_data["AFE_indicator"].to_numpy(dtype=np.bool_).reshape(-1, 1),
+		}
+
+		gloc_data_all_features_numpy = np.asarray(
+			gloc_data[features["All"]].to_numpy(dtype=output_feature_dtype),
+			dtype=output_feature_dtype,
+		)
+		gloc_labels_numpy = gloc_labels.astype(np.bool_)
+
+		del gloc_data, gloc_labels
+		return gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata
+
+	def _convert_to_unique_ordered_integers(self, strings: np.ndarray) -> np.ndarray:
+		"""Convert strings to 1-based integers preserving first-appearance order."""
+		codes, _ = pd.factorize(strings, sort=False)
+		return (codes + 1).astype(np.uint8)
+
+	def _get_combined_baseline_data(
+		self,
+		gloc_data_all_features_imputed_numpy: np.ndarray,
+		experiment_metadata: dict[str, Any],
+		baseline_window: float,
+		baseline_methods_to_use: list[str],
+		features: dict[str, list[str]],
+		file_paths: dict[str, Any],
+		model_type: ModelType,
+	) -> tuple[dict[str, np.ndarray], list[str], dict[str, np.ndarray], list[str]]:
+		"""Compute baselines and return combined outputs plus v0 baseline data/names."""
+		participant_baseline = pd.read_csv(file_paths["baseline"])
+		participant_baseline_rhr = participant_baseline["resting HR [seated]"][:-1]
+		participant_baseline_rhr.index = [f"{i:02d}" for i in range(1, 14)]
+
+		eeg_baseline_data = {}
+		for filepath in file_paths["baseline_eeg_processed_list"]:
+			df = pd.read_csv(filepath)
+			df.index = [f"{i:02d}" for i in range(1, 14)]
+			# Extract band name from filename pattern: GLOC_EEG_baseline_{band}_noAFE1.csv
+			band = os.path.basename(filepath).split("_")[3]
+			eeg_baseline_data[band] = df
+
+		# Build feature-group index arrays using set lookups for O(1) membership
+		phys_set, ecg_set, eeg_set = (
+			set(features["Phys"]),
+			set(features["ECG"]),
+			set(features["EEG"]),
+		)
+		phys_indices = [i for i, f in enumerate(features["All"]) if f in phys_set]
+		ecg_indices = [i for i, f in enumerate(features["All"]) if f in ecg_set]
+		eeg_indices = [i for i, f in enumerate(features["All"]) if f in eeg_set]
+
+		context = BaselineContext(
+			trial_column=experiment_metadata["trial_id"],
+			time_column=experiment_metadata["Time (s)"],
+			event_validated_column=experiment_metadata["event_validated"],
+			subject_column=experiment_metadata["subject"],
+			data_by_features={
+				"All": gloc_data_all_features_imputed_numpy,
+				"Phys": gloc_data_all_features_imputed_numpy[:, phys_indices],
+				"ECG": gloc_data_all_features_imputed_numpy[:, ecg_indices],
+				"EEG": gloc_data_all_features_imputed_numpy[:, eeg_indices],
+			},
+			features=features,
+			baseline_window=baseline_window,
+			model_type=model_type,
+			participant_baseline_data=participant_baseline_rhr,
+			eeg_baseline_data=eeg_baseline_data,
+		)
+
+		combined_baseline, combined_names, baseline_v0, baseline_names_v0, trial_order = (
+			baseline_data(baseline_methods_to_use, context)
+		)
+		experiment_metadata["trial_order"] = trial_order
+
+		return combined_baseline, combined_names, baseline_v0, baseline_names_v0
+
+	def _shift_labels_by_samples(
+		self, y: np.ndarray, trial_ids: np.ndarray, n_samples: int
+	) -> np.ndarray:
+		"""Shift labels left by ``n_samples`` within each trial, padding with zeros.
+
+		This is the core label-shifting logic shared by both the traditional
+		and advanced (via ``horizon``) pipelines.
+		"""
+		y = np.asarray(y).copy()
+
+		if n_samples <= 0:
+			return y
+
+		for trial in np.unique(trial_ids):
+			trial_indices = np.nonzero(trial_ids == trial)[0]
+			current_y = y[trial_indices]
+
+			if not np.any(current_y):
+				continue
+
+			if n_samples >= current_y.shape[0]:
+				y[trial_indices] = np.zeros_like(current_y)
+				continue
+
+			y_shifted = current_y[n_samples:]
+			y[trial_indices] = np.concatenate(
+				[y_shifted, np.zeros(n_samples, dtype=current_y.dtype)]
+			)[: current_y.shape[0]]
+
+		return y
+
+	def _remove_constant_columns(
+		self, x_feature_matrix: np.ndarray, select_features: list[str]
+	) -> tuple[np.ndarray, list[str]]:
+		"""Remove zero-variance columns from a feature matrix."""
+		constant_columns = np.all(x_feature_matrix == x_feature_matrix[0, :], axis=0)
+		keep_columns = ~constant_columns
+
+		x_feature_matrix = x_feature_matrix[:, keep_columns]
+		select_features = [feature for feature, keep in zip(select_features, keep_columns) if keep]
+
+		return x_feature_matrix, select_features
+
+	def _normalize_feature_streams(self, feature_streams: list[str] | None) -> list[str]:
+		"""Normalize stream names and de-duplicate while preserving order."""
+		if not feature_streams:
+			return []
+
+		normalized_streams: list[str] = []
+		for stream in feature_streams:
+			if not isinstance(stream, str):
+				continue
+			candidate = stream.strip()
+			if not candidate:
+				continue
+			canonical = self._STREAM_ALIASES.get(candidate.lower(), candidate)
+			normalized_streams.append(canonical)
+
+		return list(dict.fromkeys(normalized_streams))
+
+	def _apply_sensor_ablation(
+		self, selected_features: list[str], feature_streams: list[str] | None
+	) -> list[str]:
+		"""Restrict selected features to usable features for requested streams."""
+		requested_streams = self._normalize_feature_streams(feature_streams)
+		if not requested_streams:
+			return selected_features
+
+		unknown_streams = [s for s in requested_streams if s not in self._STREAM_KEYWORDS]
+		if unknown_streams:
+			supported = ", ".join(sorted(self._STREAM_KEYWORDS.keys()))
+			raise ValueError(
+				f"Unknown stream(s): {unknown_streams}. Supported streams: {supported}."
+			)
+
+		search_substrings = [
+			kw
+			for stream in requested_streams
+			for kw in self._STREAM_KEYWORDS[stream]
+		]
+
+		matched_features: list[str] = [
+			feature_name
+			for feature_name in selected_features
+			if any(kw in feature_name.lower() for kw in search_substrings)
+		]
+
+		if not matched_features:
+			raise ValueError(
+				"Stream filtering removed all selected features. "
+				f"Requested streams={requested_streams}. "
+				"Check stream names and feature naming conventions."
+			)
+
+		logger.info(
+			"Applied sensor ablation for streams=%s. Selected features reduced from %d to %d.",
+			requested_streams,
+			len(selected_features),
+			len(matched_features),
+		)
+		return matched_features
 
 
 class AdvancedDataPipeline(BaseGLOCDataPipeline):
-    """
-    Advanced data pipeline for GLOC event prediction, refactored from load_and_prepare_data_advanced.
-    """
+	"""
+	Advanced data pipeline for GLOC event prediction, refactored from load_and_prepare_data_advanced.
+	"""
 
-    def _get_feature_groups_and_baseline_methods(self, model_type: ModelType) -> Tuple[Sequence[str], List[str]]:
-        """Resolve feature groups and baseline methods for advanced pipeline variants."""
-        feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
-        baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE[model_type.afe_filter]
-        return feature_groups_to_analyze, baseline_methods_to_use
+	def _get_feature_groups_and_baseline_methods(
+		self, model_type: ModelType
+	) -> tuple[Sequence[str], list[str]]:
+		"""Resolve feature groups and baseline methods for advanced pipeline variants."""
+		feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
+		baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE[
+			model_type.afe_filter
+		]
+		return feature_groups_to_analyze, baseline_methods_to_use
 
-    def get_data(
-            self,
-            model_type: ModelType,
-            num_splits: int,
-            kfold_ID: int,
-            impute_file_name: str,
-            output_feature_dtype: np.dtype = np.dtype(np.float32),
-            subject_to_analyze: Optional[str] = None,
-            trial_to_analyze: Optional[str] = None,
-            impute_phase: Any = None,
-            n_neighbors: int = 4,
-            baseline_window: float = 32.5,
-            horizon: int = 0,
-            analysis_type: int = 2,
-            remove_NaN_trials: bool = True,
-            save_impute: bool = True,
-            load_impute: bool = True,
-            feature_streams: Optional[List[str]] = None
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, List[str]]:
-        """
-        Load raw data and prepare predictor / target sets for advanced classifiers.
+	def get_data(
+		self,
+		model_type: ModelType,
+		num_splits: int,
+		kfold_ID: int,
+		impute_file_name: str,
+		output_feature_dtype: np.dtype = np.dtype(np.float32),
+		subject_to_analyze: str | None = None,
+		trial_to_analyze: str | None = None,
+		impute_phase: Any = None,
+		n_neighbors: int = 4,
+		baseline_window: float = 32.5,
+		horizon: int = 0,
+		analysis_type: int = 2,
+		remove_NaN_trials: bool = True,
+		save_impute: bool = True,
+		load_impute: bool = True,
+		feature_streams: list[str] | None = None,
+		**kwargs: Any,
+	) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[str]]:
+		"""
+		Load raw data and prepare predictor / target sets for advanced classifiers.
 
-        Parameters:
-            model_type: ModelType — e.g. ModelType('Complete', 'Explicit')
-            num_splits: Number of K-fold CV splits
-            kfold_ID: Which fold to use (0 to num_splits-1)
-            impute_file_name: Base file name used in data_path/Processed Data
-            output_feature_dtype: Numpy dtype for output feature matrix (e.g., 'float32', 'float64')
-            subject_to_analyze: Participant number for single-subject analysis
-            trial_to_analyze: Trial number for single-trial analysis
-            impute_phase: Which phase to perform imputation in (enum: none, pre_feature, post_feature_remove_rows, post_feature_knn)
-            n_neighbors: Number of KNN imputation neighbors
-            baseline_window: Baseline window duration in seconds
-            horizon: Temporal forecast horizon in samples (0 = no shift, positive = forecast ahead)
-            analysis_type: 2=all data, 1=one participant, 0=one trial
-            remove_NaN_trials: Remove trials with all-NaN sensors
-            save_impute: Save imputed data to pickle
-            load_impute: Load imputed data from pickle if available
-            feature_streams: Optional sensor stream names to include (None = all features)
+		Parameters:
+		    model_type: ModelType — e.g. ModelType('Complete', 'Explicit')
+		    num_splits: Number of K-fold CV splits
+		    kfold_ID: Which fold to use (0 to num_splits-1)
+		    impute_file_name: Base file name used in data_path/Processed Data
+		    output_feature_dtype: Numpy dtype for output feature matrix (e.g., 'float32', 'float64')
+		    subject_to_analyze: Participant number for single-subject analysis
+		    trial_to_analyze: Trial number for single-trial analysis
+		    impute_phase: Which phase to perform imputation in (enum: none, pre_feature, post_feature_remove_rows, post_feature_knn)
+		    n_neighbors: Number of KNN imputation neighbors
+		    baseline_window: Baseline window duration in seconds
+		    horizon: Temporal forecast horizon in samples (0 = no shift, positive = forecast ahead)
+		    analysis_type: 2=all data, 1=one participant, 0=one trial
+		    remove_NaN_trials: Remove trials with all-NaN sensors
+		    save_impute: Save imputed data to pickle
+		    load_impute: Load imputed data from pickle if available
+		    feature_streams: Optional sensor stream names to include (None = all features)
 
-        Returns:
-            x_train, y_train, x_test, y_test, all_features
-        """
-        if horizon < 0:
-            raise ValueError(f"horizon must be >= 0, got {horizon}")
+		Returns:
+		    x_train, y_train, x_test, y_test, all_features
+		"""
+		if horizon < 0:
+			raise ValueError(f"horizon must be >= 0, got {horizon}")
 
-        ################################################### FEATURES SETUP ###################################################
-        logger.info("Setting up features and baselines for model_type=%s", model_type)
-        feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type)
+		################################################### FEATURES SETUP ###################################################
+		logger.info("Setting up features and baselines for model_type=%s", model_type)
+		feature_groups_to_analyze, baseline_methods_to_use = (
+			self._get_feature_groups_and_baseline_methods(model_type)
+		)
 
         ############################################# LOAD AND PROCESS DATA #############################################
         logger.info(
@@ -943,509 +1040,575 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
         if model_type.afe_filter != "Complete":
             gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
 
-        ############################################# EEG Specific Imputation #############################################
-        # logger.info("Performing EEG-specific imputation for model_type=%s", model_type)
-        # ####
-        # #  Note: This runs for 'complete' models, but because we are only using shared/overlapping EEG features for the
-        # #      'complete' case, this block doesn't do anything. Imputation occurs only for non-shared EEG features are used.
-        # #       This block requires 'AFE' to be an
-        # ####
-        # if model_type.afe_filter == "Complete":
-        #     gloc_data = self._eeg_specific_imputation(gloc_data, features)
-
-        ############################################### MISSING DATA HANDLING ###############################################
-        # Normalize impute_phase and derive behavior flags (preserve backward compatibility where needed).
-        try:
-            if impute_phase is None:
-                impute_phase = ImputePhase.parse(
-                    self.config["shared_data_parameters"].get("impute_phase", "pre_feature"))
-            else:
-                impute_phase = ImputePhase.parse(impute_phase)
-        except Exception:
-            impute_phase = ImputePhase.PRE_FEATURE
-
-        do_pre_feature_impute = impute_phase == ImputePhase.PRE_FEATURE
-        do_post_feature_remove_rows = impute_phase == ImputePhase.POST_FEATURE_REMOVE_ROWS
-        do_post_feature_knn = impute_phase == ImputePhase.POST_FEATURE_KNN
-
-        logger.info(
-            "Handling missing data with impute_phase=%s, pre_feature=%s, post_remove=%s, post_knn=%s, n_neighbors=%d, remove_NaN_trials=%s",
-            impute_phase.value,
-            do_pre_feature_impute,
-            do_post_feature_remove_rows,
-            do_post_feature_knn,
-            n_neighbors,
-            remove_NaN_trials,
-        )
-        # Optional handling of raw NaN data, depending on remove_NaN_trials and impute_phase
-        if remove_NaN_trials:
-            # This also returns a DataFrame with proportion of NaN values for each feature for each trial
-            # Also modifies gloc_data and gloc_labels to remove trials with all NaNs in at least one feature
-            # Note: DataFrame not used for the pipeline for memory purposes
-            gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
-
-        ################################################## REDUCE MEMORY ##################################################
-        logger.info("Reducing memory usage by converting to numpy arrays with dtype=%s.", output_feature_dtype)
-        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(
-            gloc_data, gloc_labels, features, output_feature_dtype
-        )
-
-        ################################################## Impute Missing ##################################################
-        logger.info(
-            "Imputing missing data (pre-feature) with pre_feature=%s, n_neighbors=%d, impute_file_name=%s, save_impute=%s, load_impute=%s",
-            do_pre_feature_impute,
-            n_neighbors,
-            impute_file_name,
-            save_impute,
-            load_impute,
-        )
-
-        if do_pre_feature_impute:
-            gloc_data_all_features_imputed_numpy = self._impute_missing_data(
-                gloc_data_all_features_numpy,
-                gloc_labels_numpy,
-                experiment_metadata,
-                impute_file_name,
-                save_impute,
-                load_impute,
-                num_splits,
-                kfold_ID,
-                n_neighbors,
-            )
-        else:
-            logger.info("Skipping pre-feature KNN imputation.")
-            gloc_data_all_features_imputed_numpy = gloc_data_all_features_numpy
-
-        ################################################## BASELINE DATA ##################################################
-        logger.info("Calculating baselines with methods: %s", baseline_methods_to_use)
-        combined_baseline, combined_baseline_names, _, _ = self._get_combined_baseline_data(
-            gloc_data_all_features_imputed_numpy, experiment_metadata, baseline_window,
-            baseline_methods_to_use, features, file_paths, model_type
-        )
-
-        ################################################ GENERATE FEATURES ################################################
-        logger.info("Generating features for model_type=%s", model_type)
-        x_feature_matrix, features["All"] = self._generate_features(
-            baseline_methods_to_use, combined_baseline, combined_baseline_names, experiment_metadata,
-            output_feature_dtype
-        )
-
-        ############################################# FEATURE CLEAN AND PREP ##############################################
-        logger.info("Cleaning and preparing features for model_type=%s", model_type)
-        x_feature_matrix, y_gloc_labels, features["All"], experiment_metadata[
-            "trial_ints"] = self._feature_clean_and_prep(
-            x_feature_matrix, gloc_labels_numpy, features, experiment_metadata, model_type, impute_phase
-        )
-
-        ################################################ TRAIN/TEST SPLIT  ################################################
-        logger.info("Performing train/test split with num_splits=%d, kfold_ID=%d", num_splits, kfold_ID)
-        x_train, y_train, x_test, y_test = self._get_train_test_split(
-            x_feature_matrix, y_gloc_labels, experiment_metadata, num_splits, kfold_ID
-        )
-
-        # Post-feature KNN imputation (on the feature matrix) if requested
-        if do_post_feature_knn:
-            logger.info("Performing post-feature KNN imputation on feature matrix with n_neighbors=%d", n_neighbors)
-            # Preserve trial column while imputing features only
-            trial_col = x_feature_matrix[:, -1].copy()
-            X_feats = x_feature_matrix[:, :-1]
-            # Compute train/test indices for the fold
-            _, _, _, _, train_indices, test_indices = self._groupedtrial_kfold_split(
-                X_feats, y_gloc_labels, num_splits, kfold_ID, experiment_metadata
-            )
-            X_imputed = self._faster_knn_impute_train_test(X_feats, train_indices, test_indices, n_neighbors)
-            x_feature_matrix = np.hstack([X_imputed, trial_col.reshape(-1, 1)])
-
-        ################################################## TEMPORAL HORIZON SHIFT  ################################################
-        if horizon > 0:
-            logger.info("Applying temporal horizon shift of %d samples for advanced forecasting", horizon)
-            train_trial_ids = x_train[:, -1]
-            test_trial_ids = x_test[:, -1]
-            y_train = self._shift_labels_by_samples(y_train, train_trial_ids, horizon)
-            y_test = self._shift_labels_by_samples(y_test, test_trial_ids, horizon)
-
-        ############################################# SENSOR ABLATION / FEATURE FILTER  #############################################
-        if feature_streams is not None and len(feature_streams) > 0:
-            all_feature_names = features["All"]
-            filtered_feature_names = self._apply_sensor_ablation(all_feature_names, feature_streams)
-            col_indices = [all_feature_names.index(name) for name in filtered_feature_names]
-            x_train = np.hstack([x_train[:, col_indices], x_train[:, -1:]])
-            x_test = np.hstack([x_test[:, col_indices], x_test[:, -1:]])
-            features["All"] = filtered_feature_names
-            logger.info(
-                "Applied sensor ablation for advanced pipeline: streams=%s, features %d -> %d",
-                feature_streams, len(all_feature_names), len(filtered_feature_names),
-            )
-
-        return x_train, x_test, y_train, y_test, features["All"]
-
-    def _impute_missing_data(
-            self,
-            gloc_data_all_features_numpy: np.ndarray,
-            gloc_labels_numpy: np.ndarray,
-            experiment_metadata: Dict[str, Any],
-            impute_file_name: str,
-            save_impute: bool,
-            load_impute: bool,
-            num_splits: int,
-            kfold_ID: int,
-            n_neighbors: int,
-    ) -> np.ndarray:
-        # Load or compute imputed features
-        impute_path = self._resolve_advanced_impute_path(impute_file_name, kfold_ID)
-
-        # NOTE: impute_path is derived from impute_file_name and kfold_ID in Processed Data.
-        if load_impute and os.path.exists(impute_path):
-            with open(impute_path, 'rb') as f:
-                gloc_data_all_features_imputed_numpy = pickle.load(f)
-            logger.info("Loaded imputed data from %s.", impute_path)
-        else:
-            # Only compute train/test indices when actually imputing
-            _, _, _, _, train_indices, test_indices = self._groupedtrial_kfold_split(gloc_data_all_features_numpy,
-                                                                                     gloc_labels_numpy, num_splits,
-                                                                                     kfold_ID, experiment_metadata)
-            gloc_data_all_features_imputed_numpy = self._faster_knn_impute_train_test(gloc_data_all_features_numpy,
-                                                                                      train_indices, test_indices,
-                                                                                      n_neighbors)
-
-            del gloc_data_all_features_numpy  # Free memory of original data after imputation
-
-            if save_impute:
-                impute_dir = os.path.dirname(impute_path)
-                if impute_dir:
-                    os.makedirs(impute_dir, exist_ok=True)
-                with open(impute_path, 'wb') as f:
-                    pickle.dump(gloc_data_all_features_imputed_numpy, f)
-                logger.info("Saved imputed data to %s.", impute_path)
-
-        return gloc_data_all_features_imputed_numpy
-
-    def _resolve_advanced_impute_path(self, impute_file_name: str, kfold_ID: int) -> str:
-        """Build advanced cache path in data_path/Processed Data with prefix and k-fold suffix."""
-        processed_dir = Path(self.data_path) / "Processed Data"
-        base_name = Path(impute_file_name)
-        if base_name.suffix:
-            file_name = f"advanced_{base_name.stem}_kfold_{kfold_ID}{base_name.suffix}"
-        else:
-            file_name = f"advanced_{base_name.name}_kfold_{kfold_ID}.pkl"
-        return str((processed_dir / file_name).resolve())
-
-    def _groupedtrial_kfold_split(
-            self,
-            X: np.ndarray,
-            Y: np.ndarray,
-            num_splits: int,
-            kfold_ID: int,
-            experiment_metadata: Dict[str, Any],
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Split data into train/test using stratified group K-fold on trial groups."""
-        # Grouped K-Fold setup (shuffle=False for reproducibility)
-        gkf = StratifiedGroupKFold(n_splits=num_splits, shuffle=False)
-
-        # Validate kfold_ID
-        n_folds = gkf.get_n_splits()
-        if kfold_ID < 0 or kfold_ID >= n_folds:
-            raise ValueError(f"Fold index {kfold_ID} out of range (must be between 0 and {n_folds - 1})")
-
-        # Get train and test indices for the specified fold
-        trials = experiment_metadata["trial_ints"]
-        train_index, test_index = next(islice(gkf.split(X, Y, trials), kfold_ID, kfold_ID + 1))
-
-        # Extract split data
-        x_train, y_train = X[train_index], Y[train_index]
-        x_test, y_test = X[test_index], Y[test_index]
-
-        return x_train, x_test, y_train, y_test, train_index, test_index
-
-    def _faster_knn_impute_train_test(
-            self,
-            X: np.ndarray,
-            train_ind: np.ndarray,
-            test_ind: np.ndarray,
-            k: int = 5,
-            M: int = 32,
-            efSearch: int = 64,
-    ) -> np.ndarray:
-        """Impute missing values via FAISS KNN, training on train set only to prevent leakage."""
-        # Split into train and test
-        X_train = X[train_ind]
-        X_test = X[test_ind]
-
-        # Identify missing values
-        mask_train = np.isnan(X_train)
-        mask_test = np.isnan(X_test)
-
-        # Temporary mean imputation for FAISS indexing
-        mean_vals = np.nanmean(X_train, axis=0)
-        X_train_temp = np.where(mask_train, mean_vals, X_train)
-        X_test_temp = np.where(mask_test, mean_vals, X_test)
-
-        # Sanitize before add/search.
-        X_train_temp32 = np.ascontiguousarray(
-            np.nan_to_num(X_train_temp, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32, copy=False)
-        )
-        X_test_temp32 = np.ascontiguousarray(
-            np.nan_to_num(X_test_temp, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32, copy=False)
-        )
-
-        # Build FAISS HNSW index on training data
-        d = X_train.shape[1]
-        index = faiss.IndexHNSWFlat(d, M)
-        index.hnsw.efSearch = efSearch
-        index.hnsw.rng = faiss.RandomGenerator(self.random_seed)
-        index.add(X_train_temp32)
-
-        # Impute training data
-        distances, indices = index.search(X_train_temp32, k + 1)
-        X_train_imputed = X_train.copy()
-        for i in range(X_train.shape[0]):
-            neighbors = indices[i, 1:]  # skip self
-            for j in range(X_train.shape[1]):
-                if mask_train[i, j]:
-                    neighbor_values = X_train_temp32[neighbors, j]
-                    X_train_imputed[i, j] = np.nanmean(neighbor_values)
-
-        # Impute test data
-        distances_test, indices_test = index.search(X_test_temp32, k)
-        X_test_imputed = X_test.copy()
-        for i in range(X_test.shape[0]):
-            neighbors = indices_test[i]
-            for j in range(X_test.shape[1]):
-                if mask_test[i, j]:
-                    neighbor_values = X_train_temp32[neighbors, j]
-                    X_test_imputed[i, j] = np.nanmean(neighbor_values)
-
-        # Rebuild into single array
-        X_imputed = X.copy()
-        X_imputed[train_ind] = X_train_imputed
-        X_imputed[test_ind] = X_test_imputed
-
-        return X_imputed
-
-    def _generate_features(
-            self,
-            baseline_methods_to_use: List[str],
-            combined_baseline: Dict[str, np.ndarray],
-            combined_baseline_names: List[str],
-            experiment_metadata: Dict[str, Any],
-            output_feature_dtype: np.dtype = np.dtype(np.float32),
-    ) -> Tuple[np.ndarray, List[str]]:
-        """Generate feature matrices from baseline data using only unengineered data streams."""
-        # Get trial_order from metadata (passed from baseline_data)
-        trial_order = experiment_metadata.get("trial_order")
-        trial_column = experiment_metadata["trial_id"]
-
-        if trial_order is None:
-            # Fallback: Use pandas unique to preserve first-appearance order like legacy code
-            trial_order = pd.unique(trial_column)
-
-        # Concatenate trial arrays along first axis
-        x_feature_matrix = np.concatenate(
-            [combined_baseline[tid] for tid in trial_order],
-            axis=0
-        ).astype(output_feature_dtype)
-
-        # Build baseline suffixes as frozenset for faster membership testing
-        baseline_suffixes = frozenset(baseline_methods_to_use)
-
-        # Use boolean indexing instead of nested loops
-        ue_indices = np.array([
-            i for i, feature in enumerate(combined_baseline_names)
-            if feature in self._UNENGINEERED_STREAMS or self._is_baselined_stream(
-                feature, baseline_suffixes
-            )
-        ])
-
-        # Compute trial_ints in the same order as features were concatenated (trial_order).
-        trial_ids_for_rows = np.concatenate([
-            np.full(combined_baseline[tid].shape[0], tid, dtype=object)
-            for tid in trial_order
-        ])
-        trial_ints = self._convert_to_unique_ordered_integers(trial_ids_for_rows)
-
-        x_feature_matrix = x_feature_matrix[:, ue_indices]
-        x_feature_matrix = np.hstack([
-            x_feature_matrix,
-            trial_ints.reshape(-1, 1)
-        ])
-
-        all_features = [combined_baseline_names[i] for i in ue_indices]
-
-        return x_feature_matrix, all_features
-
-    def _is_baselined_stream(self, feature_name: str, baseline_suffixes: frozenset) -> bool:
-        """Check if feature_name matches '{unengineered_stream}_{baseline_method}' pattern."""
-        # Early exit if feature doesn't contain underscore (optimization)
-        if '_' not in feature_name:
-            return False
-
-        # Extract potential stream and suffix
-        parts = feature_name.rsplit('_', 1)
-        if len(parts) != 2:
-            return False
-
-        stream_candidate, suffix = parts
-
-        # Check if suffix is a baseline method and stream is unengineered
-        return suffix in baseline_suffixes and stream_candidate in self._UNENGINEERED_STREAMS
-
-    def _feature_clean_and_prep(
-            self,
-            x_feature_matrix: np.ndarray,
-            gloc_labels_numpy: np.ndarray,
-            features: Dict[str, List[str]],
-            experiment_metadata: Dict[str, Any],
-            model_type: ModelType,
-            impute_phase: Any,
-    ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
-        """Remove constant columns, optionally add AFE indicator, and handle NaN rows according to `impute_phase`.
-
-        `impute_phase` controls whether to remove rows with NaNs after feature generation
-        (`POST_FEATURE_REMOVE_ROWS`) or leave them for post-feature imputation
-        (`POST_FEATURE_KNN`). When `PRE_FEATURE`, features should already be imputed.
-        """
-        # CRITICAL: Extract trial_ints BEFORE removing constant columns,
-        # otherwise the last column might be removed and we'll extract the wrong column
-        trial_ints = x_feature_matrix[:, -1].copy()
-
-        # Separate trial_ints from feature matrix for constant column removal
-        # The last column is trial_ints which was added by _generate_features
-        x_features_without_trials = x_feature_matrix[:, :-1]
-        feature_names_without_trials = features["All"]  # features["All"] should NOT include trial_ints
-
-        # Remove constant columns (typically no constant columns)
-        x_features_without_trials, feature_names_without_trials = self._remove_constant_columns(
-            x_features_without_trials, feature_names_without_trials
-        )
-
-        # Add AFE_indicator as 2nd-to-last column (before trial_ints) for explicit only
-        # Since trial_ints is already separated, just append AFE_indicator at the end of features
-        if model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit":
-            x_features_without_trials = np.hstack([
-                x_features_without_trials,
-                experiment_metadata["AFE_indicator"].reshape(-1, 1),
-            ])
-
-        # Restore trial_ints as the last column
-        x_feature_matrix = np.hstack([x_features_without_trials, trial_ints.reshape(-1, 1)])
-        all_features = feature_names_without_trials  # Don't include trial_ints in feature names
-
-        # Handle residual NaNs according to impute_phase
-        if impute_phase == ImputePhase.POST_FEATURE_REMOVE_ROWS:
-            # Remove rows with NaN values (list-wise deletion)
-            x_feature_matrix_noNaN, y_gloc_labels_noNaN, all_features, trials_noNaN = self._process_NaN(
-                x_feature_matrix,
-                gloc_labels_numpy,
-                all_features,
-                trial_ints,
-            )
-        else:
-            # For PRE_FEATURE (already imputed) or POST_FEATURE_KNN (impute later), retain rows
-            x_feature_matrix_noNaN = x_feature_matrix
-            y_gloc_labels_noNaN = gloc_labels_numpy
-            trials_noNaN = trial_ints
-
-        return x_feature_matrix_noNaN, y_gloc_labels_noNaN, all_features, trials_noNaN
-
-    def _process_NaN(
-            self,
-            x_feature_matrix: np.ndarray,
-            y_gloc_labels: np.ndarray,
-            all_features: List[str],
-            trials: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
-        """Remove all-NaN columns and any rows containing NaN values."""
-        nan_mask = np.isnan(x_feature_matrix)
-
-        # Find & remove columns if they have all NaN values
-        index_column_all_NaN = nan_mask.all(axis=0)
-        if index_column_all_NaN.any():
-            x_feature_matrix = x_feature_matrix[:, ~index_column_all_NaN]
-            all_features = [f for f, keep in zip(all_features, ~index_column_all_NaN) if keep]
-            nan_mask = nan_mask[:, ~index_column_all_NaN]
-
-        # Find & Remove rows in label/trial arrays if they have NaN values
-        row_has_nan = nan_mask.any(axis=1)
-        if row_has_nan.any():
-            keep_rows = ~row_has_nan
-            x_feature_matrix = x_feature_matrix[keep_rows]
-            y_gloc_labels = y_gloc_labels[keep_rows]
-            trials = trials[keep_rows]
-
-        return x_feature_matrix, y_gloc_labels, all_features, trials
-
-    def _get_train_test_split(
-            self,
-            x_feature_matrix: np.ndarray,
-            y_gloc_labels: np.ndarray,
-            experiment_metadata: Dict[str, Any],
-            num_splits: int,
-            kfold_ID: int,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Split into train/test, standardize features, and preserve trial indices in the last column."""
-        # Perform stratified group k-fold split
-        x_train, x_test, y_train, y_test, _, _ = self._groupedtrial_kfold_split(
-            x_feature_matrix, y_gloc_labels, num_splits, kfold_ID, experiment_metadata)
-
-        # Extract trial indices from last column (use direct slicing for memory efficiency)
-        train_trials = x_train[:, -1:]
-        test_trials = x_test[:, -1:]
-
-        # Remove trial column from features
-        x_train = x_train[:, :-1]
-        x_test = x_test[:, :-1]
-
-        # Standardize features based on training data distribution
-        scaler = StandardScaler()
-        x_train = scaler.fit_transform(x_train)
-        x_test = scaler.transform(x_test)
-
-        # Reattach trial indices as final column
-        x_train = np.hstack([x_train, train_trials])
-        x_test = np.hstack([x_test, test_trials])
-
-        return x_train, y_train, x_test, y_test
+		############################################# EEG Specific Imputation #############################################
+		# logger.info("Performing EEG-specific imputation for model_type=%s", model_type)
+		# ####
+		# #  Note: This runs for 'complete' models, but because we are only using shared/overlapping EEG features for the
+		# #      'complete' case, this block doesn't do anything. Imputation occurs only for non-shared EEG features are used.
+		# #       This block requires 'AFE' to be an
+		# ####
+		# if model_type.afe_filter == "Complete":
+		#     gloc_data = self._eeg_specific_imputation(gloc_data, features)
+
+		############################################### MISSING DATA HANDLING ###############################################
+		# Normalize impute_phase and derive behavior flags (preserve backward compatibility where needed).
+		try:
+			if impute_phase is None:
+				impute_phase = ImputePhase.parse(
+					self.config["shared_data_parameters"].get("impute_phase", "pre_feature")
+				)
+			else:
+				impute_phase = ImputePhase.parse(impute_phase)
+		except Exception:
+			impute_phase = ImputePhase.PRE_FEATURE
+
+		do_pre_feature_impute = impute_phase == ImputePhase.PRE_FEATURE
+		do_post_feature_remove_rows = impute_phase == ImputePhase.POST_FEATURE_REMOVE_ROWS
+		do_post_feature_knn = impute_phase == ImputePhase.POST_FEATURE_KNN
+
+		logger.info(
+			"Handling missing data with impute_phase=%s, pre_feature=%s, post_remove=%s, post_knn=%s, n_neighbors=%d, remove_NaN_trials=%s",
+			impute_phase.value,
+			do_pre_feature_impute,
+			do_post_feature_remove_rows,
+			do_post_feature_knn,
+			n_neighbors,
+			remove_NaN_trials,
+		)
+		# Optional handling of raw NaN data, depending on remove_NaN_trials and impute_phase
+		if remove_NaN_trials:
+			# This also returns a DataFrame with proportion of NaN values for each feature for each trial
+			# Also modifies gloc_data and gloc_labels to remove trials with all NaNs in at least one feature
+			# Note: DataFrame not used for the pipeline for memory purposes
+			gloc_data, gloc_labels, _ = self._remove_all_nan_trials(
+				gloc_data, features, gloc_labels
+			)
+
+		################################################## REDUCE MEMORY ##################################################
+		logger.info(
+			"Reducing memory usage by converting to numpy arrays with dtype=%s.",
+			output_feature_dtype,
+		)
+		gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(
+			gloc_data, gloc_labels, features, output_feature_dtype
+		)
+
+		################################################## Impute Missing ##################################################
+		logger.info(
+			"Imputing missing data (pre-feature) with pre_feature=%s, n_neighbors=%d, impute_file_name=%s, save_impute=%s, load_impute=%s",
+			do_pre_feature_impute,
+			n_neighbors,
+			impute_file_name,
+			save_impute,
+			load_impute,
+		)
+
+		if do_pre_feature_impute:
+			gloc_data_all_features_imputed_numpy = self._impute_missing_data(
+				gloc_data_all_features_numpy,
+				gloc_labels_numpy,
+				experiment_metadata,
+				impute_file_name,
+				save_impute,
+				load_impute,
+				num_splits,
+				kfold_ID,
+				n_neighbors,
+			)
+		else:
+			logger.info("Skipping pre-feature KNN imputation.")
+			gloc_data_all_features_imputed_numpy = gloc_data_all_features_numpy
+
+		################################################## BASELINE DATA ##################################################
+		logger.info("Calculating baselines with methods: %s", baseline_methods_to_use)
+		combined_baseline, combined_baseline_names, _, _ = self._get_combined_baseline_data(
+			gloc_data_all_features_imputed_numpy,
+			experiment_metadata,
+			baseline_window,
+			baseline_methods_to_use,
+			features,
+			file_paths,
+			model_type,
+		)
+
+		################################################ GENERATE FEATURES ################################################
+		logger.info("Generating features for model_type=%s", model_type)
+		x_feature_matrix, features["All"] = self._generate_features(
+			baseline_methods_to_use,
+			combined_baseline,
+			combined_baseline_names,
+			experiment_metadata,
+			output_feature_dtype,
+		)
+
+		############################################# FEATURE CLEAN AND PREP ##############################################
+		logger.info("Cleaning and preparing features for model_type=%s", model_type)
+		x_feature_matrix, y_gloc_labels, features["All"], experiment_metadata["trial_ints"] = (
+			self._feature_clean_and_prep(
+				x_feature_matrix,
+				gloc_labels_numpy,
+				features,
+				experiment_metadata,
+				model_type,
+				impute_phase,
+			)
+		)
+
+		################################################ TRAIN/TEST SPLIT  ################################################
+		logger.info(
+			"Performing train/test split with num_splits=%d, kfold_ID=%d", num_splits, kfold_ID
+		)
+		x_train, y_train, x_test, y_test = self._get_train_test_split(
+			x_feature_matrix, y_gloc_labels, experiment_metadata, num_splits, kfold_ID
+		)
+
+		# Post-feature KNN imputation (on the feature matrix) if requested
+		if do_post_feature_knn:
+			logger.info(
+				"Performing post-feature KNN imputation on feature matrix with n_neighbors=%d",
+				n_neighbors,
+			)
+			# Preserve trial column while imputing features only
+			trial_col = x_feature_matrix[:, -1].copy()
+			X_feats = x_feature_matrix[:, :-1]
+			# Compute train/test indices for the fold
+			_, _, _, _, train_indices, test_indices = self._groupedtrial_kfold_split(
+				X_feats, y_gloc_labels, num_splits, kfold_ID, experiment_metadata
+			)
+			X_imputed = self._faster_knn_impute_train_test(
+				X_feats, train_indices, test_indices, n_neighbors
+			)
+			x_feature_matrix = np.hstack([X_imputed, trial_col.reshape(-1, 1)])
+
+		################################################## TEMPORAL HORIZON SHIFT  ################################################
+		if horizon > 0:
+			logger.info(
+				"Applying temporal horizon shift of %d samples for advanced forecasting", horizon
+			)
+			train_trial_ids = x_train[:, -1]
+			test_trial_ids = x_test[:, -1]
+			y_train = self._shift_labels_by_samples(y_train, train_trial_ids, horizon)
+			y_test = self._shift_labels_by_samples(y_test, test_trial_ids, horizon)
+
+		############################################# SENSOR ABLATION / FEATURE FILTER  #############################################
+		if feature_streams is not None and len(feature_streams) > 0:
+			all_feature_names = features["All"]
+			filtered_feature_names = self._apply_sensor_ablation(all_feature_names, feature_streams)
+			col_indices = [all_feature_names.index(name) for name in filtered_feature_names]
+			x_train = np.hstack([x_train[:, col_indices], x_train[:, -1:]])
+			x_test = np.hstack([x_test[:, col_indices], x_test[:, -1:]])
+			features["All"] = filtered_feature_names
+			logger.info(
+				"Applied sensor ablation for advanced pipeline: streams=%s, features %d -> %d",
+				feature_streams,
+				len(all_feature_names),
+				len(filtered_feature_names),
+			)
+
+		return x_train, x_test, y_train, y_test, features["All"]
+
+	def _impute_missing_data(
+		self,
+		gloc_data_all_features_numpy: np.ndarray,
+		gloc_labels_numpy: np.ndarray,
+		experiment_metadata: dict[str, Any],
+		impute_file_name: str,
+		save_impute: bool,
+		load_impute: bool,
+		num_splits: int,
+		kfold_ID: int,
+		n_neighbors: int,
+	) -> np.ndarray:
+		# Load or compute imputed features
+		impute_path = self._resolve_advanced_impute_path(impute_file_name, kfold_ID)
+
+		# NOTE: impute_path is derived from impute_file_name and kfold_ID in Processed Data.
+		if load_impute and os.path.exists(impute_path):
+			with open(impute_path, "rb") as f:
+				gloc_data_all_features_imputed_numpy = pickle.load(f)
+			logger.info("Loaded imputed data from %s.", impute_path)
+		else:
+			# Only compute train/test indices when actually imputing
+			_, _, _, _, train_indices, test_indices = self._groupedtrial_kfold_split(
+				gloc_data_all_features_numpy,
+				gloc_labels_numpy,
+				num_splits,
+				kfold_ID,
+				experiment_metadata,
+			)
+			gloc_data_all_features_imputed_numpy = self._faster_knn_impute_train_test(
+				gloc_data_all_features_numpy, train_indices, test_indices, n_neighbors
+			)
+
+			del gloc_data_all_features_numpy  # Free memory of original data after imputation
+
+			if save_impute:
+				impute_dir = os.path.dirname(impute_path)
+				if impute_dir:
+					os.makedirs(impute_dir, exist_ok=True)
+				with open(impute_path, "wb") as f:
+					pickle.dump(gloc_data_all_features_imputed_numpy, f)
+				logger.info("Saved imputed data to %s.", impute_path)
+
+		return gloc_data_all_features_imputed_numpy
+
+	def _resolve_advanced_impute_path(self, impute_file_name: str, kfold_ID: int) -> str:
+		"""Build advanced cache path in data_path/Processed Data with prefix and k-fold suffix."""
+		processed_dir = Path(self.data_path) / "Processed Data"
+		base_name = Path(impute_file_name)
+		if base_name.suffix:
+			file_name = f"advanced_{base_name.stem}_kfold_{kfold_ID}{base_name.suffix}"
+		else:
+			file_name = f"advanced_{base_name.name}_kfold_{kfold_ID}.pkl"
+		return str((processed_dir / file_name).resolve())
+
+	def _groupedtrial_kfold_split(
+		self,
+		X: np.ndarray,
+		Y: np.ndarray,
+		num_splits: int,
+		kfold_ID: int,
+		experiment_metadata: dict[str, Any],
+	) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+		"""Split data into train/test using stratified group K-fold on trial groups."""
+		# Grouped K-Fold setup (shuffle=False for reproducibility)
+		gkf = StratifiedGroupKFold(n_splits=num_splits, shuffle=False)
+
+		# Validate kfold_ID
+		n_folds = gkf.get_n_splits()
+		if kfold_ID < 0 or kfold_ID >= n_folds:
+			raise ValueError(
+				f"Fold index {kfold_ID} out of range (must be between 0 and {n_folds - 1})"
+			)
+
+		# Get train and test indices for the specified fold
+		trials = experiment_metadata["trial_ints"]
+		train_index, test_index = next(islice(gkf.split(X, Y, trials), kfold_ID, kfold_ID + 1))
+
+		# Extract split data
+		x_train, y_train = X[train_index], Y[train_index]
+		x_test, y_test = X[test_index], Y[test_index]
+
+		return x_train, x_test, y_train, y_test, train_index, test_index
+
+	def _faster_knn_impute_train_test(
+		self,
+		X: np.ndarray,
+		train_ind: np.ndarray,
+		test_ind: np.ndarray,
+		k: int = 5,
+		M: int = 32,
+		efSearch: int = 64,
+	) -> np.ndarray:
+		"""Impute missing values via FAISS KNN, training on train set only to prevent leakage."""
+		# Split into train and test
+		X_train = X[train_ind]
+		X_test = X[test_ind]
+
+		# Identify missing values
+		mask_train = np.isnan(X_train)
+		mask_test = np.isnan(X_test)
+
+		# Isolate complete rows in training set to build FAISS index
+		clean_train_mask = ~mask_train.any(axis=1)
+		X_train_clean = X_train[clean_train_mask]
+
+		if X_train_clean.shape[0] == 0:
+			mean_vals = np.nanmean(X_train, axis=0)
+			X_train_imputed = np.where(mask_train, mean_vals, X_train)
+			X_test_imputed = np.where(mask_test, mean_vals, X_test)
+			X_imputed = X.copy()
+			X_imputed[train_ind] = X_train_imputed
+			X_imputed[test_ind] = X_test_imputed
+			return X_imputed
+
+		mean_vals = np.nanmean(X_train_clean, axis=0)
+		X_train_clean32 = np.ascontiguousarray(
+			np.nan_to_num(X_train_clean, nan=0.0, posinf=0.0, neginf=0.0).astype(
+				np.float32, copy=False
+			)
+		)
+
+		# Build FAISS HNSW index on clean training data only
+		d = X_train.shape[1]
+		index = faiss.IndexHNSWFlat(d, M)
+		index.hnsw.efSearch = efSearch
+		index.hnsw.rng = faiss.RandomGenerator(self.random_seed)
+		index.add(X_train_clean32)
+
+		k_search = min(k, X_train_clean32.shape[0])
+
+		# Impute training data (only rows with NaNs query the index)
+		X_train_imputed = X_train.copy()
+		nan_train_rows = np.flatnonzero(~clean_train_mask)
+		if len(nan_train_rows) > 0:
+			X_train_query = np.where(mask_train[nan_train_rows], mean_vals, X_train[nan_train_rows])
+			X_train_query32 = np.ascontiguousarray(
+				np.nan_to_num(X_train_query, nan=0.0, posinf=0.0, neginf=0.0).astype(
+					np.float32, copy=False
+				)
+			)
+			distances_train, indices_train = index.search(X_train_query32, k_search)
+			for row_idx, orig_i in enumerate(nan_train_rows):
+				missing_cols = np.flatnonzero(mask_train[orig_i])
+				neighbors = indices_train[row_idx]
+				for j in missing_cols:
+					X_train_imputed[orig_i, j] = np.mean(X_train_clean32[neighbors, j])
+
+		# Impute test data
+		X_test_imputed = X_test.copy()
+		clean_test_mask = ~mask_test.any(axis=1)
+		nan_test_rows = np.flatnonzero(~clean_test_mask)
+		if len(nan_test_rows) > 0:
+			X_test_query = np.where(mask_test[nan_test_rows], mean_vals, X_test[nan_test_rows])
+			X_test_query32 = np.ascontiguousarray(
+				np.nan_to_num(X_test_query, nan=0.0, posinf=0.0, neginf=0.0).astype(
+					np.float32, copy=False
+				)
+			)
+			distances_test, indices_test = index.search(X_test_query32, k_search)
+			for row_idx, orig_i in enumerate(nan_test_rows):
+				missing_cols = np.flatnonzero(mask_test[orig_i])
+				neighbors = indices_test[row_idx]
+				for j in missing_cols:
+					X_test_imputed[orig_i, j] = np.mean(X_train_clean32[neighbors, j])
+
+		# Rebuild into single array
+		X_imputed = X.copy()
+		X_imputed[train_ind] = X_train_imputed
+		X_imputed[test_ind] = X_test_imputed
+
+		return X_imputed
+
+	def _generate_features(
+		self,
+		baseline_methods_to_use: list[str],
+		combined_baseline: dict[str, np.ndarray],
+		combined_baseline_names: list[str],
+		experiment_metadata: dict[str, Any],
+		output_feature_dtype: np.dtype = np.dtype(np.float32),
+	) -> tuple[np.ndarray, list[str]]:
+		"""Generate feature matrices from baseline data using only unengineered data streams."""
+		# Get trial_order from metadata (passed from baseline_data)
+		trial_order = experiment_metadata.get("trial_order")
+		trial_column = experiment_metadata["trial_id"]
+
+		if trial_order is None:
+			# Fallback: Use pandas unique to preserve first-appearance order like legacy code
+			trial_order = pd.unique(trial_column)
+
+		# Concatenate trial arrays along first axis
+		x_feature_matrix = np.concatenate(
+			[combined_baseline[tid] for tid in trial_order], axis=0
+		).astype(output_feature_dtype)
+
+		# Build baseline suffixes as frozenset for faster membership testing
+		baseline_suffixes = frozenset(baseline_methods_to_use)
+
+		# Use boolean indexing instead of nested loops
+		ue_indices = np.array(
+			[
+				i
+				for i, feature in enumerate(combined_baseline_names)
+				if feature in self._UNENGINEERED_STREAMS
+				or self._is_baselined_stream(feature, baseline_suffixes)
+			]
+		)
+
+		# Compute trial_ints in the same order as features were concatenated (trial_order).
+		trial_ids_for_rows = np.concatenate(
+			[np.full(combined_baseline[tid].shape[0], tid, dtype=object) for tid in trial_order]
+		)
+		trial_ints = self._convert_to_unique_ordered_integers(trial_ids_for_rows)
+
+		x_feature_matrix = x_feature_matrix[:, ue_indices]
+		x_feature_matrix = np.hstack([x_feature_matrix, trial_ints.reshape(-1, 1)])
+
+		all_features = [combined_baseline_names[i] for i in ue_indices]
+
+		return x_feature_matrix, all_features
+
+	def _is_baselined_stream(self, feature_name: str, baseline_suffixes: frozenset) -> bool:
+		"""Check if feature_name matches '{unengineered_stream}_{baseline_method}' pattern."""
+		# Early exit if feature doesn't contain underscore (optimization)
+		if "_" not in feature_name:
+			return False
+
+		# Extract potential stream and suffix
+		parts = feature_name.rsplit("_", 1)
+		if len(parts) != 2:
+			return False
+
+		stream_candidate, suffix = parts
+
+		# Check if suffix is a baseline method and stream is unengineered
+		return suffix in baseline_suffixes and stream_candidate in self._UNENGINEERED_STREAMS
+
+	def _feature_clean_and_prep(
+		self,
+		x_feature_matrix: np.ndarray,
+		gloc_labels_numpy: np.ndarray,
+		features: dict[str, list[str]],
+		experiment_metadata: dict[str, Any],
+		model_type: ModelType,
+		impute_phase: Any,
+	) -> tuple[np.ndarray, np.ndarray, list[str], np.ndarray]:
+		"""Remove constant columns, optionally add AFE indicator, and handle NaN rows according to `impute_phase`.
+
+		`impute_phase` controls whether to remove rows with NaNs after feature generation
+		(`POST_FEATURE_REMOVE_ROWS`) or leave them for post-feature imputation
+		(`POST_FEATURE_KNN`). When `PRE_FEATURE`, features should already be imputed.
+		"""
+		# CRITICAL: Extract trial_ints BEFORE removing constant columns,
+		# otherwise the last column might be removed and we'll extract the wrong column
+		trial_ints = x_feature_matrix[:, -1].copy()
+
+		# Separate trial_ints from feature matrix for constant column removal
+		# The last column is trial_ints which was added by _generate_features
+		x_features_without_trials = x_feature_matrix[:, :-1]
+		feature_names_without_trials = features[
+			"All"
+		]  # features["All"] should NOT include trial_ints
+
+		# Remove constant columns (typically no constant columns)
+		x_features_without_trials, feature_names_without_trials = self._remove_constant_columns(
+			x_features_without_trials, feature_names_without_trials
+		)
+
+		# Add AFE_indicator as 2nd-to-last column (before trial_ints) for explicit only
+		# Since trial_ints is already separated, just append AFE_indicator at the end of features
+		if model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit":
+			x_features_without_trials = np.hstack(
+				[x_features_without_trials, experiment_metadata["AFE_indicator"].reshape(-1, 1)]
+			)
+
+		# Restore trial_ints as the last column
+		x_feature_matrix = np.hstack([x_features_without_trials, trial_ints.reshape(-1, 1)])
+		all_features = feature_names_without_trials  # Don't include trial_ints in feature names
+
+		# Handle residual NaNs according to impute_phase
+		if impute_phase == ImputePhase.POST_FEATURE_REMOVE_ROWS:
+			# Remove rows with NaN values (list-wise deletion)
+			x_feature_matrix_noNaN, y_gloc_labels_noNaN, all_features, trials_noNaN = (
+				self._process_NaN(x_feature_matrix, gloc_labels_numpy, all_features, trial_ints)
+			)
+		else:
+			# For PRE_FEATURE (already imputed) or POST_FEATURE_KNN (impute later), retain rows
+			x_feature_matrix_noNaN = x_feature_matrix
+			y_gloc_labels_noNaN = gloc_labels_numpy
+			trials_noNaN = trial_ints
+
+		return x_feature_matrix_noNaN, y_gloc_labels_noNaN, all_features, trials_noNaN
+
+	def _process_NaN(
+		self,
+		x_feature_matrix: np.ndarray,
+		y_gloc_labels: np.ndarray,
+		all_features: list[str],
+		trials: np.ndarray,
+	) -> tuple[np.ndarray, np.ndarray, list[str], np.ndarray]:
+		"""Remove all-NaN columns and any rows containing NaN values."""
+		nan_mask = np.isnan(x_feature_matrix)
+
+		# Find & remove columns if they have all NaN values
+		index_column_all_NaN = nan_mask.all(axis=0)
+		if index_column_all_NaN.any():
+			x_feature_matrix = x_feature_matrix[:, ~index_column_all_NaN]
+			all_features = [f for f, keep in zip(all_features, ~index_column_all_NaN) if keep]
+			nan_mask = nan_mask[:, ~index_column_all_NaN]
+
+		# Find & Remove rows in label/trial arrays if they have NaN values
+		row_has_nan = nan_mask.any(axis=1)
+		if row_has_nan.any():
+			keep_rows = ~row_has_nan
+			x_feature_matrix = x_feature_matrix[keep_rows]
+			y_gloc_labels = y_gloc_labels[keep_rows]
+			trials = trials[keep_rows]
+
+		return x_feature_matrix, y_gloc_labels, all_features, trials
+
+	def _get_train_test_split(
+		self,
+		x_feature_matrix: np.ndarray,
+		y_gloc_labels: np.ndarray,
+		experiment_metadata: dict[str, Any],
+		num_splits: int,
+		kfold_ID: int,
+	) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+		"""Split into train/test, standardize features, and preserve trial indices in the last column."""
+		# Perform stratified group k-fold split
+		x_train, x_test, y_train, y_test, _, _ = self._groupedtrial_kfold_split(
+			x_feature_matrix, y_gloc_labels, num_splits, kfold_ID, experiment_metadata
+		)
+
+		# Extract trial indices from last column (use direct slicing for memory efficiency)
+		train_trials = x_train[:, -1:]
+		test_trials = x_test[:, -1:]
+
+		# Remove trial column from features
+		x_train = x_train[:, :-1]
+		x_test = x_test[:, :-1]
+
+		# Standardize features based on training data distribution
+		scaler = StandardScaler()
+		x_train = scaler.fit_transform(x_train)
+		x_test = scaler.transform(x_test)
+
+		# Reattach trial indices as final column
+		x_train = np.hstack([x_train, train_trials])
+		x_test = np.hstack([x_test, test_trials])
+
+		return x_train, y_train, x_test, y_test
 
 
 class TraditionalDataPipeline(BaseGLOCDataPipeline):
-    """Legacy-compatible data pipeline for temporal/traditional GLOC modeling."""
+	"""Legacy-compatible data pipeline for temporal/traditional GLOC modeling."""
 
-    def get_data(
-            self,
-            backstep: int,
-            data_rate: int,
-            classifier_type: str,
-            model_type: ModelType,
-            remove_NaN_trials: bool,
-            offset: float,
-            time_start: float,
-            subject_to_analyze: Optional[str],
-            trial_to_analyze: Optional[str],
-            analysis_type: int,
-            *,
-            select_features: Optional[List[str]] = None,
-            feature_streams: Optional[List[str]] = None,
-            traditional_feature_selection: Literal["cache", "raw"] = "cache",
-            return_feature_names: bool = False,
-            impute_file_name: Optional[str] = None,
-            impute_phase: Any = None,
-            output_feature_dtype: np.dtype = np.dtype(np.float32),
-            save_impute: bool = False,
-            load_impute: bool = False,
-            model: Optional[BaseModel] = None,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Return data for a given set of parameters."""
-        traditional_hyperparameters = self._resolve_traditional_hyperparameters(model, classifier_type)
-        baseline_window = traditional_hyperparameters["baseline_window"]
-        window_size = traditional_hyperparameters["window_size"]
-        stride = traditional_hyperparameters["stride"]
-        _feature_reduction_type = traditional_hyperparameters["feature_reduction_type"]
-        baseline_methods_to_use = traditional_hyperparameters["baseline_methods_to_use"]
-        _imbalance_type = traditional_hyperparameters["imbalance_type"]
-        impute_type = traditional_hyperparameters["impute_type"]
-        n_neighbors = traditional_hyperparameters["n_neighbors"]
-        feature_groups_to_analyze, baseline_methods_to_use = self._get_feature_groups_and_baseline_methods(model_type,
-                                                                                                           baseline_methods_to_use)
+	def get_data(
+		self,
+		backstep: int,
+		data_rate: int,
+		classifier_type: str,
+		model_type: ModelType,
+		remove_NaN_trials: bool,
+		offset: float,
+		time_start: float,
+		subject_to_analyze: str | None,
+		trial_to_analyze: str | None,
+		analysis_type: int,
+		*,
+		select_features: list[str] | None = None,
+		feature_streams: list[str] | None = None,
+		traditional_feature_selection: Literal["cache", "raw"] = "cache",
+		return_feature_names: bool = False,
+		save_preprocessing_artifacts_path: str | None = None,
+		output_feature_dtype: np.dtype = np.dtype(np.float32),
+		model: BaseModel | None = None,
+		kfold_id: int | None = None,
+		num_splits: int | None = None,
+		standardize_s1: bool = True,
+	) -> tuple[np.ndarray, np.ndarray]:
+		"""Return data for a given set of parameters."""
+		if kfold_id is None or num_splits is None:
+			raise ValueError(
+				"Traditional pipeline requires kfold_id and num_splits for fold-aware standardization. "
+				f"Got kfold_id={kfold_id}, num_splits={num_splits}."
+			)
+		if kfold_id < 0 or kfold_id >= num_splits:
+			raise ValueError(f"Fold {kfold_id} is out of range [0, {num_splits - 1}].")
+
+		traditional_hyperparameters = self._resolve_traditional_hyperparameters(
+			model, classifier_type
+		)
+		baseline_window = traditional_hyperparameters["baseline_window"]
+		window_size = traditional_hyperparameters["window_size"]
+		stride = traditional_hyperparameters["stride"]
+		_feature_reduction_type = traditional_hyperparameters["feature_reduction_type"]
+		baseline_methods_to_use = traditional_hyperparameters["baseline_methods_to_use"]
+		_imbalance_type = traditional_hyperparameters["imbalance_type"]
+		feature_groups_to_analyze, baseline_methods_to_use = (
+			self._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
+		)
 
         ############################################# LOAD AND PROCESS DATA #############################################
         logger.info(
@@ -1453,1553 +1616,1409 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
         # "Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze"
         file_paths = self._get_data_locations(model_type)
 
-        # Load data and slot in GOR EEG features from xlsx files, then filter to specified analysis type and process features based on specified feature groups
-        gloc_data = self._load_data(file_paths, output_feature_dtype)
-        gloc_data = self._filter_data_by_analysis_type(analysis_type, gloc_data, subject_to_analyze, trial_to_analyze)
-        gloc_data, features = self._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type,
-                                                                  file_paths, output_feature_dtype)
+		# Load data and slot in GOR EEG features from xlsx files, then filter to specified analysis type and process features based on specified feature groups
+		gloc_data = self._load_data(file_paths, output_feature_dtype)
+		gloc_data = self._filter_data_by_analysis_type(
+			analysis_type, gloc_data, subject_to_analyze, trial_to_analyze
+		)
+		gloc_data, features = self._process_and_get_feature_names(
+			gloc_data, feature_groups_to_analyze, model_type, file_paths, output_feature_dtype
+		)
+		raw_unprocessed_features = [f for f in features["All"] if not f.startswith("participant_")]
 
-        # Create GLOC categorical vector
-        gloc_labels = self._label_gloc_events(gloc_data)
+		# Create GLOC categorical vector
+		gloc_labels = self._label_gloc_events(gloc_data)
 
-        # if is_complete_explicit: # Doesn't do anything since EEG shared features are used for complete_Explicit
-        #     # Impute raw (using mean) value of the missing channels for each AFE condition
-        #     gloc_data = self._eeg_specific_imputation(gloc_data, features)
+		# if is_complete_explicit: # Doesn't do anything since EEG shared features are used for complete_Explicit
+		#     # Impute raw (using mean) value of the missing channels for each AFE condition
+		#     gloc_data = self._eeg_specific_imputation(gloc_data, features)
 
-        if model_type.afe_filter == "noAFE":
-            # Reduce dataset based on AFE/noAFE condition
-            gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
+		if model_type.afe_filter == "noAFE":
+			# Reduce dataset based on AFE/noAFE condition
+			gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
 
-        ############################################### DATA CLEAN AND Some Imputation ###############################################
-        # Normalize impute_phase and derive behavior flags (preserve backward compatibility where needed).
-        try:
-            if impute_phase is None:
-                impute_phase = ImputePhase.parse(
-                    self.config["shared_data_parameters"].get("impute_phase", "pre_feature"))
-            else:
-                impute_phase = ImputePhase.parse(impute_phase)
-        except Exception:
-            impute_phase = ImputePhase.PRE_FEATURE
+		############################################### DATA CLEANING ###############################################
+		if remove_NaN_trials:
+			gloc_data, gloc_labels, _ = self._remove_all_nan_trials(
+				gloc_data, features, gloc_labels
+			)
 
-        do_pre_feature_impute = impute_phase == ImputePhase.PRE_FEATURE
-        do_post_feature_remove_rows = impute_phase == ImputePhase.POST_FEATURE_REMOVE_ROWS
-        do_post_feature_knn = impute_phase == ImputePhase.POST_FEATURE_KNN
+		################################################## REDUCE MEMORY ##################################################
+		logger.info(
+			"Reducing memory usage by converting to numpy arrays with dtype=%s.",
+			output_feature_dtype,
+		)
+		# Extract out columns from gloc_data into experiment_metadata
+		gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(
+			gloc_data, gloc_labels, features, output_feature_dtype
+		)
 
-        logger.info(
-            "Cleaning data and performing imputation with impute_phase=%s, pre_feature=%s, post_remove=%s, post_knn=%s, n_neighbors=%d",
-            impute_phase.value, do_pre_feature_impute, do_post_feature_remove_rows, do_post_feature_knn, n_neighbors)
-        if remove_NaN_trials:
-            gloc_data, gloc_labels, _ = self._remove_all_nan_trials(gloc_data, features, gloc_labels)
+		###################################################### Prediction Offset ###############################################
+		logger.info(
+			"Applying prediction offset with backstep=%d, data_rate=%d", backstep, data_rate
+		)
+		gloc_labels_numpy = self._shift_labels_by_samples(
+			gloc_labels_numpy, experiment_metadata["trial_id"], int(backstep * data_rate)
+		)
 
-        if do_pre_feature_impute:
-            if impute_file_name is not None:
-                traditional_impute_path = self._resolve_traditional_impute_path(impute_file_name, classifier_type)
-            else:
-                traditional_impute_path = None
+		################################################ BASELINE ################################################
+		logger.info("Calculating baselines with methods: %s", baseline_methods_to_use)
+		combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0 = (
+			self._get_combined_baseline_data(
+				gloc_data_all_features_numpy,
+				experiment_metadata,
+				baseline_window,
+				baseline_methods_to_use,
+				features,
+				file_paths,
+				model_type,
+			)
+		)
 
-            if load_impute and traditional_impute_path and os.path.exists(traditional_impute_path):
-                with open(traditional_impute_path, 'rb') as f:
-                    imputed_features = pickle.load(f)
-                logger.info("Loaded traditional imputed data from %s.", traditional_impute_path)
-            else:
-                imputed_features = self._faster_knn_impute(
-                    gloc_data[features["All"]].to_numpy(dtype=output_feature_dtype),
-                    k=n_neighbors,
-                )
-                if save_impute and traditional_impute_path:
-                    impute_dir = os.path.dirname(traditional_impute_path)
-                    if impute_dir:
-                        os.makedirs(impute_dir, exist_ok=True)
-                    with open(traditional_impute_path, 'wb') as f:
-                        pickle.dump(imputed_features, f)
-                    logger.info("Saved traditional imputed data to %s.", traditional_impute_path)
+		################################# FEATURE GENERATION ########################################
+		logger.info(
+			"Generating features with window_size=%.2f, stride=%.2f, offset=%.2f, time_start=%.2f",
+			window_size,
+			stride,
+			offset,
+			time_start,
+		)
+		# Feature generation must run for each offset to window GLOC labels
+		raw_gloc_labels_numpy = gloc_labels_numpy.copy()
 
-            gloc_data[features["All"]] = imputed_features
+		# Pre-pass: compute windowed labels + trial_ids so we can determine a
+		# fold-aware train_mask BEFORE _feature_generation standardizes. The
+		# pre-pass shares the row-ordering of _feature_generation so the same
+		# mask aligns 1:1 with the post-standardize matrix rows.
+		_y_pre, _trial_id_pre = self._gen_windowed_label_metadata(
+			time_start,
+			offset,
+			stride,
+			window_size,
+			combined_baseline,
+			gloc_labels_numpy,
+			experiment_metadata["trial_id"],
+			experiment_metadata["Time (s)"],
+			combined_baseline_names,
+			output_feature_dtype=output_feature_dtype,
+		)
 
-        ################################################## REDUCE MEMORY ##################################################
-        logger.info("Reducing memory usage by converting to numpy arrays with dtype=%s.", output_feature_dtype)
-        # Extract out columns from gloc_data into experiment_metadata
-        gloc_data_all_features_numpy, gloc_labels_numpy, experiment_metadata = self._reduce_memory(gloc_data,
-                                                                                                   gloc_labels,
-                                                                                                   features,
-                                                                                                   output_feature_dtype)
+		# Fold split on the windowed labels (deterministic given random_seed).
+		from sklearn.model_selection import StratifiedKFold
 
-        ###################################################### Prediction Offset ###############################################
-        logger.info("Applying prediction offset with backstep=%d, data_rate=%d", backstep, data_rate)
-        gloc_labels_numpy = self._shift_labels_by_samples(
-            gloc_labels_numpy, experiment_metadata["trial_id"], int(backstep * data_rate)
-        )
+		skf = StratifiedKFold(n_splits=num_splits, shuffle=True, random_state=self.random_seed)
+		_train_idx_pre, _test_idx_pre = next(
+			islice(skf.split(_y_pre, _y_pre.ravel()), kfold_id, kfold_id + 1)
+		)
+		train_mask_pre = np.zeros(_y_pre.shape[0], dtype=bool)
+		train_mask_pre[_train_idx_pre] = True
 
-        ################################################ BASELINE ################################################
-        logger.info("Calculating baselines with methods: %s", baseline_methods_to_use)
-        combined_baseline, combined_baseline_names, baseline_v0, baseline_names_v0 = self._get_combined_baseline_data(
-            gloc_data_all_features_numpy,
-            experiment_metadata,
-            baseline_window,
-            baseline_methods_to_use,
-            features,
-            file_paths,
-            model_type
-        )
+		gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], _trial_id_per_row = (
+			self._feature_generation(
+				time_start,
+				offset,
+				stride,
+				window_size,
+				combined_baseline,
+				gloc_labels_numpy,
+				experiment_metadata["trial_id"],
+				experiment_metadata["Time (s)"],
+				combined_baseline_names,
+				baseline_names_v0,
+				baseline_v0,
+				feature_groups_to_analyze,
+				train_mask=train_mask_pre,
+				standardize_s1=standardize_s1,
+				output_feature_dtype=output_feature_dtype,
+			)
+		)
 
-        ################################# FEATURE GENERATION ########################################
-        logger.info("Generating features with window_size=%.2f, stride=%.2f, offset=%.2f, time_start=%.2f", window_size,
-                    stride, offset, time_start)
-        # Feature generation must run for each offset to window GLOC labels
-        raw_gloc_labels_numpy = gloc_labels_numpy.copy()
-        gloc_labels_numpy, gloc_data_all_features_numpy, features["All"] = self._feature_generation(
-            time_start,
-            offset,
-            stride,
-            window_size,
-            combined_baseline,
-            gloc_labels_numpy,
-            experiment_metadata["trial_id"],
-            experiment_metadata["Time (s)"],
-            combined_baseline_names,
-            baseline_names_v0,
-            baseline_v0,
-            feature_groups_to_analyze,
-            output_feature_dtype
-        )
+		# Sanity check: _feature_generation produced the same number of rows
+		# (it should, since the pre-pass shares the same windowing code).
+		if gloc_labels_numpy.shape[0] != _y_pre.shape[0]:
+			raise RuntimeError(
+				f"_feature_generation produced {gloc_labels_numpy.shape[0]} rows but "
+				f"pre-pass expected {_y_pre.shape[0]}. Fold-mask alignment is broken."
+			)
 
-        ################################################ Feature Reduction ################################################
-        logger.info("Performing feature reduction with type: %s", _feature_reduction_type)
-        # Add windowed AFE indicator if required by model type
-        if model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit":
-            experiment_metadata["AFE_indicator_windowed"], _, _ = self._sliding_window_max(
-                experiment_metadata["AFE_indicator"],
-                experiment_metadata["trial_id"],
-                experiment_metadata["Time (s)"],
-                raw_gloc_labels_numpy,
-                offset,
-                stride,
-                window_size,
-                time_start
-            )
+		################################################ Feature Reduction ################################################
+		logger.info("Performing feature reduction with type: %s", _feature_reduction_type)
+		# Add windowed AFE indicator if required by model type
+		if model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit":
+			experiment_metadata["AFE_indicator_windowed"], _, _ = self._sliding_window_max(
+				experiment_metadata["AFE_indicator"],
+				experiment_metadata["trial_id"],
+				experiment_metadata["Time (s)"],
+				raw_gloc_labels_numpy,
+				offset,
+				stride,
+				window_size,
+				time_start,
+			)
 
-            gloc_data_all_features_numpy = np.hstack(
-                [gloc_data_all_features_numpy, experiment_metadata["AFE_indicator_windowed"]])
-            features["All"].append("AFE_indicator_windowed")
+			gloc_data_all_features_numpy = np.hstack(
+				[gloc_data_all_features_numpy, experiment_metadata["AFE_indicator_windowed"]]
+			)
+			features["All"].append("AFE_indicator_windowed")
 
-        if traditional_feature_selection == "cache":
-            if select_features is None:
-                raise ValueError("select_features is required when traditional_feature_selection='cache'.")
+		all_raw_features = list(features["All"])
 
-            select_features = self._apply_sensor_ablation(select_features, feature_streams)
+		if traditional_feature_selection == "cache":
+			if select_features is None:
+				raise ValueError(
+					"select_features is required when traditional_feature_selection='cache'."
+				)
 
-            # Backward compatibility: legacy feature lists may still reference "condition".
-            translated_select_features = [
-                feature_name.replace("condition", "AFE_indicator") for feature_name in select_features
-            ]
+			# Backward compatibility: legacy feature lists may still reference "condition".
+			translated_select_features = [
+				feature_name.replace("condition", "AFE_indicator")
+				for feature_name in select_features
+			]
 
-            # Select columns by index to avoid an expensive full DataFrame materialization.
-            feature_index = {feature_name: i for i, feature_name in enumerate(features["All"])}
-            selected_indices = [feature_index[feature_name] for feature_name in translated_select_features]
-            gloc_data_all_features_numpy = gloc_data_all_features_numpy[:, selected_indices]
+			feature_index = {feature_name: i for i, feature_name in enumerate(features["All"])}
+			selected_indices = [
+				feature_index[feature_name] for feature_name in translated_select_features
+			]
+			gloc_data_all_features_numpy = gloc_data_all_features_numpy[:, selected_indices]
 
-            gloc_data_all_features_numpy, select_features = self._remove_constant_columns(gloc_data_all_features_numpy,
-                                                                                          translated_select_features)
-        else:
-            gloc_data_all_features_numpy, all_available_features = self._remove_constant_columns(
-                gloc_data_all_features_numpy,
-                list(features["All"]),
-            )
+			gloc_data_all_features_numpy, select_features = self._remove_constant_columns(
+				gloc_data_all_features_numpy, translated_select_features
+			)
+		else:
+			gloc_data_all_features_numpy, select_features = self._remove_constant_columns(
+				gloc_data_all_features_numpy, list(features["All"])
+			)
 
-            select_features = self._apply_sensor_ablation(
-                all_available_features,
-                feature_streams,
-            )
+		################################################ NaN Processing ################################################
+		logger.info("Processing NaN values temporally")
+		gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], _removed_ind = (
+			self._process_NaN_temporal(
+				gloc_labels_numpy, gloc_data_all_features_numpy, select_features
+			)
+		)
+		# _process_NaN_temporal may drop all-NaN columns; remap select_features
+		# so the returned list matches the surviving matrix columns.
+		_kept = set(features["All"])
+		select_features = [f for f in select_features if f in _kept]
 
-            feature_index = {
-                feature_name: i
-                for i, feature_name in enumerate(all_available_features)
+		################################################ Get Outputs Ready ############################################
+		logger.info("Finalizing outputs and ensuring legacy compatibility in dtypes and shapes.")
+		gloc_data_all_features_numpy, gloc_labels_numpy = self._ready_outputs(
+			gloc_data_all_features_numpy, gloc_labels_numpy
+		)
+
+		# Remap the pre-pass fold indices through the rows removed by NaN processing.
+		# The pre-pass row count equals the post-_feature_generation row count; further
+		# rows may have been dropped by _process_NaN_temporal. The train_mask_pre is
+		# a boolean array of length _y_pre.shape[0] (== pre-NaN matrix rows); we
+		# subset it by the surviving-rows mask and turn the result back into indices.
+		removed_mask_pre = np.zeros(_y_pre.shape[0], dtype=bool)
+		removed_mask_pre[_removed_ind] = True
+		survivor_mask_pre = ~removed_mask_pre
+		train_mask_post = train_mask_pre[survivor_mask_pre]
+		train_idx = np.where(train_mask_post)[0]
+		test_idx = np.where(~train_mask_post)[0]
+
+		if train_idx.size == 0 or test_idx.size == 0:
+			raise RuntimeError(
+				f"Fold {kfold_id}/{num_splits} produced an empty train or test split after "
+				f"NaN processing (train={train_idx.size}, test={test_idx.size})."
+			)
+
+		X_train = gloc_data_all_features_numpy[train_idx]
+		X_test = gloc_data_all_features_numpy[test_idx]
+		y_train = gloc_labels_numpy[train_idx]
+		y_test = gloc_labels_numpy[test_idx]
+
+		############################################# SENSOR ABLATION / FEATURE FILTER #############################################
+		if feature_streams is not None and len(feature_streams) > 0:
+			filtered_features = self._apply_sensor_ablation(select_features, feature_streams)
+			col_indices = [select_features.index(f) for f in filtered_features]
+			X_train = X_train[:, col_indices]
+			X_test = X_test[:, col_indices]
+			select_features = filtered_features
+			logger.info(
+				"Applied sensor ablation for traditional pipeline: streams=%s, features %d -> %d",
+				feature_streams,
+				len(col_indices),
+				len(filtered_features),
+			)
+
+		if save_preprocessing_artifacts_path is not None:
+			active_indices = [
+				all_raw_features.index(f) for f in select_features if f in all_raw_features
+			]
+			dropped_features = [f for f in all_raw_features if f not in set(select_features)]
+
+			s1_pooled_mean = (
+				self._last_trial_standardizer._pooled_mean.tolist()
+				if getattr(self, "_last_trial_standardizer", None) is not None
+				and self._last_trial_standardizer._pooled_mean is not None
+				else []
+			)
+			s1_pooled_std = (
+				self._last_trial_standardizer._pooled_std.tolist()
+				if getattr(self, "_last_trial_standardizer", None) is not None
+				and self._last_trial_standardizer._pooled_std is not None
+				else []
+			)
+			s2_global_mean = (
+				self._last_global_standardizer.mean_.tolist()
+				if getattr(self, "_last_global_standardizer", None) is not None
+				and self._last_global_standardizer.mean_ is not None
+				else []
+			)
+			s2_global_std = (
+				self._last_global_standardizer.std_.tolist()
+				if getattr(self, "_last_global_standardizer", None) is not None
+				and self._last_global_standardizer.std_ is not None
+				else []
+			)
+
+			artifacts = {
+				"s1_pooled_mean": s1_pooled_mean,
+				"s1_pooled_std": s1_pooled_std,
+				"s2_global_mean": s2_global_mean,
+				"s2_global_std": s2_global_std,
+				"raw_feature_names": raw_unprocessed_features,
+				"engineered_feature_names": all_raw_features,
+				"active_feature_names": select_features,
+				"active_indices": active_indices,
+				"dropped_feature_names": dropped_features,
+			}
+
+			artifacts_dir = os.path.dirname(os.path.abspath(save_preprocessing_artifacts_path))
+			if artifacts_dir:
+				os.makedirs(artifacts_dir, exist_ok=True)
+			with open(save_preprocessing_artifacts_path, "w") as f:
+				json.dump(artifacts, f, indent=2)
+			logger.info("Saved preprocessing artifacts to %s", save_preprocessing_artifacts_path)
+
+		if return_feature_names:
+			return X_train, X_test, y_train, y_test, select_features
+
+		return X_train, X_test, y_train, y_test
+
+	def _resolve_traditional_hyperparameters(
+		self, model: BaseModel | None, classifier_type: str | None
+	) -> dict[str, Any]:
+		"""Return the traditional pipeline hyperparameters from the model class."""
+		resolved_model = model
+		if resolved_model is None:
+			if classifier_type is None:
+				raise ValueError(
+					"A model or classifier_type is required for traditional hyperparameter lookup."
+				)
+
+			model_factory = ModelFactory.MODEL_FACTORIES_BY_NAME.get(classifier_type)
+			if model_factory is None:
+				available = ", ".join(sorted(ModelFactory.MODEL_FACTORIES_BY_NAME.keys()))
+				raise ValueError(
+					f"Unknown classifier_type '{classifier_type}'. Available: {available}"
+				)
+
+			resolved_model = model_factory(config={})
+
+		# if not hasattr(resolved_model, "get_traditional_hyperparameters"):
+		#     raise ValueError(f"Model '{resolved_model}' does not provide traditional hyperparameters.")
+
+		hyperparameters = resolved_model.data_pipeline_hyperparameters
+		required_keys = {
+			"baseline_window",
+			"window_size",
+			"stride",
+			"feature_reduction_type",
+			"baseline_methods_to_use",
+			"imbalance_type",
+		}
+		missing_keys = sorted(required_keys - set(hyperparameters.keys()))
+		if missing_keys:
+			raise ValueError(
+				f"Traditional hyperparameters for {resolved_model.get_name()} are missing required keys: {missing_keys}"
+			)
+
+        UNAVAILABLE_BASELINE = {"v5", "v6", "v7", "v8"}
+        if UNAVAILABLE_BASELINE & set( hyperparameters.get("baseline_methods_to_use", [])):
+            hyperparameters = {
+                **hyperparameters,
+                "baseline_methods_to_use" : [
+                    m for m in hyperparameters["baseline_methods_to_use"] if m not in UNAVAILABLE_BASELINE
+                ],
             }
-
-            selected_indices = [
-                feature_index[feature_name]
-                for feature_name in select_features
-            ]
-
-            gloc_data_all_features_numpy = gloc_data_all_features_numpy[:, selected_indices]
-
-        ################################################ NaN Processing ################################################
-        # Optionally perform post-feature KNN imputation on the reduced numpy matrix
-        if do_post_feature_knn:
-            logger.info("Performing post-feature KNN imputation on traditional feature matrix with n_neighbors=%d",
-                        n_neighbors)
-            # gloc_data_all_features_numpy is already a numpy array; impute missing values across entire dataset
-            gloc_data_all_features_numpy = self._faster_knn_impute(gloc_data_all_features_numpy, k=n_neighbors)
-
-        logger.info("Processing NaN values temporally")
-        gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], _removed_ind = self._process_NaN_temporal(
-            gloc_labels_numpy,
-            gloc_data_all_features_numpy,
-            select_features,
-        )
-
-        ################################################ Get Outputs Ready ############################################
-        logger.info("Finalizing outputs and ensuring legacy compatibility in dtypes and shapes.")
-        gloc_data_all_features_numpy, gloc_labels_numpy = self._ready_outputs(gloc_data_all_features_numpy,
-                                                                              gloc_labels_numpy)
-
-        if return_feature_names:
-            return gloc_data_all_features_numpy, gloc_labels_numpy, select_features
-
-        return gloc_data_all_features_numpy, gloc_labels_numpy
-
-    def _resolve_traditional_hyperparameters(
-            self,
-            model: Optional[BaseModel],
-            classifier_type: Optional[str],
-    ) -> Dict[str, Any]:
-        """Return the traditional pipeline hyperparameters from the model class."""
-        resolved_model = model
-        if resolved_model is None:
-            if classifier_type is None:
-                raise ValueError("A model or classifier_type is required for traditional hyperparameter lookup.")
-
-            model_factory = ModelFactory.MODEL_FACTORIES_BY_NAME.get(classifier_type)
-            if model_factory is None:
-                available = ", ".join(sorted(ModelFactory.MODEL_FACTORIES_BY_NAME.keys()))
-                raise ValueError(f"Unknown classifier_type '{classifier_type}'. Available: {available}")
-
-            resolved_model = model_factory(config={})
-
-        # if not hasattr(resolved_model, "get_traditional_hyperparameters"):
-        #     raise ValueError(f"Model '{resolved_model}' does not provide traditional hyperparameters.")
-
-        hyperparameters = resolved_model.data_pipeline_hyperparameters
-        required_keys = {
-            "baseline_window",
-            "window_size",
-            "stride",
-            "feature_reduction_type",
-            "baseline_methods_to_use",
-            "imbalance_type",
-            "impute_type",
-            "n_neighbors",
-        }
-        missing_keys = sorted(required_keys - set(hyperparameters.keys()))
-        if missing_keys:
-            raise ValueError(
-                f"Traditional hyperparameters for {resolved_model.get_name()} are missing required keys: {missing_keys}"
-            )
-
         return hyperparameters
 
-    def _get_feature_groups_and_baseline_methods(self, model_type: ModelType, baseline_methods_to_use: List[str]) -> \
-            Tuple[Sequence[str], List[str]]:
-        """Resolve feature groups and baseline methods for advanced pipeline variants."""
-        feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
-
-        if model_type.afe_filter == "Complete":
-            baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE["Complete"]
-
-        return feature_groups_to_analyze, baseline_methods_to_use
-
-    def _resolve_traditional_impute_path(self, impute_file_name: str, classifier_type: str) -> str:
-        """Build traditional cache path in data_path/Processed Data with prefix and model-name suffix."""
-        processed_dir = Path(self.data_path) / "Processed Data"
-        base_name = Path(impute_file_name)
-
-        if base_name.suffix:
-            file_name = f"traditional_{base_name.stem}_{classifier_type}{base_name.suffix}"
-        else:
-            file_name = f"traditional_{base_name.name}_{classifier_type}.pkl"
-
-        return str((processed_dir / file_name).resolve())
-
-    def _faster_knn_impute(
-            self,
-            X: np.ndarray,
-            k: int = 5,
-            M: int = 32,
-            efSearch: int = 64,
-    ) -> np.ndarray:
-        """Impute missing values with FAISS KNN."""
-        mask = np.isnan(X)
-        X_imputed = X.copy()
-
-        # Temporarily mean impute missing values
-        X_temp = np.where(mask, np.nanmean(X, axis=0), X)
-        X_temp32 = np.ascontiguousarray(
-            np.nan_to_num(X_temp, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32, copy=False)
-        )
-
-        # Build FAISS index (HNSW)
-        d = X.shape[1]  # dimension
-        index = faiss.IndexHNSWFlat(d, M)
-        index.hnsw.efSearch = efSearch
-        index.hnsw.rng = faiss.RandomGenerator(self.random_seed)
-        index.add(X_temp32)
-
-        # Find k nearest neighbors
-        distances, indices = index.search(X_temp32, k + 1)
-
-        # Impute missing values (skip self, which is always the first neighbor)
-        for i in range(X.shape[0]):
-            missing_cols = np.flatnonzero(mask[i])
-            if missing_cols.size == 0:
-                continue
-            neighbors = indices[i, 1:]  # skip self
-            for j in missing_cols:
-                neighbor_values = X_temp32[neighbors, j]
-                X_imputed[i, j] = np.nanmean(neighbor_values)
-
-        return X_imputed
-
-    def _feature_generation(
-            self,
-            time_start: float,
-            offset: float,
-            stride: float,
-            window_size: float,
-            combined_baseline: Dict[str, np.ndarray],
-            gloc: np.ndarray,
-            trial_column: np.ndarray,
-            time_column: np.ndarray,
-            combined_baseline_names: List[str],
-            baseline_names_v0: Any,
-            baseline_v0: Dict[str, np.ndarray],
-            feature_groups_to_analyze: Sequence[str],
-            output_feature_dtype: np.dtype = np.dtype(np.float32),
-    ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
-        """Generate temporal engineered features from baseline data."""
-        # Sliding Window Mean
-        gloc_window, sliding_window_mean_s1, number_windows, all_features_mean_s1, sliding_window_mean_s2, all_features_mean_s2 = (
-            self._sliding_window_mean_calc(time_start, offset, stride, window_size, combined_baseline, gloc,
-                                           trial_column,
-                                           time_column, combined_baseline_names))
-
-        # Sliding Window Standard Deviation, Max, Range
-        (sliding_window_stddev_s1, sliding_window_max_s1, sliding_window_range_s1, all_features_stddev_s1,
-         all_features_max_s1,
-         all_features_range_s1, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2,
-         all_features_stddev_s2, all_features_max_s2,
-         all_features_range_s2) = (
-            self._sliding_window_calc(time_start, stride, window_size, combined_baseline, trial_column, time_column,
-                                      number_windows, combined_baseline_names))
-
-        # Additional Features
-        (all_features_additional_s1, sliding_window_integral_left_pupil_s1, sliding_window_integral_right_pupil_s1,
-         sliding_window_consecutive_elements_mean_left_pupil_s1,
-         sliding_window_consecutive_elements_mean_right_pupil_s1,
-         sliding_window_consecutive_elements_max_left_pupil_s1, sliding_window_consecutive_elements_max_right_pupil_s1,
-         sliding_window_consecutive_elements_sum_left_pupil_s1, sliding_window_consecutive_elements_sum_right_pupil_s1,
-         sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1,
-         sliding_window_cognitive_ies_s1,
-         all_features_additional_s2, sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
-         sliding_window_consecutive_elements_mean_left_pupil_s2,
-         sliding_window_consecutive_elements_mean_right_pupil_s2,
-         sliding_window_consecutive_elements_max_left_pupil_s2, sliding_window_consecutive_elements_max_right_pupil_s2,
-         sliding_window_consecutive_elements_sum_left_pupil_s2, sliding_window_consecutive_elements_sum_right_pupil_s2,
-         sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
-         sliding_window_cognitive_ies_s2) = \
-             (self._sliding_window_other_features(time_start, stride, window_size, trial_column, time_column,
-                                                 number_windows,
-                                                 baseline_names_v0, baseline_v0, feature_groups_to_analyze))
-
-        # Unpack Dictionary into Array & combine features into one feature array
-        y_gloc_labels, x_feature_matrix = self._unpack_dict(gloc_window, sliding_window_mean_s1, number_windows,
-                                                            sliding_window_stddev_s1,
-                                                            sliding_window_max_s1, sliding_window_range_s1,
-                                                            sliding_window_integral_left_pupil_s1,
-                                                            sliding_window_integral_right_pupil_s1,
-                                                            sliding_window_consecutive_elements_mean_left_pupil_s1,
-                                                            sliding_window_consecutive_elements_mean_right_pupil_s1,
-                                                            sliding_window_consecutive_elements_max_left_pupil_s1,
-                                                            sliding_window_consecutive_elements_max_right_pupil_s1,
-                                                            sliding_window_consecutive_elements_sum_left_pupil_s1,
-                                                            sliding_window_consecutive_elements_sum_right_pupil_s1,
-                                                            sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1,
-                                                            sliding_window_cognitive_ies_s1,
-                                                            sliding_window_mean_s2, sliding_window_stddev_s2,
-                                                            sliding_window_max_s2, sliding_window_range_s2,
-                                                            sliding_window_integral_left_pupil_s2,
-                                                            sliding_window_integral_right_pupil_s2,
-                                                            sliding_window_consecutive_elements_mean_left_pupil_s2,
-                                                            sliding_window_consecutive_elements_mean_right_pupil_s2,
-                                                            sliding_window_consecutive_elements_max_left_pupil_s2,
-                                                            sliding_window_consecutive_elements_max_right_pupil_s2,
-                                                            sliding_window_consecutive_elements_sum_left_pupil_s2,
-                                                            sliding_window_consecutive_elements_sum_right_pupil_s2,
-                                                            sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
-                                                            sliding_window_cognitive_ies_s2,
-                                                            output_feature_dtype)
-
-        # Combine all features into array
-        all_features = (all_features_mean_s1 + all_features_stddev_s1 + all_features_max_s1 + all_features_range_s1 +
-                        all_features_additional_s1 + all_features_mean_s2 + all_features_stddev_s2 + all_features_max_s2 +
-                        all_features_range_s2 + all_features_additional_s2)
-
-        return y_gloc_labels.astype(output_feature_dtype), x_feature_matrix.astype(output_feature_dtype), all_features
-
-    def _inter_trial_standardization(
-            self,
-            feature_dictionary: Dict[str, np.ndarray],
-    ) -> Dict[str, np.ndarray]:
-        """Compute inter-trial z-score standardization for each trial matrix."""
-
-        # Find Unique Trial ID
-        trial_id_in_data = list(feature_dictionary.keys())
-
-        ## FIND INTER TRIAL MEAN AND STD. DEVIATION TO USE FOR INTER TRIAL STANDARDIZATION ##
-        # To do this, I first unpack the combined_baseline dictionary &
-        # Determine total length of new unpacked dictionary items
-        total_rows = 0
-        for i in range(np.size(trial_id_in_data)):
-            total_rows += np.shape(feature_dictionary[trial_id_in_data[i]])[0]
-
-        # Find number of columns (using non-empty dictionaries)
-        num_cols = np.shape(feature_dictionary[trial_id_in_data[0]])[1]
-
-        # Pre-allocate
-        all_data = np.zeros((total_rows, num_cols))
-
-        # Iterate through unique trial_id
-        current_index = 0
-        for i in range(np.size(trial_id_in_data)):
-            # Find number of rows in trial
-            num_rows = np.shape(feature_dictionary[trial_id_in_data[i]])[0]
-
-            # Set rows and columns in x_feature_matrix equal to current dictionary
-            all_data[current_index:num_rows + current_index, :] = feature_dictionary[trial_id_in_data[i]]
-
-            # Increment row index
-            current_index += num_rows
-
-        # Find mean and stand deviation of all data
-        inter_trial_mean = np.nanmean(all_data, axis=0, keepdims=True)
-        inter_trial_standard_deviation = np.nanstd(all_data, axis=0, keepdims=True)
-
-        # Build Dictionary for each trial_id
-        sliding_window_s2 = dict()
-
-        # Iterate through all unique trial_id
-        for i in range(np.size(trial_id_in_data)):
-            # Get data from current trial key
-            current_trial_data = feature_dictionary[trial_id_in_data[i]]
-
-            # Find inter-trial z-score
-            inter_trial_z_score = ((current_trial_data - inter_trial_mean) / inter_trial_standard_deviation)
-
-            # Define dictionary item for trial_id
-            sliding_window_s2[trial_id_in_data[i]] = inter_trial_z_score
-
-        return sliding_window_s2
-
-    def _sliding_window_mean_calc(
-            self,
-            time_start: float,
-            offset: float,
-            stride: float,
-            window_size: float,
-            combined_baseline: Dict[str, np.ndarray],
-            gloc: np.ndarray,
-            trial_column: np.ndarray,
-            time_column: np.ndarray,
-            combined_baseline_names: List[str],
-    ) -> Tuple[
-        Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.int32], List[str], Dict[str, np.ndarray], List[str]]:
-        """Compute sliding-window mean features and aligned GLOC labels."""
-
-        # Find Unique Trial ID
-        trial_id_in_data = pd.unique(trial_column)  # order-preserving, matching legacy script behavior
-
-        # Build Dictionary for each trial_id
-        sliding_window_mean = dict()
-        sliding_window_mean_s1 = dict()
-        gloc_window = dict()
-        number_windows = dict()
-
-        # Iterate through all unique trial_id
-        for i in range(np.size(trial_id_in_data)):
-
-            # Determine index from current trial_id
-            current_index = (trial_column == trial_id_in_data[i])
-
-            # Create time array based on current_index
-            current_time = np.array(time_column)
-            time_trimmed = current_time[current_index]
-
-            # Find end time for specific trial
-            time_end = np.max(time_trimmed)
-
-            # Determine number of windows
-            number_windows_current = np.int32(((time_end - offset) // stride) - (window_size // stride - 1))
-
-            # Pre-allocate arrays
-            sliding_window_mean_current = np.zeros(
-                (number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1]))
-            gloc_window_current = np.zeros((number_windows_current, 1))
-
-            # Create trimmed gloc data for the specific
-            gloc_trimmed = gloc[(trial_column == trial_id_in_data[i])]
-
-            # Define iteration time
-            time_iteration = time_start
-
-            # Iterate through all windows to compute relevant parameters
-            for j in range(number_windows_current):
-                # Find index for current window
-                time_period_feature = (time_iteration <= time_trimmed) & (time_trimmed < (time_iteration + window_size))
-                current_combined_baseline = combined_baseline[trial_id_in_data[i]][time_period_feature]
-
-                # Take nanmean for the window (one value per column (feature))
-                sliding_window_mean_current[j, :] = np.nanmean(current_combined_baseline, axis=0, keepdims=True)
-
-                # Find the offset time for G-LOC label
-                time_period_gloc = (((time_iteration + offset) <= time_trimmed) &
-                                    (time_trimmed < (time_iteration + offset + window_size)))
-
-                # Create engineered label set to 1 if any values in window are 1
-                gloc_window_current[j] = np.any(gloc_trimmed[time_period_gloc])
-
-                # Adjust iteration_time
-                time_iteration = stride + time_iteration
-
-            # Compute z-score to standardize (intra-trial standardization)
-            # This was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-            # should be removed in separate code or during feature selection.
-            sliding_window_mean_current_z_score = np.zeros(np.shape(sliding_window_mean_current))
-            if np.any(np.nanstd(sliding_window_mean_current, axis=0, keepdims=True) == 0):
-                # Z-score columns that don't have zero standard deviation
-                for col in range(np.shape(sliding_window_mean_current)[1]):
-                    if np.nanstd(sliding_window_mean_current[:, col]) != 0:
-                        sliding_window_mean_current_z_score[:, col] = (
-                                (sliding_window_mean_current[:, col] - np.nanmean(
-                                    sliding_window_mean_current[:, col])) / np.nanstd(
-                            sliding_window_mean_current[:, col]))
-                    else:
-                        sliding_window_mean_current_z_score[:, col] = np.zeros(np.shape(sliding_window_mean_current)[0])
-            else:
-                sliding_window_mean_current_z_score = ((sliding_window_mean_current - np.nanmean(
-                    sliding_window_mean_current, axis=0, keepdims=True))
-                                                       / np.nanstd(sliding_window_mean_current, axis=0, keepdims=True))
-
-            # Define dictionary item for trial_id
-            sliding_window_mean_s1[trial_id_in_data[i]] = sliding_window_mean_current_z_score
-            sliding_window_mean[trial_id_in_data[i]] = sliding_window_mean_current
-            gloc_window[trial_id_in_data[i]] = gloc_window_current
-            number_windows[trial_id_in_data[i]] = number_windows_current
-
-            # Name all features (s1 (intra-trial) standardization)
-            all_features_mean_s1 = [s + '_mean_s1' for s in combined_baseline_names]
-
-        # Compute inter-trial standardization
-        sliding_window_mean_s2 = self._inter_trial_standardization(sliding_window_mean)
-
-        # Name all features (s1 (intra-trial) standardization)
-        all_features_mean_s2 = [s + '_mean_s2' for s in combined_baseline_names]
-
-        return gloc_window, sliding_window_mean_s1, number_windows, all_features_mean_s1, sliding_window_mean_s2, all_features_mean_s2
-
-    def _sliding_window_calc(
-            self,
-            time_start: float,
-            stride: float,
-            window_size: float,
-            combined_baseline: Dict[str, np.ndarray],
-            trial_column: np.ndarray,
-            time_column: np.ndarray,
-            number_windows: Dict[str, np.int32],
-            combined_baseline_names: List[str],
-    ) -> Tuple[Any, ...]:
-        """Compute sliding-window std/max/range features with s1 and s2 variants."""
-
-        # Find Unique Trial ID
-        trial_id_in_data = pd.unique(trial_column)  # order-preserving, matching legacy script behavior
-
-        # Build Dictionary for each trial_id
-        # Windowed data (no standardization)
-        sliding_window_stddev = dict()
-        sliding_window_max = dict()
-        sliding_window_range = dict()
-
-        # s1 = Intra Trial Standardization
-        sliding_window_stddev_s1 = dict()
-        sliding_window_max_s1 = dict()
-        sliding_window_range_s1 = dict()
-
-        # s2 = Intra Trial Standardization
-        sliding_window_stddev_s2 = dict()
-        sliding_window_max_s2 = dict()
-        sliding_window_range_s2 = dict()
-
-        # Iterate through all unique trial_id
-        for i in range(np.size(trial_id_in_data)):
-
-            # Determine index from current trial_id
-            current_index = (trial_column == trial_id_in_data[i])
-
-            # Create time array based on current_index
-            current_time = np.array(time_column)
-            time_trimmed = current_time[current_index]
-
-            # Determine number of windows
-            number_windows_current = number_windows[trial_id_in_data[i]]
-
-            # Pre-allocate arrays
-            sliding_window_stddev_current = np.zeros(
-                (number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1]))
-            sliding_window_max_current = np.zeros(
-                (number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1]))
-            sliding_window_range_current = np.zeros(
-                (number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1]))
-
-            # Define iteration time
-            time_iteration = time_start
-
-            # Iterate through all windows to compute relevant parameters
-            for j in range(number_windows_current):
-                # Find index for current window
-                time_period_feature = (time_iteration <= time_trimmed) & (time_trimmed < (time_iteration + window_size))
-
-                # Find feature for current window
-                current_combined_baseline = combined_baseline[trial_id_in_data[i]][time_period_feature]
-
-                # Take nan stddev for the window (one value per column (feature))
-                sliding_window_stddev_current[j, :] = np.nanstd(current_combined_baseline, axis=0, keepdims=True)
-
-                # Take nan max for the window (one value per column (feature))
-                sliding_window_max_current[j, :] = np.nanmax(current_combined_baseline, axis=0, keepdims=True)
-
-                # Take nan range for the window (one value per column (feature))
-                sliding_window_range_current[j, :] = np.nanmax(current_combined_baseline, axis=0,
-                                                               keepdims=True) - np.nanmin(current_combined_baseline,
-                                                                                          axis=0, keepdims=True)
-
-                # Adjust iteration_time
-                time_iteration = stride + time_iteration
-
-            # Compute z-score to standardize
-            # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-            # should be removed in separate code or during feature selection
-            # Standard Deviation
-            sliding_window_stddev_current_z_score_s1 = np.zeros(np.shape(sliding_window_stddev_current))
-            if np.any(np.nanstd(sliding_window_stddev_current, axis=0, keepdims=True) == 0):
-                # Z-score columns that don't have zero standard deviation
-                for col in range(np.shape(sliding_window_stddev_current)[1]):
-                    if np.nanstd(sliding_window_stddev_current[:, col]) != 0:
-                        sliding_window_stddev_current_z_score_s1[:, col] = ((sliding_window_stddev_current[
-                                                                                 :, col] - np.nanmean(
-                            sliding_window_stddev_current[:, col])) /
-                                                                            np.nanstd(
-                                                                                sliding_window_stddev_current[:, col]))
-                    else:
-                        sliding_window_stddev_current_z_score_s1[:, col] = np.zeros(
-                            np.shape(sliding_window_stddev_current)[0])
-            else:
-                sliding_window_stddev_current_z_score_s1 = ((sliding_window_stddev_current - np.nanmean(
-                    sliding_window_stddev_current, axis=0, keepdims=True))
-                                                            / np.nanstd(sliding_window_stddev_current, axis=0,
-                                                                        keepdims=True))
-
-            # Max
-            sliding_window_max_current_z_score_s1 = np.zeros(np.shape(sliding_window_max_current))
-            if np.any(np.nanstd(sliding_window_max_current, axis=0, keepdims=True) == 0):
-                # Find columns with zero standard deviation
-                for col in range(np.shape(sliding_window_max_current)[1]):
-                    if np.nanstd(sliding_window_max_current[:, col]) != 0:
-                        sliding_window_max_current_z_score_s1[:, col] = (
-                                (sliding_window_max_current[:, col] - np.nanmean(
-                                    sliding_window_max_current[:, col])) / np.nanstd(
-                            sliding_window_max_current[:, col]))
-                    else:
-                        sliding_window_max_current_z_score_s1[:, col] = np.zeros(
-                            np.shape(sliding_window_max_current)[0])
-            else:
-                sliding_window_max_current_z_score_s1 = (
-                        (sliding_window_max_current - np.nanmean(sliding_window_max_current, axis=0, keepdims=True))
-                        / np.nanstd(sliding_window_max_current, axis=0, keepdims=True))
-
-            # Range
-            sliding_window_range_current_z_score_s1 = np.zeros(np.shape(sliding_window_range_current))
-            if np.any(np.nanstd(sliding_window_range_current, axis=0, keepdims=True) == 0):
-                # Find columns with zero standard deviation
-                for col in range(np.shape(sliding_window_range_current)[1]):
-                    if np.nanstd(sliding_window_range_current[:, col]) != 0:
-                        sliding_window_range_current_z_score_s1[:, col] = (
-                                (sliding_window_range_current[:, col] - np.nanmean(
-                                    sliding_window_range_current[:, col])) / np.nanstd(
-                            sliding_window_range_current[:, col]))
-                    else:
-                        sliding_window_range_current_z_score_s1[:, col] = np.zeros(
-                            np.shape(sliding_window_range_current)[0])
-            else:
-                sliding_window_range_current_z_score_s1 = ((sliding_window_range_current - np.nanmean(
-                    sliding_window_range_current, axis=0, keepdims=True))
-                                                           / np.nanstd(sliding_window_range_current, axis=0,
-                                                                       keepdims=True))
-
-            # Define dictionary item for trial_id
-            # No standardization
-            sliding_window_stddev[trial_id_in_data[i]] = sliding_window_stddev_current
-            sliding_window_max[trial_id_in_data[i]] = sliding_window_max_current
-            sliding_window_range[trial_id_in_data[i]] = sliding_window_range_current
-
-            # Intra-trial standardization
-            sliding_window_stddev_s1[trial_id_in_data[i]] = sliding_window_stddev_current_z_score_s1
-            sliding_window_max_s1[trial_id_in_data[i]] = sliding_window_max_current_z_score_s1
-            sliding_window_range_s1[trial_id_in_data[i]] = sliding_window_range_current_z_score_s1
-
-        # Name features
-            all_features_stddev_s1 = [s + '_stddev_s1' for s in combined_baseline_names]
-            all_features_max_s1 = [s + '_max_s1' for s in combined_baseline_names]
-            all_features_range_s1 = [s + '_range_s1' for s in combined_baseline_names]
-
-        # Inter trial standardization
-        sliding_window_stddev_s2 = self._inter_trial_standardization(sliding_window_stddev)
-        sliding_window_max_s2 = self._inter_trial_standardization(sliding_window_max)
-        sliding_window_range_s2 = self._inter_trial_standardization(sliding_window_range)
-
-        all_features_stddev_s2 = [s + '_stddev_s2' for s in combined_baseline_names]
-        all_features_max_s2 = [s + '_max_s2' for s in combined_baseline_names]
-        all_features_range_s2 = [s + '_range_s2' for s in combined_baseline_names]
-
-        return (sliding_window_stddev_s1, sliding_window_max_s1, sliding_window_range_s1, all_features_stddev_s1,
-                all_features_max_s1,
-                all_features_range_s1, sliding_window_stddev_s2, sliding_window_max_s2, sliding_window_range_s2,
-                all_features_stddev_s2,
-                all_features_max_s2, all_features_range_s2)
-
-    def _sliding_window_other_features(
-            self,
-            time_start: float,
-            stride: float,
-            window_size: float,
-            trial_column: np.ndarray,
-            time_column: np.ndarray,
-            number_windows: Dict[str, np.int32],
-            baseline_names_v0: Any,
-            baseline_v0: Dict[str, np.ndarray],
-            feature_groups_to_analyze: Sequence[str],
-    ) -> Tuple[Any, ...]:
-        """Compute additional temporal features (eye tracking, ECG, and cognitive)."""
-
-        # Find Unique Trial ID
-        trial_id_in_data = pd.unique(trial_column)  # order-preserving, matching legacy script behavior
-
-        # Accept either a direct v0 name list or the full baseline-name dict.
-        if isinstance(baseline_names_v0, dict):
-            baseline_names_v0 = baseline_names_v0.get("v0", [])
-
-        if 'eyetracking' in feature_groups_to_analyze:
-            # Find indices of left and right pupil
-            index_left_pupil = baseline_names_v0.index('Pupil diameter left [mm] - Tobii_v0')
-            index_right_pupil = baseline_names_v0.index('Pupil diameter right [mm] - Tobii_v0')
-
-            # Define eyetracking feature names
-            eye_tracking_features = ['Left Pupil Integral (Non-Baseline)', 'Right Pupil Integral (Non-Baseline)',
-                                     'Left Pupil Mean of Consecutive Difference (Non-Baseline)',
-                                     'Right Pupil Mean of Consecutive Difference (Non-Baseline)',
-                                     'Left Pupil Max of Consecutive Difference (Non-Baseline)',
-                                     'Right Pupil Max of Consecutive Difference (Non-Baseline)',
-                                     'Left Pupil Sum of Consecutive Difference (Non-Baseline)',
-                                     'Right Pupil Sum of Consecutive Difference (Non-Baseline)']
-        else:
-            eye_tracking_features = []
-
-        if 'ECG' in feature_groups_to_analyze:
-            # Find indices of HR
-            index_hr = baseline_names_v0.index('HR (bpm) - Equivital_v0')
-
-            # Define ECG feature names
-            ecg_features = ['HRV (SDNN)', 'HRV (RMSSD)']  # , 'HRV (PNN50)']. Removed PNN50 due to interpolation
-        else:
-            ecg_features = []
-
-        if 'cognitive' in feature_groups_to_analyze:
-            # Find indices of Cognitive Response Time and Correct
-            index_response_time = baseline_names_v0.index('RespTime - Cog_v0')
-            index_correct = baseline_names_v0.index('Correct - Cog_v0')
-
-            # Define ECG feature names
-            cognitive_features = ['Cognitive IES']
-        else:
-            cognitive_features = []
-
-        # Build Dictionary for each trial_id
-        # No Standardization
-        sliding_window_integral_left_pupil = dict()
-        sliding_window_integral_right_pupil = dict()
-        sliding_window_consecutive_elements_mean_left_pupil = dict()
-        sliding_window_consecutive_elements_mean_right_pupil = dict()
-        sliding_window_consecutive_elements_max_left_pupil = dict()
-        sliding_window_consecutive_elements_max_right_pupil = dict()
-        sliding_window_consecutive_elements_sum_left_pupil = dict()
-        sliding_window_consecutive_elements_sum_right_pupil = dict()
-        sliding_window_hrv_sdnn = dict()
-        sliding_window_hrv_rmssd = dict()
-        # sliding_window_hrv_pnn50 = dict()
-        sliding_window_cognitive_ies = dict()
-
-        # Intra-trial standardization (s1)
-        sliding_window_integral_left_pupil_s1 = dict()
-        sliding_window_integral_right_pupil_s1 = dict()
-        sliding_window_consecutive_elements_mean_left_pupil_s1 = dict()
-        sliding_window_consecutive_elements_mean_right_pupil_s1 = dict()
-        sliding_window_consecutive_elements_max_left_pupil_s1 = dict()
-        sliding_window_consecutive_elements_max_right_pupil_s1 = dict()
-        sliding_window_consecutive_elements_sum_left_pupil_s1 = dict()
-        sliding_window_consecutive_elements_sum_right_pupil_s1 = dict()
-        sliding_window_hrv_sdnn_s1 = dict()
-        sliding_window_hrv_rmssd_s1 = dict()
-        # sliding_window_hrv_pnn50_s1 = dict()
-        sliding_window_cognitive_ies_s1 = dict()
-
-        # Inter-trial standardization (s2)
-        sliding_window_integral_left_pupil_s2 = dict()
-        sliding_window_integral_right_pupil_s2 = dict()
-        sliding_window_consecutive_elements_mean_left_pupil_s2 = dict()
-        sliding_window_consecutive_elements_mean_right_pupil_s2 = dict()
-        sliding_window_consecutive_elements_max_left_pupil_s2 = dict()
-        sliding_window_consecutive_elements_max_right_pupil_s2 = dict()
-        sliding_window_consecutive_elements_sum_left_pupil_s2 = dict()
-        sliding_window_consecutive_elements_sum_right_pupil_s2 = dict()
-        sliding_window_hrv_sdnn_s2 = dict()
-        sliding_window_hrv_rmssd_s2 = dict()
-        # sliding_window_hrv_pnn50_s2 = dict()
-        sliding_window_cognitive_ies_s2 = dict()
-
-        # Iterate through all unique trial_id
-        for i in range(np.size(trial_id_in_data)):
-
-            # Determine index from current trial_id
-            current_index = (trial_column == trial_id_in_data[i])
-
-            # Create time array based on current_index
-            current_time = np.array(time_column)
-            time_trimmed = current_time[current_index]
-
-            # Determine number of windows
-            number_windows_current = number_windows[trial_id_in_data[i]]
-
-            # Pre-allocate arrays
-            if 'eyetracking' in feature_groups_to_analyze:
-                sliding_window_integral_left_pupil_current = np.zeros((number_windows_current, 1))
-                sliding_window_integral_right_pupil_current = np.zeros((number_windows_current, 1))
-                sliding_window_consecutive_elements_mean_left_pupil_current = np.zeros((number_windows_current, 1))
-                sliding_window_consecutive_elements_mean_right_pupil_current = np.zeros((number_windows_current, 1))
-                sliding_window_consecutive_elements_max_left_pupil_current = np.zeros((number_windows_current, 1))
-                sliding_window_consecutive_elements_max_right_pupil_current = np.zeros((number_windows_current, 1))
-                sliding_window_consecutive_elements_sum_left_pupil_current = np.zeros((number_windows_current, 1))
-                sliding_window_consecutive_elements_sum_right_pupil_current = np.zeros((number_windows_current, 1))
-            if 'ECG' in feature_groups_to_analyze:
-                sliding_window_hrv_sdnn_current = np.zeros((number_windows_current, 1))
-                sliding_window_hrv_rmssd_current = np.zeros((number_windows_current, 1))
-                # sliding_window_hrv_pnn50_current = np.zeros((number_windows_current, 1))
-            if 'cognitive' in feature_groups_to_analyze:
-                sliding_window_cognitive_ies_current = np.zeros((number_windows_current, 1))
-
-            # Define iteration time
-            time_iteration = time_start
-
-            # Iterate through all windows to compute relevant parameters
-            for j in range(number_windows_current):
-
-                # Find index for current window
-                time_period_feature = (time_iteration <= time_trimmed) & (time_trimmed < (time_iteration + window_size))
-
-                # Find non-baseline feature for current window
-                feature_window_no_baseline = baseline_v0[trial_id_in_data[i]][time_period_feature]
-
-                if 'ECG' in feature_groups_to_analyze:
-                    # Compute HRV
-                    rr_interval = 60000 / feature_window_no_baseline[:, index_hr]
-                    sliding_window_hrv_sdnn_current[j] = np.nanstd(rr_interval)
-
-                    successive_difference = np.diff(rr_interval)
-                    sliding_window_hrv_rmssd_current[j] = np.sqrt(np.nanmean(successive_difference ** 2))
-
-                    # Compute PNN50
-                    # count_50ms_diff_current = np.sum(np.abs(successive_difference) > 50 * 0.04) # 50 times (1/sampling freqeuncy)
-                    # sliding_window_hrv_pnn50_current[j] = (count_50ms_diff_current / len(successive_difference)) * 100
-
-                if 'cognitive' in feature_groups_to_analyze:
-                    # Compute IES (Inverse Efficiency Score)
-                    sliding_window_cognitive_ies_current[j] = np.nanmean(
-                        feature_window_no_baseline[:, index_response_time]) / (np.nanmean(
-                        feature_window_no_baseline[:, index_correct]))
-
-                if 'eyetracking' in feature_groups_to_analyze:
-                    # Compute non-baseline pupil features
-                    left_pupil_no_baseline = feature_window_no_baseline[:, index_left_pupil]
-                    right_pupil_no_baseline = feature_window_no_baseline[:, index_right_pupil]
-
-                    # Integral (using Trapezoid rule)
-                    sliding_window_integral_left_pupil_current[j] = (window_size / 2) * (
-                            left_pupil_no_baseline[-1] + left_pupil_no_baseline[0])
-                    sliding_window_integral_right_pupil_current[j] = (window_size / 2) * (
-                            right_pupil_no_baseline[-1] + right_pupil_no_baseline[0])
-
-                    # Compute average difference between consecutive elements
-                    left_pupil_consecutive_difference = np.diff(left_pupil_no_baseline)
-                    left_pupil_consecutive_difference_full = np.append(left_pupil_consecutive_difference, np.nan)
-
-                    right_pupil_consecutive_difference = np.diff(right_pupil_no_baseline)
-                    right_pupil_consecutive_difference_full = np.append(right_pupil_consecutive_difference, np.nan)
-
-                    sliding_window_consecutive_elements_mean_left_pupil_current[j] = np.nanmean(
-                        left_pupil_consecutive_difference_full)
-                    sliding_window_consecutive_elements_mean_right_pupil_current[j] = np.nanmean(
-                        right_pupil_consecutive_difference_full)
-
-                    # Compute max difference between consecutive elements
-                    sliding_window_consecutive_elements_max_left_pupil_current[j] = np.nanmax(
-                        left_pupil_consecutive_difference_full)
-                    sliding_window_consecutive_elements_max_right_pupil_current[j] = np.nanmax(
-                        right_pupil_consecutive_difference_full)
-
-                    # Compute sum of difference between consecutive elements
-                    sliding_window_consecutive_elements_sum_left_pupil_current[j] = np.nansum(
-                        left_pupil_consecutive_difference_full)
-                    sliding_window_consecutive_elements_sum_right_pupil_current[j] = np.nansum(
-                        right_pupil_consecutive_difference_full)
-
-                # Adjust iteration_time
-                time_iteration = stride + time_iteration
-
-            # Compute Z-score
-            if 'eyetracking' in feature_groups_to_analyze:
-                # Compute z-score to standardize integral left pupil
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_integral_left_pupil_current_z_score = np.zeros(
-                    np.shape(sliding_window_integral_left_pupil_current))
-                if np.any(np.nanstd(sliding_window_integral_left_pupil_current, axis=0, keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_integral_left_pupil_current)[1]):
-                        if np.nanstd(sliding_window_integral_left_pupil_current[:, col]) != 0:
-                            sliding_window_integral_left_pupil_current_z_score[:, col] = (
-                                    (sliding_window_integral_left_pupil_current[:, col] - np.nanmean(
-                                        sliding_window_integral_left_pupil_current[:, col])) / np.nanstd(
-                                sliding_window_integral_left_pupil_current[:, col]))
-                        else:
-                            sliding_window_integral_left_pupil_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_integral_left_pupil_current)[0])
-                else:
-                    sliding_window_integral_left_pupil_current_z_score = ((
-                                                                                  sliding_window_integral_left_pupil_current - np.nanmean(
-                                                                              sliding_window_integral_left_pupil_current,
-                                                                              axis=0, keepdims=True))
-                                                                          / np.nanstd(
-                                sliding_window_integral_left_pupil_current, axis=0, keepdims=True))
-
-                # Compute z-score to standardize integral right pupil
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_integral_right_pupil_current_z_score = np.zeros(
-                    np.shape(sliding_window_integral_right_pupil_current))
-                if np.any(np.nanstd(sliding_window_integral_right_pupil_current, axis=0, keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_integral_right_pupil_current)[1]):
-                        if np.nanstd(sliding_window_integral_right_pupil_current[:, col]) != 0:
-                            sliding_window_integral_right_pupil_current_z_score[:, col] = (
-                                    (sliding_window_integral_right_pupil_current[:, col] - np.nanmean(
-                                        sliding_window_integral_right_pupil_current[:, col])) / np.nanstd(
-                                sliding_window_integral_right_pupil_current[:, col]))
-                        else:
-                            sliding_window_integral_right_pupil_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_integral_right_pupil_current)[0])
-                else:
-                    sliding_window_integral_right_pupil_current_z_score = ((
-                                                                                   sliding_window_integral_right_pupil_current - np.nanmean(
-                                                                               sliding_window_integral_right_pupil_current,
-                                                                               axis=0, keepdims=True))
-                                                                           / np.nanstd(
-                                sliding_window_integral_right_pupil_current, axis=0, keepdims=True))
-
-                # Compute z-score to standardize mean of difference of consecutive elements-left pupil
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_consecutive_elements_mean_left_pupil_current_z_score = np.zeros(
-                    np.shape(sliding_window_consecutive_elements_mean_left_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_mean_left_pupil_current, axis=0,
-                                    keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_consecutive_elements_mean_left_pupil_current)[1]):
-                        if np.nanstd(sliding_window_consecutive_elements_mean_left_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_mean_left_pupil_current_z_score[:, col] = ((
-                                                                                                                   sliding_window_consecutive_elements_mean_left_pupil_current[
-                                                                                                                       :, col] - np.nanmean(
-                                                                                                               sliding_window_consecutive_elements_mean_left_pupil_current[
-                                                                                                                   :, col])) / np.nanstd(
-                                sliding_window_consecutive_elements_mean_left_pupil_current[:, col]))
-                        else:
-                            sliding_window_consecutive_elements_mean_left_pupil_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_consecutive_elements_mean_left_pupil_current)[0])
-                else:
-                    sliding_window_consecutive_elements_mean_left_pupil_current_z_score = ((
-                                                                                                   sliding_window_consecutive_elements_mean_left_pupil_current - np.nanmean(
-                                                                                               sliding_window_consecutive_elements_mean_left_pupil_current,
-                                                                                               axis=0,
-                                                                                               keepdims=True))
-                                                                                           / np.nanstd(
-                                sliding_window_consecutive_elements_mean_left_pupil_current, axis=0, keepdims=True))
-
-                # Compute z-score to standardize mean of difference of consecutive elements-right pupil
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_consecutive_elements_mean_right_pupil_current_z_score = np.zeros(
-                    np.shape(sliding_window_consecutive_elements_mean_right_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_mean_right_pupil_current, axis=0,
-                                    keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_consecutive_elements_mean_right_pupil_current)[1]):
-                        if np.nanstd(sliding_window_consecutive_elements_mean_right_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_mean_right_pupil_current_z_score[:, col] = ((
-                                                                                                                    sliding_window_consecutive_elements_mean_right_pupil_current[
-                                                                                                                        :, col] - np.nanmean(
-                                                                                                                sliding_window_consecutive_elements_mean_right_pupil_current[
-                                                                                                                    :, col])) / np.nanstd(
-                                sliding_window_consecutive_elements_mean_right_pupil_current[:, col]))
-                        else:
-                            sliding_window_consecutive_elements_mean_right_pupil_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_consecutive_elements_mean_right_pupil_current)[0])
-                else:
-                    sliding_window_consecutive_elements_mean_right_pupil_current_z_score = ((
-                                                                                                    sliding_window_consecutive_elements_mean_right_pupil_current - np.nanmean(
-                                                                                                sliding_window_consecutive_elements_mean_right_pupil_current,
-                                                                                                axis=0,
-                                                                                                keepdims=True))
-                                                                                            / np.nanstd(
-                                sliding_window_consecutive_elements_mean_right_pupil_current, axis=0, keepdims=True))
-
-                # Compute z-score to standardize max of difference of consecutive elements-left pupil
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_consecutive_elements_max_left_pupil_current_z_score = np.zeros(
-                    np.shape(sliding_window_consecutive_elements_max_left_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_max_left_pupil_current, axis=0,
-                                    keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_consecutive_elements_max_left_pupil_current)[1]):
-                        if np.nanstd(sliding_window_consecutive_elements_max_left_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_max_left_pupil_current_z_score[:, col] = ((
-                                                                                                                  sliding_window_consecutive_elements_max_left_pupil_current[
-                                                                                                                      :, col] - np.nanmean(
-                                                                                                              sliding_window_consecutive_elements_max_left_pupil_current[
-                                                                                                                  :, col])) / np.nanstd(
-                                sliding_window_consecutive_elements_max_left_pupil_current[:, col]))
-                        else:
-                            sliding_window_consecutive_elements_max_left_pupil_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_consecutive_elements_max_left_pupil_current)[0])
-                else:
-                    sliding_window_consecutive_elements_max_left_pupil_current_z_score = ((
-                                                                                                  sliding_window_consecutive_elements_max_left_pupil_current - np.nanmean(
-                                                                                              sliding_window_consecutive_elements_max_left_pupil_current,
-                                                                                              axis=0,
-                                                                                              keepdims=True))
-                                                                                          / np.nanstd(
-                                sliding_window_consecutive_elements_max_left_pupil_current, axis=0, keepdims=True))
-
-                # Compute z-score to standardize max of difference of consecutive elements-right pupil
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature
-                sliding_window_consecutive_elements_max_right_pupil_current_z_score = np.zeros(
-                    np.shape(sliding_window_consecutive_elements_max_right_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_max_right_pupil_current, axis=0,
-                                    keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_consecutive_elements_max_right_pupil_current)[1]):
-                        if np.nanstd(sliding_window_consecutive_elements_max_right_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_max_right_pupil_current_z_score[:, col] = ((
-                                                                                                                   sliding_window_consecutive_elements_max_right_pupil_current[
-                                                                                                                       :, col] - np.nanmean(
-                                                                                                               sliding_window_consecutive_elements_max_right_pupil_current[
-                                                                                                                   :, col])) / np.nanstd(
-                                sliding_window_consecutive_elements_max_right_pupil_current[:, col]))
-                        else:
-                            sliding_window_consecutive_elements_max_right_pupil_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_consecutive_elements_max_right_pupil_current)[0])
-                else:
-                    sliding_window_consecutive_elements_max_right_pupil_current_z_score = ((
-                                                                                                   sliding_window_consecutive_elements_max_right_pupil_current - np.nanmean(
-                                                                                               sliding_window_consecutive_elements_max_right_pupil_current,
-                                                                                               axis=0,
-                                                                                               keepdims=True))
-                                                                                           / np.nanstd(
-                                sliding_window_consecutive_elements_max_right_pupil_current, axis=0, keepdims=True))
-
-                # Compute z-score to standardize sum of difference of consecutive elements-left pupil
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_consecutive_elements_sum_left_pupil_current_z_score = np.zeros(
-                    np.shape(sliding_window_consecutive_elements_sum_left_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_sum_left_pupil_current, axis=0,
-                                    keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_consecutive_elements_sum_left_pupil_current)[1]):
-                        if np.nanstd(sliding_window_consecutive_elements_sum_left_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_sum_left_pupil_current_z_score[:, col] = ((
-                                                                                                                  sliding_window_consecutive_elements_sum_left_pupil_current[
-                                                                                                                      :, col] - np.nanmean(
-                                                                                                              sliding_window_consecutive_elements_sum_left_pupil_current[
-                                                                                                                  :, col])) / np.nanstd(
-                                sliding_window_consecutive_elements_sum_left_pupil_current[:, col]))
-                        else:
-                            sliding_window_consecutive_elements_sum_left_pupil_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_consecutive_elements_sum_left_pupil_current)[0])
-                else:
-                    sliding_window_consecutive_elements_sum_left_pupil_current_z_score = ((
-                                                                                                  sliding_window_consecutive_elements_sum_left_pupil_current - np.nanmean(
-                                                                                              sliding_window_consecutive_elements_sum_left_pupil_current,
-                                                                                              axis=0,
-                                                                                              keepdims=True))
-                                                                                          / np.nanstd(
-                                sliding_window_consecutive_elements_sum_left_pupil_current, axis=0, keepdims=True))
-
-                # Compute z-score to standardize sum of difference of consecutive elements-right pupil
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_consecutive_elements_sum_right_pupil_current_z_score = np.zeros(
-                    np.shape(sliding_window_consecutive_elements_sum_right_pupil_current))
-                if np.any(np.nanstd(sliding_window_consecutive_elements_sum_right_pupil_current, axis=0,
-                                    keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_consecutive_elements_sum_right_pupil_current)[1]):
-                        if np.nanstd(sliding_window_consecutive_elements_sum_right_pupil_current[:, col]) != 0:
-                            sliding_window_consecutive_elements_sum_right_pupil_current_z_score[:, col] = ((
-                                                                                                                   sliding_window_consecutive_elements_sum_right_pupil_current[
-                                                                                                                       :, col] - np.nanmean(
-                                                                                                               sliding_window_consecutive_elements_sum_right_pupil_current[
-                                                                                                                   :, col])) / np.nanstd(
-                                sliding_window_consecutive_elements_sum_right_pupil_current[:, col]))
-                        else:
-                            sliding_window_consecutive_elements_sum_right_pupil_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_consecutive_elements_sum_right_pupil_current)[0])
-                else:
-                    sliding_window_consecutive_elements_sum_right_pupil_current_z_score = ((
-                                                                                                   sliding_window_consecutive_elements_sum_right_pupil_current - np.nanmean(
-                                                                                               sliding_window_consecutive_elements_sum_right_pupil_current,
-                                                                                               axis=0,
-                                                                                               keepdims=True))
-                                                                                           / np.nanstd(
-                                sliding_window_consecutive_elements_sum_right_pupil_current, axis=0, keepdims=True))
-            if 'ECG' in feature_groups_to_analyze:
-                # Compute z-score to standardize hrv sdnn
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_hrv_sdnn_current_z_score = np.zeros(np.shape(sliding_window_hrv_sdnn_current))
-                if np.any(np.nanstd(sliding_window_hrv_sdnn_current, axis=0, keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_hrv_sdnn_current)[1]):
-                        if np.nanstd(sliding_window_hrv_sdnn_current[:, col]) != 0:
-                            sliding_window_hrv_sdnn_current_z_score[:, col] = (
-                                    (sliding_window_hrv_sdnn_current[:, col] - np.nanmean(
-                                        sliding_window_hrv_sdnn_current[:, col])) / np.nanstd(
-                                sliding_window_hrv_sdnn_current[:, col]))
-                        else:
-                            sliding_window_hrv_sdnn_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_hrv_sdnn_current)[0])
-                else:
-                    sliding_window_hrv_sdnn_current_z_score = ((sliding_window_hrv_sdnn_current - np.nanmean(
-                        sliding_window_hrv_sdnn_current, axis=0, keepdims=True))
-                                                               / np.nanstd(sliding_window_hrv_sdnn_current, axis=0,
-                                                                           keepdims=True))
-
-                # Compute z-score to standardize hrv rmssd
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_hrv_rmssd_current_z_score = np.zeros(np.shape(sliding_window_hrv_rmssd_current))
-                if np.any(np.nanstd(sliding_window_hrv_rmssd_current, axis=0, keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_hrv_rmssd_current)[1]):
-                        if np.nanstd(sliding_window_hrv_rmssd_current[:, col]) != 0:
-                            sliding_window_hrv_rmssd_current_z_score[:, col] = (
-                                    (sliding_window_hrv_rmssd_current[:, col] - np.nanmean(
-                                        sliding_window_hrv_rmssd_current[:, col])) / np.nanstd(
-                                sliding_window_hrv_rmssd_current[:, col]))
-                        else:
-                            sliding_window_hrv_rmssd_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_hrv_rmssd_current)[0])
-                else:
-                    sliding_window_hrv_rmssd_current_z_score = ((sliding_window_hrv_rmssd_current - np.nanmean(
-                        sliding_window_hrv_rmssd_current, axis=0, keepdims=True))
-                                                                / np.nanstd(sliding_window_hrv_rmssd_current, axis=0,
-                                                                            keepdims=True))
-
-                # # Compute z-score to standardize hrv pnn50
-                # # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # # should be removed in separate code or during feature selection
-                # sliding_window_hrv_pnn50_current_z_score = np.zeros(np.shape(sliding_window_hrv_pnn50_current))
-                # if np.any(np.nanstd(sliding_window_hrv_pnn50_current, axis=0, keepdims=True) == 0):
-                #     # Find columns with zero standard deviation
-                #     for col in range(np.shape(sliding_window_hrv_pnn50_current)[1]):
-                #         if np.nanstd(sliding_window_hrv_pnn50_current[:, col]) != 0:
-                #             sliding_window_hrv_pnn50_current_z_score[:, col] = ((sliding_window_hrv_pnn50_current[:, col] - np.nanmean(
-                #                             sliding_window_hrv_pnn50_current[:, col])) / np.nanstd(sliding_window_hrv_pnn50_current[:, col]))
-                #         else:
-                #             sliding_window_hrv_pnn50_current_z_score[:, col] = np.zeros(
-                #                 np.shape(sliding_window_hrv_pnn50_current)[0])
-                # else:
-                #     sliding_window_hrv_pnn50_current_z_score = ((sliding_window_hrv_pnn50_current - np.nanmean(sliding_window_hrv_pnn50_current, axis=0, keepdims=True))
-                #                                        / np.nanstd(sliding_window_hrv_pnn50_current, axis=0, keepdims=True))
-
-            if 'cognitive' in feature_groups_to_analyze:
-                # Compute z-score to standardize cognitive IES
-                # If/else was implemented to prevent a divide by 0 NaN error from no standardization. Features in this category
-                # should be removed in separate code or during feature selection
-                sliding_window_cognitive_IES_current_z_score = np.zeros(np.shape(sliding_window_cognitive_ies_current))
-                if np.any(np.nanstd(sliding_window_cognitive_ies_current, axis=0, keepdims=True) == 0):
-                    # Find columns with zero standard deviation
-                    for col in range(np.shape(sliding_window_cognitive_ies_current)[1]):
-                        if np.nanstd(sliding_window_cognitive_ies_current[:, col]) != 0:
-                            sliding_window_cognitive_IES_current_z_score[:, col] = (
-                                    (sliding_window_cognitive_ies_current[:, col] - np.nanmean(
-                                        sliding_window_cognitive_ies_current[:, col])) / np.nanstd(
-                                sliding_window_cognitive_ies_current[:, col]))
-                        else:
-                            sliding_window_cognitive_IES_current_z_score[:, col] = np.zeros(
-                                np.shape(sliding_window_cognitive_ies_current)[0])
-                else:
-                    sliding_window_cognitive_IES_current_z_score = ((sliding_window_cognitive_ies_current - np.nanmean(
-                        sliding_window_cognitive_ies_current, axis=0, keepdims=True))
-                                                                    / np.nanstd(sliding_window_cognitive_ies_current,
-                                                                                axis=0, keepdims=True))
-
-            # Define dictionary item for trial_id
-            if 'eyetracking' in feature_groups_to_analyze:
-                # No standardization
-                sliding_window_integral_left_pupil[trial_id_in_data[i]] = sliding_window_integral_left_pupil_current
-                sliding_window_integral_right_pupil[trial_id_in_data[i]] = sliding_window_integral_right_pupil_current
-                sliding_window_consecutive_elements_mean_left_pupil[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_left_pupil_current
-                sliding_window_consecutive_elements_mean_right_pupil[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_right_pupil_current
-                sliding_window_consecutive_elements_max_left_pupil[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_max_left_pupil_current
-                sliding_window_consecutive_elements_max_right_pupil[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_max_right_pupil_current
-                sliding_window_consecutive_elements_sum_left_pupil[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_left_pupil_current
-                sliding_window_consecutive_elements_sum_right_pupil[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_right_pupil_current
-
-                # Intra-Trial Standardization (s1)
-                sliding_window_integral_left_pupil_s1[
-                    trial_id_in_data[i]] = sliding_window_integral_left_pupil_current_z_score
-                sliding_window_integral_right_pupil_s1[
-                    trial_id_in_data[i]] = sliding_window_integral_right_pupil_current_z_score
-                sliding_window_consecutive_elements_mean_left_pupil_s1[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_left_pupil_current_z_score
-                sliding_window_consecutive_elements_mean_right_pupil_s1[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_mean_right_pupil_current_z_score
-                sliding_window_consecutive_elements_max_left_pupil_s1[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_max_left_pupil_current_z_score
-                sliding_window_consecutive_elements_max_right_pupil_s1[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_max_right_pupil_current_z_score
-                sliding_window_consecutive_elements_sum_left_pupil_s1[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_left_pupil_current_z_score
-                sliding_window_consecutive_elements_sum_right_pupil_s1[
-                    trial_id_in_data[i]] = sliding_window_consecutive_elements_sum_right_pupil_current_z_score
-            if 'ECG' in feature_groups_to_analyze:
-                # No standardization
-                sliding_window_hrv_sdnn[trial_id_in_data[i]] = sliding_window_hrv_sdnn_current
-                sliding_window_hrv_rmssd[trial_id_in_data[i]] = sliding_window_hrv_rmssd_current
-                # sliding_window_hrv_pnn50[trial_id_in_data[i]] = sliding_window_hrv_pnn50_current
-
-                # Intra-Trial Standardization (s1)
-                sliding_window_hrv_sdnn_s1[trial_id_in_data[i]] = sliding_window_hrv_sdnn_current_z_score
-                sliding_window_hrv_rmssd_s1[trial_id_in_data[i]] = sliding_window_hrv_rmssd_current_z_score
-                # sliding_window_hrv_pnn50_s1[trial_id_in_data[i]] = sliding_window_hrv_pnn50_current_z_score
-            if 'cognitive' in feature_groups_to_analyze:
-                # No standardization
-                sliding_window_cognitive_ies[trial_id_in_data[i]] = sliding_window_cognitive_ies_current
-
-                # Intra-Trial Standardization (s1)
-                sliding_window_cognitive_ies_s1[trial_id_in_data[i]] = sliding_window_cognitive_IES_current_z_score
-
-            # Name all features
-            all_features_additional = eye_tracking_features + ecg_features + cognitive_features
-            all_features_additional_s1 = [s + '_s1' for s in all_features_additional]
-
-        # Inter-trial standardization (s2)
-        if 'eyetracking' in feature_groups_to_analyze:
-            sliding_window_integral_left_pupil_s2 = self._inter_trial_standardization(
-                sliding_window_integral_left_pupil)
-            sliding_window_integral_right_pupil_s2 = self._inter_trial_standardization(
-                sliding_window_integral_right_pupil)
-            sliding_window_consecutive_elements_mean_left_pupil_s2 = self._inter_trial_standardization(
-                sliding_window_consecutive_elements_mean_left_pupil)
-            sliding_window_consecutive_elements_mean_right_pupil_s2 = self._inter_trial_standardization(
-                sliding_window_consecutive_elements_mean_right_pupil)
-            sliding_window_consecutive_elements_max_left_pupil_s2 = self._inter_trial_standardization(
-                sliding_window_consecutive_elements_max_left_pupil)
-            sliding_window_consecutive_elements_max_right_pupil_s2 = self._inter_trial_standardization(
-                sliding_window_consecutive_elements_max_right_pupil)
-            sliding_window_consecutive_elements_sum_left_pupil_s2 = self._inter_trial_standardization(
-                sliding_window_consecutive_elements_sum_left_pupil)
-            sliding_window_consecutive_elements_sum_right_pupil_s2 = self._inter_trial_standardization(
-                sliding_window_consecutive_elements_sum_right_pupil)
-        if 'ECG' in feature_groups_to_analyze:
-            sliding_window_hrv_sdnn_s2 = self._inter_trial_standardization(sliding_window_hrv_sdnn)
-            sliding_window_hrv_rmssd_s2 = self._inter_trial_standardization(sliding_window_hrv_rmssd)
-            # sliding_window_hrv_pnn50_s2 = self._inter_trial_standardization(sliding_window_hrv_pnn50)
-        if 'cognitive' in feature_groups_to_analyze:
-            sliding_window_cognitive_ies_s2 = self._inter_trial_standardization(sliding_window_cognitive_ies)
-
-        all_features_additional_s2 = [s + '_s2' for s in all_features_additional]
-
-        return (all_features_additional_s1, sliding_window_integral_left_pupil_s1,
-                sliding_window_integral_right_pupil_s1,
-                sliding_window_consecutive_elements_mean_left_pupil_s1,
-                sliding_window_consecutive_elements_mean_right_pupil_s1,
-                sliding_window_consecutive_elements_max_left_pupil_s1,
-                sliding_window_consecutive_elements_max_right_pupil_s1,
-                sliding_window_consecutive_elements_sum_left_pupil_s1,
-                sliding_window_consecutive_elements_sum_right_pupil_s1,
-                sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1, sliding_window_cognitive_ies_s1,
-                all_features_additional_s2, sliding_window_integral_left_pupil_s2,
-                sliding_window_integral_right_pupil_s2,
-                sliding_window_consecutive_elements_mean_left_pupil_s2,
-                sliding_window_consecutive_elements_mean_right_pupil_s2,
-                sliding_window_consecutive_elements_max_left_pupil_s2,
-                sliding_window_consecutive_elements_max_right_pupil_s2,
-                sliding_window_consecutive_elements_sum_left_pupil_s2,
-                sliding_window_consecutive_elements_sum_right_pupil_s2,
-                sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
-                sliding_window_cognitive_ies_s2)
-
-    def _unpack_dict(
-            self,
-            gloc_window: Dict[str, np.ndarray],
-            sliding_window_mean_s1: Dict[str, np.ndarray],
-            number_windows: Dict[str, np.int32],
-            sliding_window_stddev_s1: Dict[str, np.ndarray],
-            sliding_window_max_s1: Dict[str, np.ndarray],
-            sliding_window_range_s1: Dict[str, np.ndarray],
-            sliding_window_integral_left_pupil_s1: Dict[str, np.ndarray],
-            sliding_window_integral_right_pupil_s1: Dict[str, np.ndarray],
-            sliding_window_consecutive_elements_mean_left_pupil_s1: Dict[str, np.ndarray],
-            sliding_window_consecutive_elements_mean_right_pupil_s1: Dict[str, np.ndarray],
-            sliding_window_consecutive_elements_max_left_pupil_s1: Dict[str, np.ndarray],
-            sliding_window_consecutive_elements_max_right_pupil_s1: Dict[str, np.ndarray],
-            sliding_window_consecutive_elements_sum_left_pupil_s1: Dict[str, np.ndarray],
-            sliding_window_consecutive_elements_sum_right_pupil_s1: Dict[str, np.ndarray],
-            sliding_window_hrv_sdnn_s1: Dict[str, np.ndarray],
-            sliding_window_hrv_rmssd_s1: Dict[str, np.ndarray],
-            sliding_window_cognitive_ies_s1: Dict[str, np.ndarray],
-            sliding_window_mean_s2: Dict[str, np.ndarray],
-            sliding_window_stddev_s2: Dict[str, np.ndarray],
-            sliding_window_max_s2: Dict[str, np.ndarray],
-            sliding_window_range_s2: Dict[str, np.ndarray],
-            sliding_window_integral_left_pupil_s2: Dict[str, np.ndarray],
-            sliding_window_integral_right_pupil_s2: Dict[str, np.ndarray],
-            sliding_window_consecutive_elements_mean_left_pupil_s2: Dict[str, np.ndarray],
-            sliding_window_consecutive_elements_mean_right_pupil_s2: Dict[str, np.ndarray],
-            sliding_window_consecutive_elements_max_left_pupil_s2: Dict[str, np.ndarray],
-            sliding_window_consecutive_elements_max_right_pupil_s2: Dict[str, np.ndarray],
-            sliding_window_consecutive_elements_sum_left_pupil_s2: Dict[str, np.ndarray],
-            sliding_window_consecutive_elements_sum_right_pupil_s2: Dict[str, np.ndarray],
-            sliding_window_hrv_sdnn_s2: Dict[str, np.ndarray],
-            sliding_window_hrv_rmssd_s2: Dict[str, np.ndarray],
-            sliding_window_cognitive_ies_s2: Dict[str, np.ndarray],
-            output_feature_dtype: np.dtype = np.dtype(np.float32),
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Unpack per-trial dictionaries into global label and feature matrices."""
-        # Find Unique Trial ID
-        trial_id_in_data = list(sliding_window_mean_s1.keys())
-
-        # Determine total length of new unpacked dictionary items
-        total_rows = 0
-        for i in range(np.size(trial_id_in_data)):
-            total_rows += number_windows[trial_id_in_data[i]]
-
-        # Create tuple of all dictionaries
-        all_feature_dictionaries = [sliding_window_mean_s1, sliding_window_stddev_s1, sliding_window_max_s1,
-                                    sliding_window_range_s1,
-                                    sliding_window_integral_left_pupil_s1, sliding_window_integral_right_pupil_s1,
-                                    sliding_window_consecutive_elements_mean_left_pupil_s1,
-                                    sliding_window_consecutive_elements_mean_right_pupil_s1,
-                                    sliding_window_consecutive_elements_max_left_pupil_s1,
-                                    sliding_window_consecutive_elements_max_right_pupil_s1,
-                                    sliding_window_consecutive_elements_sum_left_pupil_s1,
-                                    sliding_window_consecutive_elements_sum_right_pupil_s1,
-                                    sliding_window_hrv_sdnn_s1, sliding_window_hrv_rmssd_s1,
-                                    sliding_window_cognitive_ies_s1,
-                                    sliding_window_mean_s2, sliding_window_stddev_s2, sliding_window_max_s2,
-                                    sliding_window_range_s2,
-                                    sliding_window_integral_left_pupil_s2, sliding_window_integral_right_pupil_s2,
-                                    sliding_window_consecutive_elements_mean_left_pupil_s2,
-                                    sliding_window_consecutive_elements_mean_right_pupil_s2,
-                                    sliding_window_consecutive_elements_max_left_pupil_s2,
-                                    sliding_window_consecutive_elements_max_right_pupil_s2,
-                                    sliding_window_consecutive_elements_sum_left_pupil_s2,
-                                    sliding_window_consecutive_elements_sum_right_pupil_s2,
-                                    sliding_window_hrv_sdnn_s2, sliding_window_hrv_rmssd_s2,
-                                    sliding_window_cognitive_ies_s2]
-
-        # Find all non-empty dictionaries
-        non_empty_feature_dictionaries = []
-        for dictionary in all_feature_dictionaries:
-            if dictionary:
-                non_empty_feature_dictionaries.append(dictionary)
-
-        # Find number of columns (using non-empty dictionaries)
-        num_cols = 0
-        for dictionary in range(len(non_empty_feature_dictionaries)):
-            current_dictionary = non_empty_feature_dictionaries[dictionary]
-            num_cols = num_cols + np.shape(current_dictionary[trial_id_in_data[0]])[1]
-
-        # Pre-allocate
-        x_feature_matrix = np.zeros((total_rows, num_cols), dtype=output_feature_dtype)
-        y_gloc_labels = np.zeros((total_rows, 1), dtype=output_feature_dtype)
-
-        # Iterate through unique trial_id
-        current_index = 0
-        for i in range(np.size(trial_id_in_data)):
-
-            # Find number of rows in trial
-            num_rows = np.shape(sliding_window_mean_s1[trial_id_in_data[i]])[0]
-
-            # For all non-empty dictionaries, set specific rows equal to the dictionary item corresponding to trial_id
-            column_index = 0
-            for dictionary in range(len(non_empty_feature_dictionaries)):
-                # Find current dictionary
-                current_dictionary = non_empty_feature_dictionaries[dictionary]
-
-                # Set rows and columns in x_feature_matrix equal to current dictionary
-                x_feature_matrix[current_index:num_rows + current_index,
-                column_index:np.shape(current_dictionary[trial_id_in_data[i]])[1] + column_index] = current_dictionary[
-                    trial_id_in_data[i]].astype(output_feature_dtype)
-
-                # Increment column index
-                column_index += np.shape(current_dictionary[trial_id_in_data[i]])[1]
-
-            # Set corresponding gloc labels from current trial
-            y_gloc_labels[current_index:num_rows + current_index, :] = gloc_window[trial_id_in_data[i]].astype(
-                output_feature_dtype)
-
-            # Increment row index
-            current_index += num_rows
-
-        return y_gloc_labels, x_feature_matrix
-
-    def _reduce_features(
-            self,
-            model_type: ModelType,
-            offset: float,
-            stride: float,
-            window_size: float,
-            time_start: float,
-            gloc_data_all_features_imputed_numpy: np.ndarray,
-            gloc_labels: np.ndarray,
-            features: Dict[str, List[str]],
-            experiment_metadata: Dict[str, Any],
-            select_features: List[str],
-    ) -> np.ndarray:
-        """Reduce feature matrix columns to the requested selected features."""
-        if model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit":
-            afe_indicator_column_windowed, gloc_compare, _ = self._sliding_window_max(
-                experiment_metadata["AFE_indicator"], experiment_metadata["trial_id"], experiment_metadata["Time (s)"],
-                gloc_labels,
-                offset, stride, window_size, time_start
-            )
-            gloc_data_all_features_imputed_numpy = np.hstack(
-                [gloc_data_all_features_imputed_numpy, afe_indicator_column_windowed])
-            features["All"].append("AFE_indicator_windowed")
-
-        # Convert feature matrix to DataFrame for column selection
-        gloc_data_all_features_imputed_numpy = pd.DataFrame(gloc_data_all_features_imputed_numpy,
-                                                            columns=features["All"])
-        gloc_data_all_features_imputed_numpy = gloc_data_all_features_imputed_numpy[select_features]
-        gloc_data_all_features_imputed_numpy = gloc_data_all_features_imputed_numpy.to_numpy()
-
-        return gloc_data_all_features_imputed_numpy
-
-    def _sliding_window_max(
-            self,
-            data_array: np.ndarray,
-            trial_column: np.ndarray,
-            time_column: np.ndarray,
-            label_array: np.ndarray,
-            offset: float,
-            stride: float,
-            window_size: float,
-            time_start: float = 0,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Compute sliding-window max features and aligned labels."""
-
-        trial_ids = pd.unique(trial_column)  # order-preserving, matching legacy script behavior
-
-        all_features = []
-        all_labels = []
-        all_trials = []
-
-        for trial_id in trial_ids:
-            # Select rows for this trial
-            trial_mask = (trial_column == trial_id)
-            trial_times = np.array(time_column[trial_mask])
-            trial_data = data_array[trial_mask, :]
-            trial_gloc = np.array(label_array[trial_mask])  # replace with label column if different
-
-            time_end = np.max(trial_times)
-            number_windows = int(((time_end - offset) // stride) - (window_size // stride - 1))
-
-            t = time_start
-            for w in range(number_windows):
-                # Feature window
-                window_mask = (t <= trial_times) & (trial_times < t + window_size)
-                window_features = np.nanmax(trial_data[window_mask, :], axis=0)
-
-                # G-LOC window
-                gloc_mask = ((t + offset) <= trial_times) & (trial_times < t + offset + window_size)
-                window_label = np.any(trial_gloc[gloc_mask])
-
-                all_features.append(window_features)
-                all_labels.append(window_label)
-                all_trials.append(trial_id)
-
-                t += stride
-
-        all_features = np.array(all_features)
-        all_labels = np.array(all_labels)
-        all_trials = np.array(all_trials)
-
-        return all_features, all_labels, all_trials
-
-    def _process_NaN_temporal(
-            self,
-            y_gloc_labels: np.ndarray,
-            x_feature_matrix: np.ndarray,
-            all_features: List[str],
-    ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
-        """Drop all-NaN columns and rows containing any NaN values."""
-        # Find & remove columns if they have all NaN values
-        nan_test = np.isnan(x_feature_matrix)
-        index_column_all_NaN = np.all(nan_test, axis=0)
-        keep_columns = ~index_column_all_NaN
-        x_feature_matrix_noNaN_cols = x_feature_matrix[:, keep_columns]
-
-        # Adjust all_features to only include columns that don't have all NaN
-        all_features = [feature_name for feature_name, keep in zip(all_features, keep_columns) if keep]
-
-        # Identify rows with any NaNs
-        row_nan_mask = np.isnan(x_feature_matrix_noNaN_cols).any(axis=1)
-
-        # Save indices of removed rows
-        removed_row_indices = np.where(row_nan_mask)[0]
-
-        # Keep only rows without NaNs
-        x_feature_matrix_noNaN = x_feature_matrix_noNaN_cols[~row_nan_mask]
-        y_gloc_labels_noNaN = y_gloc_labels[~row_nan_mask]
-
-        return y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features, removed_row_indices
-
-    def _ready_outputs(
-            self,
-            x_feature_matrix: Any,
-            y_gloc_labels: Any,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Normalize outputs to numpy arrays with expected shapes."""
-        x_feature_matrix = (
-            x_feature_matrix.to_numpy() if hasattr(x_feature_matrix, "to_numpy") else np.asarray(x_feature_matrix)
-        )
-        y_gloc_labels = (
-            y_gloc_labels.to_numpy().ravel() if hasattr(y_gloc_labels, "to_numpy") else np.ravel(y_gloc_labels)
-        )
-
-        return x_feature_matrix, y_gloc_labels
+	def _get_feature_groups_and_baseline_methods(
+		self, model_type: ModelType, baseline_methods_to_use: list[str]
+	) -> tuple[Sequence[str], list[str]]:
+		"""Resolve feature groups and baseline methods for advanced pipeline variants."""
+		feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
+
+		if model_type.afe_filter == "Complete":
+			baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE["Complete"]
+
+		return feature_groups_to_analyze, baseline_methods_to_use
+
+
+	def _gen_windowed_label_metadata(
+		self,
+		time_start: float,
+		offset: float,
+		stride: float,
+		window_size: float,
+		combined_baseline: dict[str, np.ndarray],
+		gloc: np.ndarray,
+		trial_column: np.ndarray,
+		time_column: np.ndarray,
+		combined_baseline_names: list[str],
+		output_feature_dtype: np.dtype = np.dtype(np.float32),
+	) -> tuple[np.ndarray, np.ndarray]:
+		"""Pre-pass: produce row-major windowed GLOC labels and trial-id rows.
+
+		Mirrors exactly the row ordering used by ``_feature_generation`` (via
+		``_sliding_window_mean_calc`` + ``_unpack_dict``), so a fold-aware
+		``train_mask`` computed from this output can be passed back into
+		``_feature_generation`` to fit standardization on training rows only.
+
+		Returns ``(y_gloc_labels, trial_id_per_row)``:
+		    - ``y_gloc_labels``: shape ``(N, 1)`` per-window binary labels.
+		    - ``trial_id_per_row``: shape ``(N,)`` object array mapping each
+		      row to its source trial id.
+		"""
+		gloc_window, _mean_raw, number_windows, _names_s1, _empty, _names_s2 = (
+			self._sliding_window_mean_calc(
+				time_start,
+				offset,
+				stride,
+				window_size,
+				combined_baseline,
+				gloc,
+				trial_column,
+				time_column,
+				combined_baseline_names,
+			)
+		)
+
+		trial_ids_in_order = list(gloc_window.keys())
+		total_rows = int(sum(int(number_windows[t]) for t in trial_ids_in_order))
+		y_gloc_labels = np.zeros((total_rows, 1), dtype=output_feature_dtype)
+		trial_id_per_row = np.empty(total_rows, dtype=object)
+
+		idx = 0
+		for t in trial_ids_in_order:
+			n = int(number_windows[t])
+			y_gloc_labels[idx : idx + n, :] = gloc_window[t].astype(output_feature_dtype)
+			trial_id_per_row[idx : idx + n] = t
+			idx += n
+
+		return y_gloc_labels, trial_id_per_row
+
+	def _feature_generation(
+		self,
+		time_start: float,
+		offset: float,
+		stride: float,
+		window_size: float,
+		combined_baseline: dict[str, np.ndarray],
+		gloc: np.ndarray,
+		trial_column: np.ndarray,
+		time_column: np.ndarray,
+		combined_baseline_names: list[str],
+		baseline_names_v0: Any,
+		baseline_v0: dict[str, np.ndarray],
+		feature_groups_to_analyze: Sequence[str],
+		train_mask: np.ndarray | None,
+		standardize_s1: bool = True,
+		output_feature_dtype: np.dtype = np.dtype(np.float32),
+	) -> tuple[np.ndarray, np.ndarray, list[str], np.ndarray]:
+		"""Generate temporal engineered features and apply fold-aware standardization.
+
+		Sliding-window per-trial statics are returned **raw** by the child
+		methods (s1 slot = raw dict, s2 slot = empty dict). The raw matrix
+		``X_raw`` is unpacked, then:
+
+		- When ``standardize_s1`` is True: ``TrialAwareStandardizer`` z-scores
+		  each row using that row's trial statistics computed on training rows
+		  of that trial (or pooled training statistics if the trial never appears
+		  in train_mask).
+		- ``GlobalStandardizer`` z-scores each row using a single μ/σ fit on
+		  all training rows.
+
+		Both s1 and s2 features share the same name suffixes as before, so
+		downstream cache files remain compatible.
+
+		``train_mask`` is a boolean array of length ``X_raw.shape[0]``. If
+		``None``, all rows are treated as training (global standardization
+		only — for backward-compatibility diagnostic calls). This is leaky and
+		emits a warning.
+
+		Returns ``(y_gloc_labels, x_feature_matrix, all_features, trial_id_per_row)``.
+		"""
+		# Sliding Window Mean — raw dict goes into the s1 slot, s2 slot is {}.
+		(
+			gloc_window,
+			sliding_window_mean_raw,
+			number_windows,
+			all_features_mean_s1,
+			_,
+			all_features_mean_s2,
+		) = self._sliding_window_mean_calc(
+			time_start,
+			offset,
+			stride,
+			window_size,
+			combined_baseline,
+			gloc,
+			trial_column,
+			time_column,
+			combined_baseline_names,
+		)
+
+		(
+			sliding_window_stddev_raw,
+			sliding_window_max_raw,
+			sliding_window_range_raw,
+			all_features_stddev_s1,
+			all_features_max_s1,
+			all_features_range_s1,
+			_,
+			_,
+			_,
+			all_features_stddev_s2,
+			all_features_max_s2,
+			all_features_range_s2,
+		) = self._sliding_window_calc(
+			time_start,
+			stride,
+			window_size,
+			combined_baseline,
+			trial_column,
+			time_column,
+			number_windows,
+			combined_baseline_names,
+		)
+
+		(
+			all_features_additional_s1,
+			sliding_window_integral_left_pupil_raw,
+			sliding_window_integral_right_pupil_raw,
+			sliding_window_consecutive_elements_mean_left_pupil_raw,
+			sliding_window_consecutive_elements_mean_right_pupil_raw,
+			sliding_window_consecutive_elements_max_left_pupil_raw,
+			sliding_window_consecutive_elements_max_right_pupil_raw,
+			sliding_window_consecutive_elements_sum_left_pupil_raw,
+			sliding_window_consecutive_elements_sum_right_pupil_raw,
+			sliding_window_hrv_sdnn_raw,
+			sliding_window_hrv_rmssd_raw,
+			sliding_window_cognitive_ies_raw,
+			all_features_additional_s2,
+			_,
+			_,
+			_,
+			_,
+			_,
+			_,
+			_,
+			_,
+			_,
+			_,
+			_,
+			_,
+		) = self._sliding_window_other_features(
+			time_start,
+			stride,
+			window_size,
+			trial_column,
+			time_column,
+			number_windows,
+			baseline_names_v0,
+			baseline_v0,
+			feature_groups_to_analyze,
+		)
+
+		# Unpack the raw dicts into the row-major X_raw matrix. s2 slots stay {}, so X_raw
+		# contains only the raw s1 columns (one block per non-empty dict).
+		if not sliding_window_mean_raw:
+			return (
+				np.zeros((0, 1), dtype=output_feature_dtype),
+				np.zeros((0, 0), dtype=output_feature_dtype),
+				[],
+				np.array([], dtype=object),
+			)
+
+		y_gloc_labels, x_feature_matrix_raw, trial_id_per_row = self._unpack_dict(
+			gloc_window,
+			sliding_window_mean_raw,
+			number_windows,
+			sliding_window_stddev_raw,
+			sliding_window_max_raw,
+			sliding_window_range_raw,
+			sliding_window_integral_left_pupil_raw,
+			sliding_window_integral_right_pupil_raw,
+			sliding_window_consecutive_elements_mean_left_pupil_raw,
+			sliding_window_consecutive_elements_mean_right_pupil_raw,
+			sliding_window_consecutive_elements_max_left_pupil_raw,
+			sliding_window_consecutive_elements_max_right_pupil_raw,
+			sliding_window_consecutive_elements_sum_left_pupil_raw,
+			sliding_window_consecutive_elements_sum_right_pupil_raw,
+			sliding_window_hrv_sdnn_raw,
+			sliding_window_hrv_rmssd_raw,
+			sliding_window_cognitive_ies_raw,
+			{},
+			{},
+			{},
+			{},  # mean_s2, stddev_s2, max_s2, range_s2
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},  # 8 pupil s2
+			{},
+			{},
+			{},  # hrv_sdnn_s2, hrv_rmssd_s2, cog_s2
+			output_feature_dtype,
+		)
+
+		if train_mask is None:
+			logger.warning(
+				"_feature_generation called with train_mask=None — folding to a leaky "
+				"global standardization over all rows. Pass an explicit train_mask "
+				"(or call _gen_windowed_label_metadata from the caller) for fold-aware "
+				"standardization."
+			)
+			train_mask = np.ones(x_feature_matrix_raw.shape[0], dtype=bool)
+
+		# Apply fold-aware standardization over the whole raw matrix. Both
+		# standardizers compute per-column statistics, so applying them block-by-block
+		# vs whole-matrix yields identical results — the whole-matrix path is simpler.
+		x_feature_matrix = self._standardize_raw(
+			x_feature_matrix_raw, trial_id_per_row, train_mask, standardize_s1=standardize_s1
+		)
+
+		# Combine feature names according to whether standardize_s1 is enabled.
+		if standardize_s1:
+			all_features = (
+				all_features_mean_s1
+				+ all_features_stddev_s1
+				+ all_features_max_s1
+				+ all_features_range_s1
+				+ all_features_additional_s1
+				+ all_features_mean_s2
+				+ all_features_stddev_s2
+				+ all_features_max_s2
+				+ all_features_range_s2
+				+ all_features_additional_s2
+			)
+		else:
+			all_features = (
+				all_features_mean_s2
+				+ all_features_stddev_s2
+				+ all_features_max_s2
+				+ all_features_range_s2
+				+ all_features_additional_s2
+			)
+
+		return (
+			y_gloc_labels.astype(output_feature_dtype),
+			x_feature_matrix.astype(output_feature_dtype),
+			all_features,
+			trial_id_per_row,
+		)
+
+	def _standardize_raw(
+		self,
+		x_feature_matrix_raw: np.ndarray,
+		trial_id_per_row: np.ndarray,
+		train_mask: np.ndarray,
+		standardize_s1: bool = True,
+	) -> np.ndarray:
+		"""Apply fold-aware s1 + s2 (or s2-only if standardize_s1 is False) standardization.
+
+		When standardize_s1 is True, output column order is ``[all s1 columns | all s2 columns]``
+		(the legacy ordering) so the feature-name list returned by ``_feature_generation``
+		aligns 1:1. When False, output is ``[all s2 columns]``.
+		"""
+		x_raw = np.asarray(x_feature_matrix_raw, dtype=np.float64)
+		n_rows, n_raw_cols = x_raw.shape
+
+		# s2 = single global z-score using all training rows' pooled statistics.
+		global_standardizer = GlobalStandardizer().fit(x_raw[train_mask])
+		s2_features = global_standardizer.transform(x_raw)
+		self._last_global_standardizer = global_standardizer
+
+		if standardize_s1:
+			# s1 = per-trial z-score using each trial's own training-row statistics
+			# (or pooled training statistics if the trial never appears in train_mask).
+			trial_standardizer = TrialAwareStandardizer().fit(x_raw, trial_id_per_row, train_mask)
+			s1_features = trial_standardizer.transform(x_raw, trial_id_per_row)
+			self._last_trial_standardizer = trial_standardizer
+			out = np.hstack([s1_features, s2_features])
+		else:
+			self._last_trial_standardizer = None
+			out = s2_features
+
+		return out
+
+	def _sliding_window_mean_calc(
+		self,
+		time_start: float,
+		offset: float,
+		stride: float,
+		window_size: float,
+		combined_baseline: dict[str, np.ndarray],
+		gloc: np.ndarray,
+		trial_column: np.ndarray,
+		time_column: np.ndarray,
+		combined_baseline_names: list[str],
+	) -> tuple[
+		dict[str, np.ndarray],
+		dict[str, np.ndarray],
+		dict[str, np.int32],
+		list[str],
+		dict[str, np.ndarray],
+		list[str],
+	]:
+		"""Compute sliding-window mean features and aligned GLOC labels."""
+
+		# Find Unique Trial ID
+		trial_id_in_data = pd.unique(
+			trial_column
+		)  # order-preserving, matching legacy script behavior
+
+		# Build Dictionary for each trial_id
+		sliding_window_mean = dict()
+		gloc_window = dict()
+		number_windows = dict()
+
+		# Iterate through all unique trial_id
+		for i in range(np.size(trial_id_in_data)):
+			# Determine index from current trial_id
+			current_index = trial_column == trial_id_in_data[i]
+
+			# Create time array based on current_index
+			current_time = np.array(time_column)
+			time_trimmed = current_time[current_index]
+
+			# Find end time for specific trial
+			time_end = np.max(time_trimmed)
+
+			# Determine number of windows
+			number_windows_current = np.int32(
+				((time_end - offset) // stride) - (window_size // stride - 1)
+			)
+
+			# Pre-allocate arrays
+			sliding_window_mean_current = np.zeros(
+				(number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1])
+			)
+			gloc_window_current = np.zeros((number_windows_current, 1))
+
+			# Create trimmed gloc data for the specific
+			gloc_trimmed = gloc[(trial_column == trial_id_in_data[i])]
+
+			# Define iteration time
+			time_iteration = time_start
+
+			# Iterate through all windows to compute relevant parameters
+			for j in range(number_windows_current):
+				# Find index for current window
+				time_period_feature = (time_iteration <= time_trimmed) & (
+					time_trimmed < (time_iteration + window_size)
+				)
+				current_combined_baseline = combined_baseline[trial_id_in_data[i]][
+					time_period_feature
+				]
+
+				# Take nanmean for the window (one value per column (feature))
+				sliding_window_mean_current[j, :] = np.nanmean(
+					current_combined_baseline, axis=0, keepdims=True
+				)
+
+				# Find the offset time for G-LOC label
+				time_period_gloc = ((time_iteration + offset) <= time_trimmed) & (
+					time_trimmed < (time_iteration + offset + window_size)
+				)
+
+				# Create engineered label set to 1 if any values in window are 1
+				gloc_window_current[j] = np.any(gloc_trimmed[time_period_gloc])
+
+				# Adjust iteration_time
+				time_iteration = stride + time_iteration
+
+			# Define dictionary item for trial_id (raw per-window mean; standardization
+			# is applied fold-aware by TrialAwareStandardizer / GlobalStandardizer in _feature_generation).
+			sliding_window_mean[trial_id_in_data[i]] = sliding_window_mean_current
+			gloc_window[trial_id_in_data[i]] = gloc_window_current
+			number_windows[trial_id_in_data[i]] = number_windows_current
+
+		# Name all features (s1 (intra-trial) standardization)
+		all_features_mean_s1 = [s + "_mean_s1" for s in combined_baseline_names]
+
+		# s2 feature names are still emitted for downstream cache compatibility; the s2 dict
+		# is filled by GlobalStandardizer in _feature_generation.
+		all_features_mean_s2 = [s + "_mean_s2" for s in combined_baseline_names]
+
+		return (
+			gloc_window,
+			sliding_window_mean,
+			number_windows,
+			all_features_mean_s1,
+			{},
+			all_features_mean_s2,
+		)
+
+	def _sliding_window_calc(
+		self,
+		time_start: float,
+		stride: float,
+		window_size: float,
+		combined_baseline: dict[str, np.ndarray],
+		trial_column: np.ndarray,
+		time_column: np.ndarray,
+		number_windows: dict[str, np.int32],
+		combined_baseline_names: list[str],
+	) -> tuple[Any, ...]:
+		"""Compute sliding-window std/max/range features with s1 and s2 variants."""
+
+		# Find Unique Trial ID
+		trial_id_in_data = pd.unique(
+			trial_column
+		)  # order-preserving, matching legacy script behavior
+
+		# Build Dictionary for each trial_id
+		# Raw windowed data (no standardization); fold-aware z-scoring is applied in _feature_generation.
+		sliding_window_stddev = dict()
+		sliding_window_max = dict()
+		sliding_window_range = dict()
+
+		# Iterate through all unique trial_id
+		for i in range(np.size(trial_id_in_data)):
+			# Determine index from current trial_id
+			current_index = trial_column == trial_id_in_data[i]
+
+			# Create time array based on current_index
+			current_time = np.array(time_column)
+			time_trimmed = current_time[current_index]
+
+			# Determine number of windows
+			number_windows_current = number_windows[trial_id_in_data[i]]
+
+			# Pre-allocate arrays
+			sliding_window_stddev_current = np.zeros(
+				(number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1])
+			)
+			sliding_window_max_current = np.zeros(
+				(number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1])
+			)
+			sliding_window_range_current = np.zeros(
+				(number_windows_current, np.shape(combined_baseline[trial_id_in_data[i]])[1])
+			)
+
+			# Define iteration time
+			time_iteration = time_start
+
+			# Iterate through all windows to compute relevant parameters
+			for j in range(number_windows_current):
+				# Find index for current window
+				time_period_feature = (time_iteration <= time_trimmed) & (
+					time_trimmed < (time_iteration + window_size)
+				)
+
+				# Find feature for current window
+				current_combined_baseline = combined_baseline[trial_id_in_data[i]][
+					time_period_feature
+				]
+
+				# Take nan stddev for the window (one value per column (feature))
+				sliding_window_stddev_current[j, :] = np.nanstd(
+					current_combined_baseline, axis=0, keepdims=True
+				)
+
+				# Take nan max for the window (one value per column (feature))
+				sliding_window_max_current[j, :] = np.nanmax(
+					current_combined_baseline, axis=0, keepdims=True
+				)
+
+				# Take nan range for the window (one value per column (feature))
+				sliding_window_range_current[j, :] = np.nanmax(
+					current_combined_baseline, axis=0, keepdims=True
+				) - np.nanmin(current_combined_baseline, axis=0, keepdims=True)
+
+				# Adjust iteration_time
+				time_iteration = stride + time_iteration
+
+			# Define dictionary item for trial_id (raw; fold-aware standardization applied in _feature_generation).
+			sliding_window_stddev[trial_id_in_data[i]] = sliding_window_stddev_current
+			sliding_window_max[trial_id_in_data[i]] = sliding_window_max_current
+			sliding_window_range[trial_id_in_data[i]] = sliding_window_range_current
+
+		# Name features
+		all_features_stddev_s1 = [s + "_stddev_s1" for s in combined_baseline_names]
+		all_features_max_s1 = [s + "_max_s1" for s in combined_baseline_names]
+		all_features_range_s1 = [s + "_range_s1" for s in combined_baseline_names]
+
+		all_features_stddev_s2 = [s + "_stddev_s2" for s in combined_baseline_names]
+		all_features_max_s2 = [s + "_max_s2" for s in combined_baseline_names]
+		all_features_range_s2 = [s + "_range_s2" for s in combined_baseline_names]
+
+		# s1 slots carry the raw dicts here; standardizer in _feature_generation replaces them.
+		# s2 slots are empty {}; GlobalStandardizer in _feature_generation fills them.
+		return (
+			sliding_window_stddev,
+			sliding_window_max,
+			sliding_window_range,
+			all_features_stddev_s1,
+			all_features_max_s1,
+			all_features_range_s1,
+			{},
+			{},
+			{},
+			all_features_stddev_s2,
+			all_features_max_s2,
+			all_features_range_s2,
+		)
+
+	def _sliding_window_other_features(
+		self,
+		time_start: float,
+		stride: float,
+		window_size: float,
+		trial_column: np.ndarray,
+		time_column: np.ndarray,
+		number_windows: dict[str, np.int32],
+		baseline_names_v0: Any,
+		baseline_v0: dict[str, np.ndarray],
+		feature_groups_to_analyze: Sequence[str],
+	) -> tuple[Any, ...]:
+		"""Compute additional temporal features (eye tracking, ECG, and cognitive)."""
+
+		# Find Unique Trial ID
+		trial_id_in_data = pd.unique(
+			trial_column
+		)  # order-preserving, matching legacy script behavior
+
+		# Accept either a direct v0 name list or the full baseline-name dict.
+		if isinstance(baseline_names_v0, dict):
+			baseline_names_v0 = baseline_names_v0.get("v0", [])
+
+		if "eyetracking" in feature_groups_to_analyze:
+			# Find indices of left and right pupil
+			index_left_pupil = baseline_names_v0.index("Pupil diameter left [mm] - Tobii_v0")
+			index_right_pupil = baseline_names_v0.index("Pupil diameter right [mm] - Tobii_v0")
+
+			# Define eyetracking feature names
+			eye_tracking_features = [
+				"Left Pupil Integral (Non-Baseline)",
+				"Right Pupil Integral (Non-Baseline)",
+				"Left Pupil Mean of Consecutive Difference (Non-Baseline)",
+				"Right Pupil Mean of Consecutive Difference (Non-Baseline)",
+				"Left Pupil Max of Consecutive Difference (Non-Baseline)",
+				"Right Pupil Max of Consecutive Difference (Non-Baseline)",
+				"Left Pupil Sum of Consecutive Difference (Non-Baseline)",
+				"Right Pupil Sum of Consecutive Difference (Non-Baseline)",
+			]
+		else:
+			eye_tracking_features = []
+
+		if "ECG" in feature_groups_to_analyze:
+			# Find indices of HR
+			index_hr = baseline_names_v0.index("HR (bpm) - Equivital_v0")
+
+			# Define ECG feature names
+			ecg_features = [
+				"HRV (SDNN)",
+				"HRV (RMSSD)",
+			]  # , 'HRV (PNN50)']. Removed PNN50 due to interpolation
+		else:
+			ecg_features = []
+
+		if "cognitive" in feature_groups_to_analyze:
+			# Find indices of Cognitive Response Time and Correct
+			index_response_time = baseline_names_v0.index("RespTime - Cog_v0")
+			index_correct = baseline_names_v0.index("Correct - Cog_v0")
+
+			# Define ECG feature names
+			cognitive_features = ["Cognitive IES"]
+		else:
+			cognitive_features = []
+
+		# Build Dictionary for each trial_id (raw; fold-aware standardization applied in _feature_generation).
+		sliding_window_integral_left_pupil = dict()
+		sliding_window_integral_right_pupil = dict()
+		sliding_window_consecutive_elements_mean_left_pupil = dict()
+		sliding_window_consecutive_elements_mean_right_pupil = dict()
+		sliding_window_consecutive_elements_max_left_pupil = dict()
+		sliding_window_consecutive_elements_max_right_pupil = dict()
+		sliding_window_consecutive_elements_sum_left_pupil = dict()
+		sliding_window_consecutive_elements_sum_right_pupil = dict()
+		sliding_window_hrv_sdnn = dict()
+		sliding_window_hrv_rmssd = dict()
+		# sliding_window_hrv_pnn50 = dict()
+		sliding_window_cognitive_ies = dict()
+
+		# Iterate through all unique trial_id
+		for i in range(np.size(trial_id_in_data)):
+			# Determine index from current trial_id
+			current_index = trial_column == trial_id_in_data[i]
+
+			# Create time array based on current_index
+			current_time = np.array(time_column)
+			time_trimmed = current_time[current_index]
+
+			# Determine number of windows
+			number_windows_current = number_windows[trial_id_in_data[i]]
+
+			# Pre-allocate arrays
+			if "eyetracking" in feature_groups_to_analyze:
+				sliding_window_integral_left_pupil_current = np.zeros((number_windows_current, 1))
+				sliding_window_integral_right_pupil_current = np.zeros((number_windows_current, 1))
+				sliding_window_consecutive_elements_mean_left_pupil_current = np.zeros(
+					(number_windows_current, 1)
+				)
+				sliding_window_consecutive_elements_mean_right_pupil_current = np.zeros(
+					(number_windows_current, 1)
+				)
+				sliding_window_consecutive_elements_max_left_pupil_current = np.zeros(
+					(number_windows_current, 1)
+				)
+				sliding_window_consecutive_elements_max_right_pupil_current = np.zeros(
+					(number_windows_current, 1)
+				)
+				sliding_window_consecutive_elements_sum_left_pupil_current = np.zeros(
+					(number_windows_current, 1)
+				)
+				sliding_window_consecutive_elements_sum_right_pupil_current = np.zeros(
+					(number_windows_current, 1)
+				)
+			if "ECG" in feature_groups_to_analyze:
+				sliding_window_hrv_sdnn_current = np.zeros((number_windows_current, 1))
+				sliding_window_hrv_rmssd_current = np.zeros((number_windows_current, 1))
+				# sliding_window_hrv_pnn50_current = np.zeros((number_windows_current, 1))
+			if "cognitive" in feature_groups_to_analyze:
+				sliding_window_cognitive_ies_current = np.zeros((number_windows_current, 1))
+
+			# Define iteration time
+			time_iteration = time_start
+
+			# Iterate through all windows to compute relevant parameters
+			for j in range(number_windows_current):
+				# Find index for current window
+				time_period_feature = (time_iteration <= time_trimmed) & (
+					time_trimmed < (time_iteration + window_size)
+				)
+
+				# Find non-baseline feature for current window
+				feature_window_no_baseline = baseline_v0[trial_id_in_data[i]][time_period_feature]
+
+				if "ECG" in feature_groups_to_analyze:
+					# Compute HRV
+					rr_interval = 60000 / feature_window_no_baseline[:, index_hr]
+					sliding_window_hrv_sdnn_current[j] = np.nanstd(rr_interval)
+
+					successive_difference = np.diff(rr_interval)
+					sliding_window_hrv_rmssd_current[j] = np.sqrt(
+						np.nanmean(successive_difference**2)
+					)
+
+					# Compute PNN50
+					# count_50ms_diff_current = np.sum(np.abs(successive_difference) > 50 * 0.04) # 50 times (1/sampling freqeuncy)
+					# sliding_window_hrv_pnn50_current[j] = (count_50ms_diff_current / len(successive_difference)) * 100
+
+				if "cognitive" in feature_groups_to_analyze:
+					# Compute IES (Inverse Efficiency Score)
+					sliding_window_cognitive_ies_current[j] = np.nanmean(
+						feature_window_no_baseline[:, index_response_time]
+					) / (np.nanmean(feature_window_no_baseline[:, index_correct]))
+
+				if "eyetracking" in feature_groups_to_analyze:
+					# Compute non-baseline pupil features
+					left_pupil_no_baseline = feature_window_no_baseline[:, index_left_pupil]
+					right_pupil_no_baseline = feature_window_no_baseline[:, index_right_pupil]
+
+					# Integral (using Trapezoid rule)
+					sliding_window_integral_left_pupil_current[j] = (window_size / 2) * (
+						left_pupil_no_baseline[-1] + left_pupil_no_baseline[0]
+					)
+					sliding_window_integral_right_pupil_current[j] = (window_size / 2) * (
+						right_pupil_no_baseline[-1] + right_pupil_no_baseline[0]
+					)
+
+					# Compute average difference between consecutive elements
+					left_pupil_consecutive_difference = np.diff(left_pupil_no_baseline)
+					left_pupil_consecutive_difference_full = np.append(
+						left_pupil_consecutive_difference, np.nan
+					)
+
+					right_pupil_consecutive_difference = np.diff(right_pupil_no_baseline)
+					right_pupil_consecutive_difference_full = np.append(
+						right_pupil_consecutive_difference, np.nan
+					)
+
+					sliding_window_consecutive_elements_mean_left_pupil_current[j] = np.nanmean(
+						left_pupil_consecutive_difference_full
+					)
+					sliding_window_consecutive_elements_mean_right_pupil_current[j] = np.nanmean(
+						right_pupil_consecutive_difference_full
+					)
+
+					# Compute max difference between consecutive elements
+					sliding_window_consecutive_elements_max_left_pupil_current[j] = np.nanmax(
+						left_pupil_consecutive_difference_full
+					)
+					sliding_window_consecutive_elements_max_right_pupil_current[j] = np.nanmax(
+						right_pupil_consecutive_difference_full
+					)
+
+					# Compute sum of difference between consecutive elements
+					sliding_window_consecutive_elements_sum_left_pupil_current[j] = np.nansum(
+						left_pupil_consecutive_difference_full
+					)
+					sliding_window_consecutive_elements_sum_right_pupil_current[j] = np.nansum(
+						right_pupil_consecutive_difference_full
+					)
+
+				# Adjust iteration_time
+				time_iteration = stride + time_iteration
+
+			# Define dictionary item for trial_id (raw; fold-aware standardization applied in _feature_generation).
+			if "eyetracking" in feature_groups_to_analyze:
+				sliding_window_integral_left_pupil[trial_id_in_data[i]] = (
+					sliding_window_integral_left_pupil_current
+				)
+				sliding_window_integral_right_pupil[trial_id_in_data[i]] = (
+					sliding_window_integral_right_pupil_current
+				)
+				sliding_window_consecutive_elements_mean_left_pupil[trial_id_in_data[i]] = (
+					sliding_window_consecutive_elements_mean_left_pupil_current
+				)
+				sliding_window_consecutive_elements_mean_right_pupil[trial_id_in_data[i]] = (
+					sliding_window_consecutive_elements_mean_right_pupil_current
+				)
+				sliding_window_consecutive_elements_max_left_pupil[trial_id_in_data[i]] = (
+					sliding_window_consecutive_elements_max_left_pupil_current
+				)
+				sliding_window_consecutive_elements_max_right_pupil[trial_id_in_data[i]] = (
+					sliding_window_consecutive_elements_max_right_pupil_current
+				)
+				sliding_window_consecutive_elements_sum_left_pupil[trial_id_in_data[i]] = (
+					sliding_window_consecutive_elements_sum_left_pupil_current
+				)
+				sliding_window_consecutive_elements_sum_right_pupil[trial_id_in_data[i]] = (
+					sliding_window_consecutive_elements_sum_right_pupil_current
+				)
+			if "ECG" in feature_groups_to_analyze:
+				sliding_window_hrv_sdnn[trial_id_in_data[i]] = sliding_window_hrv_sdnn_current
+				sliding_window_hrv_rmssd[trial_id_in_data[i]] = sliding_window_hrv_rmssd_current
+				# sliding_window_hrv_pnn50[trial_id_in_data[i]] = sliding_window_hrv_pnn50_current
+			if "cognitive" in feature_groups_to_analyze:
+				sliding_window_cognitive_ies[trial_id_in_data[i]] = (
+					sliding_window_cognitive_ies_current
+				)
+
+			# Name all features
+			all_features_additional = eye_tracking_features + ecg_features + cognitive_features
+			all_features_additional_s1 = [s + "_s1" for s in all_features_additional]
+
+		# s2 feature names are still emitted for downstream cache compatibility; the s2 dicts
+		# are filled by GlobalStandardizer in _feature_generation.
+		all_features_additional_s2 = [s + "_s2" for s in all_features_additional]
+
+		return (
+			all_features_additional_s1,
+			sliding_window_integral_left_pupil,
+			sliding_window_integral_right_pupil,
+			sliding_window_consecutive_elements_mean_left_pupil,
+			sliding_window_consecutive_elements_mean_right_pupil,
+			sliding_window_consecutive_elements_max_left_pupil,
+			sliding_window_consecutive_elements_max_right_pupil,
+			sliding_window_consecutive_elements_sum_left_pupil,
+			sliding_window_consecutive_elements_sum_right_pupil,
+			sliding_window_hrv_sdnn,
+			sliding_window_hrv_rmssd,
+			sliding_window_cognitive_ies,
+			all_features_additional_s2,
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+			{},
+		)
+
+	def _unpack_dict(
+		self,
+		gloc_window: dict[str, np.ndarray],
+		sliding_window_mean_s1: dict[str, np.ndarray],
+		number_windows: dict[str, np.int32],
+		sliding_window_stddev_s1: dict[str, np.ndarray],
+		sliding_window_max_s1: dict[str, np.ndarray],
+		sliding_window_range_s1: dict[str, np.ndarray],
+		sliding_window_integral_left_pupil_s1: dict[str, np.ndarray],
+		sliding_window_integral_right_pupil_s1: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_mean_left_pupil_s1: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_mean_right_pupil_s1: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_max_left_pupil_s1: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_max_right_pupil_s1: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_sum_left_pupil_s1: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_sum_right_pupil_s1: dict[str, np.ndarray],
+		sliding_window_hrv_sdnn_s1: dict[str, np.ndarray],
+		sliding_window_hrv_rmssd_s1: dict[str, np.ndarray],
+		sliding_window_cognitive_ies_s1: dict[str, np.ndarray],
+		sliding_window_mean_s2: dict[str, np.ndarray],
+		sliding_window_stddev_s2: dict[str, np.ndarray],
+		sliding_window_max_s2: dict[str, np.ndarray],
+		sliding_window_range_s2: dict[str, np.ndarray],
+		sliding_window_integral_left_pupil_s2: dict[str, np.ndarray],
+		sliding_window_integral_right_pupil_s2: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_mean_left_pupil_s2: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_mean_right_pupil_s2: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_max_left_pupil_s2: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_max_right_pupil_s2: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_sum_left_pupil_s2: dict[str, np.ndarray],
+		sliding_window_consecutive_elements_sum_right_pupil_s2: dict[str, np.ndarray],
+		sliding_window_hrv_sdnn_s2: dict[str, np.ndarray],
+		sliding_window_hrv_rmssd_s2: dict[str, np.ndarray],
+		sliding_window_cognitive_ies_s2: dict[str, np.ndarray],
+		output_feature_dtype: np.dtype = np.dtype(np.float32),
+	) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+		"""Unpack per-trial dictionaries into global label and feature matrices.
+
+		Returns ``(y_gloc_labels, x_feature_matrix, trial_id_per_row)`` where
+		``trial_id_per_row`` is a 1-D array of length ``x_feature_matrix.shape[0]``
+		mapping each row back to its source trial id (in insertion order).
+		"""
+		# Find Unique Trial ID
+		trial_id_in_data = list(sliding_window_mean_s1.keys())
+
+		# Determine total length of new unpacked dictionary items
+		total_rows = 0
+		for i in range(np.size(trial_id_in_data)):
+			total_rows += number_windows[trial_id_in_data[i]]
+
+		# Create tuple of all dictionaries
+		all_feature_dictionaries = [
+			sliding_window_mean_s1,
+			sliding_window_stddev_s1,
+			sliding_window_max_s1,
+			sliding_window_range_s1,
+			sliding_window_integral_left_pupil_s1,
+			sliding_window_integral_right_pupil_s1,
+			sliding_window_consecutive_elements_mean_left_pupil_s1,
+			sliding_window_consecutive_elements_mean_right_pupil_s1,
+			sliding_window_consecutive_elements_max_left_pupil_s1,
+			sliding_window_consecutive_elements_max_right_pupil_s1,
+			sliding_window_consecutive_elements_sum_left_pupil_s1,
+			sliding_window_consecutive_elements_sum_right_pupil_s1,
+			sliding_window_hrv_sdnn_s1,
+			sliding_window_hrv_rmssd_s1,
+			sliding_window_cognitive_ies_s1,
+			sliding_window_mean_s2,
+			sliding_window_stddev_s2,
+			sliding_window_max_s2,
+			sliding_window_range_s2,
+			sliding_window_integral_left_pupil_s2,
+			sliding_window_integral_right_pupil_s2,
+			sliding_window_consecutive_elements_mean_left_pupil_s2,
+			sliding_window_consecutive_elements_mean_right_pupil_s2,
+			sliding_window_consecutive_elements_max_left_pupil_s2,
+			sliding_window_consecutive_elements_max_right_pupil_s2,
+			sliding_window_consecutive_elements_sum_left_pupil_s2,
+			sliding_window_consecutive_elements_sum_right_pupil_s2,
+			sliding_window_hrv_sdnn_s2,
+			sliding_window_hrv_rmssd_s2,
+			sliding_window_cognitive_ies_s2,
+		]
+
+		# Find all non-empty dictionaries
+		non_empty_feature_dictionaries = []
+		for dictionary in all_feature_dictionaries:
+			if dictionary:
+				non_empty_feature_dictionaries.append(dictionary)
+
+		# Find number of columns (using non-empty dictionaries)
+		num_cols = 0
+		for dictionary in range(len(non_empty_feature_dictionaries)):
+			current_dictionary = non_empty_feature_dictionaries[dictionary]
+			num_cols = num_cols + np.shape(current_dictionary[trial_id_in_data[0]])[1]
+
+		# Pre-allocate
+		x_feature_matrix = np.zeros((total_rows, num_cols), dtype=output_feature_dtype)
+		y_gloc_labels = np.zeros((total_rows, 1), dtype=output_feature_dtype)
+		trial_id_per_row = np.empty(total_rows, dtype=object)
+
+		# Iterate through unique trial_id
+		current_index = 0
+		for i in range(np.size(trial_id_in_data)):
+			# Find number of rows in trial
+			num_rows = np.shape(sliding_window_mean_s1[trial_id_in_data[i]])[0]
+
+			# Tag every row in this block with the current trial id
+			trial_id_per_row[current_index : num_rows + current_index] = trial_id_in_data[i]
+
+			# For all non-empty dictionaries, set specific rows equal to the dictionary item corresponding to trial_id
+			column_index = 0
+			for dictionary in range(len(non_empty_feature_dictionaries)):
+				# Find current dictionary
+				current_dictionary = non_empty_feature_dictionaries[dictionary]
+
+				# Set rows and columns in x_feature_matrix equal to current dictionary
+				x_feature_matrix[
+					current_index : num_rows + current_index,
+					column_index : np.shape(current_dictionary[trial_id_in_data[i]])[1]
+					+ column_index,
+				] = current_dictionary[trial_id_in_data[i]].astype(output_feature_dtype)
+
+				# Increment column index
+				column_index += np.shape(current_dictionary[trial_id_in_data[i]])[1]
+
+			# Set corresponding gloc labels from current trial
+			y_gloc_labels[current_index : num_rows + current_index, :] = gloc_window[
+				trial_id_in_data[i]
+			].astype(output_feature_dtype)
+
+			# Increment row index
+			current_index += num_rows
+
+		return y_gloc_labels, x_feature_matrix, trial_id_per_row
+
+	def _reduce_features(
+		self,
+		model_type: ModelType,
+		offset: float,
+		stride: float,
+		window_size: float,
+		time_start: float,
+		gloc_data_all_features_imputed_numpy: np.ndarray,
+		gloc_labels: np.ndarray,
+		features: dict[str, list[str]],
+		experiment_metadata: dict[str, Any],
+		select_features: list[str],
+	) -> np.ndarray:
+		"""Reduce feature matrix columns to the requested selected features."""
+		if model_type.afe_filter == "Complete" and model_type.feature_set == "Explicit":
+			afe_indicator_column_windowed, gloc_compare, _ = self._sliding_window_max(
+				experiment_metadata["AFE_indicator"],
+				experiment_metadata["trial_id"],
+				experiment_metadata["Time (s)"],
+				gloc_labels,
+				offset,
+				stride,
+				window_size,
+				time_start,
+			)
+			gloc_data_all_features_imputed_numpy = np.hstack(
+				[gloc_data_all_features_imputed_numpy, afe_indicator_column_windowed]
+			)
+			features["All"].append("AFE_indicator_windowed")
+
+		# Convert feature matrix to DataFrame for column selection
+		gloc_data_all_features_imputed_numpy = pd.DataFrame(
+			gloc_data_all_features_imputed_numpy, columns=features["All"]
+		)
+		gloc_data_all_features_imputed_numpy = gloc_data_all_features_imputed_numpy[select_features]
+		gloc_data_all_features_imputed_numpy = gloc_data_all_features_imputed_numpy.to_numpy()
+
+		return gloc_data_all_features_imputed_numpy
+
+	def _sliding_window_max(
+		self,
+		data_array: np.ndarray,
+		trial_column: np.ndarray,
+		time_column: np.ndarray,
+		label_array: np.ndarray,
+		offset: float,
+		stride: float,
+		window_size: float,
+		time_start: float = 0,
+	) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+		"""Compute sliding-window max features and aligned labels."""
+
+		trial_ids = pd.unique(trial_column)  # order-preserving, matching legacy script behavior
+
+		all_features = []
+		all_labels = []
+		all_trials = []
+
+		for trial_id in trial_ids:
+			# Select rows for this trial
+			trial_mask = trial_column == trial_id
+			trial_times = np.array(time_column[trial_mask])
+			trial_data = data_array[trial_mask, :]
+			trial_gloc = np.array(label_array[trial_mask])  # replace with label column if different
+
+			time_end = np.max(trial_times)
+			number_windows = int(((time_end - offset) // stride) - (window_size // stride - 1))
+
+			t = time_start
+			for w in range(number_windows):
+				# Feature window
+				window_mask = (t <= trial_times) & (trial_times < t + window_size)
+				window_features = np.nanmax(trial_data[window_mask, :], axis=0)
+
+				# G-LOC window
+				gloc_mask = ((t + offset) <= trial_times) & (trial_times < t + offset + window_size)
+				window_label = np.any(trial_gloc[gloc_mask])
+
+				all_features.append(window_features)
+				all_labels.append(window_label)
+				all_trials.append(trial_id)
+
+				t += stride
+
+		all_features = np.array(all_features)
+		all_labels = np.array(all_labels)
+		all_trials = np.array(all_trials)
+
+		return all_features, all_labels, all_trials
+
+	def _process_NaN_temporal(
+		self, y_gloc_labels: np.ndarray, x_feature_matrix: np.ndarray, all_features: list[str]
+	) -> tuple[np.ndarray, np.ndarray, list[str], np.ndarray]:
+		"""Drop all-NaN columns and rows containing any NaN values."""
+		# Find & remove columns if they have all NaN values
+		nan_test = np.isnan(x_feature_matrix)
+		index_column_all_NaN = np.all(nan_test, axis=0)
+		keep_columns = ~index_column_all_NaN
+		x_feature_matrix_noNaN_cols = x_feature_matrix[:, keep_columns]
+
+		# Adjust all_features to only include columns that don't have all NaN
+		all_features = [
+			feature_name for feature_name, keep in zip(all_features, keep_columns) if keep
+		]
+
+		# Identify rows with any NaNs
+		row_nan_mask = np.isnan(x_feature_matrix_noNaN_cols).any(axis=1)
+
+		# Save indices of removed rows
+		removed_row_indices = np.where(row_nan_mask)[0]
+
+		# Keep only rows without NaNs
+		x_feature_matrix_noNaN = x_feature_matrix_noNaN_cols[~row_nan_mask]
+		y_gloc_labels_noNaN = y_gloc_labels[~row_nan_mask]
+
+		return y_gloc_labels_noNaN, x_feature_matrix_noNaN, all_features, removed_row_indices
+
+	def _ready_outputs(
+		self, x_feature_matrix: Any, y_gloc_labels: Any
+	) -> tuple[np.ndarray, np.ndarray]:
+		"""Normalize outputs to numpy arrays with expected shapes."""
+		x_feature_matrix = (
+			x_feature_matrix.to_numpy()
+			if hasattr(x_feature_matrix, "to_numpy")
+			else np.asarray(x_feature_matrix)
+		)
+		y_gloc_labels = (
+			y_gloc_labels.to_numpy().ravel()
+			if hasattr(y_gloc_labels, "to_numpy")
+			else np.ravel(y_gloc_labels)
+		)
+
+		return x_feature_matrix, y_gloc_labels

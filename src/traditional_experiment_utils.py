@@ -15,6 +15,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from sklearn.model_selection import StratifiedKFold
+from imblearn.over_sampling import RandomOverSampler, SMOTE
+from imblearn.under_sampling import RandomUnderSampler
 
 from src.model_type import ModelType
 
@@ -33,12 +35,27 @@ def stratified_kfold_split(X, y, num_splits, kfold_ID, random_state=42):
     x_test, y_test = X[test_index], y[test_index]
     return x_train, x_test, y_train, y_test
 
+def apply_imbalance(imbalance_type: str, X_train, y_train, random_seed: int = 42):
+    """Resample training data according to a model's imbalance_type. Only ever pass training data."""
+    if imbalance_type == "none":
+        return X_train, y_train
+    if imbalance_type == "smote":
+        return SMOTE(random_state=random_seed, k_neighbors=7).fit_resample(X_train, y_train)
+    if imbalance_type == "ros":
+        return RandomOverSampler(random_state=random_seed).fit_resample(X_train, y_train)
+    if imbalance_type == "rus":
+        return RandomUnderSampler(random_state=random_seed).fit_resample(X_train, y_train)
+    raise ValueError(
+        f"Unsupported imbalance_type '{imbalance_type}'. Supported: 'none', 'smote', 'ros', 'rus'."
+    )
+
 def get_hyperparameters_from_json(
         median_hyperparameters_folder: Path,
         model_type: ModelType,
-        classifier_name: str    
+        classifier_name: str,
     ):
     """Load cached best params, selected features, fold ID, and score from the modern CV JSON."""
+
     with open(median_hyperparameters_folder / model_type.get_folder_name() / classifier_name / "median_hyperparameters.json", 'r') as f:
         data = json.load(f)
 

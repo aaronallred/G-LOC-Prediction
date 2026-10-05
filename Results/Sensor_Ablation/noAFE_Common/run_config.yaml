@@ -21,22 +21,27 @@ traditional_data_parameters:
   offset: 0
   time_start: 0
   standardize_s1: true
-
 sensor_ablation:
   training:
     enabled: true
     save_results_folder: Results/Sensor_Ablation
     median_hyperparameters_folder: Results/Cross_Validation
-    median_hyperparameters_model_type: !ModelType [ Complete, Explicit ]
-    # Mode-specific parameters
-    models: [ KNN, EGB, RF]
-    model_type: !ModelType [ noAFE, Common ]
+    median_hyperparameters_model_type:
+      afe_filter: Complete
+      feature_set: Explicit
+    models:
+    - KNN
+    - EGB
+    - RF
+    model_type:
+      afe_filter: noAFE
+      feature_set: Common
     manual_ablation: true
     random_seed: 42
     num_splits: 10
-    class_weight: null  # null, "balanced", or a dict like {0: 1.0, 1: 2.0}
+    class_weight: null
     streams:
-        - [ECG, BR, Temperature, Centrifuge]
-      # - [ EEG ]
-      # - [ EEG, Pupil ]
-      # - [ EEG, Pupil, Participant ]
+    - - ECG
+      - BR
+      - Temperature
+      - Centrifuge

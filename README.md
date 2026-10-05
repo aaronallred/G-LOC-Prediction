@@ -131,7 +131,7 @@ The config file has the following top-level sections:
 - **Mode sections**: Each execution mode has its own enabled/disabled section
 
 ### Root Parameters
-  
+
 #### `data_path`
 
 **Purpose**: Absolute path to the directory containing input CSV files and datasets.
@@ -212,48 +212,48 @@ analysis_type: 2
 remove_NaN_trials: true  # Remove trials with NaNs
 ```
 
-#### `impute_file_name`
-
+#### `impute_file_name` *(Advanced models only)*
+ 
 **Purpose**: Filename for saving/loading imputed data from previous runs. Be careful with this since using a different
 model, model type, data parameters, etc. will result in different imputed data and loading in an incorrect imputed data
-file may result in data leakage.
-
+file may result in data leakage. Note: KNN imputation is used only by the Advanced data pipeline.
+ 
 **Available inputs**: Any valid filename string.
-
+ 
 **Example**:
-
+ 
 ```yaml
 impute_file_name: imputed_data.pkl
 ```
-
-#### `save_impute`
-
-**Purpose**: Whether to save imputed data after running the KNN imputation.
-
+ 
+#### `save_impute` *(Advanced models only)*
+ 
+**Purpose**: Whether to save imputed data after running the KNN imputation (Advanced models only).
+ 
 **Available inputs**: `true` or `false`
-
+ 
 **Example**:
-
+ 
 ```yaml
 save_impute: false  # Don't save imputation cache
 ```
-
-#### `load_impute`
-
+ 
+#### `load_impute` *(Advanced models only)*
+ 
 **Purpose**: Whether to load imputed data from a previous run, but there must be a saved imputed data file from the
-previous run.
-
+previous run (Advanced models only).
+ 
 **Available inputs**: `true` or `false`
-
+ 
 **Example**:
-
+ 
 ```yaml
 load_impute: false  # Don't load imputation cache
 ```
-
-#### `impute_phase`
-
-**Purpose**: Control when imputation is performed.
+ 
+#### `impute_phase` *(Advanced models only)*
+ 
+**Purpose**: Control when imputation is performed (Advanced models only; traditional models do not use imputation).
 
 **Available inputs**:
 
@@ -377,6 +377,18 @@ offset: 0
 time_start: 0
 ```
 
+#### `standardize_s1`
+
+**Purpose**: Whether to enable intra-trial (s1) standardization in the traditional feature pipeline. When `true`, features are generated with both intra-trial (`_s1`) and global (`_s2`) standardization. When `false`, only global (`_s2`) standardized features are generated.
+
+**Available inputs**: `true` or `false` (default: `true`).
+
+**Example**:
+
+```yaml
+standardize_s1: true
+```
+
 ### Mode: Cross-Validation
 
 Run systematic k-fold cross-validation with automatic model-type detection and metric aggregation.
@@ -418,7 +430,6 @@ Advanced (PyTorch):
 - `TCN` (Temporal Convolutional Network)
 - `Trans` (Transformer)
 - `LogRegTS` (Time-Series Logistic Regression)
-- `NAM` (Neural Additive Model)
 
 **Example**:
 
@@ -1417,6 +1428,7 @@ traditional_data_parameters:
   data_rate: 25
   offset: 0
   time_start: 0
+  standardize_s1: true
 
 cross_validation:
   enabled: true
