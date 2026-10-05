@@ -195,6 +195,7 @@ def _run_traditional_model_cv_fold(
         random_seed: int,
         class_weight: Optional[str] = None,
         feature_names: Optional[List[str]] = None,
+        traditional_hpo_config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Run a single fold of cross-validation for a traditional model.
@@ -239,12 +240,13 @@ def _run_traditional_model_cv_fold(
     X_train, y_train = apply_imbalance(imbalance_type, X_train, y_train, random_seed)
 
     logger.info(
-        "Running traditional model HPO for fold %s with class_weight = %s",
+        "Running traditional model HPO for fold %s with class_weight = %s, hpo_config = %s",
         fold_idx,
-        class_weight
+        class_weight,
+        traditional_hpo_config or {},
     )
 
-    hpo_result, search = _run_traditional_hpo(model, X_train, y_train, random_seed, class_weight)
+    hpo_result, search = _run_traditional_hpo(model, X_train, y_train, random_seed, class_weight, hpo_config=traditional_hpo_config)
 
     logger.info(
         "Running traditional model evaluation for fold %s",
@@ -313,7 +315,7 @@ def _lasso_feature_selection(
     lasso = LassoCV(
         alphas=100,
         cv=3,
-        max_iter=5000, #was 1k then 3k (getting not converged warning)
+        max_iter=1000, #getting not converged warning even at 5k, selected alpha range not affected
         n_jobs=-1,
         random_state=random_seed,
     )
@@ -339,7 +341,7 @@ def _ridge_feature_selection(
     Alpha is chosen by 3-fold CV on the full training data, which RidgeCV then refits on.
     This should only see the 'training' data.
     """
-    ridge = RidgeCV(alphas=np.logspace(2, 7, 10), cv=3)
+    ridge = RidgeCV(alphas=np.logspace(2, 7, 10), cv=3) # alpha selected within range
     ridge.fit(X_train, np.ravel(y_train))
 
     ridge_coef = np.abs(np.ravel(ridge.coef_))
@@ -394,6 +396,7 @@ def _run_traditional_hpo(
         y: np.ndarray,
         random_seed: int,
         class_weight: Optional[str] = None,
+        hpo_config: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], Any]:
     """Run BayesSearchCV for a traditional model.
 
@@ -402,6 +405,11 @@ def _run_traditional_hpo(
     tuple
         (``{"best_params": ..., "summary": ...}``, fitted_searcher)
     """
+    hpo_config = hpo_config or {}
+    n_iter = int(hpo_config.get("n_iter", 30))
+    cv = int(hpo_config.get("cv", 3))
+    scoring = str(hpo_config.get("scoring", "f1"))
+
     # Inject random_state / class_weight into the estimator if supported
     valid_params = model.model.get_params()
     extra = {k: v for k, v in {"random_state": random_seed, "class_weight": class_weight}.items() if k in valid_params}
@@ -410,9 +418,9 @@ def _run_traditional_hpo(
     searcher = BayesSearchCV(
         estimator=model.model,
         search_spaces=model.get_hpo_search_space(),
-        n_iter=30,
-        cv=3,
-        scoring="f1",
+        n_iter=n_iter,
+        cv=cv,
+        scoring=scoring,
         random_state=random_seed,
         verbose=1,
         error_score=np.nan,
@@ -425,9 +433,9 @@ def _run_traditional_hpo(
         "best_params": best_params,
         "best_score": float(searcher.best_score_),
         "best_index": int(searcher.best_index_),
-        "n_iter": 30,
-        "cv": 3,
-        "scoring": "f1",
+        "n_iter": n_iter,
+        "cv": cv,
+        "scoring": scoring,
     }
     return {"best_params": best_params, "summary": summary}, searcher
 
@@ -480,6 +488,7 @@ def run_cross_validation(
     num_splits = cross_validation_config["num_splits"]
     random_seed = cross_validation_config["random_seed"]
     class_weight = cross_validation_config.get("class_weight")
+    traditional_hpo_config = cross_validation_config.get("traditional_hpo") or {}
 
     logger.info(
         "Starting cross-validation with %s folds and %s model(s)",
@@ -562,6 +571,7 @@ def run_cross_validation(
                     random_seed,
                     class_weight,
                     feature_names=feature_names,
+                    traditional_hpo_config=traditional_hpo_config,
                 )
 
                 # Save BayesSearchCV model in fold folder
