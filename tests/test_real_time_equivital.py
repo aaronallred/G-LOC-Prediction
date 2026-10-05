@@ -167,6 +167,24 @@ def test_run_real_time_equivital_generates_latency_report(tmp_path: Path):
     assert cm_data["confusion_matrix"] == report["confusion_matrix"]
 
 
+def test_evaluate_predictions_with_actual_labels():
+    """Verify evaluation against actual ground truth labels with positive and negative events."""
+    from src.modes.real_time_equivital import _evaluate_predictions
+
+    y_true = np.array([0, 0, 1, 1, 0, 1, 0, 0, 1, 0])
+    y_pred = np.array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0])
+
+    perf, cm = _evaluate_predictions(y_true, y_pred)
+    assert perf["accuracy"] == 0.8
+    assert perf["recall"] == 0.75  # 3 TP out of 4 positive
+    assert perf["precision"] == 0.75  # 3 TP out of 4 predicted positive
+    assert perf["specificity"] == 5 / 6  # 5 TN out of 6 negative
+    assert perf["f1"] == 0.75
+    assert perf["f1_score"] == 0.75
+    assert perf["g_mean"] > 0.0
+    assert cm == [[5, 1], [1, 3]]
+
+
 def test_evaluate_real_time_predictions_empty():
     """Verify evaluation handles empty predictions gracefully without raising exceptions."""
     perf, cm = _evaluate_real_time_predictions([])
@@ -257,11 +275,53 @@ def test_load_single_trial_raw_data():
     assert len(all_features) > 0
 
 
+def test_run_real_time_equivital_without_preprocessor_multi_fold(tmp_path: Path):
+    """Test multi-fold test dataset evaluation with use_preprocessor=False across folds."""
+    config = _build_test_config(tmp_path)
+    config["real_time_equivital"]["use_preprocessor"] = False
+    config["real_time_equivital"]["num_splits"] = 2
+    config["real_time_equivital"]["max_stream_samples"] = 600
+
+    pipeline = DataPipeline(config=config)
+    model_factory = ModelFactory()
+
+    run_real_time_equivital(
+        config=config,
+        pipeline=pipeline,
+        model_factory=model_factory,
+        project_root_path=tmp_path,
+    )
+
+    report_path = (
+        tmp_path / "Results_Latency" / "Complete_Explicit" / "KNN" / "ECG-Centrifuge" / "real_time_summary.json"
+    )
+    assert report_path.exists()
+    with open(report_path, "r") as f:
+        report = json.load(f)
+
+    assert report["use_preprocessor"] is False
+    assert report["num_splits"] == 2
+    assert "per_fold" in report
+    assert len(report["per_fold"]) == 2
+    assert report["n_predictions"] == 600
+    assert report["performance"]["accuracy"] > 0.0
+    assert "confusion_matrix" in report
+    assert len(report["confusion_matrix"]) == 2
+
+    # Verify latency decomposition and non-zero windowing data processing latency
+    assert report["data_processing_latency_ms"]["mean"] > 0.0
+    assert report["inference_latency_ms"]["mean"] > 0.0
+    assert report["total_latency_ms"]["mean"] >= report["data_processing_latency_ms"]["mean"]
+    assert report["total_latency_ms"]["mean"] >= report["inference_latency_ms"]["mean"]
+    assert report["preprocessing_latency_ms"]["mean"] == 0.0
+
+
 def test_run_real_time_equivital_without_preprocessor(tmp_path: Path):
     """Test end-to-end execution of real_time_equivital with use_preprocessor=False on 25 Hz data."""
     config = _build_test_config(tmp_path)
     config["real_time_equivital"]["use_preprocessor"] = False
-    config["real_time_equivital"]["max_stream_samples"] = 4000
+    config["real_time_equivital"]["num_splits"] = 2
+    config["real_time_equivital"]["max_stream_samples"] = 600
 
     pipeline = DataPipeline(config=config)
     model_factory = ModelFactory()
@@ -282,8 +342,10 @@ def test_run_real_time_equivital_without_preprocessor(tmp_path: Path):
         report = json.load(f)
 
     assert report["use_preprocessor"] is False
-    assert report["n_raw_samples"] == 4000
-    assert report["n_predictions"] > 0
+    assert report["num_splits"] == 2
+    assert "per_fold" in report
+    assert len(report["per_fold"]) == 2
+    assert report["n_predictions"] == 600
 
     # Verify identical latency metric structure
     for key in [
@@ -298,6 +360,8 @@ def test_run_real_time_equivital_without_preprocessor(tmp_path: Path):
 
     # Preprocessing latency should be 0.0 in non-preprocessed mode
     assert report["preprocessing_latency_ms"]["mean"] == 0.0
+    assert report["data_processing_latency_ms"]["mean"] > 0.0
+    assert report["total_latency_ms"]["mean"] >= report["data_processing_latency_ms"]["mean"]
 
     # Verify performance metrics and confusion matrix
     assert "performance" in report
@@ -388,3 +452,40 @@ def test_real_time_sleep_latency_tracking():
 
     # Preprocessing compute latency should be small (< 5 ms), NOT ~40 ms (the inter-arrival wait time)
     assert mean_preproc < 5.0, f"Preprocessing latency was inflated: {mean_preproc:.3f} ms"
+
+
+def test_real_time_equivital_performance_parity_with_sensor_ablation(tmp_path: Path):
+    """Verify that use_preprocessor=False yields performance matching sensor ablation metrics."""
+    # Build minimal 2-fold configuration
+    config = _build_test_config(tmp_path)
+    config["real_time_equivital"]["use_preprocessor"] = False
+    config["real_time_equivital"]["num_splits"] = 2
+    config["real_time_equivital"]["max_stream_samples"] = None  # Full evaluation on 2 folds
+
+    pipeline = DataPipeline(config=config)
+    model_factory = ModelFactory()
+
+    run_real_time_equivital(
+        config=config,
+        pipeline=pipeline,
+        model_factory=model_factory,
+        project_root_path=tmp_path,
+    )
+
+    report_path = (
+        tmp_path / "Results_Latency" / "Complete_Explicit" / "KNN" / "ECG-Centrifuge" / "real_time_summary.json"
+    )
+    with open(report_path, "r") as f:
+        report = json.load(f)
+
+    # All metrics should be realistic, non-zero values matching expected sensor ablation performance
+    assert report["performance"]["accuracy"] > 0.9
+    assert report["performance"]["specificity"] > 0.9
+    assert report["confusion_matrix"][0][0] > 0  # True negatives
+    assert report["n_predictions"] > 2000
+
+    # Verify windowing data processing latency is non-zero
+    assert report["data_processing_latency_ms"]["mean"] > 0.0
+    assert report["total_latency_ms"]["mean"] >= report["data_processing_latency_ms"]["mean"]
+    assert report["preprocessing_latency_ms"]["mean"] == 0.0
+
