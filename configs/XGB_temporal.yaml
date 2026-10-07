@@ -1,0 +1,55 @@
+# Temporal evaluation: sweep prediction horizons with fixed median CV hyperparameters, then plot.
+data_path: ./data/
+main_data_file: all_trials_25_hz_stacked_null_str_filled_reduced.csv
+
+shared_data_parameters:
+  subject_to_analyze: null
+  trial_to_analyze: null
+  analysis_type: 2
+  remove_NaN_trials: true
+  impute_file_name: imputed_data.pkl
+  save_impute: false
+  load_impute: false
+  impute_phase: none
+  output_feature_dtype: float32
+
+advanced_data_parameters:
+  n_neighbors: 4
+  baseline_window: 32.5
+  horizon: 0           # ignored in temporal_evaluation; the horizons list below is used
+
+traditional_data_parameters:
+  backstep: 0
+  data_rate: 25        # converts horizons (s) to label shifts (samples) for both pipelines
+  offset: 0
+  time_start: 0
+
+temporal_evaluation:
+  training:
+    enabled: false
+    models: [XGB]
+    model_type: !ModelType [Complete, Explicit]
+    horizons: {start: 0, stop: 30, step: 1}      # seconds before G-LOC
+    num_splits: 10
+    random_seed: 42                  # use the CV run's seed so the folds match CV
+    class_weight: null
+    median_hyperparameters_folder: Results/XGB_CV_lasso   # CV run to take params + selected features from
+    save_results_folder: Results/XGB_Temporal
+    save_models: false # Saves on a per fold and horizon basis, so that's a lot. Off by default
+  review:
+    enabled: true
+    models: [XGB]
+    model_type: !ModelType [Complete, Explicit]
+    save_results_folder: Results/XGB_Temporal
+    error_type: range                  # std or range (min-max across folds)
+    show_plots: true
+
+cross_validation:
+  enabled: false
+sensor_ablation:
+  training:
+    enabled: false
+  review:
+    enabled: false
+feature_space_review:
+  enabled: false

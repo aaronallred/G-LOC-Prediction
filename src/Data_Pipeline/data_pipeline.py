@@ -45,7 +45,7 @@ class DataPipeline:
 	Configuration is sourced directly from the loaded YAML mapping.
 
 	Args:
-	    config: Loaded YAML experiment configuration mapping
+		config: Loaded YAML experiment configuration mapping
 	"""
 
 	def __init__(self, config: dict[str, Any]) -> None:
@@ -58,7 +58,7 @@ class DataPipeline:
 		"""Set the random seed for data pipeline operations.
 
 		Args:
-		    random_seed: Random seed value for reproducibility
+			random_seed: Random seed value for reproducibility
 		"""
 		self._random_seed = random_seed
 
@@ -66,7 +66,7 @@ class DataPipeline:
 		"""Set the model type for data pipeline operations.
 
 		Args:
-		    model_type: ModelType instance specifying AFE_filter and feature_set
+			model_type: ModelType instance specifying AFE_filter and feature_set
 		"""
 		self._model_type = model_type
 
@@ -79,6 +79,7 @@ class DataPipeline:
 		traditional_feature_selection: Literal["cache", "raw"] = "cache",
 		return_feature_names: bool = False,
 		save_preprocessing_artifacts_path: str | None = None,
+		horizons: dict[float, int] | None = None,
 	) -> Any:
 		"""Execute the selected backend data pipeline.
 
@@ -92,19 +93,20 @@ class DataPipeline:
 		  ``(x_train, x_test, y_train, y_test, select_features)``
 
 		Args:
-		    model: Model instance
-		    kfold_id: Fold index for cross-validation (required for both
-		        advanced and traditional backends so that fold-aware
-		        standardization can be applied to training rows only).
-		    num_splits: Number of folds for k-fold splitting (required).
-		    feature_streams: Feature streams to select (optional)
-		    traditional_feature_selection: "cache" or "raw"
-		    return_feature_names: Whether to return feature names
-		    save_preprocessing_artifacts_path: Optional path to save JSON artifacts
+			model: Model instance
+			kfold_id: Fold index for cross-validation (required for both
+				advanced and traditional backends so that fold-aware
+				standardization can be applied to training rows only).
+			num_splits: Number of folds for k-fold splitting (required).
+			feature_streams: Feature streams to select (optional)
+			traditional_feature_selection: "cache" or "raw"
+			return_feature_names: Whether to return feature names
+			save_preprocessing_artifacts_path: Optional path to save JSON artifacts
+			horizons: Optional, labels are built for every horizon on the same fold split
 
 		Returns:
-		    Tuple of split data (and feature names when requested) from the
-		    backend pipeline.
+			Tuple of split data (and feature names when requested) from the
+			backend pipeline.
 		"""
 		backend_type = self._resolve_pipeline_kind(model)
 		backend_data_pipeline = self._build_backend(model)
@@ -132,15 +134,17 @@ class DataPipeline:
 			if num_splits is not None:
 				request_kwargs["num_splits"] = num_splits
 			request_kwargs["kfold_ID"] = kfold_id
-			request_kwargs["impute_file_name"] = shared_config["impute_file_name"]
-			request_kwargs["impute_phase"] = shared_config.get("impute_phase", "pre_feature")
-			request_kwargs["save_impute"] = shared_config["save_impute"]
-			request_kwargs["load_impute"] = shared_config["load_impute"]
+			request_kwargs["impute_phase"] = shared_config.get("impute_phase", "none")
+			request_kwargs["impute_file_name"] = shared_config.get("impute_file_name", "imputed_data.pkl")
+			request_kwargs["save_impute"] = shared_config.get("save_impute", False)
+			request_kwargs["load_impute"] = shared_config.get("load_impute", False)
 			advanced_config = self._config["advanced_data_parameters"]
 			request_kwargs["n_neighbors"] = advanced_config["n_neighbors"]
 			request_kwargs["baseline_window"] = advanced_config["baseline_window"]
 			request_kwargs["horizon"] = advanced_config.get("horizon", 0)
 			request_kwargs["feature_streams"] = feature_streams
+			if horizons is not None:
+				request_kwargs["horizons"] = horizons
 		else:
 			if kfold_id is None or num_splits is None:
 				raise ValueError(
@@ -155,6 +159,9 @@ class DataPipeline:
 			request_kwargs["return_feature_names"] = return_feature_names
 			request_kwargs["save_preprocessing_artifacts_path"] = save_preprocessing_artifacts_path
 			request_kwargs["feature_streams"] = feature_streams
+			if horizons is not None:
+				request_kwargs["horizons"] = horizons
+
 			if traditional_feature_selection == "cache":
 				selected_features = self._resolve_select_features(request_kwargs)
 				request_kwargs["select_features"] = selected_features
@@ -446,9 +453,9 @@ class BaseGLOCDataPipeline(ABC):
 		"""Initialize shared pipeline state.
 
 		Args:
-		    data_path: Path to data directory
-		    random_seed: Random seed for reproducibility
-		    config: Loaded YAML experiment configuration mapping for accessing config settings
+			data_path: Path to data directory
+			random_seed: Random seed for reproducibility
+			config: Loaded YAML experiment configuration mapping for accessing config settings
 		"""
 		self.data_path = _resolve_from_source_dir(data_path)
 		self._data_locations = None
@@ -462,10 +469,10 @@ class BaseGLOCDataPipeline(ABC):
 		Must be implemented by subclasses.
 
 		Args:
-		    **kwargs: Pipeline-specific keyword arguments
+			**kwargs: Pipeline-specific keyword arguments
 
 		Returns:
-		    Processed data in pipeline-specific format
+			Processed data in pipeline-specific format
 		"""
 
 	def _get_data_locations(self) -> dict[str, Any]:
@@ -980,31 +987,33 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 		save_impute: bool = True,
 		load_impute: bool = True,
 		feature_streams: list[str] | None = None,
+		horizons: dict[float, int] | None = None,
 		**kwargs: Any,
 	) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[str]]:
 		"""
 		Load raw data and prepare predictor / target sets for advanced classifiers.
 
 		Parameters:
-		    model_type: ModelType — e.g. ModelType('Complete', 'Explicit')
-		    num_splits: Number of K-fold CV splits
-		    kfold_ID: Which fold to use (0 to num_splits-1)
-		    impute_file_name: Base file name used in data_path/Processed Data
-		    output_feature_dtype: Numpy dtype for output feature matrix (e.g., 'float32', 'float64')
-		    subject_to_analyze: Participant number for single-subject analysis
-		    trial_to_analyze: Trial number for single-trial analysis
-		    impute_phase: Which phase to perform imputation in (enum: none, pre_feature, post_feature_remove_rows, post_feature_knn)
-		    n_neighbors: Number of KNN imputation neighbors
-		    baseline_window: Baseline window duration in seconds
-		    horizon: Temporal forecast horizon in samples (0 = no shift, positive = forecast ahead)
-		    analysis_type: 2=all data, 1=one participant, 0=one trial
-		    remove_NaN_trials: Remove trials with all-NaN sensors
-		    save_impute: Save imputed data to pickle
-		    load_impute: Load imputed data from pickle if available
-		    feature_streams: Optional sensor stream names to include (None = all features)
+			model_type: ModelType — e.g. ModelType('Complete', 'Explicit')
+			num_splits: Number of K-fold CV splits
+			kfold_ID: Which fold to use (0 to num_splits-1)
+			impute_file_name: Base file name used in data_path/Processed Data
+			output_feature_dtype: Numpy dtype for output feature matrix (e.g., 'float32', 'float64')
+			subject_to_analyze: Participant number for single-subject analysis
+			trial_to_analyze: Trial number for single-trial analysis
+			impute_phase: Which phase to perform imputation in (enum: none, pre_feature, post_feature_remove_rows, post_feature_knn)
+			n_neighbors: Number of KNN imputation neighbors
+			baseline_window: Baseline window duration in seconds
+			horizon: Temporal forecast horizon in samples (0 = no shift, positive = forecast ahead)
+			analysis_type: 2=all data, 1=one participant, 0=one trial
+			remove_NaN_trials: Remove trials with all-NaN sensors
+			save_impute: Save imputed data to pickle
+			load_impute: Load imputed data from pickle if available
+			feature_streams: Optional sensor stream names to include (None = all features)
+			horizons: Optional shift_in_samples for training and evaluation to determine future predictive power
 
 		Returns:
-		    x_train, y_train, x_test, y_test, all_features
+			x_train, y_train, x_test, y_test, all_features
 		"""
 		if horizon < 0:
 			raise ValueError(f"horizon must be >= 0, got {horizon}")
@@ -1050,12 +1059,12 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 		try:
 			if impute_phase is None:
 				impute_phase = ImputePhase.parse(
-					self.config["shared_data_parameters"].get("impute_phase", "pre_feature")
+					self.config["shared_data_parameters"].get("impute_phase", "none")
 				)
 			else:
 				impute_phase = ImputePhase.parse(impute_phase)
-		except Exception:
-			impute_phase = ImputePhase.PRE_FEATURE
+		except Exception as error:
+			raise ValueError(f"Invalid impute_phase in config: {error}") from error
 
 		do_pre_feature_impute = impute_phase == ImputePhase.PRE_FEATURE
 		do_post_feature_remove_rows = impute_phase == ImputePhase.POST_FEATURE_REMOVE_ROWS
@@ -1176,7 +1185,21 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 			x_feature_matrix = np.hstack([X_imputed, trial_col.reshape(-1, 1)])
 
 		################################################## TEMPORAL HORIZON SHIFT  ################################################
-		if horizon > 0:
+		if horizons is not None:
+			if horizon > 0:
+				logger.warning("advanced horizon=%d is ignored because horizons=%s were requested", horizon, horizons)
+			logger.info("Building shifted train/test labels for horizons (samples): %s", horizons)
+			train_trial_ids = x_train[:, -1]
+			test_trial_ids = x_test[:, -1]
+			y_train = {
+				horizon_key: self._shift_labels_by_samples(y_train, train_trial_ids, n_samples)
+				for horizon_key, n_samples in horizons.items()
+			}
+			y_test = {
+				horizon_key: self._shift_labels_by_samples(y_test, test_trial_ids, n_samples)
+				for horizon_key, n_samples in horizons.items()
+			}
+		elif horizon > 0:
 			logger.info(
 				"Applying temporal horizon shift of %d samples for advanced forecasting", horizon
 			)
@@ -1582,6 +1605,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		kfold_id: int | None = None,
 		num_splits: int | None = None,
 		standardize_s1: bool = True,
+		horizons: dict[float, int] | None = None,
 	) -> tuple[np.ndarray, np.ndarray]:
 		"""Return data for a given set of parameters."""
 		if kfold_id is None or num_splits is None:
@@ -1653,6 +1677,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		logger.info(
 			"Applying prediction offset with backstep=%d, data_rate=%d", backstep, data_rate
 		)
+		unshifted_gloc_labels_numpy = gloc_labels_numpy.copy()
 		gloc_labels_numpy = self._shift_labels_by_samples(
 			gloc_labels_numpy, experiment_metadata["trial_id"], int(backstep * data_rate)
 		)
@@ -1826,6 +1851,36 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		y_train = gloc_labels_numpy[train_idx]
 		y_test = gloc_labels_numpy[test_idx]
 
+		############################################# PREDICTION HORIZONS #############################################
+		# Window one label set per horizon (from the unshifted labels) and split it with the same train/test rows as X
+		if horizons is not None:
+			logger.info("Building windowed labels for horizons (samples): %s", horizons)
+			y_train_by_horizon: dict[float, np.ndarray] = {}
+			y_test_by_horizon: dict[float, np.ndarray] = {}
+			for horizon_key, n_samples in horizons.items():
+				shifted_labels = self._shift_labels_by_samples(
+					unshifted_gloc_labels_numpy, experiment_metadata["trial_id"], n_samples
+				)
+				y_horizon = self._window_labels_only(
+					time_start,
+					offset,
+					stride,
+					window_size,
+					shifted_labels,
+					experiment_metadata["trial_id"],
+					experiment_metadata["Time (s)"],
+					output_feature_dtype=output_feature_dtype,
+				)
+				if y_horizon.shape[0] != _y_pre.shape[0]:
+					raise RuntimeError(
+						f"Horizon {horizon_key} produced {y_horizon.shape[0]} windows but the feature matrix has "
+						f"{_y_pre.shape[0]}. Label/feature alignment is broken."
+					)
+				y_horizon = np.ravel(y_horizon[survivor_mask_pre])
+				y_train_by_horizon[horizon_key] = y_horizon[train_idx]
+				y_test_by_horizon[horizon_key] = y_horizon[test_idx]
+			y_train, y_test = y_train_by_horizon, y_test_by_horizon
+
 		############################################# SENSOR ABLATION / FEATURE FILTER #############################################
 		if feature_streams is not None and len(feature_streams) > 0:
 			filtered_features = self._apply_sensor_ablation(select_features, feature_streams)
@@ -1968,9 +2023,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		``_feature_generation`` to fit standardization on training rows only.
 
 		Returns ``(y_gloc_labels, trial_id_per_row)``:
-		    - ``y_gloc_labels``: shape ``(N, 1)`` per-window binary labels.
-		    - ``trial_id_per_row``: shape ``(N,)`` object array mapping each
-		      row to its source trial id.
+			- ``y_gloc_labels``: shape ``(N, 1)`` per-window binary labels.
+			- ``trial_id_per_row``: shape ``(N,)`` object array mapping each
+			  row to its source trial id.
 		"""
 		gloc_window, _mean_raw, number_windows, _names_s1, _empty, _names_s2 = (
 			self._sliding_window_mean_calc(
@@ -1999,6 +2054,50 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			idx += n
 
 		return y_gloc_labels, trial_id_per_row
+
+	def _window_labels_only(
+			self,
+			time_start: float,
+			offset: float,
+			stride: float,
+			window_size: float,
+			gloc: np.ndarray,
+			trial_column: np.ndarray,
+			time_column: np.ndarray,
+			output_feature_dtype: np.dtype = np.dtype(np.float32),
+	) -> np.ndarray:
+		"""
+		Used to label extra prediction horizons
+		without regenerating features
+
+		Rows align with _gen_windowed_label_metadata and the feature matrix
+
+		"""
+		trial_id_in_data = pd.unique(trial_column)
+		current_time = np.array(time_column)
+		label_blocks = []
+		for trial_id in trial_id_in_data:
+			current_index = trial_column == trial_id
+			time_trimmed = current_time[current_index]
+			gloc_trimmed = gloc[current_index]
+
+			time_end = np.max(time_trimmed)
+			number_windows_current = np.int32(
+				((time_end - offset) // stride) - (window_size // stride - 1)
+			)
+
+			gloc_window_current = np.zeros((number_windows_current, 1))
+			time_iteration = time_start
+			for j in range(number_windows_current):
+				time_period_gloc = ((time_iteration + offset) <= time_trimmed) & (
+						time_trimmed < (time_iteration + offset + window_size)
+				)
+				gloc_window_current[j] = np.any(gloc_trimmed[time_period_gloc])
+				time_iteration = stride + time_iteration
+
+			label_blocks.append(gloc_window_current)
+
+		return np.vstack(label_blocks).astype(output_feature_dtype)
 
 	def _feature_generation(
 		self,

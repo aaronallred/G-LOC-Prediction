@@ -33,10 +33,10 @@ traditional_data_parameters:
 cross_validation:
   enabled: true
   models: [XGB]
-  model_type: !ModelType [Complete, Explicit]
+  model_type: !ModelType [noAFE, Explicit]
   random_seed: 42
   num_splits: 10
-  save_results_folder: Results/XGB_CV_none
+  save_results_folder: Results/XGB_CV
   class_weight: null
   traditional_hpo:
     n_iter: 30
