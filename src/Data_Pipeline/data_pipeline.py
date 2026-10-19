@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from itertools import islice
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Dict, Literal, Optional
 
 import faiss
 import numpy as np
@@ -155,6 +155,15 @@ class DataPipeline:
 			request_kwargs["return_feature_names"] = return_feature_names
 			request_kwargs["save_preprocessing_artifacts_path"] = save_preprocessing_artifacts_path
 			request_kwargs["feature_streams"] = feature_streams
+			split_mode = shared_config.get("split_mode", "kfold")
+			if split_mode not in ("kfold", "cross_dataset"):
+				raise ValueError(f"split_mode must be 'kfold' or 'cross_dataset', got {split_mode!r}")
+			eval_file = shared_config.get("eval_data_filename")
+			if split_mode == "cross_dataset" and not eval_file:
+				raise ValueError("split_mode = 'cross_dataset' requires shared_data_parameters.eval_data_filename")
+			request_kwargs["eval_data_filename"] = eval_file if split_mode == 'cross_dataset' else None
+			uses_new_data = shared_config.get("extended_data", False) or split_mode == "cross_dataset"
+			request_kwargs["exclude_feature"] = shared_config.get("exclude_feature", []) if uses_new_data else []
 			if traditional_feature_selection == "cache":
 				selected_features = self._resolve_select_features(request_kwargs)
 				request_kwargs["select_features"] = selected_features
@@ -202,18 +211,18 @@ class DataPipeline:
 	def _resolve_select_features(self, current_kwargs: dict[str, Any]) -> list[str]:
 		"""Load selected feature names from the median-hyperparameter cache."""
 
-        # TODO -> This is probably bad to hardcode it to sensor ablation config, but sensor ablation config is the only
-        # one that uses it, so it is fine for now
-        median_hyperparameters_root = self._config["sensor_ablation"]["training"]["median_hyperparameters_folder"]
-        model_type_string = self._config["sensor_ablation"]["training"].get("median_hyperparameters_model_type")
-        if model_type_string is None:
-            model_type_string = f"{current_kwargs['model_type'].afe_filter}_{current_kwargs['model_type'].feature_set}"
-        json_path = os.path.join(
-            median_hyperparameters_root,
-            model_type_string,
-            current_kwargs["classifier_type"],
-            "median_hyperparameters.json",
-        )
+		# TODO -> This is probably bad to hardcode it to sensor ablation config, but sensor ablation config is the only
+		# one that uses it, so it is fine for now
+		median_hyperparameters_root = self._config["sensor_ablation"]["training"]["median_hyperparameters_folder"]
+		model_type_string = self._config["sensor_ablation"]["training"].get("median_hyperparameters_model_type")
+		if model_type_string is None:
+			model_type_string = f"{current_kwargs['model_type'].afe_filter}_{current_kwargs['model_type'].feature_set}"
+		json_path = os.path.join(
+			median_hyperparameters_root,
+			model_type_string,
+			current_kwargs["classifier_type"],
+			"median_hyperparameters.json",
+		)
 
 		with open(json_path, "r") as f:
 			data = json.load(f)
@@ -228,16 +237,16 @@ class BaseGLOCDataPipeline(ABC):
 	Subclasses must implement the abstract get_data() method with pipeline-specific logic.
 	"""
 
-    # Shared constants: Feature groups by model type
-    FEATURE_GROUPS_BY_MODEL_TYPE = {
-        ModelType("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain",
-                                         "demographics"),
-        ModelType("noAFE", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG"),
-        ModelType("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain",
-                                            "demographics"),
-        ModelType("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG"),
-        ModelType("noAFE", "Common") : ("ECG", "BR", "temp", "G"),
-    }
+	# Shared constants: Feature groups by model type
+	FEATURE_GROUPS_BY_MODEL_TYPE = {
+		ModelType("noAFE", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain",
+													 "demographics"),
+		ModelType("noAFE", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG"),
+		ModelType("Complete", "Explicit"): ("ECG", "BR", "temp", "eyetracking", "G", "rawEEG", "processedEEG", "strain",
+													  "demographics"),
+		ModelType("Complete", "Implicit"): ("ECG", "BR", "temp", "eyetracking", "rawEEG"),
+		ModelType("Complete", "Common"): ("ECG", "BR", "temp", "G"),
+	}
 
 	# Mapping of participant -> DC trial numbers for GOR EEG data files
 	_EEG_PARTICIPANT_TRIALS = {
@@ -449,67 +458,81 @@ class BaseGLOCDataPipeline(ABC):
 		    Processed data in pipeline-specific format
 		"""
 
-    def _get_data_locations(self, model_type: "ModelType") -> Dict[str, Any]:
-        """Build and cache filesystem paths used by data loading."""
-        if self._data_locations is not None:
-            return self._data_locations
+	def _get_data_locations(self, model_type: "ModelType") -> Dict[str, Any]:
+		"""Build and cache filesystem paths used by data loading."""
+		if self._data_locations is not None:
+			return self._data_locations
 
 		eeg_dir = "GLOC_GOR_EEG_data_participants_1-13"
 		list_of_eeg_data_file_paths = [
-			os.path.join(self.data_path, eeg_dir, f"GLOC_{p:02d}_DC{t}_25Hz_EEG_power_wMAR.xlsx")
+			os.path.join(
+				self.data_path,
+				eeg_dir,
+				f"GLOC_{p:02d}_DC{t}_25Hz_EEG_power_wMAR.xlsx",
+			)
 			for p, trials in self._EEG_PARTICIPANT_TRIALS.items()
 			for t in trials
 		]
 
-        list_of_baseline_eeg_processed_file_paths = [
-            os.path.join(self.data_path, f"GLOC_EEG_baseline_{band}_noAFE1.csv")
-            for band in self._EEG_BASELINE_BANDS
-        ]
+		list_of_baseline_eeg_processed_file_paths = [
+			os.path.join(self.data_path, f"GLOC_EEG_baseline_{band}_noAFE1.csv")
+			for band in self._EEG_BASELINE_BANDS
+		]
 
-        """New main data tweak to include extended data"""
-        main_filename = self._resolve_main_data_filename()
-        main_demographic = self._resolve_demographic_filename(model_type)
-        demo_path = os.path.join(self.data_path, main_demographic)
-        main_path = os.path.join(self.data_path, main_filename)
-        if not os.path.isfile(main_path):
-            raise FileNotFoundError(f"Configured main dataset file not found: {main_path}")
-        if not os.path.isfile(demo_path):
-            raise FileNotFoundError(f"Configured demographic file not found: {demo_path}")
-        
-        self._data_locations = {
-            #"main": os.path.join(self.data_path, "all_trials_25_hz_stacked_null_str_filled.csv"),
-            "main": main_path,
-            "baseline": os.path.join(self.data_path, "ParticipantBaseline.csv"),
-            # "demographic": os.path.join(self.data_path, "GLOC_Effectiveness_Final.csv"),
-            "demographic" : demo_path,
-            "eeg_list": list_of_eeg_data_file_paths,
-            "baseline_eeg_processed_list": list_of_baseline_eeg_processed_file_paths,
-        }
+		"""New main data tweak to include extended data"""
+		main_filename = self._resolve_main_data_filename()
+		main_demographic = self._resolve_demographic_filename(model_type)
+		demo_path = os.path.join(self.data_path, main_demographic)
+		main_path = os.path.join(self.data_path, main_filename)
+		if not os.path.isfile(main_path):
+			raise FileNotFoundError(f"Configured main dataset file not found: {main_path}")
+		if not os.path.isfile(demo_path):
+			raise FileNotFoundError(f"Configured demographic file not found: {demo_path}")
 
-        return self._data_locations
+		self._data_locations = {
+			# "main": os.path.join(self.data_path, "all_trials_25_hz_stacked_null_str_filled.csv"),
+			"main": main_path,
+			"baseline": os.path.join(self.data_path, "ParticipantBaseline.csv"),
+			# "demographic": os.path.join(self.data_path, "GLOC_Effectiveness_Final.csv"),
+			"demographic": demo_path,
+			"eeg_list": list_of_eeg_data_file_paths,
+			"baseline_eeg_processed_list": list_of_baseline_eeg_processed_file_paths,
+		}
 
-    def _resolve_main_data_filename(self) -> str:
-        """Resolve which CSV to treat as the main dataset."""
-        shared_config = self.config.get("shared_data_parameters", {})
-        use_extended_data = shared_config.get("extended_data", False)
-        if not use_extended_data:
-            return "all_trials_25_hz_stacked_null_str_filled.csv"
-        extended_filename = shared_config.get("extended_data_filename")
-        if not extended_filename:
-            raise ValueError("shared_data_parameters.extended_data is true but the filename is missing or empty")
-        return extended_filename
+		return self._data_locations
 
-    def _resolve_demographic_filename(self, model_type: "ModelType") -> str:
-        """Resolve which demographic file to use based on shared parameters"""
-        if model_type.feature_set == "Common":
-            return "GLOC_Effectiveness_Common.csv"
-        return "GLOC_Effectiveness_Final.csv"
-    
-    def _load_data(self, file_paths: Dict[str, Any],
-                   output_feature_dtype: np.dtype = np.dtype(np.float32),
-                   feature_groups_to_analyze: Optional[Sequence[str]] = None) -> pd.DataFrame:
-        """Load data from CSV or pickle files. If pickle does not exist, create it from CSV."""
-        main_data_pickle_file = file_paths["main"].replace(".csv", ".pkl")
+	def _resolve_main_data_filename(self) -> str:
+		"""Resolve which CSV to treat as the main dataset."""
+		shared_config = self.config.get("shared_data_parameters", {})
+
+		train_filename = shared_config.get("train_data_filename")
+		if train_filename:
+			return train_filename
+		
+		use_extended_data = shared_config.get("extended_data", False)
+		if not use_extended_data:
+			return "all_trials_25_hz_stacked_null_str_filled.csv"
+		extended_filename = shared_config.get("extended_data_filename")
+		if not extended_filename:
+			raise ValueError(
+				"shared_data_parameters.extended_data is true but the filename is missing or empty"
+			)
+		return extended_filename
+
+	def _resolve_demographic_filename(self, model_type: "ModelType") -> str:
+		"""Resolve which demographic file to use based on shared parameters"""
+		if model_type.feature_set == "Common":
+			return "GLOC_Effectiveness_Common.csv"
+		return "GLOC_Effectiveness_Final.csv"
+
+	def _load_data(
+		self,
+		file_paths: Dict[str, Any],
+		output_feature_dtype: np.dtype = np.dtype(np.float32),
+		feature_groups_to_analyze: Optional[Sequence[str]] = None,
+	) -> pd.DataFrame:
+		"""Load data from CSV or pickle files. If pickle does not exist, create it from CSV."""
+		main_data_pickle_file = file_paths["main"].replace(".csv", ".pkl")
 
 		# Check if pickle exists, if not create it then save it
 		if not os.path.isfile(main_data_pickle_file):
@@ -522,9 +545,17 @@ class BaseGLOCDataPipeline(ABC):
 			logger.info("Loading data from pickle at %s.", main_data_pickle_file)
 			gloc_data = pd.read_pickle(main_data_pickle_file)
 
-        # Add GOR and EEG data from other files - only needed if eeg groups are requested
-        if feature_groups_to_analyze is not None and ("rawEEG" in feature_groups_to_analyze or "processedEEG in feature_groups_to_analyze"):
-            gloc_data = self._process_EEG_GOR(file_paths["eeg_list"], gloc_data, output_feature_dtype)
+		# Add GOR and EEG data from other files - only needed if EEG groups are requested
+		if (
+			feature_groups_to_analyze is not None
+			and (
+				"rawEEG" in feature_groups_to_analyze
+				or "processedEEG" in feature_groups_to_analyze
+			)
+		):
+			gloc_data = self._process_EEG_GOR(
+				file_paths["eeg_list"], gloc_data, output_feature_dtype
+			)
 
 		# Adjust AFE condition column always
 		gloc_data["condition"] = gloc_data["condition"].map({"N": 0, "AFE": 1})
@@ -571,12 +602,11 @@ class BaseGLOCDataPipeline(ABC):
 				continue
 			corresponding_trial = f"{match.group(1)}-0{match.group(2)}"
 
-            # Read all band sheets and drop the time 
-            print("Current file:" +current_file)
-            band_dfs = {
-                band: pd.read_excel(current_file, sheet_name=band, engine='openpyxl').iloc[:, :-1]
-                for band in band_names
-            }
+			# Read all band sheets and drop the time column.
+			band_dfs = {
+				band: pd.read_excel(current_file, sheet_name=band, engine="openpyxl").iloc[:, :-1]
+				for band in band_names
+			}
 
 			trial_indices = trial_indices_map.get(corresponding_trial)
 			if trial_indices is None:
@@ -1027,18 +1057,31 @@ class AdvancedDataPipeline(BaseGLOCDataPipeline):
 			self._get_feature_groups_and_baseline_methods(model_type)
 		)
 
-        ############################################# LOAD AND PROCESS DATA #############################################
-        logger.info(
-            "Loading and processing data with parameters: model_type=%s, subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d",
-            model_type, subject_to_analyze, trial_to_analyze, analysis_type)
-        file_paths = self._get_data_locations()
-        gloc_data = self._load_data(file_paths, output_feature_dtype, feature_groups_to_analyze)
-        gloc_data = self._filter_data_by_analysis_type(analysis_type, gloc_data, subject_to_analyze, trial_to_analyze)
-        gloc_data, features = self._process_and_get_feature_names(gloc_data, feature_groups_to_analyze, model_type,
-                                                                  file_paths, output_feature_dtype)
-        gloc_labels = self._label_gloc_events(gloc_data)
-        if model_type.afe_filter != "Complete":
-            gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
+		############################################# LOAD AND PROCESS DATA #############################################
+		logger.info(
+			"Loading and processing data with parameters: model_type=%s, subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d",
+			model_type,
+			subject_to_analyze,
+			trial_to_analyze,
+			analysis_type,
+		)
+		file_paths = self._get_data_locations()
+		gloc_data = self._load_data(
+			file_paths, output_feature_dtype, feature_groups_to_analyze
+		)
+		gloc_data = self._filter_data_by_analysis_type(
+			analysis_type, gloc_data, subject_to_analyze, trial_to_analyze
+		)
+		gloc_data, features = self._process_and_get_feature_names(
+			gloc_data,
+			feature_groups_to_analyze,
+			model_type,
+			file_paths,
+			output_feature_dtype,
+		)
+		gloc_labels = self._label_gloc_events(gloc_data)
+		if model_type.afe_filter != "Complete":
+			gloc_data, gloc_labels = self._afe_subset(gloc_data, gloc_labels)
 
 		############################################# EEG Specific Imputation #############################################
 		# logger.info("Performing EEG-specific imputation for model_type=%s", model_type)
@@ -1587,6 +1630,8 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		kfold_id: int | None = None,
 		num_splits: int | None = None,
 		standardize_s1: bool = True,
+		eval_data_filename: str | None = None,
+		exclude_feature: list[str] | None = None,
 	) -> tuple[np.ndarray, np.ndarray]:
 		"""Return data for a given set of parameters."""
 		if kfold_id is None or num_splits is None:
@@ -1610,14 +1655,36 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			self._get_feature_groups_and_baseline_methods(model_type, baseline_methods_to_use)
 		)
 
-        ############################################# LOAD AND PROCESS DATA #############################################
-        logger.info(
-            "Loading and processing data with parameters: classifier_type=%s, model_type=%s, select_features=%s, remove_NaN_trials=%s, offset=%.2f, time_start=%.2f, subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d", )
-        # "Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze"
-        file_paths = self._get_data_locations(model_type)
+		############################################# LOAD AND PROCESS DATA #############################################
+		logger.info(
+			"Loading and processing data with parameters: classifier_type=%s, model_type=%s, "
+			"select_features=%s, remove_NaN_trials=%s, offset=%.2f, time_start=%.2f, "
+			"subject_to_analyze=%s, trial_to_analyze=%s, analysis_type=%d",
+			classifier_type,
+			model_type,
+			select_features,
+			remove_NaN_trials,
+			offset,
+			time_start,
+			subject_to_analyze,
+			trial_to_analyze,
+			analysis_type,
+		)
+		# "Grabs GLOC event and predictor data, depending on 'analysis_type' and 'feature_groups_to_analyze"
+		file_paths = self._get_data_locations(model_type)
 
 		# Load data and slot in GOR EEG features from xlsx files, then filter to specified analysis type and process features based on specified feature groups
 		gloc_data = self._load_data(file_paths, output_feature_dtype)
+		eval_trial_ids: set[str] = set()
+		if eval_data_filename is not None:
+			eval_paths={**file_paths, "main": os.path.join(self.data_path, eval_data_filename)}
+			eval_data=self._load_data(eval_paths, output_feature_dtype)
+			eval_trial_ids = set(eval_data["trial_id"].unique())
+			overlap = eval_trial_ids & set(gloc_data["trial_id"].unique())
+			if overlap:
+				raise ValueError(f"Overlap detected between evaluation and GLOC data: {overlap}")
+			gloc_data=pd.concat([gloc_data, eval_data], ignore_index=True)
+
 		gloc_data = self._filter_data_by_analysis_type(
 			analysis_type, gloc_data, subject_to_analyze, trial_to_analyze
 		)
@@ -1704,15 +1771,18 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		)
 
 		# Fold split on the windowed labels (deterministic given random_seed).
-		from sklearn.model_selection import StratifiedKFold
+		if eval_data_filename: 
+			train_mask_pre=~np.isin(_trial_id_pre, list(eval_trial_ids))
+		else:
+			from sklearn.model_selection import StratifiedKFold
+			skf = StratifiedKFold(n_splits=num_splits, shuffle=True, random_state=self.random_seed)
+			_train_idx_pre, _test_idx_pre = next(
+						islice(skf.split(_y_pre, _y_pre.ravel()), kfold_id, kfold_id + 1)
+					)
+			train_mask_pre = np.zeros(_y_pre.shape[0], dtype=bool)
+			train_mask_pre[_train_idx_pre] = True
 
-		skf = StratifiedKFold(n_splits=num_splits, shuffle=True, random_state=self.random_seed)
-		_train_idx_pre, _test_idx_pre = next(
-			islice(skf.split(_y_pre, _y_pre.ravel()), kfold_id, kfold_id + 1)
-		)
-		train_mask_pre = np.zeros(_y_pre.shape[0], dtype=bool)
-		train_mask_pre[_train_idx_pre] = True
-
+		
 		gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], _trial_id_per_row = (
 			self._feature_generation(
 				time_start,
@@ -1761,6 +1831,11 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			)
 			features["All"].append("AFE_indicator_windowed")
 
+		if exclude_feature:
+			keep = [i for i, f in enumerate(features["All"]) if not any(p in f for p in exclude_feature)]
+			gloc_data_all_features_numpy = gloc_data_all_features_numpy[:, keep]
+			features["All"] = [features["All"][i] for i in keep]
+			logger.info("Dropped features matching %s; %d columns kept", exclude_feature, len(keep))
 		all_raw_features = list(features["All"])
 
 		if traditional_feature_selection == "cache":
@@ -1768,6 +1843,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 				raise ValueError(
 					"select_features is required when traditional_feature_selection='cache'."
 				)
+
+			if exclude_feature:
+				select_features = [f for f in select_features if not any(p in f for p in exclude_feature)]
 
 			# Backward compatibility: legacy feature lists may still reference "condition".
 			translated_select_features = [
@@ -1790,6 +1868,16 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			)
 
 		################################################ NaN Processing ################################################
+		if eval_data_filename:
+			nan_mask = np.isnan(gloc_data_all_features_numpy)
+			for t in sorted(set(_trial_id_pre)):
+				rows = _trial_id_pre == t
+				n_win = int(rows.sum())
+				rows_with_nan = int(nan_mask[rows].any(axis=1).sum())
+				bad_cols = [select_features[i] for i in np.where(nan_mask[rows].mean(axis=0) > 0.5)[0]]
+				tag = "EVAL" if t in eval_trial_ids else "train"
+				logger.info("[%s] trial %s: %d windows, %d with NaN, mostly-NaN cols: %s",
+							tag, t, n_win, rows_with_nan, bad_cols[:5])
 		logger.info("Processing NaN values temporally")
 		gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], _removed_ind = (
 			self._process_NaN_temporal(
@@ -1824,6 +1912,18 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 				f"Fold {kfold_id}/{num_splits} produced an empty train or test split after "
 				f"NaN processing (train={train_idx.size}, test={test_idx.size})."
 			)
+
+		if eval_data_filename:
+			trial_post=_trial_id_pre[survivor_mask_pre]
+			eval_list = list(eval_trial_ids)
+			train_trials=set(trial_post[train_idx])
+			test_trials=set(trial_post[test_idx])
+			assert not np.isin(trial_post[train_idx], eval_list).any(), "eval trials leaked into train"
+			assert np.isin(trial_post[test_idx], eval_list).all(), "non-eval trials in test"
+			assert train_trials.isdisjoint(test_trials), "train and test trials overlap"
+			print("Train trials (%d): %s", len(train_trials), sorted(train_trials))
+			print("Test trials (%d): %s", len(test_trials), sorted(test_trials))
+			print("Eval trials: %d -> %s", eval_data["trial_id"].nunique(), sorted(eval_data["trial_id"].unique()))
 
 		X_train = gloc_data_all_features_numpy[train_idx]
 		X_test = gloc_data_all_features_numpy[test_idx]
@@ -1936,16 +2036,19 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			raise ValueError(
 				f"Traditional hyperparameters for {resolved_model.get_name()} are missing required keys: {missing_keys}"
 			)
-
-        UNAVAILABLE_BASELINE = {"v5", "v6", "v7", "v8"}
-        if UNAVAILABLE_BASELINE & set( hyperparameters.get("baseline_methods_to_use", [])):
-            hyperparameters = {
-                **hyperparameters,
-                "baseline_methods_to_use" : [
-                    m for m in hyperparameters["baseline_methods_to_use"] if m not in UNAVAILABLE_BASELINE
-                ],
-            }
-        return hyperparameters
+		shared_config = self.config.get("shared_data_parameters", {})
+		uses_new_data = bool(shared_config.get("extended_data", False)) or bool(shared_config.get("eval_data_filename"))
+		UNAVAILABLE_BASELINE = {"v5", "v6", "v7", "v8"}
+		if uses_new_data and UNAVAILABLE_BASELINE & set(hyperparameters.get("baseline_methods_to_use", [])):
+			hyperparameters = {
+				**hyperparameters,
+				"baseline_methods_to_use": [
+					m
+					for m in hyperparameters["baseline_methods_to_use"]
+					if m not in UNAVAILABLE_BASELINE
+				],
+			}
+		return hyperparameters
 
 	def _get_feature_groups_and_baseline_methods(
 		self, model_type: ModelType, baseline_methods_to_use: list[str]
@@ -1954,7 +2057,8 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		feature_groups_to_analyze = self.FEATURE_GROUPS_BY_MODEL_TYPE[model_type]
 
 		if model_type.afe_filter == "Complete":
-			baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE["Complete"]
+			if model_type.feature_set != "Common":
+				baseline_methods_to_use = self.BASELINING_CHARACTERISTICS_BY_MODEL_TYPE["Complete"]
 
 		return feature_groups_to_analyze, baseline_methods_to_use
 

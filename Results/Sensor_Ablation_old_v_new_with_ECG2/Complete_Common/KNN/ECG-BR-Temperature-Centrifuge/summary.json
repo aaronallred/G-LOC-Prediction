@@ -1,0 +1,29 @@
+{
+  "model_hyperparameters": {
+    "algorithm": "brute",
+    "metric": "minkowski",
+    "n_neighbors": 3,
+    "p": 2,
+    "weights": "uniform"
+  },
+  "performance": {
+    "accuracy": [
+      0.49258558132197505
+    ],
+    "precision": [
+      0.0
+    ],
+    "recall": [
+      0.0
+    ],
+    "f1": [
+      0.0
+    ],
+    "specificity": [
+      0.49258558132197505
+    ],
+    "g_mean": [
+      0.0
+    ]
+  }
+}
