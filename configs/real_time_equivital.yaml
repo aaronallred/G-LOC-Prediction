@@ -30,7 +30,7 @@ real_time_equivital:
   models: [ EGB ]
   num_splits: 10
   streams:
-    - [ ECG, HR, BR, Temperature, Centrifuge ]
+    - [ RealTimeEquivital ]
   manual_ablation: true
   class_weight: null
   saved_models_folder: Results/Sensor_Ablation_Real_Time_No_S1_No_Imputation

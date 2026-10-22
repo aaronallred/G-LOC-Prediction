@@ -435,6 +435,14 @@ class BaseGLOCDataPipeline(ABC):
 		"Strain": ("strain",),
 		"Participant": ("participant_",),
 		"Demographics": ("participant_",),
+		# Only v0/v1/v2 Equivital + Centrifuge features and HRV (no v5/v6, no participant_*)
+		"RealTimeEquivital": (
+			"equivital_v0",
+			"equivital_v1",
+			"equivital_v2",
+			"centrifuge_v0",
+			"hrv",
+		),
 	}
 
 	def __init__(

@@ -32,4 +32,4 @@ sensor_ablation:
     num_splits: 10
     class_weight: null
     streams:
-      - [ ECG, HR, BR, Temperature, Centrifuge ]
+      - [ RealTimeEquivital ]
