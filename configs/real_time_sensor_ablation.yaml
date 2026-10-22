@@ -23,7 +23,7 @@ traditional_data_parameters:
 sensor_ablation:
   training:
     enabled: true
-    save_results_folder: Results/Sensor_Ablation_Real_Time_No_S1_No_Imputation
+    save_results_folder: Results/Sensor_Ablation_Real_Time_On_Site
     median_hyperparameters_folder: Results/Cross_Validation
     models: [ EGB ]
     model_type: !ModelType [ Complete, Explicit ]
