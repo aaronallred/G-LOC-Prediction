@@ -11,6 +11,14 @@ from src.models.k_nearest_neighbors import KNearestNeighborsModel
 from src.Data_Pipeline.real_time_data_pipeline import RealTimeTraditionalDataPipeline
 
 
+# Two signals x four stats + two HRV features = 10 named features
+_NAMES = {
+    "raw_feature_names": ["f_0", "f_1"],
+    "active_feature_names": [f"f_{i}_v0_{st}_s2" for st in ("mean", "stddev", "max", "range") for i in (0, 1)]
+    + ["HRV (SDNN)_s2", "HRV (RMSSD)_s2"],
+}
+
+
 def _build_test_config() -> dict:
     return {
         "data_path": "data_reduced",
@@ -104,7 +112,6 @@ def test_real_time_traditional_pipeline_warmup_and_streaming(tmp_path: Path):
     rt_pipeline = RealTimeTraditionalDataPipeline(
         artifacts=artifacts_file,
         config=config,
-        model=model,
         participant_baseline_rhr=72.0,
     )
 
@@ -112,13 +119,15 @@ def test_real_time_traditional_pipeline_warmup_and_streaming(tmp_path: Path):
 
     # Simulate raw 25 Hz streaming
     # Channels for ECG + Centrifuge: 6 ECG cols + 1 Centrifuge col = 7 channels
-    n_channels = 7
+    # Window columns follow the artifact's raw_feature_names order
+    n_channels = len(rt_pipeline.raw_feature_names)
+    g_idx = rt_pipeline.raw_feature_names.index("magnitude - Centrifuge")
     n_samples = rt_pipeline.warmup_samples_required + 50
     np.random.seed(42)
     synthetic_stream = np.random.randn(n_samples, n_channels)
     # Set HR around 80 bpm and G around 1.2
     synthetic_stream[:, 0] = 80.0 + np.random.randn(n_samples) * 5.0
-    synthetic_stream[:, -1] = 1.2 + np.random.randn(n_samples) * 0.1
+    synthetic_stream[:, g_idx] = 1.2 + np.random.randn(n_samples) * 0.1
 
     latencies_ms = []
     warmed_up_outputs = []
@@ -154,8 +163,7 @@ def test_real_time_traditional_pipeline_process_stream(tmp_path: Path):
         "s2_global_mean": [0.0] * 10,
         "s2_global_std": [1.0] * 10,
         "active_indices": list(range(10)),
-        "active_feature_names": [f"f_{i}" for i in range(10)],
-        "raw_feature_names": [f"f_{i}" for i in range(10)],
+        **_NAMES,
     }
     rt = RealTimeTraditionalDataPipeline(
         artifacts=artifacts,
@@ -185,6 +193,7 @@ def test_real_time_traditional_pipeline_reset():
         "s2_global_mean": [0.0] * 10,
         "s2_global_std": [1.0] * 10,
         "active_indices": list(range(10)),
+        **_NAMES,
     }
     rt = RealTimeTraditionalDataPipeline(
         artifacts=artifacts,
@@ -211,6 +220,7 @@ def test_real_time_traditional_pipeline_skips_nan_sample():
         "s2_global_mean": [0.0] * 10,
         "s2_global_std": [1.0] * 10,
         "active_indices": list(range(10)),
+        **_NAMES,
     }
     rt = RealTimeTraditionalDataPipeline(
         artifacts=artifacts,
@@ -247,6 +257,7 @@ def test_real_time_traditional_pipeline_standardize_s1_disabled():
         "s2_global_mean": [0.0] * 10,
         "s2_global_std": [1.0] * 10,
         "active_indices": list(range(10)),
+        **_NAMES,
     }
     rt = RealTimeTraditionalDataPipeline(
         artifacts=artifacts,
@@ -287,16 +298,17 @@ def test_real_time_pipeline_exact_row_and_column_count_match_manual_ablation(tmp
     rt_pipeline = RealTimeTraditionalDataPipeline(
         artifacts=artifacts_file,
         config=config,
-        model=model,
         participant_baseline_rhr=72.0,
     )
 
     # Number of columns in RT pipeline must match X_test.shape[1]
-    n_channels = 7
+    # Window columns follow the artifact's raw_feature_names order
+    n_channels = len(rt_pipeline.raw_feature_names)
+    g_idx = rt_pipeline.raw_feature_names.index("magnitude - Centrifuge")
     n_samples = rt_pipeline.warmup_samples_required + 200
     synthetic_stream = np.random.randn(n_samples, n_channels)
     synthetic_stream[:, 0] = 80.0
-    synthetic_stream[:, -1] = 1.2
+    synthetic_stream[:, g_idx] = 1.2
 
     emitted_rows = []
     for idx in range(n_samples):
@@ -319,6 +331,7 @@ def test_real_time_pipeline_stride_frequency_variations():
         "s2_global_mean": [0.0] * 10,
         "s2_global_std": [1.0] * 10,
         "active_indices": list(range(10)),
+        **_NAMES,
     }
 
     total_duration_s = 60.0

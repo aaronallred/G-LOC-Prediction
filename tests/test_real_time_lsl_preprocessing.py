@@ -160,7 +160,9 @@ def test_end_to_end_real_time_pipeline_lsl_integration(test_session_dir: Path):
         "s2_global_mean": [0.0] * 100,
         "s2_global_std": [1.0] * 100,
         "active_indices": list(range(10)),
-        "active_feature_names": [f"feat_{i}" for i in range(10)],
+        "active_feature_names": [
+            f"{c}_v0_{st}_s2" for st in ("mean", "stddev", "max", "range") for c in preprocessor.raw_feature_names[:2]
+        ] + ["HRV (SDNN)_s2", "HRV (RMSSD)_s2"],
         "raw_feature_names": preprocessor.raw_feature_names,
     }
 

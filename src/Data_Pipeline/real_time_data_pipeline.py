@@ -289,37 +289,41 @@ class RealTimeTraditionalDataPipeline:
         n_samples = win_arr.shape[0]
         time_arr = np.arange(n_samples, dtype=np.float64) * self.dt
 
+        labels: List[str] = []
+
         # Helper to compute numerical derivative stack (val, 1st deriv, 2nd deriv)
-        def get_deriv_stack(vals: np.ndarray) -> np.ndarray:
+        def get_deriv_stack(vals: np.ndarray, method: str) -> np.ndarray:
             d1 = np.gradient(vals, time_arr, axis=0)
             d2 = np.gradient(d1, time_arr, axis=0)
+            cols = self.raw_feature_names[: vals.shape[1]]
+            labels.extend(f"{c}_{method}_{p}" for p in ("", "derivative_", "2derivative_") for c in cols)
             return np.hstack([vals, d1, d2])
 
         blocks = []
         # v0: Raw signals + derivatives
         if "v0" in self.baseline_methods_to_use:
-            blocks.append(get_deriv_stack(win_arr))
+            blocks.append(get_deriv_stack(win_arr, "v0"))
 
         # v1: Physical / baseline + derivatives
         if "v1" in self.baseline_methods_to_use:
-            blocks.append(get_deriv_stack(win_arr / self._v1_baseline_mean))
+            blocks.append(get_deriv_stack(win_arr / self._v1_baseline_mean, "v1"))
 
         # v2: Physical - baseline + derivatives
         if "v2" in self.baseline_methods_to_use:
-            blocks.append(get_deriv_stack(win_arr - self._v2_baseline_mean))
+            blocks.append(get_deriv_stack(win_arr - self._v2_baseline_mean, "v2"))
 
         # v5: ECG / Resting HR + derivatives (ECG channels are index 0..min(6, win_arr.shape[1]))
         if "v5" in self.baseline_methods_to_use:
             ecg_cols = win_arr[:, :min(6, win_arr.shape[1])]
-            blocks.append(get_deriv_stack(ecg_cols / self.participant_baseline_rhr))
+            blocks.append(get_deriv_stack(ecg_cols / self.participant_baseline_rhr, "v5"))
 
         # v6: ECG - Resting HR + derivatives
         if "v6" in self.baseline_methods_to_use:
             ecg_cols = win_arr[:, :min(6, win_arr.shape[1])]
-            blocks.append(get_deriv_stack(ecg_cols - self.participant_baseline_rhr))
+            blocks.append(get_deriv_stack(ecg_cols - self.participant_baseline_rhr, "v6"))
 
         if not blocks:
-            blocks.append(get_deriv_stack(win_arr))
+            blocks.append(get_deriv_stack(win_arr, "v0"))
 
         # Combine all requested baseline arrays horizontally
         combined_baseline = np.hstack(blocks)
@@ -346,34 +350,20 @@ class RealTimeTraditionalDataPipeline:
             hrv_sdnn = 0.0
             hrv_rmssd = 0.0
 
-        # Stack raw feature vector X_raw: [mean, std, max, range, hrv_sdnn, hrv_rmssd]
-        X_raw = np.hstack([mean_stat, std_stat, max_stat, range_stat, [hrv_sdnn, hrv_rmssd]])
+        # Look up each trained feature by name (active_feature_names order, "_s1"/"_s2" suffix stripped)
+        feats = {"HRV (SDNN)": hrv_sdnn, "HRV (RMSSD)": hrv_rmssd}
+        for stat, vals in (("mean", mean_stat), ("stddev", std_stat), ("max", max_stat), ("range", range_stat)):
+            feats.update({f"{l}{stat}": v for l, v in zip(labels, vals)})
+        X_raw = np.array([feats[n[:-3]] for n in self.active_feature_names], dtype=np.float64)
 
-        # 6. Apply fold-aware standardization
-        d_expected = len(self.s2_global_mean) if len(self.s2_global_mean) > 0 else len(self.s1_pooled_mean)
-        if d_expected > 0:
-            if len(X_raw) > d_expected:
-                X_raw = X_raw[:d_expected]
-            elif len(X_raw) < d_expected:
-                padded = np.zeros(d_expected, dtype=np.float64)
-                padded[:len(X_raw)] = X_raw
-                X_raw = padded
-
-        if self.standardize_s1 and len(self.s1_pooled_mean) > 0:
-            X_s1 = _guard_divide(X_raw, self.s1_pooled_mean, self.s1_pooled_std)
-            X_s2 = _guard_divide(X_raw, self.s2_global_mean, self.s2_global_std)
-            X_std = np.hstack([X_s1, X_s2])
-        else:
-            X_s2 = _guard_divide(X_raw, self.s2_global_mean, self.s2_global_std)
-            X_std = X_s2
-
-        # 7. Subset to active model features
-        if len(self.active_indices) > 0 and max(self.active_indices) < len(X_std):
-            X_processed = X_std[self.active_indices]
-        else:
-            X_processed = X_std
-
-        return X_processed
+        # Standardize with the stats stored at each feature's training index (s1 features use pooled s1 stats)
+        idx = self.active_indices % len(self.s2_global_mean)
+        mean, std = self.s2_global_mean[idx], self.s2_global_std[idx]
+        is_s1 = np.array([n.endswith("_s1") for n in self.active_feature_names])
+        if is_s1.any():
+            mean = np.where(is_s1, self.s1_pooled_mean[idx], mean)
+            std = np.where(is_s1, self.s1_pooled_std[idx], std)
+        return _guard_divide(X_raw, mean, std)
 
     def process_stream(
         self,
@@ -961,6 +951,32 @@ class SingleSubjectLSLStreamer:
         self.close()
 
 
+class _RampedValue:
+    """Linearly approaches the latest reading, reaching it when the next reading is due (one interval later)."""
+
+    def __init__(self, value: float) -> None:
+        self.start = self.target = float(value)
+        self.t0: Optional[float] = None
+        self.t_last: Optional[float] = None
+        self.dur = 1.0
+
+    def update(self, value: float, t: float) -> None:
+        if value == self.target:
+            return
+        if self.t_last is None:
+            self.start = float(value)  # first reading: snap
+        else:
+            self.dur = max(t - self.t_last, 1e-3)
+            self.start = self.at(t)  # continue from the current ramped value
+        self.target = float(value)
+        self.t0 = self.t_last = t
+
+    def at(self, t: float) -> float:
+        if self.t0 is None:
+            return self.target
+        return self.start + (self.target - self.start) * min(1.0, (t - self.t0) / self.dur)
+
+
 class RealTimeDataPreprocessor:
     """Ingests multi-rate LSL streams, replicates preprocessing, and emits 25 Hz feature samples.
 
@@ -1017,6 +1033,12 @@ class RealTimeDataPreprocessor:
         self._latest_hr_instant: float = 80.0
         self._latest_hr_average: float = 80.0
         self._latest_hr_w_average: float = 80.0
+
+        # Smoothly ramped outputs for readings that only update every few seconds / once per beat
+        self._ramps = {
+            k: _RampedValue(v)
+            for k, v in (("hr", 80.0), ("br", 15.0), ("temp", 33.0), ("inst", 80.0), ("avg", 80.0), ("wavg", 80.0))
+        }
 
         # R-peak detection state
         self._last_peak_t: Optional[float] = None
@@ -1075,7 +1097,8 @@ class RealTimeDataPreprocessor:
         self._ecg_buffer.append((ts, ecg1_val))
         self._ecg2_buffer.append((ts, ecg2_val))
 
-        # Online R-peak detector: adaptive refractory threshold check
+        # Online R-peak detector: threshold is half the recent peak height (slow decay ~5 s half-life)
+        self._recent_ecg_max = max(ecg1_val, self._recent_ecg_max * 0.9995)
         threshold = max(0.02, self._recent_ecg_max * 0.5)
         if ecg1_val > threshold:
             if self._last_peak_t is None or (ts - self._last_peak_t) >= self._min_rr_interval:
@@ -1094,7 +1117,6 @@ class RealTimeDataPreprocessor:
                             if self._latest_hr == 80.0:
                                 self._latest_hr = self._latest_hr_average
                 self._last_peak_t = ts
-                self._recent_ecg_max = 0.9 * self._recent_ecg_max + 0.1 * ecg1_val
 
     def _update_summary(self, sample: List[float], ts: float) -> None:
         """Process Equivital Summary vitals: ch0=HR, ch2=BR, ch5=SkinTemp."""
@@ -1183,15 +1205,26 @@ class RealTimeDataPreprocessor:
             ecg1_val = self._interpolate_buffer(self._ecg_buffer, self._target_t)
             ecg2_val = self._interpolate_buffer(self._ecg2_buffer, self._target_t)
 
+            for key, raw in (
+                ("hr", self._latest_hr),
+                ("br", self._latest_br),
+                ("temp", self._latest_skin_temp),
+                ("inst", self._latest_hr_instant),
+                ("avg", self._latest_hr_average),
+                ("wavg", self._latest_hr_w_average),
+            ):
+                self._ramps[key].update(raw, self._target_t)
+            r = {k: v.at(self._target_t) for k, v in self._ramps.items()}
+
             feat_map = {
-                "HR (bpm) - Equivital": self._latest_hr,
+                "HR (bpm) - Equivital": r["hr"],
                 "ECG Lead 1 - Equivital": ecg1_val,
                 "ECG Lead 2 - Equivital": ecg2_val,
-                "HR_instant - Equivital": self._latest_hr_instant,
-                "HR_average - Equivital": self._latest_hr_average,
-                "HR_w_average - Equivital": self._latest_hr_w_average,
-                "BR (rpm) - Equivital": self._latest_br,
-                "Skin Temperature - IR Thermometer (°C) - Equivital": self._latest_skin_temp,
+                "HR_instant - Equivital": r["inst"],
+                "HR_average - Equivital": r["avg"],
+                "HR_w_average - Equivital": r["wavg"],
+                "BR (rpm) - Equivital": r["br"],
+                "Skin Temperature - IR Thermometer (°C) - Equivital": r["temp"],
                 "magnitude - Centrifuge": mag_val,
             }
 
