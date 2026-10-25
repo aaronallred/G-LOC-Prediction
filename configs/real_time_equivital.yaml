@@ -22,8 +22,8 @@ traditional_data_parameters:
 
 real_time_equivital:
   enabled: true
-  use_preprocessor: false
-  session_dir: "Extra spin data/143_HSP_Training_HSP_145_20260508_123146"
+  use_preprocessor: tru 
+  session_dir: "Extra spin data/149_HSP_Training_HSP_154_20260511_134732"
   trial_id: null
   model_type: !ModelType [ Complete, Explicit ]
   random_seed: 42
@@ -33,6 +33,6 @@ real_time_equivital:
     - [ RealTimeEquivital ]
   manual_ablation: true
   class_weight: null
-  saved_models_folder: Results/Sensor_Ablation_Real_Time_No_S1_No_Imputation
-  save_results_folder: Results/Real_Time_Prediction_Latency_with_Evaluation_No_Preprocessing_Second_Trial
+  saved_models_folder: Results/Sensor_Ablation_Real_Time_On_Site
+  save_results_folder: Results/Real_Time_Prediction_Latency_Trial_149
   use_real_time_sleep: true
