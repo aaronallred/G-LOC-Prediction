@@ -155,15 +155,10 @@ class DataPipeline:
 			request_kwargs["return_feature_names"] = return_feature_names
 			request_kwargs["save_preprocessing_artifacts_path"] = save_preprocessing_artifacts_path
 			request_kwargs["feature_streams"] = feature_streams
-			split_mode = shared_config.get("split_mode", "kfold")
-			if split_mode not in ("kfold", "cross_dataset"):
-				raise ValueError(f"split_mode must be 'kfold' or 'cross_dataset', got {split_mode!r}")
 			eval_file = shared_config.get("eval_data_filename")
-			if split_mode == "cross_dataset" and not eval_file:
-				raise ValueError("split_mode = 'cross_dataset' requires shared_data_parameters.eval_data_filename")
-			request_kwargs["eval_data_filename"] = eval_file if split_mode == 'cross_dataset' else None
-			uses_new_data = shared_config.get("extended_data", False) or split_mode == "cross_dataset"
-			request_kwargs["exclude_feature"] = shared_config.get("exclude_feature", []) if uses_new_data else []
+			request_kwargs["eval_data_filename"] = eval_file
+			uses_new_data = bool(shared_config.get("extended_data", False)) or bool(shared_config.get("eval_data_filename"))
+			request_kwargs["exclude_streams"] = shared_config.get("exclude_streams", []) if uses_new_data else []
 			if traditional_feature_selection == "cache":
 				selected_features = self._resolve_select_features(request_kwargs)
 				request_kwargs["select_features"] = selected_features
@@ -1631,7 +1626,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		num_splits: int | None = None,
 		standardize_s1: bool = True,
 		eval_data_filename: str | None = None,
-		exclude_feature: list[str] | None = None,
+		exclude_streams: list[str] | None = None,
 	) -> tuple[np.ndarray, np.ndarray]:
 		"""Return data for a given set of parameters."""
 		if kfold_id is None or num_splits is None:
@@ -1831,11 +1826,11 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			)
 			features["All"].append("AFE_indicator_windowed")
 
-		if exclude_feature:
-			keep = [i for i, f in enumerate(features["All"]) if not any(p in f for p in exclude_feature)]
+		if exclude_streams:
+			keep = [i for i, f in enumerate(features["All"]) if not any(p in f for p in exclude_streams)]
 			gloc_data_all_features_numpy = gloc_data_all_features_numpy[:, keep]
 			features["All"] = [features["All"][i] for i in keep]
-			logger.info("Dropped features matching %s; %d columns kept", exclude_feature, len(keep))
+			logger.info("Dropped features matching %s; %d columns kept", exclude_streams, len(keep))
 		all_raw_features = list(features["All"])
 
 		if traditional_feature_selection == "cache":
@@ -1844,8 +1839,8 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 					"select_features is required when traditional_feature_selection='cache'."
 				)
 
-			if exclude_feature:
-				select_features = [f for f in select_features if not any(p in f for p in exclude_feature)]
+			if exclude_streams:
+				select_features = [f for f in select_features if not any(p in f for p in exclude_streams)]
 
 			# Backward compatibility: legacy feature lists may still reference "condition".
 			translated_select_features = [
@@ -1913,7 +1908,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 				f"NaN processing (train={train_idx.size}, test={test_idx.size})."
 			)
 
-		if eval_data_filename:
+		if bool(self.shared_config.get("extended_data", False)) or bool(self.shared_config.get("eval_data_filename")):
 			trial_post=_trial_id_pre[survivor_mask_pre]
 			eval_list = list(eval_trial_ids)
 			train_trials=set(trial_post[train_idx])
@@ -1921,9 +1916,9 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			assert not np.isin(trial_post[train_idx], eval_list).any(), "eval trials leaked into train"
 			assert np.isin(trial_post[test_idx], eval_list).all(), "non-eval trials in test"
 			assert train_trials.isdisjoint(test_trials), "train and test trials overlap"
-			print("Train trials (%d): %s", len(train_trials), sorted(train_trials))
-			print("Test trials (%d): %s", len(test_trials), sorted(test_trials))
-			print("Eval trials: %d -> %s", eval_data["trial_id"].nunique(), sorted(eval_data["trial_id"].unique()))
+			print(f"Train trials ({len(train_trials)}): {sorted(train_trials)}")
+			print(f"Test trials ({len(test_trials)}): {sorted(test_trials)}")
+			print(f"Eval trials: {eval_data['trial_id'].nunique()} -> {sorted(eval_data['trial_id'].unique())}")
 
 		X_train = gloc_data_all_features_numpy[train_idx]
 		X_test = gloc_data_all_features_numpy[test_idx]
