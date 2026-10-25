@@ -215,6 +215,32 @@ def _evaluate_predictions(
     return metrics_dict, confusion_mat
 
 
+def _save_prediction_plot(
+    sample_times_s: list[float],
+    g_levels: list[float],
+    pred_times_s: list[float],
+    predictions: list[int],
+    path: Path,
+) -> None:
+    """Save G-level over time (top) and model predictions over time (bottom)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, (ax_g, ax_p) = plt.subplots(2, 1, sharex=True, figsize=(12, 5))
+    ax_g.plot(sample_times_s, g_levels, linewidth=0.8)
+    ax_g.set_ylabel("G level (g)")
+    ax_p.step(pred_times_s, predictions, where="post")
+    ax_p.set_ylabel("Prediction (1 = G-LOC)")
+    ax_p.set_yticks([0, 1])
+    ax_p.set_xlabel("Time (s)")
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
 def _evaluate_real_time_predictions(
     predictions: list[int],
 ) -> tuple[dict[str, float], list[list[int]]]:
@@ -407,6 +433,11 @@ def _run_real_time_with_preprocessor(
     # 6. Pin consumer process (Process 3) after spawning child workers
     pin_process_to_core(2)
 
+    g_idx = rt_pipeline.raw_feature_names.index("magnitude - Centrifuge")
+    sample_times_s: list[float] = []
+    g_levels: list[float] = []
+    pred_times_s: list[float] = []
+
     try:
         while True:
             try:
@@ -421,6 +452,8 @@ def _run_real_time_with_preprocessor(
 
             sample_25hz, t_target, preproc_lat_ms = item
             n_raw_samples += 1
+            sample_times_s.append(t_target)
+            g_levels.append(float(sample_25hz[g_idx]))
             per_sample_preproc_latencies_ms.append(preproc_lat_ms)
             X_processed, data_proc_lat_ms = rt_pipeline.ingest_sample(
                 sample_25hz, timestamp_s=t_target
@@ -456,6 +489,7 @@ def _run_real_time_with_preprocessor(
                 inference_latencies_ms.append(infer_lat_ms)
                 total_latencies_ms.append(preproc_lat_ms + data_proc_lat_ms + infer_lat_ms)
                 predictions.append(int(pred[0]))
+                pred_times_s.append(t_target)
 
             if max_stream_samples is not None and n_raw_samples >= max_stream_samples:
                 break
@@ -521,6 +555,10 @@ def _run_real_time_with_preprocessor(
 
     cm_path = model_output_dir / "confusion_matrix.json"
     _write_report({"confusion_matrix": confusion_mat, "labels": [0, 1]}, cm_path)
+
+    _save_prediction_plot(
+        sample_times_s, g_levels, pred_times_s, predictions, model_output_dir / "predictions_and_g_level.png"
+    )
 
     logger.info(
         "Completed %s | streams=%s | trial=%s | predictions=%d | "
