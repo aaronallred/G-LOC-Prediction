@@ -1,0 +1,33 @@
+data_path: data
+shared_data_parameters:
+  subject_to_analyze: null
+  trial_to_analyze: null
+  analysis_type: 2
+  remove_NaN_trials: true
+  impute_file_name: imputed_data.pkl
+  save_impute: false
+  load_impute: false
+  impute_phase: pre_feature
+  output_feature_dtype: float32
+advanced_data_parameters:
+  n_neighbors: 4
+  baseline_window: 32.5
+  horizon: 0
+traditional_data_parameters:
+  backstep: 0
+  data_rate: 25
+  offset: 0
+  time_start: 0
+  standardize_s1: false
+
+on_site_real_time_equivital:
+  enabled: true
+  model_type: !ModelType [ Complete, Explicit ]
+  model: EGB
+  stream_group: [ RealTimeEquivital ]
+  fold: 0
+  saved_models_folder: Results/Sensor_Ablation_Real_Time_On_Site
+  save_results_folder: Results/On_Site_Real_Time
+  stream_names: { system_data: SystemData, ecg: ECG_EQ02, summary: Summary_EQ02 }
+  timeouts_s: { system_data: 3, ecg: 3, summary: 15 }   # silence before CONNECTION_LOST
+  stale_vital_s: 15                                     # HR/BR/skin temp with no valid update => flagged

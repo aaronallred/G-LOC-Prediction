@@ -252,7 +252,12 @@ class RealTimeTraditionalDataPipeline:
             self._raw_timestamps.pop(0)
 
         # 3. Check warmup gate and stride-aligned target timestamp
-        if self._samples_seen < self.warmup_samples_required or curr_time < (self._target_timestamp - 1e-6):
+        # (also wait for a full window: a caller may flush the window buffer after a stream gap)
+        if (
+            self._samples_seen < self.warmup_samples_required
+            or curr_time < (self._target_timestamp - 1e-6)
+            or len(self._window_buffer) < self.n_window_samples
+        ):
             t1 = time.perf_counter()
             return None, (t1 - t0) * 1000.0
 
@@ -1021,6 +1026,10 @@ class RealTimeDataPreprocessor:
 
         self.inlets: Dict[str, pylsl.StreamInlet] = {}
 
+        # Wall-clock (monotonic) arrival times, used by the on-site mode for dropout detection
+        self.last_sample_wall: Dict[str, float] = {}  # modality -> last poll that returned samples
+        self.last_valid_wall: Dict[str, float] = {}  # "hr" | "br" | "temp" -> last in-range reading
+
         # Buffers for continuous signals: deque of (timestamp, value)
         self._mag_buffer: deque[Tuple[float, float]] = deque()
         self._ecg_buffer: deque[Tuple[float, float]] = deque()
@@ -1058,12 +1067,19 @@ class RealTimeDataPreprocessor:
         self._ready_event = mp.Event()
         self._is_running = False
 
-    def connect(self, timeout: float = 5.0) -> None:
-        """Resolves LSL streams and initializes inlets."""
+    def connect(self, timeout: float = 5.0, require_all: bool = False) -> bool:
+        """Resolves LSL streams and initializes inlets.
+
+        Modalities that already have an inlet are skipped, so this can be called repeatedly.
+        With require_all=True the preprocessor only counts as connected once every stream in
+        stream_names has an inlet. Returns whether it is connected.
+        """
         if self._is_connected:
-            return
+            return True
 
         for modality, name in self.stream_names.items():
+            if modality in self.inlets:
+                continue
             streams = pylsl.resolve_byprop("name", name, timeout=timeout)
             if not streams:
                 all_s = pylsl.resolve_streams(wait_time=0.5)
@@ -1080,7 +1096,8 @@ class RealTimeDataPreprocessor:
             else:
                 logger.warning(f"Could not resolve LSL stream for {modality} ('{name}')")
 
-        self._is_connected = True
+        self._is_connected = len(self.inlets) == len(self.stream_names) if require_all else True
+        return self._is_connected
 
     def _update_sa5(self, sample: List[float], ts: float) -> None:
         """Process SA5 sample: channel 38=Gx, 40=Gy, 42=Gz."""
@@ -1123,6 +1140,7 @@ class RealTimeDataPreprocessor:
         if len(sample) > 0:
             hr = sample[0]
             if 30.0 <= hr <= 220.0:
+                self.last_valid_wall["hr"] = time.monotonic()
                 self._latest_hr = float(hr)
                 if len(self._recent_hrs) == 0:
                     self._latest_hr_instant = self._latest_hr
@@ -1132,11 +1150,13 @@ class RealTimeDataPreprocessor:
         if len(sample) > 2:
             br = sample[2]
             if 4.0 <= br <= 60.0:
+                self.last_valid_wall["br"] = time.monotonic()
                 self._latest_br = float(br)
 
         if len(sample) > 5:
             temp = sample[5]
             if 25.0 <= temp <= 42.0:
+                self.last_valid_wall["temp"] = time.monotonic()
                 self._latest_skin_temp = float(temp)
 
     def _interpolate_buffer(self, buf: deque[Tuple[float, float]], t_query: float) -> float:
@@ -1171,6 +1191,7 @@ class RealTimeDataPreprocessor:
             samples, timestamps = inlet.pull_chunk(timeout=0.0)
             if samples:
                 pulled_data[modality] = (samples, timestamps)
+                self.last_sample_wall[modality] = time.monotonic()
 
         # 2. Timing begins strictly for algorithmic computation
         t0 = time.perf_counter()
