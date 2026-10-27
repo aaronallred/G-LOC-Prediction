@@ -1773,6 +1773,18 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		# Fold split on the windowed labels (deterministic given random_seed).
 		if eval_data_filename: 
 			train_mask_pre=~np.isin(_trial_id_pre, list(eval_trial_ids))
+		elif extended_data:
+				skf = StratifiedGroupKFold(n_splits=num_splits, shuffle=True, random_state=self.random_seed)
+				y_flat = _y_pre.ravel().astype(int)
+				old_max_subject = max(self._EEG_PARTICIPANT_TRIALS)
+				subject_pre = np.array([int(str(t).split("-")[0]) for t in _trial_id_pre])
+				new_pos = np.flatnonzero(subject_pre > old_max_subject)
+				if new_pos.size==0:
+						raise ValueError("No new subjects found in the data for extended_data=True. Check your trial IDs.")
+				_train_idx_pre, _test_idx_pre = next(
+					islice(skf.split(new_pos, y_flat[new_pos], groups=_trial_id_pre[new_pos]), kfold_id, kfold_id + 1))
+				train_mask_pre = np.ones(_y_pre.shape[0], dtype=bool)
+				train_mask_pre[_train_idx_pre] = True
 		else:
 			from sklearn.model_selection import StratifiedKFold
 			skf = StratifiedKFold(n_splits=num_splits, shuffle=True, random_state=self.random_seed)
@@ -1878,6 +1890,18 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 				tag = "EVAL" if t in eval_trial_ids else "train"
 				logger.info("[%s] trial %s: %d windows, %d with NaN, mostly-NaN cols: %s",
 							tag, t, n_win, rows_with_nan, bad_cols[:5])
+		subject_pre = np.array([int(str(t).split("-")[0]) for t in _trial_id_pre])
+		is_new = subject_pre > max(self._EEG_PARTICIPANT_TRIALS)
+		nan_mask = np.isnan(gloc_data_all_features_numpy)
+
+		for label, rows in (("OLD", ~is_new), ("NEW", is_new)):
+			if not rows.any():
+				continue
+			frac = nan_mask[rows].mean(axis=0)
+			print(f"[{label}] windows={int(rows.sum())}, with any NaN={int(nan_mask[rows].any(axis=1).sum())}")
+			for i in np.argsort(-frac)[:15]:
+				if frac[i] > 0:
+					print(f"    {frac[i]:.3f}  {select_features[i]}")
 		logger.info("Processing NaN values temporally")
 		gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], _removed_ind = (
 			self._process_NaN_temporal(
@@ -1913,16 +1937,47 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 				f"NaN processing (train={train_idx.size}, test={test_idx.size})."
 			)
 
+		trial_post=_trial_id_pre[survivor_mask_pre]
+		y_post=_y_pre.ravel()[survivor_mask_pre]
+		win_post = pd.Series(_trial_id_pre).groupby(_trial_id_pre, sort=False).cumcount().to_numpy()[survivor_mask_pre]
+		old_max_subject = max(self._EEG_PARTICIPANT_TRIALS)
+		subject_post = np.array([int(str(t).split("_")[0]) for t in trial_post])
+		train_trials=set(trial_post[train_idx])
+		test_trials=set(trial_post[test_idx])
+		if extended_data and not eval_data_filename:
+			old_in_test = sorted([t for t in test_trials if int(str(t).split("_")[0]) <= old_max_subject])
+			assert not old_in_test, f"Extended data split has old subjects in test: {old_in_test}"
 		if eval_data_filename or extended_data:
-			trial_post=_trial_id_pre[survivor_mask_pre]
-			eval_list = list(eval_trial_ids)
-			train_trials=set(trial_post[train_idx])
-			test_trials=set(trial_post[test_idx])
+			split_report = pd.DataFrame({
+							"trial": trial_post.astype(str),
+							"subject": subject_post,
+							"is_new": subject_post > old_max_subject,
+							"window_in_trial": win_post,
+							"window_time_s": time_start + win_post * stride,
+							"split": np.where(train_mask_post, "train", "test"),
+							"GLOC": (y_post > 0).astype(int),
+							"test_row": -1,
+			})
+			split_report.loc[test_idx, "test_row"] = np.arrange(len(test_idx))
+			summary = (split_report.groupby(["trial", "split"]).agg(n_windows=("gloc", "size"), n_gloc=("gloc", "sum")).unstack(fill_value=0))
+			print(f"Test trials ({len(test_trials)}): {sorted(test_trials)}")
+			print(summary.to_string())
+			print(f"Test windows: {len(test_idx)} ({int(y_post[test_idx].sum())} GLOC) | "
+				  f"Train windows: {len(train_idx)} ({int(y_post[train_idx].sum())} GLOC)")
+			out_dir= Path(_resolve_from_source_dir(self.config.get("sensor_ablation", {}).get("save_results_folder", "Results")))/"split_reports"
+			out_dir.mkdir(parents=True, exist_ok=True)
+			split_report.to_csv(out_dir/f"{classifier_type}_fold{kfold_id}.csv", index=False)
+			# if overlap:
+			# 		print(f"WARNING: Overlap detected between train and test trials: {sorted(overlap)}")
+			
+			#summary = (split_report.groupby(["trial", "split"]).agg(n_windows=("gloc", "sum")).unstack(fill_value=0))
+			#print(summary.to_string())
+			#print(f"Test windows: {len(test_idx)} ({int(y_post[test_idx].sum())} GLOC) | " 
+			#      f"Train windows: {len(train_idx)} ({int(y_post[train_idx].sum())} GLOC)")
 			#assert not np.isin(trial_post[train_idx], eval_list).any(), "eval trials leaked into train"
 			#assert np.isin(trial_post[test_idx], eval_list).all(), "non-eval trials in test"
 			#assert train_trials.isdisjoint(test_trials), "train and test trials overlap"
-			print(f"Train trials ({len(train_trials)}): {sorted(train_trials)}")
-			print(f"Test trials ({len(test_trials)}): {sorted(test_trials)}")
+			
 			#print(f"Eval trials: {eval_data['trial_id'].nunique()} -> {sorted(eval_data['trial_id'].unique())}")
 
 		window_idx_pre = pd.Series(_trial_id_pre).groupby(_trial_id_pre, sort=False).cumcount().to_numpy()
@@ -1939,6 +1994,11 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		y_train = gloc_labels_numpy[train_idx]
 		y_test = gloc_labels_numpy[test_idx]
 
+		test_df = pd.DataFrame(X_test, columns=select_features)
+		test_df.insert(0, "y", y_test)
+		test_df.insert(0, "window_idx", window_idx_pre[survivor_mask_pre][test_idx])
+		test_df.insert(0, "trial_id", trial_post[test_idx])
+		test_df.to_csv(f"split_debug_test_fold{kfold_id}.csv", index=False)
 		############################################# SENSOR ABLATION / FEATURE FILTER #############################################
 		if feature_streams is not None and len(feature_streams) > 0:
 			filtered_features = self._apply_sensor_ablation(select_features, feature_streams)
