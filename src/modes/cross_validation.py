@@ -314,7 +314,7 @@ def _lasso_feature_selection(
     """
 
     lasso = LassoCV(
-        alphas=100,
+        alphas=np.logspace(-5, 0, 100),
         cv=3,
         max_iter=1000, #getting not converged warning even at 5k, selected alpha range not affected
         n_jobs=-1,

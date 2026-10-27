@@ -24,17 +24,19 @@ traditional_data_parameters:
   offset: 0
   time_start: 0
 
+
+
 temporal_evaluation:
   training:
-    enabled: false
+    enabled: true
     models: [XGB]
     model_type: !ModelType [Complete, Explicit]
     horizons: {start: 0, stop: 30, step: 1}      # seconds before G-LOC
     num_splits: 10
     random_seed: 42                  # use the CV run's seed so the folds match CV
     class_weight: null
-    median_hyperparameters_folder: Results/XGB_CV_lasso   # CV run to take params + selected features from
-    save_results_folder: Results/XGB_Temporal
+    median_hyperparameters_folder: Results/XGB_CV_ridge   # CV run to take params + selected features from
+    save_results_folder: Results/XGB_Temporal_ridge
     save_models: false # Saves on a per fold and horizon basis, so that's a lot. Off by default
   review:
     enabled: true
