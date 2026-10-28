@@ -25,12 +25,12 @@ from torch.utils.data import DataLoader
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
 from src.advanced_experiment_utils import (
-    baseline_down_select,
-    train_test_split_trials,
-    build_training_components,
-    build_sampler,
-    train_with_early_stopping,
-    get_advanced_predictions_and_targets,
+	baseline_down_select,
+	train_test_split_trials,
+	build_training_components,
+	build_sampler,
+	train_with_early_stopping,
+	get_advanced_predictions_and_targets,
 )
 from src.models.base import BaseModel, TraditionalModel, AdvancedModel
 from src.models.model_factory import ModelFactory
@@ -40,734 +40,743 @@ logger = logging.getLogger(__name__)
 
 
 def _run_advanced_model_cv_fold(
-        model: AdvancedModel,
-        X_train: np.ndarray,
-        X_val: np.ndarray,
-        y_train: np.ndarray,
-        y_val: np.ndarray,
-        features: List[str],
-        kfold_id: int,
-        class_weight: Optional[str] = None,
-        hpo_config: Optional[Dict[str, Any]] = None,
-        random_seed: int = 42,
-        fold_dir: Optional[Path] = None
+		model: AdvancedModel,
+		X_train: np.ndarray,
+		X_val: np.ndarray,
+		y_train: np.ndarray,
+		y_val: np.ndarray,
+		features: List[str],
+		kfold_id: int,
+		class_weight: Optional[str] = None,
+		hpo_config: Optional[Dict[str, Any]] = None,
+		random_seed: int = 42,
+		fold_dir: Optional[Path] = None
 ) -> Dict[str, Any]:
-    logger.info(f"Running advanced CV fold {kfold_id} for model {model.name}")
+	logger.info(f"Running advanced CV fold {kfold_id} for model {model.name}")
 
-    model.all_features = features
-    best_params: Dict[str, Any] = {}
+	model.all_features = features
+	best_params: Dict[str, Any] = {}
 
-    # 1. Hyperparameter Optimization Tuning Phase
-    if hpo_config and hpo_config.get("enabled", False) and int(hpo_config.get("n_trials", 0)) > 0:
-        hpo_result = _run_advanced_hpo(model, X_train, y_train, hpo_config, random_seed)
-        best_params = hpo_result["best_params"]
+	# 1. Hyperparameter Optimization Tuning Phase
+	if hpo_config and hpo_config.get("enabled", False) and int(hpo_config.get("n_trials", 0)) > 0:
+		hpo_result = _run_advanced_hpo(model, X_train, y_train, hpo_config, random_seed)
+		best_params = hpo_result["best_params"]
 
-        if fold_dir is not None:
-            with open(fold_dir / "hpo_summary.json", "w", encoding="utf-8") as f:
-                json.dump(hpo_result["summary"], f, indent=4)
+		if fold_dir is not None:
+			with open(fold_dir / "hpo_summary.json", "w", encoding="utf-8") as f:
+				json.dump(hpo_result["summary"], f, indent=4)
 
-    # 2. Fit Final Model weights
-    model.train(X_train, y_train, params=best_params or None)
+	# 2. Fit Final Model weights
+	model.train(X_train, y_train, params=best_params or None)
 
-    # Save the trained advanced model
-    if fold_dir is not None:
-        model_path = fold_dir / "model.pt"
-        model.save_model(str(model_path))
-        logger.info(
-            f"Saved fold {kfold_id} advanced model to {model_path}"
-        )
+	# Save the trained advanced model
+	if fold_dir is not None:
+		model_path = fold_dir / "model.pt"
+		model.save_model(str(model_path))
+		logger.info(
+			f"Saved fold {kfold_id} advanced model to {model_path}"
+		)
 
-    # 3. Alignment and Evaluation Outside of Class Structure
-    X_ds_val, _ = baseline_down_select(X_val, model.all_features, model.best_params["baseline_method"])
+	# 3. Alignment and Evaluation Outside of Class Structure
+	X_ds_val, _ = baseline_down_select(X_val, model.all_features, model.best_params["baseline_method"])
 
-    actual_labels, predicted_labels = get_advanced_predictions_and_targets(
-        model=model,
-        X=X_ds_val,
-        y=y_val,
-        sequence_length=model.best_params["sequence_length"],
-        step_size=10,  # Explicit legacy execution constraint match
-        batch_size=model.best_params["batch_size"]
-    )
+	actual_labels, predicted_labels = get_advanced_predictions_and_targets(
+		model=model,
+		X=X_ds_val,
+		y=y_val,
+		sequence_length=model.best_params["sequence_length"],
+		step_size=10,  # Explicit legacy execution constraint match
+		batch_size=model.best_params["batch_size"]
+	)
 
-    # Calculate performance metrics via the external pure function
-    metrics_out = _evaluate_model(actual_labels, predicted_labels)
+	# Calculate performance metrics via the external pure function
+	metrics_out = _evaluate_model(actual_labels, predicted_labels)
 
-    if "specificity" not in metrics_out or "g_mean" not in metrics_out:
-        raise RuntimeError(f"Advanced model execution output missing contract elements.")
+	if "specificity" not in metrics_out or "g_mean" not in metrics_out:
+		raise RuntimeError(f"Advanced model execution output missing contract elements.")
 
-    return _build_fold_result(kfold_id, metrics_out, len(X_train), len(X_val), best_params)
+	return _build_fold_result(kfold_id, metrics_out, len(X_train), len(X_val), best_params)
 
 
 def _run_advanced_hpo(
-        model: AdvancedModel,
-        X: np.ndarray,
-        y: np.ndarray,
-        hpo_config: Dict[str, Any],
-        random_seed: int,
+		model: AdvancedModel,
+		X: np.ndarray,
+		y: np.ndarray,
+		hpo_config: Dict[str, Any],
+		random_seed: int,
 ) -> Dict[str, Any]:
-    """Run Optuna HPO for an advanced model and return best params + summary."""
-    search_space_builder = model.get_hpo_search_space()
-    metric_name = hpo_config.get("metric", "f1")
+	"""Run Optuna HPO for an advanced model and return best params + summary."""
+	search_space_builder = model.get_hpo_search_space()
+	metric_name = hpo_config.get("metric", "f1")
 
-    class_weight_strategy = hpo_config.get("class_weight", "balanced")
+	class_weight_strategy = hpo_config.get("class_weight", "balanced")
 
-    sampler = optuna.samplers.TPESampler(seed=random_seed)
-    study = optuna.create_study(direction="maximize", sampler=sampler)
+	sampler = optuna.samplers.TPESampler(seed=random_seed)
+	study = optuna.create_study(direction="maximize", sampler=sampler)
 
-    def objective(trial: optuna.Trial) -> float:
-        params = search_space_builder(trial, X, random_seed)
-        params["objective_var"] = hpo_config.get("metric")
+	def objective(trial: optuna.Trial) -> float:
+		params = search_space_builder(trial, X, random_seed)
+		params["objective_var"] = hpo_config.get("metric")
 
-        X_ds, _ = baseline_down_select(X, model.all_features, params["baseline_method"])
-        train_dataset, val_dataset, train_windows_tensor, _, _, val_windows_labels = train_test_split_trials(
-            X=X_ds,
-            Y=y,
-            window_size=params["sequence_length"],
-            step_size=params["step_size"],
-            test_ratio=0.2,
-            random_state=random_seed,
-            end_label=True,
-        )
+		X_ds, _ = baseline_down_select(X, model.all_features, params["baseline_method"])
+		train_dataset, val_dataset, train_windows_tensor, _, _, val_windows_labels = train_test_split_trials(
+			X=X_ds,
+			Y=y,
+			window_size=params["sequence_length"],
+			step_size=params["step_size"],
+			test_ratio=0.2,
+			random_state=random_seed,
+			end_label=True,
+		)
 
-        trial_net = model._build_model(params, input_dim=train_windows_tensor.shape[2]).to(model.device)
+		trial_net = model._build_model(params, input_dim=train_windows_tensor.shape[2]).to(model.device)
 
-        class_weights = torch.tensor(
-            compute_class_weight(
-                class_weight_strategy, classes=np.array([0, 1]), y=y
-            ),
-            dtype=torch.float,
-        )
+		class_weights = torch.tensor(
+			compute_class_weight(
+				class_weight_strategy, classes=np.array([0, 1]), y=y
+			),
+			dtype=torch.float,
+		)
 
-        criterion, optimizer = build_training_components(trial_net, class_weights, params, model.device)
+		criterion, optimizer = build_training_components(trial_net, class_weights, params, model.device)
 
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=params["batch_size"],
-            sampler=(
-                build_sampler(train_dataset.tensors[1], class_weights)
-                if hpo_config["use_sampler"]
-                else None
-            ),
-        )
-        val_loader = DataLoader(val_dataset, batch_size=params["batch_size"], shuffle=False)
+		train_loader = DataLoader(
+			train_dataset,
+			batch_size=params["batch_size"],
+			sampler=(
+				build_sampler(train_dataset.tensors[1], class_weights)
+				if hpo_config["use_sampler"]
+				else None
+			),
+			shuffle=not hpo_config["use_sampler"],
+		)
+		val_loader = DataLoader(val_dataset, batch_size=params["batch_size"], shuffle=False)
 
-        best_state, _, _ = train_with_early_stopping(
-            model=trial_net,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            criterion=criterion,
-            optimizer=optimizer,
-            device=model.device,
-            threshold=params["threshold"],
-            objective_var=params["objective_var"],
-        )
-        if best_state:
-            trial_net.load_state_dict(best_state)
+		best_state, _, _ = train_with_early_stopping(
+			model=trial_net,
+			train_loader=train_loader,
+			val_loader=val_loader,
+			criterion=criterion,
+			optimizer=optimizer,
+			device=model.device,
+			threshold=params["threshold"],
+			objective_var=params["objective_var"],
+		)
+		if best_state:
+			trial_net.load_state_dict(best_state)
 
-        trial_net.eval()
-        trial_preds = []
-        with torch.no_grad():
-            for xb, _ in val_loader:
-                out = trial_net(xb.to(model.device))
-                trial_preds.extend((out.reshape(-1) >= params["threshold"]).float().cpu().numpy())
+		trial_net.eval()
+		trial_preds = []
+		with torch.no_grad():
+			for xb, _ in val_loader:
+				out = trial_net(xb.to(model.device))
+				trial_preds.extend((torch.sigmoid(out.reshape(-1)) >= params["threshold"]).float().cpu().numpy())
 
-        return float(metrics.f1_score(val_windows_labels.numpy(), np.array(trial_preds)))
+		return float(metrics.f1_score(val_windows_labels.numpy(), np.array(trial_preds)))
 
-    study.optimize(objective, n_trials=int(hpo_config["n_trials"]), catch=(RuntimeError, ValueError))
-    model.best_params = dict(study.best_params)
-    return {
-        "best_params": model.best_params,
-        "summary": {
-            "best_trial": study.best_trial.number,
-            "best_value": study.best_value,
-            "metric": metric_name,
-        },
-    }
+	def objective_stop_on_gpu_failure(trial: optuna.Trial) -> float:
+		try:
+			return objective(trial)
+		except torch.AcceleratorError as error:
+			raise SystemExit(f"CUDA failure in trial {trial.number}; restart the run.") from error
+
+	study.optimize(objective_stop_on_gpu_failure, n_trials=int(hpo_config["n_trials"]),
+				   catch=(RuntimeError, ValueError))
+
+	model.best_params = dict(study.best_params)
+	return {
+		"best_params": model.best_params,
+		"summary": {
+			"best_trial": study.best_trial.number,
+			"best_value": study.best_value,
+			"metric": metric_name,
+		},
+	}
 
 
 
 def _run_traditional_model_cv_fold(
-        model: TraditionalModel,
-        X_train: np.ndarray,
-        y_train: np.ndarray,
-        X_test: np.ndarray,
-        y_test: np.ndarray,
-        fold_idx: int,
-        random_seed: int,
-        class_weight: Optional[str] = None,
-        feature_names: Optional[List[str]] = None,
-        traditional_hpo_config: Optional[Dict[str, Any]] = None,
+		model: TraditionalModel,
+		X_train: np.ndarray,
+		y_train: np.ndarray,
+		X_test: np.ndarray,
+		y_test: np.ndarray,
+		fold_idx: int,
+		random_seed: int,
+		class_weight: Optional[str] = None,
+		feature_names: Optional[List[str]] = None,
+		traditional_hpo_config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """
-    Run a single fold of cross-validation for a traditional model.
+	"""
+	Run a single fold of cross-validation for a traditional model.
 
-    X_train, X_test, y_train, y_test are already split and fold-aware
-    standardized by the pipeline — no stratified_kfold_split call needed.
-    """
-    logger.info(
-        f"Running traditional CV fold {fold_idx} for model {model.name}"
-    )
+	X_train, X_test, y_train, y_test are already split and fold-aware
+	standardized by the pipeline — no stratified_kfold_split call needed.
+	"""
+	logger.info(
+		f"Running traditional CV fold {fold_idx} for model {model.name}"
+	)
 
-    # Error checking
-    if feature_names is None or len(feature_names) == 0:
-        raise ValueError("feature_names must be provided for traditional CV fold.")
-    if X_train.size == 0 or y_train.size == 0:
-        raise ValueError(f"Training fold {fold_idx} is empty")
+	# Error checking
+	if feature_names is None or len(feature_names) == 0:
+		raise ValueError("feature_names must be provided for traditional CV fold.")
+	if X_train.size == 0 or y_train.size == 0:
+		raise ValueError(f"Training fold {fold_idx} is empty")
 
-    logger.info(
-        "Running traditional model-specific %s feature selection for fold %s on %s features",
-        model.data_pipeline_hyperparameters["feature_reduction_type"],
-        fold_idx,
-        X_train.shape[1],
-    )
+	logger.info(
+		"Running traditional model-specific %s feature selection for fold %s on %s features",
+		model.data_pipeline_hyperparameters["feature_reduction_type"],
+		fold_idx,
+		X_train.shape[1],
+	)
 
-    X_train, X_test, selected_features = _feature_selection(
-        model=model,
-        X_train=X_train,
-        X_test=X_test,
-        y_train=y_train,
-        feature_names=feature_names,
-        random_seed=random_seed,
-    )
+	X_train, X_test, selected_features = _feature_selection(
+		model=model,
+		X_train=X_train,
+		X_test=X_test,
+		y_train=y_train,
+		feature_names=feature_names,
+		random_seed=random_seed,
+	)
 
-    imbalance_type = model.data_pipeline_hyperparameters["imbalance_type"]
-    logger.info(
-        "Applying imbalance_type=%s for fold %s after feature selection reduced features to %s",
-        imbalance_type,
-        fold_idx,
-        len(selected_features),
-    )
+	imbalance_type = model.data_pipeline_hyperparameters["imbalance_type"]
+	logger.info(
+		"Applying imbalance_type=%s for fold %s after feature selection reduced features to %s",
+		imbalance_type,
+		fold_idx,
+		len(selected_features),
+	)
 
-    X_train, y_train = apply_imbalance(imbalance_type, X_train, y_train, random_seed)
+	X_train, y_train = apply_imbalance(imbalance_type, X_train, y_train, random_seed)
 
-    logger.info(
-        "Running traditional model HPO for fold %s with class_weight = %s, hpo_config = %s",
-        fold_idx,
-        class_weight,
-        traditional_hpo_config or {},
-    )
+	logger.info(
+		"Running traditional model HPO for fold %s with class_weight = %s, hpo_config = %s",
+		fold_idx,
+		class_weight,
+		traditional_hpo_config or {},
+	)
 
-    hpo_result, search = _run_traditional_hpo(model, X_train, y_train, random_seed, class_weight, hpo_config=traditional_hpo_config)
+	hpo_result, search = _run_traditional_hpo(model, X_train, y_train, random_seed, class_weight, hpo_config=traditional_hpo_config)
 
-    logger.info(
-        "Running traditional model evaluation for fold %s",
-        fold_idx
-    )
+	logger.info(
+		"Running traditional model evaluation for fold %s",
+		fold_idx
+	)
 
-    preds = search.predict(X_test)
-    fold_performance_summary = _evaluate_model(y_test, preds)
+	preds = search.predict(X_test)
+	fold_performance_summary = _evaluate_model(y_test, preds)
 
-    # Build fold result dictionary
-    fold_result = _build_fold_result(
-        fold_idx=fold_idx,
-        metrics=fold_performance_summary,
-        n_train=len(X_train),
-        n_val=len(X_test),
-        best_params=hpo_result["best_params"],
-        features=selected_features
-    )
+	# Build fold result dictionary
+	fold_result = _build_fold_result(
+		fold_idx=fold_idx,
+		metrics=fold_performance_summary,
+		n_train=len(X_train),
+		n_val=len(X_test),
+		best_params=hpo_result["best_params"],
+		features=selected_features
+	)
 
-    return fold_result, search
+	return fold_result, search
 
 
 def _lasso_feature_selection_bayes(
-        X_train: np.ndarray,
-        X_test: np.ndarray,
-        y_train: np.ndarray,
-        feature_names: List[str],
-        random_seed: int
+		X_train: np.ndarray,
+		X_test: np.ndarray,
+		y_train: np.ndarray,
+		feature_names: List[str],
+		random_seed: int
 ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
-    """
-    Find optimal lasso alpha parameter and fits a lasso model to determine
-    most important features. This should only see the 'training' data.
+	"""
+	Find optimal lasso alpha parameter and fits a lasso model to determine
+	most important features. This should only see the 'training' data.
 
-    Deemed an old, inefficient method
-    """
+	Deemed an old, inefficient method
+	"""
 
-    search = BayesSearchCV(
-        estimator=Lasso(random_state=random_seed),
-        search_spaces={"alpha": Real(1e-5, 100, prior="log-uniform")},
-        cv=3,
-        n_iter=50,
-        random_state=random_seed,
-        verbose=1,
-    )
-    search.fit(X_train, np.ravel(y_train))
+	search = BayesSearchCV(
+		estimator=Lasso(random_state=random_seed),
+		search_spaces={"alpha": Real(1e-5, 100, prior="log-uniform")},
+		cv=3,
+		n_iter=50,
+		random_state=random_seed,
+		verbose=1,
+	)
+	search.fit(X_train, np.ravel(y_train))
 
-    best_lasso = search.best_estimator_
-    lasso_optimal_coef = np.abs(best_lasso.coef_)
-    selected_features_indices = np.where(lasso_optimal_coef != 0)[0]
-    selected_features = np.array(feature_names)[selected_features_indices].tolist()
+	best_lasso = search.best_estimator_
+	lasso_optimal_coef = np.abs(best_lasso.coef_)
+	selected_features_indices = np.where(lasso_optimal_coef != 0)[0]
+	selected_features = np.array(feature_names)[selected_features_indices].tolist()
 
-    return X_train[:, selected_features_indices], X_test[:, selected_features_indices], selected_features
+	return X_train[:, selected_features_indices], X_test[:, selected_features_indices], selected_features
 
 def _lasso_feature_selection(
-        X_train: np.ndarray,
-        X_test: np.ndarray,
-        y_train: np.ndarray,
-        feature_names: List[str],
-        random_seed: int
+		X_train: np.ndarray,
+		X_test: np.ndarray,
+		y_train: np.ndarray,
+		feature_names: List[str],
+		random_seed: int
 ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
-    """
-    Find optimal lasso alpha parameter and fits a lasso model to determine
-    most important features. This should only see the 'training' data.
-    """
+	"""
+	Find optimal lasso alpha parameter and fits a lasso model to determine
+	most important features. This should only see the 'training' data.
+	"""
 
-    lasso = LassoCV(
-        alphas=np.logspace(-5, 0, 100),
-        cv=3,
-        max_iter=1000, #getting not converged warning even at 5k, selected alpha range not affected
-        n_jobs=-1,
-        random_state=random_seed,
-    )
-    lasso.fit(X_train, np.ravel(y_train))
+	lasso = LassoCV(
+		alphas=np.logspace(-5, 0, 100),
+		cv=3,
+		max_iter=1000, #getting not converged warning even at 5k, selected alpha range not affected
+		n_jobs=-1,
+		random_state=random_seed,
+	)
+	lasso.fit(X_train, np.ravel(y_train))
 
-    selected_features_indices = np.where(np.abs(lasso.coef_) != 0)[0]
-    logger.info("LassoCV selected alpha=%.3e, keeping %s of %s features",
-                lasso.alpha_, len(selected_features_indices), X_train.shape[1])
+	selected_features_indices = np.where(np.abs(lasso.coef_) != 0)[0]
+	logger.info("LassoCV selected alpha=%.3e, keeping %s of %s features",
+				lasso.alpha_, len(selected_features_indices), X_train.shape[1])
 
-    selected_features = np.array(feature_names)[selected_features_indices].tolist()
+	selected_features = np.array(feature_names)[selected_features_indices].tolist()
 
-    return X_train[:, selected_features_indices], X_test[:, selected_features_indices], selected_features
+	return X_train[:, selected_features_indices], X_test[:, selected_features_indices], selected_features
 
 def _ridge_feature_selection(
-        X_train: np.ndarray,
-        X_test: np.ndarray,
-        y_train: np.ndarray,
-        feature_names: List[str],
-        top_percent: float,
+		X_train: np.ndarray,
+		X_test: np.ndarray,
+		y_train: np.ndarray,
+		feature_names: List[str],
+		top_percent: float,
 ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
-    """
-    Select the top `top_percent` % of features by absolute RidgeCV coefficient.
-    Alpha is chosen by 3-fold CV on the full training data, which RidgeCV then refits on.
-    This should only see the 'training' data.
-    """
-    ridge = RidgeCV(alphas=np.logspace(2, 7, 10), cv=3) # alpha selected within range
-    ridge.fit(X_train, np.ravel(y_train))
+	"""
+	Select the top `top_percent` % of features by absolute RidgeCV coefficient.
+	Alpha is chosen by 3-fold CV on the full training data, which RidgeCV then refits on.
+	This should only see the 'training' data.
+	"""
+	ridge = RidgeCV(alphas=np.logspace(2, 7, 10), cv=3) # alpha selected within range
+	ridge.fit(X_train, np.ravel(y_train))
 
-    ridge_coef = np.abs(np.ravel(ridge.coef_))
-    threshold = np.percentile(ridge_coef, 100 - top_percent)
-    selected_features_indices = np.where(ridge_coef >= threshold)[0]
-    logger.info("RidgeCV selected alpha=%.3e, keeping %s of %s features (top %s%%)",
-                ridge.alpha_, len(selected_features_indices), X_train.shape[1], top_percent)
+	ridge_coef = np.abs(np.ravel(ridge.coef_))
+	threshold = np.percentile(ridge_coef, 100 - top_percent)
+	selected_features_indices = np.where(ridge_coef >= threshold)[0]
+	logger.info("RidgeCV selected alpha=%.3e, keeping %s of %s features (top %s%%)",
+				ridge.alpha_, len(selected_features_indices), X_train.shape[1], top_percent)
 
-    selected_features = np.array(feature_names)[selected_features_indices].tolist()
+	selected_features = np.array(feature_names)[selected_features_indices].tolist()
 
-    return X_train[:, selected_features_indices], X_test[:, selected_features_indices], selected_features
+	return X_train[:, selected_features_indices], X_test[:, selected_features_indices], selected_features
 
 def _feature_selection(
-        model: TraditionalModel,
-        X_train: np.ndarray,
-        X_test: np.ndarray,
-        y_train: np.ndarray,
-        feature_names: List[str],
-        random_seed: int,
+		model: TraditionalModel,
+		X_train: np.ndarray,
+		X_test: np.ndarray,
+		y_train: np.ndarray,
+		feature_names: List[str],
+		random_seed: int,
 ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
-    """
-    Run the feature selection method named by the model's feature_reduction_type.
+	"""
+	Run the feature selection method named by the model's feature_reduction_type.
 
-    Must update when new feature selection methods are incorporated
-    """
-    pipeline_hyperparameters = model.data_pipeline_hyperparameters
-    feature_reduction_type = pipeline_hyperparameters["feature_reduction_type"]
+	Must update when new feature selection methods are incorporated
+	"""
+	pipeline_hyperparameters = model.data_pipeline_hyperparameters
+	feature_reduction_type = pipeline_hyperparameters["feature_reduction_type"]
 
-    if feature_reduction_type == "lasso":
-        return _lasso_feature_selection(X_train, X_test, y_train, feature_names, random_seed)
+	if feature_reduction_type == "lasso":
+		return _lasso_feature_selection(X_train, X_test, y_train, feature_names, random_seed)
 
-    if feature_reduction_type == "ridge":
-        top_percent = pipeline_hyperparameters.get("feature_reduction_top_percent")
-        if top_percent is None:
-            raise ValueError(
-                f"{model.name} uses feature_reduction_type='ridge' but has no 'feature_reduction_top_percent'."
-            )
-        return _ridge_feature_selection(X_train, X_test, y_train, feature_names, top_percent)
+	if feature_reduction_type == "ridge":
+		top_percent = pipeline_hyperparameters.get("feature_reduction_top_percent")
+		if top_percent is None:
+			raise ValueError(
+				f"{model.name} uses feature_reduction_type='ridge' but has no 'feature_reduction_top_percent'."
+			)
+		return _ridge_feature_selection(X_train, X_test, y_train, feature_names, top_percent)
 
-    if feature_reduction_type == "none":
-        return X_train, X_test, list(feature_names)
+	if feature_reduction_type == "none":
+		return X_train, X_test, list(feature_names)
 
-    raise ValueError(
-        f"Unsupported feature_reduction_type '{feature_reduction_type}'. "
-        f"Supported: 'lasso', 'ridge', 'none'."
-    )
+	raise ValueError(
+		f"Unsupported feature_reduction_type '{feature_reduction_type}'. "
+		f"Supported: 'lasso', 'ridge', 'none'."
+	)
 
 
 def _run_traditional_hpo(
-        model: TraditionalModel,
-        X: np.ndarray,
-        y: np.ndarray,
-        random_seed: int,
-        class_weight: Optional[str] = None,
-        hpo_config: Optional[Dict[str, Any]] = None,
+		model: TraditionalModel,
+		X: np.ndarray,
+		y: np.ndarray,
+		random_seed: int,
+		class_weight: Optional[str] = None,
+		hpo_config: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], Any]:
-    """Run BayesSearchCV for a traditional model.
+	"""Run BayesSearchCV for a traditional model.
 
-    Returns
-    -------
-    tuple
-        (``{"best_params": ..., "summary": ...}``, fitted_searcher)
-    """
-    hpo_config = hpo_config or {}
-    n_iter = int(hpo_config.get("n_iter", 30))
-    cv = int(hpo_config.get("cv", 3))
-    scoring = str(hpo_config.get("scoring", "f1"))
+	Returns
+	-------
+	tuple
+		(``{"best_params": ..., "summary": ...}``, fitted_searcher)
+	"""
+	hpo_config = hpo_config or {}
+	n_iter = int(hpo_config.get("n_iter", 30))
+	cv = int(hpo_config.get("cv", 3))
+	scoring = str(hpo_config.get("scoring", "f1"))
 
-    # Inject random_state / class_weight into the estimator if supported
-    valid_params = model.model.get_params()
-    extra = {k: v for k, v in {"random_state": random_seed, "class_weight": class_weight}.items() if k in valid_params}
-    model.model.set_params(**extra)
+	# Inject random_state / class_weight into the estimator if supported
+	valid_params = model.model.get_params()
+	extra = {k: v for k, v in {"random_state": random_seed, "class_weight": class_weight}.items() if k in valid_params}
+	model.model.set_params(**extra)
 
-    searcher = BayesSearchCV(
-        estimator=model.model,
-        search_spaces=model.get_hpo_search_space(),
-        n_iter=n_iter,
-        cv=cv,
-        scoring=scoring,
-        random_state=random_seed,
-        verbose=1,
-        error_score=np.nan,
-    )
-    searcher.fit(X, np.ravel(y))
-    model.searcher = searcher
+	searcher = BayesSearchCV(
+		estimator=model.model,
+		search_spaces=model.get_hpo_search_space(),
+		n_iter=n_iter,
+		cv=cv,
+		scoring=scoring,
+		random_state=random_seed,
+		verbose=1,
+		error_score=np.nan,
+	)
+	searcher.fit(X, np.ravel(y))
+	model.searcher = searcher
 
-    best_params = dict(searcher.best_params_)
-    summary = {
-        "best_params": best_params,
-        "best_score": float(searcher.best_score_),
-        "best_index": int(searcher.best_index_),
-        "n_iter": n_iter,
-        "cv": cv,
-        "scoring": scoring,
-    }
-    return {"best_params": best_params, "summary": summary}, searcher
+	best_params = dict(searcher.best_params_)
+	summary = {
+		"best_params": best_params,
+		"best_score": float(searcher.best_score_),
+		"best_index": int(searcher.best_index_),
+		"n_iter": n_iter,
+		"cv": cv,
+		"scoring": scoring,
+	}
+	return {"best_params": best_params, "summary": summary}, searcher
 
 
 def _evaluate_model(
-        actual: np.ndarray,
-        preds: np.ndarray
+		actual: np.ndarray,
+		preds: np.ndarray
 ) -> Dict[str, Any]:
-    accuracy = metrics.accuracy_score(actual, preds)
-    precision = metrics.precision_score(actual, preds)
-    recall = metrics.recall_score(actual, preds)
-    f1 = metrics.f1_score(actual, preds)
-    specificity = metrics.recall_score(actual, preds, pos_label=0)
-    g_mean = geometric_mean_score(actual, preds)
+	accuracy = metrics.accuracy_score(actual, preds)
+	precision = metrics.precision_score(actual, preds)
+	recall = metrics.recall_score(actual, preds)
+	f1 = metrics.f1_score(actual, preds)
+	specificity = metrics.recall_score(actual, preds, pos_label=0)
+	g_mean = geometric_mean_score(actual, preds)
 
-    return {
-        "accuracy": accuracy,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
-        "specificity": specificity,
-        "g_mean": g_mean
-    }
+	return {
+		"accuracy": accuracy,
+		"precision": precision,
+		"recall": recall,
+		"f1": f1,
+		"specificity": specificity,
+		"g_mean": g_mean
+	}
 
 
 def run_cross_validation(
-        config: dict[str, Any],
-        pipeline: DataPipeline,
-        model_factory: ModelFactory,
-        project_root_path: Path,
+		config: dict[str, Any],
+		pipeline: DataPipeline,
+		model_factory: ModelFactory,
+		project_root_path: Path,
 ) -> Dict[str, List[Dict[str, Any]]]:
-    """Run cross-validation for a list of models.
-    
-    Detects model type (traditional or advanced) and routes to the appropriate
-    training loop. Saves per-fold metrics and aggregated summaries.
-    
-    Args:
-        config: Loaded YAML experiment configuration mapping
-        pipeline: DataPipeline instance for data loading
-        model_factory: ModelFactory instance for creating models
-        project_root_path: Root path of the project, used for saving results
-        
-    Returns:
-        Dict mapping model names to lists of per-fold result dicts.
-    """
-    cross_validation_config = config["cross_validation"]
-    models = cross_validation_config.get("models")
-    results_path = Path(project_root_path / cross_validation_config["save_results_folder"])
-    model_type = cross_validation_config["model_type"]
-    num_splits = cross_validation_config["num_splits"]
-    random_seed = cross_validation_config["random_seed"]
-    class_weight = cross_validation_config.get("class_weight")
-    traditional_hpo_config = cross_validation_config.get("traditional_hpo") or {}
+	"""Run cross-validation for a list of models.
 
-    logger.info(
-        "Starting cross-validation with %s folds and %s model(s)",
-        num_splits,
-        len(models),
-    )
+	Detects model type (traditional or advanced) and routes to the appropriate
+	training loop. Saves per-fold metrics and aggregated summaries.
 
-    # Validate model type and results path
-    model_type_folder = model_type.get_folder_name()
-    results_root_with_type = results_path / model_type_folder
+	Args:
+		config: Loaded YAML experiment configuration mapping
+		pipeline: DataPipeline instance for data loading
+		model_factory: ModelFactory instance for creating models
+		project_root_path: Root path of the project, used for saving results
 
-    # Set random seed and model type for pipeline operations
-    pipeline.set_random_seed(random_seed)
-    pipeline.set_model_type(model_type)
+	Returns:
+		Dict mapping model names to lists of per-fold result dicts.
+	"""
+	cross_validation_config = config["cross_validation"]
+	models = cross_validation_config.get("models")
+	results_path = Path(project_root_path / cross_validation_config["save_results_folder"])
+	model_type = cross_validation_config["model_type"]
+	num_splits = cross_validation_config["num_splits"]
+	random_seed = cross_validation_config["random_seed"]
+	class_weight = cross_validation_config.get("class_weight")
+	traditional_hpo_config = cross_validation_config.get("traditional_hpo") or {}
 
-    for model in models:
-        # Use a dummy model to get its metadata
-        model = model_factory.create_model(model)
+	logger.info(
+		"Starting cross-validation with %s folds and %s model(s)",
+		num_splits,
+		len(models),
+	)
 
-        logger.info(f"\n{'=' * 60}")
-        logger.info(f"Cross-validating model: {model.name}")
-        logger.info(f"{'=' * 60}")
+	# Validate model type and results path
+	model_type_folder = model_type.get_folder_name()
+	results_root_with_type = results_path / model_type_folder
 
-        model_results = []
-        model_results_dir = results_root_with_type / model.name
+	# Set random seed and model type for pipeline operations
+	pipeline.set_random_seed(random_seed)
+	pipeline.set_model_type(model_type)
 
-        logger.info(f"Loading data for model {model.name}...")
+	for model in models:
+		# Use a dummy model to get its metadata
+		model = model_factory.create_model(model)
 
-        fold_cache = None  # For advanced models: cache fold data upfront
+		logger.info(f"\n{'=' * 60}")
+		logger.info(f"Cross-validating model: {model.name}")
+		logger.info(f"{'=' * 60}")
 
-        if model.is_traditional_model:
-            # Traditional models now call get_data per fold for fold-aware standardization.
-            pass  # Dispatch inside fold loop below
-        else:
-            # Advanced models: require advanced_hpo config and pre-cache fold data
-            # This will raise ValueError if advanced_hpo is missing or invalid
-            advanced_hpo_cfg = cross_validation_config["advanced_hpo"]
-            # Convert normalized advanced_hpo into model-level hpo_config expected by _run_advanced_model_hpo
-            # Note: Parser provides both user-facing parameters (use_sampler, final_early_stop, objective_var, trials)
-            # and hardcoded Optuna-level defaults (train_fraction, timeout, sampler_seed, pruner_startup_trials, pruner_warmup_steps)
-            model_hpo_config = {
-                "enabled": True,
-                "n_trials": int(advanced_hpo_cfg["trials"]),
-                "timeout": advanced_hpo_cfg.get("timeout"),
-                "metric": advanced_hpo_cfg.get("metric", str(advanced_hpo_cfg.get("objective_var", "f1")).lower()),
-                "train_fraction": float(advanced_hpo_cfg.get("train_fraction", 0.8)),
-                "sampler_seed": advanced_hpo_cfg.get("sampler_seed"),
-                "pruner_startup_trials": advanced_hpo_cfg.get("pruner_startup_trials"),
-                "pruner_warmup_steps": advanced_hpo_cfg.get("pruner_warmup_steps"),
-                "use_sampler": bool(advanced_hpo_cfg["use_sampler"]),
-                "final_early_stop": bool(advanced_hpo_cfg["final_early_stop"]),
-                "class_weight": class_weight or "balanced",
-            }
+		model_results = []
+		model_results_dir = results_root_with_type / model.name
 
-            fold_cache = _cache_fold_data_for_advanced_models(
-                pipeline, model, num_splits, random_seed
-            )
-            X, y = None, None
+		logger.info(f"Loading data for model {model.name}...")
 
-        for fold_idx in range(num_splits):
-            fold_dir = model_results_dir / f"fold_{fold_idx}"
-            fold_dir.mkdir(parents=True, exist_ok=True)
+		fold_cache = None  # For advanced models: cache fold data upfront
 
-            if model.is_traditional_model:
-                X_train, X_test, y_train, y_test, feature_names = pipeline.get_data(
-                    model=model,
-                    kfold_id=fold_idx,
-                    num_splits=num_splits,
-                    traditional_feature_selection="raw",
-                    return_feature_names=True,
-                )
+		if model.is_traditional_model:
+			# Traditional models now call get_data per fold for fold-aware standardization.
+			pass  # Dispatch inside fold loop below
+		else:
+			# Advanced models: require advanced_hpo config and pre-cache fold data
+			# This will raise ValueError if advanced_hpo is missing or invalid
+			advanced_hpo_cfg = cross_validation_config["advanced_hpo"]
+			# Convert normalized advanced_hpo into model-level hpo_config expected by _run_advanced_model_hpo
+			# Note: Parser provides both user-facing parameters (use_sampler, final_early_stop, objective_var, trials)
+			# and hardcoded Optuna-level defaults (train_fraction, timeout, sampler_seed, pruner_startup_trials, pruner_warmup_steps)
+			model_hpo_config = {
+				"enabled": True,
+				"n_trials": int(advanced_hpo_cfg["trials"]),
+				"timeout": advanced_hpo_cfg.get("timeout"),
+				"metric": advanced_hpo_cfg.get("metric", str(advanced_hpo_cfg.get("objective_var", "f1")).lower()),
+				"train_fraction": float(advanced_hpo_cfg.get("train_fraction", 0.8)),
+				"sampler_seed": advanced_hpo_cfg.get("sampler_seed"),
+				"pruner_startup_trials": advanced_hpo_cfg.get("pruner_startup_trials"),
+				"pruner_warmup_steps": advanced_hpo_cfg.get("pruner_warmup_steps"),
+				"use_sampler": bool(advanced_hpo_cfg["use_sampler"]),
+				"final_early_stop": bool(advanced_hpo_cfg["final_early_stop"]),
+				"class_weight": class_weight or "balanced",
+			}
 
-                fold_result, search = _run_traditional_model_cv_fold(
-                    model,
-                    X_train,
-                    y_train,
-                    X_test,
-                    y_test,
-                    fold_idx,
-                    random_seed,
-                    class_weight,
-                    feature_names=feature_names,
-                    traditional_hpo_config=traditional_hpo_config,
-                )
+			fold_cache = _cache_fold_data_for_advanced_models(
+				pipeline, model, num_splits, random_seed
+			)
+			X, y = None, None
 
-                # Save BayesSearchCV model in fold folder
-                fold_model_dir = fold_dir / "model.pkl"
-                with open(fold_model_dir, "wb") as f:
-                    joblib.dump(search, f)
-                logger.info(f"Saved fold {fold_idx} BayesSearchCV object to {fold_model_dir}")
-            else:
-                X_train, X_val, y_train, y_val, features = fold_cache[fold_idx]
+		for fold_idx in range(num_splits):
+			fold_dir = model_results_dir / f"fold_{fold_idx}"
+			fold_dir.mkdir(parents=True, exist_ok=True)
 
-                # Expose feature list to the wrapper for baseline down-selection
-                model.all_features = features
-                model.hpo_config = model_hpo_config
+			if model.is_traditional_model:
+				X_train, X_test, y_train, y_test, feature_names = pipeline.get_data(
+					model=model,
+					kfold_id=fold_idx,
+					num_splits=num_splits,
+					traditional_feature_selection="raw",
+					return_feature_names=True,
+				)
 
-                fold_result = _run_advanced_model_cv_fold(
-                    model=model,
-                    X_train=X_train,
-                    X_val=X_val,
-                    y_train=y_train,
-                    y_val=y_val,
-                    features=features,
-                    kfold_id=fold_idx,
-                    class_weight=class_weight,
-                    hpo_config=model_hpo_config,
-                    random_seed=random_seed,
-                    fold_dir=fold_dir,
-                )
+				fold_result, search = _run_traditional_model_cv_fold(
+					model,
+					X_train,
+					y_train,
+					X_test,
+					y_test,
+					fold_idx,
+					random_seed,
+					class_weight,
+					feature_names=feature_names,
+					traditional_hpo_config=traditional_hpo_config,
+				)
 
-            # Save fold metrics in fold folder
-            fold_dir.mkdir(parents=True, exist_ok=True)
-            fold_result_path = fold_dir / "fold_result.json"
-            with open(fold_result_path, "w") as f:
-                json.dump(fold_result, f, indent=4)
-            logger.info(f"Saved fold {fold_idx} metrics to {fold_result_path}")
+				# Save BayesSearchCV model in fold folder
+				fold_model_dir = fold_dir / "model.pkl"
+				with open(fold_model_dir, "wb") as f:
+					joblib.dump(search, f)
+				logger.info(f"Saved fold {fold_idx} BayesSearchCV object to {fold_model_dir}")
+			else:
+				X_train, X_val, y_train, y_val, features = fold_cache[fold_idx]
 
-            model_results.append(fold_result)
+				# Expose feature list to the wrapper for baseline down-selection
+				model.all_features = features
+				model.hpo_config = model_hpo_config
 
-        # Compute and save aggregated metrics
-        aggregated, median_fold_idx, median_f1 = _aggregate_cv_results(model_results)
-        summary_path = model_results_dir / "summary.json"
-        with open(summary_path, "w") as f:
-            json.dump(aggregated, f, indent=4)
-        logger.info(f"Saved aggregated CV summary to {summary_path}")
-        logger.info(f"Model {model.name} CV results: {aggregated}")
+				fold_result = _run_advanced_model_cv_fold(
+					model=model,
+					X_train=X_train,
+					X_val=X_val,
+					y_train=y_train,
+					y_val=y_val,
+					features=features,
+					kfold_id=fold_idx,
+					class_weight=class_weight,
+					hpo_config=model_hpo_config,
+					random_seed=random_seed,
+					fold_dir=fold_dir,
+				)
 
-        # Extract and save median fold hyperparameters and selected features
-        hyperparams = _extract_median_hyperparameters(median_fold_idx, median_f1, model_results)
-        hyperparams_path = model_results_dir / "median_hyperparameters.json"
-        with open(hyperparams_path, "w") as f:
-            json.dump(hyperparams, f, indent=4)
-        logger.info(
-            f"Saved median hyperparameters (fold {median_fold_idx}, F1={median_f1:.4f}) "
-            f"to {hyperparams_path}"
-        )
+			# Save fold metrics in fold folder
+			fold_dir.mkdir(parents=True, exist_ok=True)
+			fold_result_path = fold_dir / "fold_result.json"
+			with open(fold_result_path, "w") as f:
+				json.dump(fold_result, f, indent=4)
+			logger.info(f"Saved fold {fold_idx} metrics to {fold_result_path}")
 
-    logger.info(f"\nCross-validation complete. Results saved to {results_root_with_type}")
+			model_results.append(fold_result)
+
+		# Compute and save aggregated metrics
+		aggregated, median_fold_idx, median_f1 = _aggregate_cv_results(model_results)
+		summary_path = model_results_dir / "summary.json"
+		with open(summary_path, "w") as f:
+			json.dump(aggregated, f, indent=4)
+		logger.info(f"Saved aggregated CV summary to {summary_path}")
+		logger.info(f"Model {model.name} CV results: {aggregated}")
+
+		# Extract and save median fold hyperparameters and selected features
+		hyperparams = _extract_median_hyperparameters(median_fold_idx, median_f1, model_results)
+		hyperparams_path = model_results_dir / "median_hyperparameters.json"
+		with open(hyperparams_path, "w") as f:
+			json.dump(hyperparams, f, indent=4)
+		logger.info(
+			f"Saved median hyperparameters (fold {median_fold_idx}, F1={median_f1:.4f}) "
+			f"to {hyperparams_path}"
+		)
+
+	logger.info(f"\nCross-validation complete. Results saved to {results_root_with_type}")
 
 
 def _build_fold_result(
-        fold_idx: int,
-        metrics: Dict[str, float],
-        n_train: int,
-        n_val: int,
-        best_params: Dict[str, Any],
-        features: Optional[List[str]] = None
+		fold_idx: int,
+		metrics: Dict[str, float],
+		n_train: int,
+		n_val: int,
+		best_params: Dict[str, Any],
+		features: Optional[List[str]] = None
 ) -> Dict[str, Any]:
-    """Build a fold result dict with standard fields.
-    
-    Args:
-        fold_idx: Fold index
-        metrics: Dict of metric names to values
-        n_train: Number of training samples
-        n_val: Number of validation samples
-        features: Selected features (optional)
-        best_params: Best hyperparameters (optional)
-        
-    Returns:
-        Fold result dict with standard structure
-    """
-    fold_result = {
-        "fold": fold_idx,
-        "metrics": metrics,
-        "n_train": n_train,
-        "n_val": n_val,
-        "best_params": best_params,
-    }
+	"""Build a fold result dict with standard fields.
 
-    if features is not None:
-        fold_result["selected_features"] = features
+	Args:
+		fold_idx: Fold index
+		metrics: Dict of metric names to values
+		n_train: Number of training samples
+		n_val: Number of validation samples
+		features: Selected features (optional)
+		best_params: Best hyperparameters (optional)
 
-    return fold_result
+	Returns:
+		Fold result dict with standard structure
+	"""
+	fold_result = {
+		"fold": fold_idx,
+		"metrics": metrics,
+		"n_train": n_train,
+		"n_val": n_val,
+		"best_params": best_params,
+	}
+
+	if features is not None:
+		fold_result["selected_features"] = features
+
+	return fold_result
 
 
 def _aggregate_cv_results(
-        fold_results: List[Dict[str, Any]],
+		fold_results: List[Dict[str, Any]],
 ) -> Tuple[Dict[str, Any], int, float]:
-    """
-    Compute mean/std summary from all metrics and compute median fold based on F1 score.
+	"""
+	Compute mean/std summary from all metrics and compute median fold based on F1 score.
 
-    Parameters:
-        fold_results: List of dicts, each containing 'performance' dict with metrics for a fold
-    
-    Returns:
-        Tuple of (aggregated_metrics, median_fold_idx, median_f1)
-    """
-    metric_keys = ("accuracy", "precision", "recall", "f1", "specificity", "g_mean")
-    metric_values = {key: [] for key in metric_keys}
+	Parameters:
+		fold_results: List of dicts, each containing 'performance' dict with metrics for a fold
 
-    # Extract metrics for each fold
-    for fold_result in fold_results:
-        fold_performance = fold_result["metrics"]
-        for key in metric_keys:
-            metric_values[key].append(float(fold_performance[key]))
+	Returns:
+		Tuple of (aggregated_metrics, median_fold_idx, median_f1)
+	"""
+	metric_keys = ("accuracy", "precision", "recall", "f1", "specificity", "g_mean")
+	metric_values = {key: [] for key in metric_keys}
 
-    # Find median F1 score
-    f1_sorted = sorted(metric_values["f1"])
-    median_idx = len(f1_sorted) // 2
-    median_f1 = f1_sorted[median_idx]
+	# Extract metrics for each fold
+	for fold_result in fold_results:
+		fold_performance = fold_result["metrics"]
+		for key in metric_keys:
+			metric_values[key].append(float(fold_performance[key]))
 
-    # Find fold index with median F1 (use first if tie)
-    median_fold_idx = 0
-    for i, fold_result in enumerate(fold_results):
-        fold_f1 = float(fold_result["metrics"]["f1"])
-        if fold_f1 == median_f1:
-            median_fold_idx = i
-            break
+	# Find median F1 score
+	f1_sorted = sorted(metric_values["f1"])
+	median_idx = len(f1_sorted) // 2
+	median_f1 = f1_sorted[median_idx]
 
-    # Compute mean and std for each metric
-    aggregated = {}
-    for key in metric_keys:
-        values = metric_values[key]
-        aggregated[f"{key}_mean"] = float(np.mean(values))
-        aggregated[f"{key}_std"] = float(np.std(values))
+	# Find fold index with median F1 (use first if tie)
+	median_fold_idx = 0
+	for i, fold_result in enumerate(fold_results):
+		fold_f1 = float(fold_result["metrics"]["f1"])
+		if fold_f1 == median_f1:
+			median_fold_idx = i
+			break
 
-    # Add fold count
-    aggregated["num_folds"] = len(fold_results)
+	# Compute mean and std for each metric
+	aggregated = {}
+	for key in metric_keys:
+		values = metric_values[key]
+		aggregated[f"{key}_mean"] = float(np.mean(values))
+		aggregated[f"{key}_std"] = float(np.std(values))
 
-    return aggregated, median_fold_idx, median_f1
+	# Add fold count
+	aggregated["num_folds"] = len(fold_results)
+
+	return aggregated, median_fold_idx, median_f1
 
 
 def _extract_median_hyperparameters(
-        median_fold_idx: int,
-        median_f1: float,
-        fold_results: Optional[List[Dict[str, Any]]] = None,
+		median_fold_idx: int,
+		median_f1: float,
+		fold_results: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """Extract hyperparameters and feature info from the trained model.
-    
-    Args:
-        median_fold_idx: Index of the median fold
-        median_f1: F1 score of the median fold
-        fold_results: List of fold result dicts for extracting selected_features and best_params
-        
-    Returns:
-        Dict with fold_id, f1_score, best_params, selected_features (if traditional model)
-    """
-    result = {
-        "fold_id": median_fold_idx,
-        "f1_score": median_f1,
-        "best_params": {}
-    }
+	"""Extract hyperparameters and feature info from the trained model.
 
-    median_fold = fold_results[median_fold_idx]
-    result["best_params"] = median_fold["best_params"]
-    if "selected_features" in median_fold:  # For traditional models
-        result["selected_features"] = median_fold["selected_features"]
+	Args:
+		median_fold_idx: Index of the median fold
+		median_f1: F1 score of the median fold
+		fold_results: List of fold result dicts for extracting selected_features and best_params
 
-    return result
+	Returns:
+		Dict with fold_id, f1_score, best_params, selected_features (if traditional model)
+	"""
+	result = {
+		"fold_id": median_fold_idx,
+		"f1_score": median_f1,
+		"best_params": {}
+	}
+
+	median_fold = fold_results[median_fold_idx]
+	result["best_params"] = median_fold["best_params"]
+	if "selected_features" in median_fold:  # For traditional models
+		result["selected_features"] = median_fold["selected_features"]
+
+	return result
 
 
 def _cache_fold_data_for_advanced_models(
-        pipeline: DataPipeline,
-        model: BaseModel,
-        num_splits: int,
-        random_seed: int,
+		pipeline: DataPipeline,
+		model: BaseModel,
+		num_splits: int,
+		random_seed: int,
 ) -> Dict[int, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, List[str]]]:
-    """Pre-cache all fold data for an advanced model to avoid repeated pipeline calls.
-    
-    Instead of calling pipeline.get_data() per fold, we cache all folds upfront.
-    This is more efficient as it avoids redundant data loading/splitting.
-    
-    Args:
-        pipeline: DataPipeline instance
-        model: Advanced model instance
-        num_splits: Number of folds
-        random_seed: Random seed for reproducibility
-        
-    Returns:
-        Dict mapping fold_idx to (X_train, X_val, y_train, y_val, features) tuples
-    """
-    fold_cache = {}
-    for fold_idx in range(num_splits):
-        X_train, X_val, y_train, y_val, features = pipeline.get_data(
-            model=model, kfold_id=fold_idx, num_splits=num_splits
-        )
-        fold_cache[fold_idx] = (X_train, X_val, y_train, y_val, features)
+	"""Pre-cache all fold data for an advanced model to avoid repeated pipeline calls.
 
-    logger.info(f"Cached fold data for {model.name}: {num_splits} folds")
-    return fold_cache
+	Instead of calling pipeline.get_data() per fold, we cache all folds upfront.
+	This is more efficient as it avoids redundant data loading/splitting.
+
+	Args:
+		pipeline: DataPipeline instance
+		model: Advanced model instance
+		num_splits: Number of folds
+		random_seed: Random seed for reproducibility
+
+	Returns:
+		Dict mapping fold_idx to (X_train, X_val, y_train, y_val, features) tuples
+	"""
+	fold_cache = {}
+	for fold_idx in range(num_splits):
+		X_train, X_val, y_train, y_val, features = pipeline.get_data(
+			model=model, kfold_id=fold_idx, num_splits=num_splits
+		)
+		fold_cache[fold_idx] = (X_train, X_val, y_train, y_val, features)
+
+	logger.info(f"Cached fold data for {model.name}: {num_splits} folds")
+	return fold_cache
