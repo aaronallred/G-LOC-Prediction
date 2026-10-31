@@ -46,6 +46,27 @@ def test_connect_require_all_waits_until_streams_exist():
 
 
 @needs_session
+def test_connect_survives_a_stream_that_cannot_be_opened(monkeypatch):
+    import pylsl
+
+    streamer = SingleSubjectLSLStreamer(
+        SESSION_142_DIR, playback_speed=0.0, max_rows_per_stream=5000, source_id_prefix="TEST_ONSITE_3_"
+    )
+    pre = RealTimeDataPreprocessor(stream_names=NAMES)
+    try:
+        def stale(self, timeout=0.0, **kw):  # what a stream whose outlet just died looks like
+            raise pylsl.util.TimeoutError("the operation failed due to a timeout.")
+
+        monkeypatch.setattr(pylsl.StreamInlet, "open_stream", stale)
+        assert pre.connect(timeout=0.5, require_all=True) is False and pre.inlets == {}
+        monkeypatch.undo()
+        assert pre.connect(timeout=1.0, require_all=True) is True  # retries once the stream is usable
+    finally:
+        pre.close()
+        streamer.close()
+
+
+@needs_session
 @needs_model
 def test_live_samples_put_each_sensor_in_its_own_column():
     raw = json.load(open(ARTIFACTS_PATH))["raw_feature_names"]

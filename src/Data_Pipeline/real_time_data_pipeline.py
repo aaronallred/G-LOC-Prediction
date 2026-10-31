@@ -1090,7 +1090,11 @@ class RealTimeDataPreprocessor:
 
             if streams:
                 inlet = pylsl.StreamInlet(streams[0], max_buflen=3600, max_chunklen=1024)
-                inlet.open_stream(timeout=timeout)
+                try:
+                    inlet.open_stream(timeout=timeout)
+                except pylsl.util.TimeoutError:  # e.g. a just-stopped outlet is still advertised
+                    logger.warning(f"Could not open LSL stream for {modality} ('{name}'), will retry")
+                    continue
                 self.inlets[modality] = inlet
                 logger.info(f"Connected LSL inlet for {modality} -> '{streams[0].name()}'")
             else:

@@ -195,9 +195,10 @@ def run_on_site_real_time_equivital(
                 n_gloc += pred
                 label = "██ G-LOC ██" if pred else "   normal   "
                 log_event("PREDICTION",
-                          console=f"{label} {total:5.1f} ms = preproc {preproc_ms:.1f} + features {feat_ms:.1f} "
-                                  f"+ model {model_ms:.1f}   sensors {flags or 'OK'}",
-                          pred=pred, sensor_flags=flags, preproc_ms=f"{preproc_ms:.2f}",
+                          console=f"{'FLAG' if flags else '  ok'} | {label}  sensors {flags or 'OK'}  "
+                                  f"{total:5.1f} ms = preproc {preproc_ms:.1f} + features {feat_ms:.1f} "
+                                  f"+ model {model_ms:.1f}",
+                          pred=f"{'F' if flags else '-'}|{'G' if pred else '-'}", sensor_flags=flags, preproc_ms=f"{preproc_ms:.2f}",
                           features_ms=f"{feat_ms:.2f}", model_ms=f"{model_ms:.2f}", total_ms=f"{total:.2f}",
                           live=[f"{s[i]:.4f}" for i in live_idx])
                 if flags != prev_flags:
