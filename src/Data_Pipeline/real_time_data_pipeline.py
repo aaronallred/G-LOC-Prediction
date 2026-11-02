@@ -565,12 +565,14 @@ def _preprocessor_process_worker(
     stop_event: Any,
     stream_finished_event: Optional[Any] = None,
     max_stream_samples: Optional[int] = None,
+    ramp_vitals: bool = True,
 ) -> None:
     pin_process_to_core(1)
 
     preprocessor = RealTimeDataPreprocessor(
         raw_feature_names=raw_feature_names,
         stream_names=stream_names,
+        ramp_vitals=ramp_vitals,
     )
     sample_count = 0
     try:
@@ -1011,8 +1013,10 @@ class RealTimeDataPreprocessor:
         raw_feature_names: Optional[Sequence[str]] = None,
         stream_names: Optional[Dict[str, str]] = None,
         target_freq: float = 25.0,
+        ramp_vitals: bool = True,
     ) -> None:
         self.raw_feature_names = list(raw_feature_names or self.DEFAULT_RAW_FEATURES)
+        self.ramp_vitals = bool(ramp_vitals)  # False: hold each reading until the next one (no linear ramp)
         self.target_freq = float(target_freq)
         self.dt_target = 1.0 / self.target_freq
 
@@ -1239,7 +1243,7 @@ class RealTimeDataPreprocessor:
                 ("wavg", self._latest_hr_w_average),
             ):
                 self._ramps[key].update(raw, self._target_t)
-            r = {k: v.at(self._target_t) for k, v in self._ramps.items()}
+            r = {k: (v.at(self._target_t) if self.ramp_vitals else v.target) for k, v in self._ramps.items()}
 
             feat_map = {
                 "HR (bpm) - Equivital": r["hr"],
@@ -1302,6 +1306,7 @@ class RealTimeDataPreprocessor:
                 self._stop_event,
                 stream_finished_event,
                 max_stream_samples,
+                self.ramp_vitals,
             ),
             daemon=True,
         )

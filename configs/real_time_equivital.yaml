@@ -23,6 +23,7 @@ traditional_data_parameters:
 real_time_equivital:
   enabled: true
   use_preprocessor: true
+  ramp_vitals: false   # true: linearly ramp HR/BR/temp/HR_* toward each new reading; false: hold (original behavior)
   session_dir: "Extra spin data/149_HSP_Training_HSP_154_20260511_134732"
   trial_id: null
   model_type: !ModelType [ Complete, Explicit ]
@@ -30,9 +31,9 @@ real_time_equivital:
   models: [ EGB ]
   num_splits: 10
   streams:
-    - [ RealTimeEquivitalNoHRDeriv ]
+    - [ RealTimeEquivitalNoDeriv ]
   manual_ablation: true
   class_weight: null
-  saved_models_folder: Results/Sensor_Ablation_Real_Time_No_HR_Derivatives
-  save_results_folder: Results/Real_Time_Prediction_Latency_No_HR_Derivatives_Trial_149
+  saved_models_folder: Results/Sensor_Ablation_Real_Time_No_Derivatives
+  save_results_folder: Results/Real_Time_Prediction_Latency_No_Derivatives_Trial_149
   use_real_time_sleep: true

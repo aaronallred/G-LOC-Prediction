@@ -422,6 +422,7 @@ def _run_real_time_with_preprocessor(
     preprocessor = RealTimeDataPreprocessor(
         raw_feature_names=rt_pipeline.raw_feature_names,
         stream_names=streamer.stream_names,
+        ramp_vitals=bool(config.get("real_time_equivital", {}).get("ramp_vitals", True)),
     )
     preprocessor.start(
         sample_queue=sample_queue,
