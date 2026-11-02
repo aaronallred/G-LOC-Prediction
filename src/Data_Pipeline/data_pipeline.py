@@ -443,7 +443,18 @@ class BaseGLOCDataPipeline(ABC):
 			"centrifuge_v0",
 			"hrv",
 		),
+		# Same as RealTimeEquivital, minus derivatives of the ECG-derived HR signals (see _apply_sensor_ablation)
+		"RealTimeEquivitalNoHRDeriv": (
+			"equivital_v0",
+			"equivital_v1",
+			"equivital_v2",
+			"centrifuge_v0",
+			"hrv",
+		),
 	}
+
+	# Signals whose derivative features are dropped for the "RealTimeEquivitalNoHRDeriv" stream
+	_NO_DERIVATIVE_SIGNALS = ("hr_instant", "hr_average", "hr_w_average")
 
 	def __init__(
 		self,
@@ -938,6 +949,13 @@ class BaseGLOCDataPipeline(ABC):
 			for feature_name in selected_features
 			if any(kw in feature_name.lower() for kw in search_substrings)
 		]
+
+		if "RealTimeEquivitalNoHRDeriv" in requested_streams:
+			matched_features = [
+				f
+				for f in matched_features
+				if not ("derivative" in f.lower() and f.lower().startswith(self._NO_DERIVATIVE_SIGNALS))
+			]
 
 		if not matched_features:
 			raise ValueError(
