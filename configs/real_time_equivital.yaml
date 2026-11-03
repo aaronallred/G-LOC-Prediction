@@ -31,9 +31,9 @@ real_time_equivital:
   models: [ EGB ]
   num_splits: 10
   streams:
-    - [ RealTimeEquivitalNoDeriv ]
+    - [ RealTimeEquivital ]
   manual_ablation: true
   class_weight: null
-  saved_models_folder: Results/Sensor_Ablation_Real_Time_No_Derivatives
-  save_results_folder: Results/Real_Time_Prediction_Latency_No_Derivatives_Trial_149
+  saved_models_folder: Results/Sensor_Ablation_Real_Time_On_Site
+  save_results_folder: Results/Real_Time_Prediction_Latency_High_Derivatives_Trial_149
   use_real_time_sleep: true

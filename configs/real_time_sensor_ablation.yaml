@@ -23,7 +23,7 @@ traditional_data_parameters:
 sensor_ablation:
   training:
     enabled: true
-    save_results_folder: Results/Sensor_Ablation_Real_Time_No_Derivatives
+    save_results_folder: Results/Sensor_Ablation_Real_Time_High_Derivatives
     median_hyperparameters_folder: Results/Cross_Validation
     models: [ EGB ]
     model_type: !ModelType [ Complete, Explicit ]
@@ -33,21 +33,3 @@ sensor_ablation:
     class_weight: null
     streams:
       - [ RealTimeEquivitalNoDeriv ]
-
-real_time_equivital:
-  enabled: true
-  use_preprocessor: true
-  ramp_vitals: false   # true: linearly ramp HR/BR/temp/HR_* toward each new reading; false: hold (original behavior)
-  session_dir: "Extra spin data/149_HSP_Training_HSP_154_20260511_134732"
-  trial_id: null
-  model_type: !ModelType [ Complete, Explicit ]
-  random_seed: 42
-  models: [ EGB ]
-  num_splits: 10
-  streams:
-    - [ RealTimeEquivitalNoDeriv ]
-  manual_ablation: true
-  class_weight: null
-  saved_models_folder: Results/Sensor_Ablation_Real_Time_No_Derivatives
-  save_results_folder: Results/Real_Time_Prediction_Latency_No_Derivatives_Trial_149
-  use_real_time_sleep: true
