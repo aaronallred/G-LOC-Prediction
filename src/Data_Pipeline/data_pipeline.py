@@ -1771,29 +1771,54 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		)
 
 		# Fold split on the windowed labels (deterministic given random_seed).
-		if eval_data_filename: 
-			train_mask_pre=~np.isin(_trial_id_pre, list(eval_trial_ids))
+		if eval_data_filename:
+			train_mask_pre = ~np.isin(_trial_id_pre, list(eval_trial_ids))
 		elif extended_data:
-				skf = StratifiedGroupKFold(n_splits=num_splits, shuffle=True, random_state=self.random_seed)
-				y_flat = _y_pre.ravel().astype(int)
-				old_max_subject = max(self._EEG_PARTICIPANT_TRIALS)
-				subject_pre = np.array([int(str(t).split("-")[0]) for t in _trial_id_pre])
-				new_pos = np.flatnonzero(subject_pre > old_max_subject)
-				if new_pos.size==0:
-						raise ValueError("No new subjects found in the data for extended_data=True. Check your trial IDs.")
-				_train_idx_pre, _test_idx_pre = next(
-					islice(skf.split(new_pos, y_flat[new_pos], groups=_trial_id_pre[new_pos]), kfold_id, kfold_id + 1))
-				train_mask_pre = np.ones(_y_pre.shape[0], dtype=bool)
-				train_mask_pre[_train_idx_pre] = True
+			skf = StratifiedGroupKFold(n_splits=num_splits, shuffle=True, random_state=self.random_seed)
+			y_flat = _y_pre.ravel().astype(int)
+			old_max_subject = max(self._EEG_PARTICIPANT_TRIALS)
+			subject_pre = np.array([int(str(t).split("-")[0]) for t in _trial_id_pre])
+			new_mask = subject_pre > old_max_subject
+			# when ECG Lead 2 is included, ~88% of new trials have it entirely NaN, and
+			# those lose every window in _process_NaN_temporal. Only let trials that can
+			# survive be chosen as test, so the test fold is never empty.
+			lead2_included = not any("lead 2" in p.lower() for p in (exclude_streams or []))
+			if lead2_included:
+				n_cols = next(iter(combined_baseline.values())).shape[1]
+				dead_cols = np.ones(n_cols, dtype=bool)
+				for arr in combined_baseline.values():
+					dead_cols &= np.isnan(arr).all(axis=0)
+				usable = [
+					t for t, arr in combined_baseline.items()
+					if not np.isnan(arr[:, ~dead_cols]).all(axis=0).any()
+				]
+				new_mask &= np.isin(_trial_id_pre, usable)
+				n_new_usable = len({str(t) for t in _trial_id_pre[new_mask]})
+				print(f"Usable new trials (have Lead 2): {n_new_usable}")
+
+			new_pos = np.flatnonzero(new_mask)
+			if new_pos.size == 0:
+				raise ValueError("No usable new-subject trials found for extended_data=True. Check your trial IDs / excluded streams.")
+			n_groups = len({str(t) for t in _trial_id_pre[new_pos]})
+			if n_groups < num_splits:
+				raise ValueError(
+					f"Only {n_groups} usable new trials but num_splits={num_splits}. Lower num_splits to {n_groups} or fewer."
+				)
+
+			_train_idx_pre, _test_idx_pre = next(
+				islice(skf.split(new_pos, y_flat[new_pos], groups=_trial_id_pre[new_pos]), kfold_id, kfold_id + 1)
+			)
+			# Everything is train (old subjects + unused new trials) except this fold's test trials
+			train_mask_pre = np.ones(_y_pre.shape[0], dtype=bool)
+			train_mask_pre[new_pos[_test_idx_pre]] = False
 		else:
 			from sklearn.model_selection import StratifiedKFold
 			skf = StratifiedKFold(n_splits=num_splits, shuffle=True, random_state=self.random_seed)
 			_train_idx_pre, _test_idx_pre = next(
-						islice(skf.split(_y_pre, _y_pre.ravel()), kfold_id, kfold_id + 1)
-					)
+				islice(skf.split(_y_pre, _y_pre.ravel()), kfold_id, kfold_id + 1)
+			)
 			train_mask_pre = np.zeros(_y_pre.shape[0], dtype=bool)
 			train_mask_pre[_train_idx_pre] = True
-
 		
 		gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], _trial_id_per_row = (
 			self._feature_generation(
@@ -1937,36 +1962,47 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 				f"NaN processing (train={train_idx.size}, test={test_idx.size})."
 			)
 
-		trial_post=_trial_id_pre[survivor_mask_pre]
-		y_post=_y_pre.ravel()[survivor_mask_pre]
+		trial_post = _trial_id_pre[survivor_mask_pre]
+		y_post = _y_pre.ravel()[survivor_mask_pre]
 		win_post = pd.Series(_trial_id_pre).groupby(_trial_id_pre, sort=False).cumcount().to_numpy()[survivor_mask_pre]
 		old_max_subject = max(self._EEG_PARTICIPANT_TRIALS)
-		subject_post = np.array([int(str(t).split("_")[0]) for t in trial_post])
-		train_trials=set(trial_post[train_idx])
-		test_trials=set(trial_post[test_idx])
+		subject_post = np.array([int(str(t).split("-")[0]) for t in trial_post])
+		train_trials = set(trial_post[train_idx])
+		test_trials = set(trial_post[test_idx])
 		if extended_data and not eval_data_filename:
-			old_in_test = sorted([t for t in test_trials if int(str(t).split("_")[0]) <= old_max_subject])
+			old_in_test = sorted(
+				t for t in test_trials if int(str(t).split("-")[0]) <= old_max_subject
+			)
 			assert not old_in_test, f"Extended data split has old subjects in test: {old_in_test}"
 		if eval_data_filename or extended_data:
 			split_report = pd.DataFrame({
-							"trial": trial_post.astype(str),
-							"subject": subject_post,
-							"is_new": subject_post > old_max_subject,
-							"window_in_trial": win_post,
-							"window_time_s": time_start + win_post * stride,
-							"split": np.where(train_mask_post, "train", "test"),
-							"GLOC": (y_post > 0).astype(int),
-							"test_row": -1,
+				"trial": trial_post.astype(str),
+				"subject": subject_post,
+				"is_new": subject_post > old_max_subject,
+				"window_in_trial": win_post,
+				"window_time_s": time_start + win_post * stride,
+				"split": np.where(train_mask_post, "train", "test"),
+				"GLOC": (y_post > 0).astype(int),
+				"test_row": -1,
 			})
-			split_report.loc[test_idx, "test_row"] = np.arrange(len(test_idx))
-			summary = (split_report.groupby(["trial", "split"]).agg(n_windows=("gloc", "size"), n_gloc=("gloc", "sum")).unstack(fill_value=0))
+			split_report.loc[test_idx, "test_row"] = np.arange(len(test_idx))
+			summary = (
+				split_report.groupby(["trial", "split"])
+				.agg(n_windows=("GLOC", "size"), n_gloc=("GLOC", "sum"))
+				.unstack(fill_value=0)
+			)
 			print(f"Test trials ({len(test_trials)}): {sorted(test_trials)}")
 			print(summary.to_string())
-			print(f"Test windows: {len(test_idx)} ({int(y_post[test_idx].sum())} GLOC) | "
-				  f"Train windows: {len(train_idx)} ({int(y_post[train_idx].sum())} GLOC)")
-			out_dir= Path(_resolve_from_source_dir(self.config.get("sensor_ablation", {}).get("save_results_folder", "Results")))/"split_reports"
+			print(
+				f"Test windows: {len(test_idx)} ({int(y_post[test_idx].sum())} GLOC) | "
+				f"Train windows: {len(train_idx)} ({int(y_post[train_idx].sum())} GLOC)"
+			)
+			out_dir = Path(_resolve_from_source_dir(
+				self.config.get("sensor_ablation", {}).get("training", {}).get("save_results_folder", "Results")
+			)) / "split_reports"
 			out_dir.mkdir(parents=True, exist_ok=True)
-			split_report.to_csv(out_dir/f"{classifier_type}_fold{kfold_id}.csv", index=False)
+			split_report.to_csv(out_dir / f"{classifier_type}_fold{kfold_id}.csv", index=False)
+
 			# if overlap:
 			# 		print(f"WARNING: Overlap detected between train and test trials: {sorted(overlap)}")
 			
