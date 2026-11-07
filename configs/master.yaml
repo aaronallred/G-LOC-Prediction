@@ -4,7 +4,7 @@ shared_data_parameters:
   trial_to_analyze: null
   analysis_type: 2
   remove_NaN_trials: true
-  impute_file_name: imputed_data.pkl
+  impute_file_name: imputed_data.pkl  #need to rethink these as not used current in trad pipeline (but can be for adv)
   save_impute: false
   load_impute: false
   impute_phase: pre_feature

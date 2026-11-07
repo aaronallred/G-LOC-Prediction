@@ -1,4 +1,5 @@
 import numpy as np
+import json
 import pytest
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
@@ -879,4 +880,55 @@ def test_traditional_preprocessing_artifacts_contain_no_knn_imputer(tmp_path, mo
 	assert "knn_imputer" not in artifacts
 	assert "s2_global_mean" in artifacts
 	assert "active_feature_names" in artifacts
+
+def test_get_data_forwards_traditional_horizons(monkeypatch):
+    pipeline = DataPipeline(_make_config())
+    pipeline.set_model_type(ModelType("Complete", "Explicit"))
+    backend = CapturingBackend("temporal-ok")
+    monkeypatch.setattr(pipeline, "_build_backend", lambda _model: backend)
+
+    pipeline.get_data(model=DummyModel(is_traditional=True, name="RF"), kfold_id=0, num_splits=5,
+                      traditional_feature_selection="raw", horizons={0: 0, 2: 50})
+
+    assert backend.calls[0]["horizons"] == {0: 0, 2: 50}
+
+
+def test_get_data_forwards_advanced_horizons(monkeypatch):
+    pipeline = DataPipeline(_make_config())
+    pipeline.set_model_type(ModelType("Complete", "Explicit"))
+    backend = CapturingBackend("advanced-ok")
+    monkeypatch.setattr(pipeline, "_build_backend", lambda _model: backend)
+
+    pipeline.get_data(model=DummyModel(is_traditional=False, name="LSTM"), kfold_id=0, num_splits=5,
+                      horizons={0: 0, 1.5: 37})
+
+    assert backend.calls[0]["horizons"] == {0: 0, 1.5: 37}
+
+
+def test_window_labels_only_matches_gen_windowed_label_metadata():
+    from src.Data_Pipeline.data_pipeline import TraditionalDataPipeline
+    pipeline = TraditionalDataPipeline(data_path="/tmp/data", config=_make_config())
+    data_rate, seconds = 25, 60
+    n = data_rate * seconds
+    trial_ids = ["01-01", "01-02"]
+    trial_column = np.repeat(trial_ids, n)
+    time_column = np.tile(np.arange(n) / data_rate, len(trial_ids))
+    rng = np.random.default_rng(0)
+    combined_baseline = {trial_id: rng.normal(size=(n, 3)) for trial_id in trial_ids}
+    gloc = np.zeros(n * len(trial_ids))
+    gloc[40 * data_rate:45 * data_rate] = 1
+    gloc[n + 30 * data_rate:n + 33 * data_rate] = 1
+    shifted = pipeline._shift_labels_by_samples(gloc, trial_column, 2 * data_rate)
+
+    for labels in (gloc, shifted):
+        expected, _ = pipeline._gen_windowed_label_metadata(
+            0.0, 0.0, 0.25, 12.5, combined_baseline, labels, trial_column, time_column, ["a", "b", "c"]
+        )
+        actual = pipeline._window_labels_only(0.0, 0.0, 0.25, 12.5, labels, trial_column, time_column)
+        np.testing.assert_array_equal(actual, expected)
+
+    assert not np.array_equal(
+        pipeline._window_labels_only(0.0, 0.0, 0.25, 12.5, gloc, trial_column, time_column),
+        pipeline._window_labels_only(0.0, 0.0, 0.25, 12.5, shifted, trial_column, time_column),
+    )
 

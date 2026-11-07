@@ -1,0 +1,53 @@
+# Temporal evaluation for the legacy traditional models (Complete Explicit) using legacy median CV hyperparameters.
+data_path: ./data/
+main_data_file: all_trials_25_hz_stacked_null_str_filled_reduced.csv
+
+shared_data_parameters:
+  subject_to_analyze: null
+  trial_to_analyze: null
+  analysis_type: 2
+  remove_NaN_trials: true
+  impute_phase: none
+  output_feature_dtype: float32
+
+advanced_data_parameters:
+  n_neighbors: 4
+  baseline_window: 32.5
+  horizon: 0
+
+traditional_data_parameters:
+  backstep: 0
+  data_rate: 25
+  offset: 0
+  time_start: 0
+
+temporal_evaluation:
+  training:
+    enabled: true
+    models: [LogReg, SVM]           # fastest first; a failure stops the remaining models
+    model_type: !ModelType [Complete, Explicit]
+    horizons: {start: 0, stop: 20, step: 1}       # legacy sweep was 0-20 s
+    num_splits: 10
+    random_seed: 42
+    class_weight: null
+    median_hyperparameters_folder: Results/Legacy_CV
+    save_results_folder: Results/Traditional_Temporal
+    save_models: false
+  review:
+    enabled: true
+    models: [LDA, RF, KNN, LogReg, SVM, XGB]
+
+    model_type: !ModelType [Complete, Explicit]
+    save_results_folder: Results/Traditional_Temporal   # must match training's save_results_folder
+    error_type: range
+    show_plots: true
+
+cross_validation:
+  enabled: false
+sensor_ablation:
+  training:
+    enabled: false
+  review:
+    enabled: false
+feature_space_review:
+  enabled: false

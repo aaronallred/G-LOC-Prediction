@@ -11,6 +11,7 @@ from .modes.feature_space_review import run_feature_space_review
 from .modes.real_time_equivital import run_real_time_equivital
 from .modes.sensor_ablation import run_sensor_ablation_review, run_sensor_ablation_training
 from .modes.shap_analysis import run_shap_analysis
+from .modes.temporal_evaluation import run_temporal_evaluation_review, run_temporal_evaluation_training
 
 
 def _try_enable_cuml_acceleration() -> None:
@@ -111,6 +112,22 @@ def run(config_path: str) -> None:
                 project_root=project_root_path,
             ),
         ),
+        (
+            bool(config.get("temporal_evaluation", {}).get("training", {}).get("enabled", False)),
+            lambda: run_temporal_evaluation_training(
+                config=config,
+                pipeline=data_pipeline,
+                model_factory=model_factory,
+                project_root_path=project_root_path,
+            ),
+        ),
+        (
+            bool(config.get("temporal_evaluation", {}).get("review", {}).get("enabled", False)),
+            lambda: run_temporal_evaluation_review(
+                config=config,
+                project_root_path=project_root_path,
+            ),
+        ),
     ]
 
     for is_enabled, runner in mode_runners:
@@ -122,7 +139,8 @@ def run(config_path: str) -> None:
         logging.info(
             "No runnable mode enabled. Set real_time_equivital.enabled, "
             "sensor_ablation.training.enabled, sensor_ablation.review.enabled, "
-            "feature_space_review.enabled, or cross_validation.enabled to true in the config."
+            "feature_space_review.enabled, temporal_evaluation.training.enabled, "
+            "temporal_evaluation.review.enabled, or cross_validation.enabled to true in the config."
         )
 
 
