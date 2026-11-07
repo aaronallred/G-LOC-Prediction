@@ -956,32 +956,6 @@ class SingleSubjectLSLStreamer:
         self.close()
 
 
-class _RampedValue:
-    """Linearly approaches the latest reading, reaching it when the next reading is due (one interval later)."""
-
-    def __init__(self, value: float) -> None:
-        self.start = self.target = float(value)
-        self.t0: Optional[float] = None
-        self.t_last: Optional[float] = None
-        self.dur = 1.0
-
-    def update(self, value: float, t: float) -> None:
-        if value == self.target:
-            return
-        if self.t_last is None:
-            self.start = float(value)  # first reading: snap
-        else:
-            self.dur = max(t - self.t_last, 1e-3)
-            self.start = self.at(t)  # continue from the current ramped value
-        self.target = float(value)
-        self.t0 = self.t_last = t
-
-    def at(self, t: float) -> float:
-        if self.t0 is None:
-            return self.target
-        return self.start + (self.target - self.start) * min(1.0, (t - self.t0) / self.dur)
-
-
 class RealTimeDataPreprocessor:
     """Ingests multi-rate LSL streams, replicates preprocessing, and emits 25 Hz feature samples.
 
@@ -1042,12 +1016,6 @@ class RealTimeDataPreprocessor:
         self._latest_hr_instant: float = 80.0
         self._latest_hr_average: float = 80.0
         self._latest_hr_w_average: float = 80.0
-
-        # Smoothly ramped outputs for readings that only update every few seconds / once per beat
-        self._ramps = {
-            k: _RampedValue(v)
-            for k, v in (("hr", 80.0), ("br", 15.0), ("temp", 33.0), ("inst", 80.0), ("avg", 80.0), ("wavg", 80.0))
-        }
 
         # R-peak detection state
         self._last_peak_t: Optional[float] = None
@@ -1230,26 +1198,15 @@ class RealTimeDataPreprocessor:
             ecg1_val = self._interpolate_buffer(self._ecg_buffer, self._target_t)
             ecg2_val = self._interpolate_buffer(self._ecg2_buffer, self._target_t)
 
-            for key, raw in (
-                ("hr", self._latest_hr),
-                ("br", self._latest_br),
-                ("temp", self._latest_skin_temp),
-                ("inst", self._latest_hr_instant),
-                ("avg", self._latest_hr_average),
-                ("wavg", self._latest_hr_w_average),
-            ):
-                self._ramps[key].update(raw, self._target_t)
-            r = {k: v.at(self._target_t) for k, v in self._ramps.items()}
-
             feat_map = {
-                "HR (bpm) - Equivital": r["hr"],
+                "HR (bpm) - Equivital": self._latest_hr,
                 "ECG Lead 1 - Equivital": ecg1_val,
                 "ECG Lead 2 - Equivital": ecg2_val,
-                "HR_instant - Equivital": r["inst"],
-                "HR_average - Equivital": r["avg"],
-                "HR_w_average - Equivital": r["wavg"],
-                "BR (rpm) - Equivital": r["br"],
-                "Skin Temperature - IR Thermometer (°C) - Equivital": r["temp"],
+                "HR_instant - Equivital": self._latest_hr_instant,
+                "HR_average - Equivital": self._latest_hr_average,
+                "HR_w_average - Equivital": self._latest_hr_w_average,
+                "BR (rpm) - Equivital": self._latest_br,
+                "Skin Temperature - IR Thermometer (°C) - Equivital": self._latest_skin_temp,
                 "magnitude - Centrifuge": mag_val,
             }
 

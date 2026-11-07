@@ -27,7 +27,11 @@ on_site_real_time_equivital:
   stream_group: [ RealTimeEquivital ]
   fold: 0
   saved_models_folder: Results/Sensor_Ablation_Real_Time_On_Site
-  save_results_folder: Results/On_Site_Real_Time
-  stream_names: { system_data: SystemData, ecg: ECG_EQ02, summary: Summary_EQ02 }
-  timeouts_s: { system_data: 3, ecg: 3, summary: 15 }   # silence before CONNECTION_LOST
-  stale_vital_s: 15                                     # HR/BR/skin temp with no valid update => flagged
+  save_results_folder: Results/On_Site_Real_Time_No_Derivatives
+  stream_names:
+    system_data: "SystemData"
+    ecg: "ECG_EQ02_0819299"
+    summary: "Summary_EQ02_0819299"
+    accel: "Accel_EQ02_0819299"
+  timeouts_s: { system_data: 3, ecg: 3, summary: 15, accel: 5 }   # silence before CONNECTION_LOST
+  stale_vital_s: 15                                     # HR/BR/skin temp with no valid update => flagge

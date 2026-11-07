@@ -435,7 +435,8 @@ class BaseGLOCDataPipeline(ABC):
 		"Strain": ("strain",),
 		"Participant": ("participant_",),
 		"Demographics": ("participant_",),
-		# Only v0/v1/v2 Equivital + Centrifuge features and HRV (no v5/v6, no participant_*)
+		# Only v0/v1/v2 Equivital + Centrifuge features and HRV (no v5/v6, no participant_*) and no
+		# derivatives of the slow vitals (see _NO_DERIVATIVE_SIGNALS)
 		"RealTimeEquivital": (
 			"equivital_v0",
 			"equivital_v1",
@@ -444,6 +445,16 @@ class BaseGLOCDataPipeline(ABC):
 			"hrv",
 		),
 	}
+
+	# Signals whose derivative features are dropped for the "RealTimeEquivital" stream
+	_NO_DERIVATIVE_SIGNALS = (
+		"hr_instant",
+		"hr_average",
+		"hr_w_average",
+		"hr (bpm)",
+		"br (rpm)",
+		"skin temperature",
+	)
 
 	def __init__(
 		self,
@@ -938,6 +949,13 @@ class BaseGLOCDataPipeline(ABC):
 			for feature_name in selected_features
 			if any(kw in feature_name.lower() for kw in search_substrings)
 		]
+
+		if "RealTimeEquivital" in requested_streams:
+			matched_features = [
+				f
+				for f in matched_features
+				if not ("derivative" in f.lower() and f.lower().startswith(self._NO_DERIVATIVE_SIGNALS))
+			]
 
 		if not matched_features:
 			raise ValueError(
