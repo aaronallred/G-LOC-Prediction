@@ -1771,14 +1771,22 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		)
 
 		# Fold split on the windowed labels (deterministic given random_seed).
+		extended_test_on = self.config.get("shared_data_parameters", {}).get("extended_test_on", "new")
+
 		if eval_data_filename:
 			train_mask_pre = ~np.isin(_trial_id_pre, list(eval_trial_ids))
 		elif extended_data:
+			if extended_test_on not in ("new", "all"):
+				raise ValueError(f"extended_test_on must be 'new' or 'all', got {extended_test_on!r}")
 			skf = StratifiedGroupKFold(n_splits=num_splits, shuffle=True, random_state=self.random_seed)
 			y_flat = _y_pre.ravel().astype(int)
 			old_max_subject = max(self._EEG_PARTICIPANT_TRIALS)
 			subject_pre = np.array([int(str(t).split("-")[0]) for t in _trial_id_pre])
-			new_mask = subject_pre > old_max_subject
+			is_new_pre = subject_pre > old_max_subject
+
+			# Which windows may be chosen as test: new trials only, or old + new
+			pool_mask = is_new_pre.copy() if extended_test_on == "new" else np.ones_like(is_new_pre)
+
 			# when ECG Lead 2 is included, ~88% of new trials have it entirely NaN, and
 			# those lose every window in _process_NaN_temporal. Only let trials that can
 			# survive be chosen as test, so the test fold is never empty.
@@ -1792,25 +1800,27 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 					t for t, arr in combined_baseline.items()
 					if not np.isnan(arr[:, ~dead_cols]).all(axis=0).any()
 				]
-				new_mask &= np.isin(_trial_id_pre, usable)
-				n_new_usable = len({str(t) for t in _trial_id_pre[new_mask]})
-				print(f"Usable new trials (have Lead 2): {n_new_usable}")
+				pool_mask &= np.isin(_trial_id_pre, usable)
+				n_usable_new = len({str(t) for t in _trial_id_pre[pool_mask & is_new_pre]})
+				print(f"Usable new trials (have Lead 2): {n_usable_new}")
 
-			new_pos = np.flatnonzero(new_mask)
-			if new_pos.size == 0:
-				raise ValueError("No usable new-subject trials found for extended_data=True. Check your trial IDs / excluded streams.")
-			n_groups = len({str(t) for t in _trial_id_pre[new_pos]})
+			pool = np.flatnonzero(pool_mask)
+			if pool.size == 0:
+				raise ValueError("No usable trials found for extended_data=True. Check your trial IDs / excluded streams.")
+			n_groups = len({str(t) for t in _trial_id_pre[pool]})
 			if n_groups < num_splits:
 				raise ValueError(
-					f"Only {n_groups} usable new trials but num_splits={num_splits}. Lower num_splits to {n_groups} or fewer."
+					f"Only {n_groups} usable trials in the test pool ({extended_test_on}) but num_splits={num_splits}. "
+					f"Lower num_splits to {n_groups} or fewer."
 				)
 
 			_train_idx_pre, _test_idx_pre = next(
-				islice(skf.split(new_pos, y_flat[new_pos], groups=_trial_id_pre[new_pos]), kfold_id, kfold_id + 1)
+				islice(skf.split(pool, y_flat[pool], groups=_trial_id_pre[pool]), kfold_id, kfold_id + 1)
 			)
-			# Everything is train (old subjects + unused new trials) except this fold's test trials
+			# Everything is train (including trials outside the pool) except this fold's test trials
 			train_mask_pre = np.ones(_y_pre.shape[0], dtype=bool)
-			train_mask_pre[new_pos[_test_idx_pre]] = False
+			train_mask_pre[pool[_test_idx_pre]] = False
+			assert train_mask_pre[~pool_mask].all(), "trials outside the test pool must all be train"
 		else:
 			from sklearn.model_selection import StratifiedKFold
 			skf = StratifiedKFold(n_splits=num_splits, shuffle=True, random_state=self.random_seed)
@@ -1819,7 +1829,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 			)
 			train_mask_pre = np.zeros(_y_pre.shape[0], dtype=bool)
 			train_mask_pre[_train_idx_pre] = True
-		
+
 		gloc_labels_numpy, gloc_data_all_features_numpy, features["All"], _trial_id_per_row = (
 			self._feature_generation(
 				time_start,
@@ -1969,7 +1979,7 @@ class TraditionalDataPipeline(BaseGLOCDataPipeline):
 		subject_post = np.array([int(str(t).split("-")[0]) for t in trial_post])
 		train_trials = set(trial_post[train_idx])
 		test_trials = set(trial_post[test_idx])
-		if extended_data and not eval_data_filename:
+		if extended_data and not eval_data_filename and extended_test_on == "new":
 			old_in_test = sorted(
 				t for t in test_trials if int(str(t).split("-")[0]) <= old_max_subject
 			)

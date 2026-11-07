@@ -8,6 +8,7 @@ from imblearn.metrics import geometric_mean_score
 from sklearn import metrics
 
 from src.Data_Pipeline.data_pipeline import DataPipeline
+from src.prediction_plots.prediction_plots import save_fold_predictions
 from src.advanced_experiment_utils import (
     baseline_down_select,
     get_advanced_predictions_and_targets,
@@ -125,6 +126,7 @@ def _run_traditional_ablation(
 
         fold_model.train(X_train, y_train)
         y_pred = fold_model.predict(X_test)
+        save_fold_predictions(output_dir, kfold_id, pipeline.last_split_metadata, y_test, y_pred)
         fold_result = _evaluate_model(y_test, y_pred)
         fold_results.append(fold_result)
 

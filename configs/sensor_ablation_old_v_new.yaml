@@ -26,7 +26,7 @@ traditional_data_parameters:
 sensor_ablation:
   training:
     enabled: true
-    save_results_folder: Results/Sensor_Ablation_with_ECG2
+    save_results_folder: Results/Sensor_Ablation_old_v_new
     median_hyperparameters_folder: Results/Cross_Validation
     median_hyperparameters_model_type: !ModelType [ Complete, Explicit ]
     # Mode-specific parameters

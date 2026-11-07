@@ -10,8 +10,9 @@ shared_data_parameters:
   impute_phase: none
   output_feature_dtype: float32
   extended_data: true #false if training on just original data
+  extended_test_on: all # "all" or "new" to test on all extended data or just new trials
   extended_data_filename: new_all_trials_25_hz_stacked_extended_afe.csv
-  exclude_streams: ["ECG Lead 2"] #to exclude all ECG lead 2 streams, since extended data has a lot of missing values for this stream
+  #exclude_streams: ["ECG Lead 2"] #to exclude all ECG lead 2 streams, since extended data has a lot of missing values for this stream
 advanced_data_parameters:
   n_neighbors: 4
   baseline_window: 32.5
@@ -26,11 +27,11 @@ traditional_data_parameters:
 sensor_ablation:
   training:
     enabled: true
-    save_results_folder: Results/Sensor_Ablation_with_ECG2
+    save_results_folder: Results/Sensor_Ablation_extended_ECG2
     median_hyperparameters_folder: Results/Cross_Validation
     median_hyperparameters_model_type: !ModelType [ Complete, Explicit ]
     # Mode-specific parameters
-    models: [XGB, KNN, EGB, RF]
+    models: [XGB, KNN, RF]
     model_type: !ModelType [ Complete, Common ]
     manual_ablation: true
     random_seed: 42
